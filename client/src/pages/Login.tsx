@@ -17,6 +17,11 @@ export default function Login() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
+  // Set when the session lapsed under the user rather than them signing out.
+  // Without it, being thrown back here reads as the app losing their login for
+  // no reason.
+  const expired = new URLSearchParams(window.location.search).get('expired') === '1';
+
   const handleSubmit = async () => {
     if (!email.trim() || !password.trim()) {
       setError('Please enter your email and password');
@@ -64,6 +69,19 @@ export default function Login() {
             <h2 className="text-xl font-semibold text-[lab(34.0831_-9.57756_-27.7093)]">Sign In</h2>
             <p className="text-sm text-muted-foreground mt-1">Bringing the world closer</p>
           </div>
+
+          {expired && (
+            <div
+              className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3"
+              role="status"
+              data-testid="notice-session-expired"
+            >
+              <p className="text-sm font-semibold text-amber-900">Your session expired</p>
+              <p className="text-xs text-amber-800 mt-0.5 leading-relaxed">
+                You were signed out for security. Sign in again to pick up where you left off.
+              </p>
+            </div>
+          )}
 
           <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)] p-6 space-y-5 animate-fade-in">
             <div>

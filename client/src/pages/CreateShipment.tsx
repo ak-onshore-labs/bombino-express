@@ -554,19 +554,12 @@ export default function CreateShipment() {
     onError: (err) => {
       const message = err instanceof Error ? err.message : 'Shipment creation failed';
 
-      // Detect 401 — token expired
+      // A 401 is handled centrally — the interceptor in lib/session.ts has
+      // already cleared the session and started the redirect by the time this
+      // runs. Say nothing here: a toast about a failed booking would be the
+      // last thing on screen before the page navigates away, and the expiry
+      // notice on /login is the honest version of it.
       if (err instanceof Error && /^401:/.test(err.message)) {
-        void fetch('/api/auth/logout', {
-          method: 'POST',
-          credentials: 'include',
-        });
-        logout();
-        toast({
-          title: 'Session Expired',
-          description: 'Please log in again to continue.',
-          variant: 'destructive',
-        });
-        setLocation('/login');
         return;
       }
 

@@ -1,6 +1,12 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { installSessionInterceptor } from "./lib/session";
 import "./index.css";
+
+// Before anything renders or fetches: a 401 on our API means the session is
+// gone, and the app must stop showing the previous user's data rather than
+// carry on from localStorage with every action failing.
+installSessionInterceptor();
 
 function setVh() {
   const vh = window.visualViewport?.height ?? window.innerHeight;

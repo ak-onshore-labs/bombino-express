@@ -1,4 +1,5 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { checkUnauthorized } from "./session";
 
 const SUPPORT_CHAT_TIMEOUT_MS = 60_000;
 
@@ -31,6 +32,11 @@ export async function apiRequest(
       signal: controller?.signal,
     });
 
+    // A 401 on an authenticated endpoint means the session is gone, not that
+    // this particular call failed. Signing out here rather than at each call
+    // site is what stops the app rendering a dead session's data.
+    checkUnauthorized(url, res.status);
+
     await throwIfResNotOk(res);
     return res;
   } finally {
@@ -44,9 +50,12 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(queryKey.join("/") as string, {
+    const url = queryKey.join("/") as string;
+    const res = await fetch(url, {
       credentials: "include",
     });
+
+    checkUnauthorized(url, res.status);
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;
