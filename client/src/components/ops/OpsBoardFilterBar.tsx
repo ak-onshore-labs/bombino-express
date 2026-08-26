@@ -1,5 +1,5 @@
 import { forwardRef, useState, type ComponentProps, type Dispatch, type SetStateAction } from 'react';
-import { ListFilter, Search, X } from 'lucide-react';
+import { Download, ListFilter, Loader2, Search, X } from 'lucide-react';
 import { OpsFilterPanel } from '@/components/ops/OpsFilterPanel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -229,6 +229,9 @@ export function OpsBoardFilterBar({
   onClear,
   view,
   setView,
+  onDownload,
+  downloadDisabled,
+  downloadBusy,
 }: {
   config: OpsFilterConfig;
   filters: OpsBoardFilters;
@@ -241,6 +244,9 @@ export function OpsBoardFilterBar({
   onClear: () => void;
   view?: OpsBoardView;
   setView?: Dispatch<SetStateAction<OpsBoardView>>;
+  onDownload?: () => void;
+  downloadDisabled?: boolean;
+  downloadBusy?: boolean;
 }) {
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
@@ -276,6 +282,24 @@ export function OpsBoardFilterBar({
         {config.sort && <SortToggle sort={sort} setSort={setSort} />}
         {view != null && setView != null && (
           <ViewToggle view={view} setView={setView} />
+        )}
+        {onDownload != null && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="shrink-0"
+            onClick={onDownload}
+            disabled={downloadDisabled || downloadBusy}
+            data-testid="ops-board-download"
+          >
+            {downloadBusy ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Download className="w-4 h-4" />
+            )}
+            Download
+          </Button>
         )}
         {isMobile ? (
           <>

@@ -1,14 +1,18 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'wouter';
-import { Loader2, Search } from 'lucide-react';
+import { Download, Loader2, Search } from 'lucide-react';
+import { nowInIst } from '@shared/pickupSlots';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { useToast } from '@/hooks/use-toast';
 import {
+  fetchOpsPaymentsExport,
   useOpsPayments,
   type OpsPaymentRange,
   type OpsPaymentRow,
 } from '@/hooks/useOpsOrders';
+import { downloadCsv } from '@/lib/csv';
 import { formatInr, formatIst, paymentMethodLabel } from '@/lib/orderDetail';
 import { cn } from '@/lib/utils';
 
@@ -18,9 +22,39 @@ function modeLabel(mode: OpsPaymentRow['collection_mode']): string {
   return '—';
 }
 
+const PAYMENT_CSV_HEADERS = [
+  'order_no',
+  'amount',
+  'currency',
+  'method',
+  'collection_mode',
+  'collector_name',
+  'collected_at',
+  'status',
+  'txn_id',
+  'reference',
+] as const;
+
+function paymentToCsvRow(row: OpsPaymentRow): (string | number)[] {
+  return [
+    row.order_no ?? '',
+    row.amount,
+    row.currency,
+    paymentMethodLabel(row.method),
+    row.collection_mode ?? '',
+    row.collector_name,
+    formatIst(row.collected_at),
+    row.status,
+    row.txn_id ?? '',
+    row.reference ?? '',
+  ];
+}
+
 export default function OpsTransactions() {
+  const { toast } = useToast();
   const [range, setRange] = useState<OpsPaymentRange>('today');
   const [query, setQuery] = useState('');
+  const [exporting, setExporting] = useState(false);
   const { data, isLoading, isError } = useOpsPayments(range);
 
   const visible = useMemo(() => {
@@ -31,6 +65,38 @@ export default function OpsTransactions() {
   }, [data?.payments, query]);
 
   const totals = data?.totals;
+
+  const handleDownload = async (): Promise<void> => {
+    setExporting(true);
+    try {
+      const payments = await fetchOpsPaymentsExport(range);
+      const needle = query.trim().toLowerCase();
+      const rows = needle
+        ? payments.filter((row) => (row.order_no ?? '').toLowerCase().includes(needle))
+        : payments;
+      if (rows.length === 0) {
+        toast({
+          title: 'No export data',
+          description: 'No transactions match the current range and search.',
+        });
+        return;
+      }
+      const filename = `bombino-transactions-${range}-${nowInIst().date}.csv`;
+      downloadCsv(
+        filename,
+        [...PAYMENT_CSV_HEADERS],
+        rows.map(paymentToCsvRow),
+      );
+    } catch {
+      toast({
+        title: 'Export failed',
+        description: 'Could not download transactions. Try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <OpsShell title="Transactions" subtitle="Payment ledger" wide>
@@ -52,6 +118,21 @@ export default function OpsTransactions() {
           data-testid="ops-ledger-range-7d"
         >
           Last 7 days
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => void handleDownload()}
+          disabled={exporting || isLoading || isError}
+          data-testid="ops-ledger-download"
+        >
+          {exporting ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Download className="w-4 h-4" />
+          )}
+          Download
         </Button>
       </div>
 

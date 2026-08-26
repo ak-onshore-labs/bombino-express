@@ -226,6 +226,51 @@ export function useOpsPayments(range: OpsPaymentRange) {
   });
 }
 
+/** One-shot uncapped payments for CSV (does not touch the capped ledger cache). */
+export async function fetchOpsPaymentsExport(
+  range: OpsPaymentRange,
+): Promise<OpsPaymentRow[]> {
+  const res = await fetch(
+    `/api/ops/payments/export?range=${encodeURIComponent(range)}`,
+    { credentials: 'include' },
+  );
+  const data = await readJson<{ payments: OpsPaymentRow[] }>(res);
+  return data.payments;
+}
+
+export type OpsOrdersExportQuery = {
+  section: 'pickups' | 'dropoffs' | 'dispatched';
+  assignment?: string;
+  stage?: string;
+  dateField?: string;
+  dateRange?: string;
+  paymentMethod?: string;
+  cod?: string;
+  q?: string;
+  sort?: string;
+};
+
+/** One-shot uncapped orders for CSV (does not touch the capped board cache). */
+export async function fetchOpsOrdersExport(
+  params: OpsOrdersExportQuery,
+): Promise<OpsBoardOrder[]> {
+  const qs = new URLSearchParams();
+  qs.set('section', params.section);
+  if (params.assignment) qs.set('assignment', params.assignment);
+  if (params.stage) qs.set('stage', params.stage);
+  if (params.dateField) qs.set('dateField', params.dateField);
+  if (params.dateRange) qs.set('dateRange', params.dateRange);
+  if (params.paymentMethod) qs.set('paymentMethod', params.paymentMethod);
+  if (params.cod) qs.set('cod', params.cod);
+  if (params.q) qs.set('q', params.q);
+  if (params.sort) qs.set('sort', params.sort);
+  const res = await fetch(`/api/ops/orders/export?${qs.toString()}`, {
+    credentials: 'include',
+  });
+  const data = await readJson<{ orders: OpsBoardOrder[] }>(res);
+  return data.orders;
+}
+
 export function useOpsCancellations() {
   return useQuery({
     queryKey: OPS_CANCELLATIONS_KEY,

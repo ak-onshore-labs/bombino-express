@@ -1,6 +1,11 @@
 import { useMemo, useState } from 'react';
 import { Loader2, LogOut } from 'lucide-react';
 import { useLocation } from 'wouter';
+import {
+  matchesOpsSection,
+  type OpsBoardSection,
+} from '@shared/opsBoardQuery';
+import { nowInIst } from '@shared/pickupSlots';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { OpsOrderCard } from '@/components/ops/OpsOrderCard';
 import {
@@ -10,11 +15,23 @@ import {
 import { OpsBoardTable } from '@/components/ops/OpsBoardTable';
 import { BandHeader } from '@/components/agent/BandHeader';
 import { Button } from '@/components/ui/button';
-import { useOpsOrders, type OpsBoardOrder } from '@/hooks/useOpsOrders';
+import { useToast } from '@/hooks/use-toast';
+import {
+  fetchOpsOrdersExport,
+  useOpsOrders,
+  type OpsBoardOrder,
+} from '@/hooks/useOpsOrders';
 import {
   useOpsBoardFilters,
   type OpsFilterConfig,
 } from '@/hooks/useOpsBoardFilters';
+import { downloadCsv } from '@/lib/csv';
+import {
+  formatIst,
+  paymentMethodLabel,
+  paymentStatusLabel,
+} from '@/lib/orderDetail';
+import { getOrderStatusLabel } from '@/lib/orderStatus';
 import { OPS_PHASES, groupOrdersByPhase } from '@/lib/opsPhases';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
@@ -29,6 +46,52 @@ const COL_CLASS: Record<number, string> = {
   3: 'md:grid-cols-3',
 };
 
+const ORDER_CSV_HEADERS = [
+  'order_no',
+  'status',
+  'mode',
+  'consignee_name',
+  'consignee_city',
+  'agent_name',
+  'payment_method',
+  'payment_status',
+  'is_cod',
+  'quoted_amount',
+  'final_amount',
+  'created_at',
+  'pickup_date',
+  'awb_no',
+] as const;
+
+function orderToCsvRow(order: OpsBoardOrder): (string | number)[] {
+  const isCod = order.is_cod || order.payment_method === 'cod';
+  return [
+    order.order_no,
+    getOrderStatusLabel(order.status),
+    order.pickup_request === 2 ? 'Drop-off' : 'Pickup',
+    order.consignee_name ?? '',
+    order.consignee_city ?? '',
+    order.agent_id ? order.agent_name || 'Assigned' : 'Unassigned',
+    paymentMethodLabel(order.payment_method),
+    paymentStatusLabel(order.payment_status),
+    isCod ? 'Yes' : 'No',
+    order.quoted_amount ?? '',
+    order.final_amount ?? '',
+    formatIst(order.created_at),
+    order.pickup_date ?? '',
+    order.awb_no ?? '',
+  ];
+}
+
+function orderExportFilename(
+  section: OpsBoardSection,
+  dateRange: string,
+): string {
+  const date = nowInIst().date;
+  const rangeHint = dateRange !== 'all' ? `-${dateRange}` : '';
+  return `bombino-${section}${rangeHint}-${date}.csv`;
+}
+
 function OrderList({ orders }: { orders: OpsBoardOrder[] }) {
   return (
     <>
@@ -41,24 +104,27 @@ function OrderList({ orders }: { orders: OpsBoardOrder[] }) {
 
 /**
  * Pickups / Drop-offs / Dispatched — same GET /api/ops/orders list, filtered
- * in the client. Search and filters are local to the section.
+ * in the client. Search and filters are local to the section. Download hits
+ * the uncapped export endpoint with the same filters.
  */
 export function OpsSectionBoard({
   title,
   subtitle,
-  filter,
+  section,
   mode,
   filterConfig,
 }: {
   title: string;
   subtitle: string;
-  filter: (order: OpsBoardOrder) => boolean;
+  section: OpsBoardSection;
   mode: 'stages' | 'flat';
   filterConfig: OpsFilterConfig;
 }) {
+  const { toast } = useToast();
   const [, setLocation] = useLocation();
   const { logout } = useAppStore();
   const { data: orders, isLoading, error, isError } = useOpsOrders();
+  const [exporting, setExporting] = useState(false);
 
   const forbidden =
     isError &&
@@ -76,8 +142,8 @@ export function OpsSectionBoard({
   };
 
   const sectionOrders = useMemo(
-    () => (orders ?? []).filter(filter),
-    [orders, filter]
+    () => (orders ?? []).filter((order) => matchesOpsSection(order, section)),
+    [orders, section]
   );
 
   const {
@@ -95,6 +161,43 @@ export function OpsSectionBoard({
   const searching = query.trim().length > 0;
   const [view, setView] = useState<OpsBoardView>('cards');
   const hideCardsOnDesktop = view === 'table';
+
+  const handleDownload = async (): Promise<void> => {
+    setExporting(true);
+    try {
+      const exported = await fetchOpsOrdersExport({
+        section,
+        assignment: filters.assignment,
+        stage: filters.stage,
+        dateField: filters.dateField,
+        dateRange: filters.dateRange,
+        paymentMethod: filters.paymentMethod,
+        cod: filters.cod,
+        q: query.trim() || undefined,
+        sort,
+      });
+      if (exported.length === 0) {
+        toast({
+          title: 'No export data',
+          description: 'No orders match the current filters.',
+        });
+        return;
+      }
+      downloadCsv(
+        orderExportFilename(section, filters.dateRange),
+        [...ORDER_CSV_HEADERS],
+        exported.map(orderToCsvRow),
+      );
+    } catch {
+      toast({
+        title: 'Export failed',
+        description: 'Could not download orders. Try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setExporting(false);
+    }
+  };
 
   if (forbidden) {
     return (
@@ -153,6 +256,8 @@ export function OpsSectionBoard({
             onClear={clear}
             view={view}
             setView={setView}
+            onDownload={() => void handleDownload()}
+            downloadBusy={exporting}
           />
 
           {sectionOrders.length === 0 && (

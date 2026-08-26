@@ -18,6 +18,10 @@ import {
   type PaymentStatus,
 } from "../../shared/orderContract.js";
 import {
+  DEFAULT_OPS_BOARD_FILTERS,
+  type OpsBoardSection,
+} from "../../shared/opsBoardQuery.js";
+import {
   findActiveAgentById,
   findItdUserIdByPhone,
   insertStaffUser,
@@ -31,6 +35,7 @@ import {
   assignPickup,
   getOrderByIdForOps,
   listAllOrdersForOps,
+  listOpsOrdersForExport,
   listOpsPayments,
   listOrderEventsForOps,
   listPendingCancellationsForOps,
@@ -49,6 +54,28 @@ const createStaffSchema = z.object({
 const assignPickupSchema = z.object({
   agent_id: z.string().uuid("agent_id must be a uuid"),
 });
+
+const ordersExportQuerySchema = z.object({
+  section: z.enum(["pickups", "dropoffs", "dispatched"]),
+  assignment: z.enum(["all", "assigned", "unassigned"]).optional(),
+  stage: z.enum(["all", "inbound", "hub", "settled"]).optional(),
+  dateField: z.enum(["booking", "pickup"]).optional(),
+  dateRange: z
+    .enum(["all", "today", "7d", "30d", "tomorrow", "week"])
+    .optional(),
+  paymentMethod: z
+    .enum(["all", "pay_now", "pay_at_pickup", "pay_at_dropoff", "cod"])
+    .optional(),
+  cod: z.enum(["all", "cod"]).optional(),
+  q: z.string().optional(),
+  sort: z.enum(["newest", "oldest"]).optional(),
+});
+
+function parsePaymentRange(raw: unknown): OpsPaymentRange | null {
+  if (raw === undefined) return "today";
+  if (raw === "today" || raw === "7d") return raw;
+  return null;
+}
 
 /** Narrow ops detail row to the shared Order contract for availableActions. */
 function asOrder(row: OpsOrderDetail): Order {
@@ -109,20 +136,55 @@ export function registerOpsRoutes(app: Express): void {
     }
   );
 
+  // GET /api/ops/orders/export — uncapped board export (section + filters)
+  // Registered before /orders/:id so "export" is not parsed as an id.
+  app.get(
+    "/api/ops/orders/export",
+    requireUser,
+    requireRole("admin", "super_admin"),
+    async (req: Request, res: Response) => {
+      const parsed = ordersExportQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        res.status(400).json({
+          message: parsed.error.issues[0]?.message ?? "Invalid export query",
+        });
+        return;
+      }
+
+      const q = parsed.data;
+      const section = q.section as OpsBoardSection;
+      const orders = await listOpsOrdersForExport({
+        section,
+        filters: {
+          assignment: q.assignment ?? DEFAULT_OPS_BOARD_FILTERS.assignment,
+          stage: q.stage ?? DEFAULT_OPS_BOARD_FILTERS.stage,
+          dateField: q.dateField ?? DEFAULT_OPS_BOARD_FILTERS.dateField,
+          dateRange: q.dateRange ?? DEFAULT_OPS_BOARD_FILTERS.dateRange,
+          paymentMethod: q.paymentMethod ?? DEFAULT_OPS_BOARD_FILTERS.paymentMethod,
+          cod: q.cod ?? DEFAULT_OPS_BOARD_FILTERS.cod,
+        },
+        query: q.q ?? "",
+        sort: q.sort ?? "newest",
+      });
+      if (orders === null) {
+        res.status(502).json({ message: "Could not export orders" });
+        return;
+      }
+
+      res.json({ orders });
+    }
+  );
+
   // GET /api/ops/payments — ops-wide ledger (IST today | last 7 days)
   app.get(
     "/api/ops/payments",
     requireUser,
     requireRole("admin", "super_admin"),
     async (req: Request, res: Response) => {
-      const rawRange = req.query.range;
-      let range: OpsPaymentRange = "today";
-      if (rawRange !== undefined) {
-        if (rawRange !== "today" && rawRange !== "7d") {
-          res.status(400).json({ message: "range must be today or 7d" });
-          return;
-        }
-        range = rawRange;
+      const range = parsePaymentRange(req.query.range);
+      if (range === null) {
+        res.status(400).json({ message: "range must be today or 7d" });
+        return;
       }
 
       const result = await listOpsPayments(range);
@@ -132,6 +194,28 @@ export function registerOpsRoutes(app: Express): void {
       }
 
       res.json(result);
+    }
+  );
+
+  // GET /api/ops/payments/export — uncapped ledger rows (same IST window)
+  app.get(
+    "/api/ops/payments/export",
+    requireUser,
+    requireRole("admin", "super_admin"),
+    async (req: Request, res: Response) => {
+      const range = parsePaymentRange(req.query.range);
+      if (range === null) {
+        res.status(400).json({ message: "range must be today or 7d" });
+        return;
+      }
+
+      const result = await listOpsPayments(range, { limit: null });
+      if (result === null) {
+        res.status(502).json({ message: "Could not export payments" });
+        return;
+      }
+
+      res.json({ payments: result.payments });
     }
   );
 

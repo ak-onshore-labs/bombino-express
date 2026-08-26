@@ -4,29 +4,13 @@ import { Loader2, Search } from 'lucide-react';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { matchesOpsSection } from '@shared/opsBoardQuery';
 import {
   useOpsCancellations,
   useOpsOrders,
   useOpsPayments,
-  type OpsBoardOrder,
 } from '@/hooks/useOpsOrders';
 import { formatInr, formatIst } from '@/lib/orderDetail';
-
-function isActivePickup(order: OpsBoardOrder): boolean {
-  return (
-    order.pickup_request === 1 &&
-    order.status !== 'dispatched' &&
-    order.status !== 'cancelled'
-  );
-}
-
-function isActiveDropoff(order: OpsBoardOrder): boolean {
-  return (
-    order.pickup_request === 2 &&
-    order.status !== 'dispatched' &&
-    order.status !== 'cancelled'
-  );
-}
 
 function StockCard({
   label,
@@ -70,11 +54,11 @@ export default function OpsDashboard() {
   const orders = ordersQuery.data ?? [];
   const counts = useMemo(
     () => ({
-      pickups: orders.filter(isActivePickup).length,
-      dropoffs: orders.filter(isActiveDropoff).length,
+      pickups: orders.filter((order) => matchesOpsSection(order, 'pickups')).length,
+      dropoffs: orders.filter((order) => matchesOpsSection(order, 'dropoffs')).length,
       weigh: orders.filter((order) => order.status === 'received_at_hub').length,
       settle: orders.filter((order) => order.status === 'weighed').length,
-      dispatched: orders.filter((order) => order.status === 'dispatched').length,
+      dispatched: orders.filter((order) => matchesOpsSection(order, 'dispatched')).length,
       cod: orders.filter((order) => order.is_cod).length,
     }),
     [orders]

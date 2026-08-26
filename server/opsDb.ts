@@ -11,8 +11,18 @@ import {
   readCancellationRequest,
   type Order,
 } from "../shared/orderContract.js";
+import {
+  applyOpsBoardQuery,
+  filterConfigForSection,
+  type OpsBoardFilters,
+  type OpsBoardSection,
+  type OpsBoardSort,
+} from "../shared/opsBoardQuery.js";
 import { nowInIst, startOfIstDayIso } from "../shared/pickupSlots.js";
 import { getUserContactsByIds, toOrder, type OrderRow } from "./ordersDb.js";
+
+/** PostgREST default max-rows is ~1000; page past that so export never truncates. */
+const EXPORT_PAGE_SIZE = 1000;
 
 const BOARD_COLUMNS =
   "id, order_no, status, created_at, pickup_request, pickup_date, payment_method, payment_status, is_cod, quoted_amount, final_amount, consignee, agent_id, awb_no";
@@ -450,22 +460,33 @@ function threeWayTotals(payments: OpsPaymentRow[]): OpsPaymentTotals {
 /**
  * Ops-wide payment ledger. No collected_by filter — cash, UPI, and gateway
  * all appear. Window is IST today or the last 7 IST days.
+ *
+ * `limit` defaults to 500 for the ledger/dashboard. Pass `null` for export
+ * (omit `.limit()`). If payments ever exceed PostgREST max-rows (~1000),
+ * paginate with `.range()` — not needed at current volume (~24 rows).
  */
 export async function listOpsPayments(
-  range: OpsPaymentRange
+  range: OpsPaymentRange,
+  opts?: { limit?: number | null }
 ): Promise<{ payments: OpsPaymentRow[]; totals: OpsPaymentTotals } | null> {
   const client = getSupabaseClient();
   if (!client) return null;
 
   const startIso = startIsoForRange(range);
-  const { data, error } = await client
+  const limit = opts?.limit === undefined ? 500 : opts.limit;
+  let query = client
     .from("payments")
     .select(
       "id, txn_id, order_id, amount, currency, method, collection_mode, collected_by, collected_at, status, reference, orders(order_no)"
     )
     .gte("collected_at", startIso)
-    .order("collected_at", { ascending: false })
-    .limit(500);
+    .order("collected_at", { ascending: false });
+
+  if (limit != null) {
+    query = query.limit(limit);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     logSupabaseError("listOpsPayments", error);
@@ -507,6 +528,70 @@ export async function listOpsPayments(
   });
 
   return { payments, totals: threeWayTotals(payments) };
+}
+
+export type OpsOrdersExportParams = {
+  section: OpsBoardSection;
+  filters: OpsBoardFilters;
+  query: string;
+  sort: OpsBoardSort;
+};
+
+/**
+ * Uncapped board export. Section gate runs in PostgREST (paginated); search /
+ * COD / IST windows / assignment / stage / payment / sort run in JS via
+ * applyOpsBoardQuery so they cannot drift from the client board.
+ */
+export async function listOpsOrdersForExport(
+  params: OpsOrdersExportParams
+): Promise<OpsBoardOrder[] | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const rawRows: Record<string, unknown>[] = [];
+  let from = 0;
+
+  for (;;) {
+    let query = client
+      .from("orders")
+      .select(BOARD_COLUMNS)
+      .order("created_at", { ascending: false })
+      .range(from, from + EXPORT_PAGE_SIZE - 1);
+
+    if (params.section === "pickups") {
+      query = query
+        .eq("pickup_request", 1)
+        .neq("status", "dispatched")
+        .neq("status", "cancelled");
+    } else if (params.section === "dropoffs") {
+      query = query
+        .eq("pickup_request", 2)
+        .neq("status", "dispatched")
+        .neq("status", "cancelled");
+    } else {
+      query = query.eq("status", "dispatched");
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      logSupabaseError("listOpsOrdersForExport", error);
+      return null;
+    }
+
+    const page = (data ?? []) as Record<string, unknown>[];
+    rawRows.push(...page);
+    if (page.length < EXPORT_PAGE_SIZE) break;
+    from += EXPORT_PAGE_SIZE;
+  }
+
+  const mapped = await withAgentNames(rawRows.map((row) => mapBoardRow(row)));
+  const config = filterConfigForSection(params.section);
+  return applyOpsBoardQuery(mapped, {
+    filters: params.filters,
+    config,
+    query: params.query,
+    sort: params.sort,
+  });
 }
 
 /**
