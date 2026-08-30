@@ -53,7 +53,11 @@ export default function Login() {
   const { login } = useAppStore();
   const { toast } = useToast();
   const [step, setStep] = useState<Step>('phone');
-  const [phone, setPhone] = useState('');
+  // Prefilled when another screen sent them here with a number already in
+  // hand, so an expiry does not cost them typing it again.
+  const [phone, setPhone] = useState(
+    () => new URLSearchParams(window.location.search).get('phone') ?? '',
+  );
   const [otp, setOtp] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -73,6 +77,15 @@ export default function Login() {
   // Without it, being thrown back here reads as the app losing their login for
   // no reason.
   const expired = params.get('expired') === '1';
+  /**
+   * Why they were sent here, when it was not an ordinary visit.
+   *
+   * `session` is the signed-in case `expired=1` has always covered.
+   * `signup_otp` is someone part-way through signup whose phone verification
+   * ran out — they were never signed in, so the session copy would be a lie,
+   * and they need a fresh code rather than a sign-in.
+   */
+  const reason = params.get('reason') === 'signup_otp' ? 'signup_otp' : expired ? 'session' : null;
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -242,15 +255,21 @@ export default function Login() {
         ) : null
       }
     >
-      {expired && (
+      {reason && (
         <div
           className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3"
           role="status"
-          data-testid="notice-session-expired"
+          data-testid={
+            reason === 'signup_otp' ? 'notice-signup-otp-expired' : 'notice-session-expired'
+          }
         >
-          <p className="text-sm font-semibold text-amber-900">Your session expired</p>
+          <p className="text-sm font-semibold text-amber-900">
+            {reason === 'signup_otp' ? 'Your verification expired' : 'Your session expired'}
+          </p>
           <p className="text-xs text-amber-800 mt-0.5 leading-relaxed">
-            You were signed out for security. Sign in again to pick up where you left off.
+            {reason === 'signup_otp'
+              ? 'The code that started your signup timed out. Get a new one to carry on.'
+              : 'You were signed out for security. Sign in again to pick up where you left off.'}
           </p>
         </div>
       )}

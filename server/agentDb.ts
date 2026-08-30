@@ -21,7 +21,7 @@ import { toOrder, type OrderRow } from "./ordersDb.js";
 import type { Order, OrderStatus } from "../shared/orderContract.js";
 
 const ORDER_COLUMNS =
-  "id, order_no, user_id, status, pickup_request, pickup_date, pickup_slot, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, metadata, created_at, updated_at";
+  "id, order_no, user_id, status, pickup_request, pickup_date, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, metadata, created_at, updated_at";
 
 /**
  * The pickup address, embedded via the orders → addresses FK.

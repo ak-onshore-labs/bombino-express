@@ -1,17 +1,16 @@
 /**
  * Which agents hear about a job.
  *
- * Deliberately its own file rather than an addition to `availabilityDb.ts`.
- * That file opens by stating that its reads are anonymous — a customer must
- * never learn which agent or how many (§1) — and this read is the exact
- * opposite: it exists to name agents and their phone numbers. Putting it there
- * would sit a staff-identifying query under a header promising there are none.
+ * Every agent, now. There used to be a roster — `listAgentsForPickup` narrowed
+ * the fan-out to whoever worked the booked window, on the reasoning that
+ * paging the whole field team is how a notification number gets muted. The
+ * window is gone, and with it the only thing that could narrow the list.
  *
- * Internal only. Nothing here may ever reach a customer-facing response.
+ * Internal only: this file names agents and their phone numbers, and nothing
+ * here may ever reach a customer-facing response.
  */
 
 import { supabase } from "./supabaseClient.js";
-import { dayOfWeekForDate } from "../shared/pickupSlots.js";
 import type { WhatsappRecipient } from "./whatsappDb.js";
 
 function logSupabaseError(
@@ -66,70 +65,19 @@ async function loadAgents(ids: string[] | null): Promise<WhatsappRecipient[]> {
   }));
 }
 
-/**
- * The agents to tell about a pickup in this window.
- *
- * NOT every agent — that is a pager storm, and the fastest way to have the
- * whole field team mute the number. Only those whose weekly pattern covers the
- * job's day and slot.
- *
- * FALLBACK, and it is on purpose: if the roster names nobody, every agent is
- * told instead. A window with no rostered agent should not have been bookable
- * at all (`isSlotBookable` gates it), so reaching this branch means the roster
- * and the booking disagree — and the failure that matters then is a parcel
- * nobody collects, not one extra notification. The log line is the signal that
- * `agent_weekly_availability` has a hole in it.
- */
-export async function listAgentsForPickup(input: {
-  date: string | null;
-  slot: string | null;
-}): Promise<WhatsappRecipient[]> {
-  const { date, slot } = input;
-
-  if (!date || !slot) {
-    // A pickup with no window is not something the roster can answer, so
-    // everyone hears about it.
-    return loadAgents(null);
-  }
-
-  const client = getSupabaseClient();
-  if (!client) return [];
-
-  const { data, error } = await client
-    .from("agent_weekly_availability")
-    .select("agent_id")
-    // `dayOfWeekForDate` parses the bare calendar date as UTC midnight. Never
-    // `new Date().getDay()` here: the server runs in UTC, and between 18:30
-    // and midnight UTC that is the wrong Indian day — which is the middle of
-    // an Indian evening, when pickups are still running.
-    .eq("day_of_week", dayOfWeekForDate(date))
-    .eq("slot", slot);
-
-  if (error) {
-    logSupabaseError("listAgentsForPickup", error);
-    return [];
-  }
-
-  const ids = Array.from(new Set((data ?? []).map((row) => row.agent_id as string)));
-
-  if (ids.length === 0) {
-    console.warn(
-      "[whatsappAgents] no agent is rostered for a booked window — telling everyone",
-      { date, slot }
-    );
-    return loadAgents(null);
-  }
-
-  return loadAgents(ids);
-}
-
 /** One agent, by id, with the opt-out flag the send path needs. */
 export async function getAgent(agentId: string): Promise<WhatsappRecipient | null> {
   const agents = await loadAgents([agentId]);
   return agents[0] ?? null;
 }
 
-/** Every agent. For the morning digest, which iterates their own claimed jobs. */
+/**
+ * Every agent.
+ *
+ * Both audiences now: the morning digest, which iterates each agent's own
+ * claimed jobs, and a new pickup entering the pool, which every agent is free
+ * to take.
+ */
 export async function listAllAgents(): Promise<WhatsappRecipient[]> {
   return loadAgents(null);
 }

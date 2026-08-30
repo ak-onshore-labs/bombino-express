@@ -964,3 +964,33 @@ input[type="date"] {
   margin-left: auto;
   margin-right: auto;
 }
+/**
+ * A missing mandatory field, announced.
+ *
+ * Applied by `fieldBorderClass` alongside the red border, so every field that
+ * marks itself invalid also carries the hook the scroll uses to find the first
+ * one. Short and small on purpose: this is a nudge that says "here", not an
+ * effect. Anything longer than ~400ms reads as the form malfunctioning.
+ *
+ * `transform` only, so it composes with the border change and costs no layout.
+ */
+@keyframes field-shake {
+  0%, 100% { transform: translateX(0); }
+  15% { transform: translateX(-5px); }
+  30% { transform: translateX(4px); }
+  45% { transform: translateX(-3px); }
+  60% { transform: translateX(2px); }
+  75% { transform: translateX(-1px); }
+}
+
+.field-shake {
+  animation: field-shake 380ms ease-in-out;
+}
+
+/* The border still turns red and the message still appears, so nothing is
+   conveyed by motion alone. */
+@media (prefers-reduced-motion: reduce) {
+  .field-shake {
+    animation: none;
+  }
+}

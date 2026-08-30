@@ -18,7 +18,6 @@ import {
   agentJobCancelledMessage,
   agentNewJobMessage,
   agentOnTheWayMessage,
-  agentSlotReminderMessage,
   arrivedAtHubMessage,
   cancellationApprovedMessage,
   cancellationDeclinedMessage,
@@ -41,7 +40,6 @@ const order: Order = {
   status: "out_for_pickup",
   pickup_request: 1,
   pickup_date: "2026-08-23",
-  pickup_slot: "15:00-17:00",
   origin_address_id: "33333333-3333-3333-3333-333333333333",
   consignee: {},
   items: {},
@@ -94,7 +92,7 @@ checkMessage("orderBooked", orderBookedMessage({ order, customerName: "Priya Nai
 checkMessage(
   "orderBooked/dropoff",
   orderBookedMessage({
-    order: { ...order, pickup_request: 2, pickup_date: null, pickup_slot: null },
+    order: { ...order, pickup_request: 2, pickup_date: null },
     customerName: null,
   })
 );
@@ -125,9 +123,8 @@ checkMessage(
 );
 checkMessage(
   "agentDailyDigest",
-  agentDailyDigestMessage({ agentName: null, jobCount: 3, firstSlot: "09:00-11:00", date: "2026-08-23" })
+  agentDailyDigestMessage({ agentName: null, jobCount: 3, date: "2026-08-23" })
 );
-checkMessage("agentSlotReminder", agentSlotReminderMessage({ order, area: pickupArea(address) }));
 checkMessage("agentJobCancelled", agentJobCancelledMessage({ order, cancelled: true }));
 checkMessage("agentJobCancelledRequest", agentJobCancelledMessage({ order, cancelled: false }));
 
@@ -135,8 +132,7 @@ console.log("\nThe rule that matters: no agent template carries the handover cod
 const CODE = "0417";
 const agentMessages: WhatsappMessage[] = [
   agentNewJobMessage({ order, area: pickupArea(address) }),
-  agentDailyDigestMessage({ agentName: "Ravi", jobCount: 1, firstSlot: "15:00-17:00", date: "2026-08-23" }),
-  agentSlotReminderMessage({ order, area: pickupArea(address) }),
+  agentDailyDigestMessage({ agentName: "Ravi", jobCount: 1, date: "2026-08-23" }),
   agentJobCancelledMessage({ order, cancelled: true }),
 ];
 for (const message of agentMessages) {
@@ -144,7 +140,7 @@ for (const message of agentMessages) {
     fail(`${message.template} carries the handover code`);
   }
 }
-if (failures === 0) console.log("  ok      none of the four contains it");
+if (failures === 0) console.log("  ok      none of the three contains it");
 
 console.log("\nPhone normalisation");
 const phoneCases: [string | null, string | null][] = [

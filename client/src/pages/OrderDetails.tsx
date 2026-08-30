@@ -57,7 +57,6 @@ import {
   formatDeclaredValue,
   formatDimensions,
   formatInr,
-  formatSlot,
   hsCode,
   itemStr,
   paymentMethodLabel,
@@ -678,9 +677,6 @@ export default function OrderDetails() {
               value={isPickup ? 'Agent pickup' : 'You drop it off'}
             />
             {isPickup && <Field label="Date" value={niceDate(order.pickup_date)} />}
-            {isPickup && (
-              <Field label="Time window" value={formatSlot(order.pickup_slot)} />
-            )}
             <Field label="Contact" value={origin?.full_name} />
             <Field label="Phone" value={origin?.phone} />
             {origin?.company && <Field label="Company" value={origin.company} />}

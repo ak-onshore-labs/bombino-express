@@ -5,7 +5,8 @@
   "license": "MIT",
   "scripts": {
     "dev:client": "vite dev --port 5000",
-    "dev": "cross-env NODE_OPTIONS=--import=./server/dns-ipv4first.mjs NODE_ENV=development tsx server/index.ts",
+    "dev": "cross-env NODE_OPTIONS=--import=./server/dns-ipv4first.mjs NODE_ENV=development tsx watch --clear-screen=false server/index.ts",
+    "dev:noreload": "cross-env NODE_OPTIONS=--import=./server/dns-ipv4first.mjs NODE_ENV=development tsx server/index.ts",
     "build": "tsx script/build.ts",
     "start": "cross-env NODE_OPTIONS=--import=./server/dns-ipv4first.mjs NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
@@ -66,6 +67,7 @@
     "openai": "^4.73.0",
     "passport": "^0.7.0",
     "passport-local": "^1.0.0",
+    "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.0.227",
     "pg": "^8.16.3",
     "react": "^19.2.0",

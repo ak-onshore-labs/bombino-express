@@ -1,4 +1,4 @@
-import { LayoutGrid, PackageSearch, ClipboardList, Wallet, CalendarDays } from 'lucide-react';
+import { LayoutGrid, PackageSearch, ClipboardList, Wallet } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import { cn } from '@/lib/utils';
 import { useAvailablePickups, useMyPickups } from '@/hooks/useAgentPickups';
@@ -14,13 +14,13 @@ import { useAvailablePickups, useMyPickups } from '@/hooks/useAgentPickups';
  * all of that would be two components sharing a file, and the customer app
  * still uses `TabBar` as it stands.
  *
- * Five tabs, which is the ceiling: past that, labels truncate and targets fall
- * below the touch minimum on a 360px phone. Ordered by how often a working
- * agent needs them, with the setup screen (My week) last because it is
- * configured once and rarely revisited.
+ * Four tabs, ordered by how often a working agent needs them. Five is the
+ * ceiling: past that, labels truncate and targets fall below the touch minimum
+ * on a 360px phone. The fifth used to be My week, the weekly availability
+ * editor, which went when pickups stopped carrying a time window.
  *
  * Labels are shorter than the routes they point at — New, My jobs, Money —
- * because five full words do not fit. Routes are unchanged.
+ * because the full words do not fit. Routes are unchanged.
  *
  * The two work tabs carry live counts. Both queries are already warm from the
  * screens themselves, so this costs nothing extra. A badge is a count of work
@@ -47,7 +47,6 @@ export function AgentNav() {
     { icon: PackageSearch, label: 'New', path: '/agent/available', badge: available?.length },
     { icon: ClipboardList, label: 'My jobs', path: '/agent/mine', badge: mine?.length },
     { icon: Wallet, label: 'Money', path: '/agent/collections' },
-    { icon: CalendarDays, label: 'My week', path: '/agent/schedule' },
   ];
 
   return (

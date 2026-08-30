@@ -18,7 +18,7 @@
  * an Indian working evening.
  */
 
-import { todayInIst } from '@shared/pickupSlots';
+import { todayInIst } from '@shared/istTime';
 import type { PickupEntry } from '@/hooks/useAgentPickups';
 
 export type DateBand = 'overdue' | 'today' | 'scheduled' | 'undated';

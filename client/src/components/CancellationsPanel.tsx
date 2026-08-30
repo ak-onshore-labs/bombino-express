@@ -34,7 +34,7 @@ import {
 import { format, parseISO, isValid } from 'date-fns';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
-import { formatInr, formatSlot } from '@/lib/orderDetail';
+import { formatInr } from '@/lib/orderDetail';
 import { useCancellations, type CancellationRow } from '@/hooks/useCustomerOrders';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 
@@ -161,7 +161,6 @@ function CancellationCard({ row }: { row: CancellationRow }) {
           <p className="text-xs text-muted-foreground mt-0.5">
             {row.customerStatus}
             {row.pickup_date && ` · Pickup ${niceDate(row.pickup_date)}`}
-            {row.pickup_slot && ` · ${formatSlot(row.pickup_slot)}`}
           </p>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">

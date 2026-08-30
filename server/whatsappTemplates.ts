@@ -23,7 +23,6 @@
  */
 
 import type { Order, OrderStatus } from "../shared/orderContract.js";
-import { slotLabel } from "../shared/pickupSlots.js";
 
 // ── Template names ────────────────────────────────────────────────────────
 //
@@ -48,7 +47,6 @@ export const WA_TEMPLATE = {
   // Agent
   agentNewJob: "bombino_agent_new_job",
   agentDailyDigest: "bombino_agent_daily_digest",
-  agentSlotReminder: "bombino_agent_slot_reminder",
   agentJobCancelled: "bombino_agent_job_cancelled",
 } as const;
 
@@ -106,16 +104,6 @@ export function shortDate(isoDate: string | null | undefined): string {
   return `${Number(day)} ${MONTHS[index]}`;
 }
 
-/** `23 Aug, 3 – 5 PM`, or just the date when no slot was chosen. */
-export function dateAndSlot(
-  isoDate: string | null | undefined,
-  slot: string | null | undefined
-): string {
-  const date = shortDate(isoDate);
-  if (!slot) return date;
-  return `${date}, ${slotLabel(slot)}`;
-}
-
 /** The public tracking page for a dispatched parcel. */
 export function trackingUrl(awb: string): string {
   const base = (process.env.PUBLIC_URL || "").replace(/\/+$/, "");
@@ -148,7 +136,7 @@ export function orderBookedMessage(input: {
       v(input.customerName, "there"),
       v(input.order.order_no),
       isPickup
-        ? `Pickup on ${dateAndSlot(input.order.pickup_date, input.order.pickup_slot)}`
+        ? `Pickup on ${shortDate(input.order.pickup_date)}`
         : "Drop-off at the Bombino hub",
       money(input.order.quoted_amount),
     ],
@@ -194,7 +182,7 @@ export function pickupConfirmedMessage(input: {
     variables: [
       v(input.order.order_no),
       v(input.agentName, "A Bombino agent"),
-      dateAndSlot(input.order.pickup_date, input.order.pickup_slot),
+      shortDate(input.order.pickup_date),
     ],
   };
 }
@@ -350,7 +338,7 @@ export function agentNewJobMessage(input: {
     variables: [
       v(input.order.order_no),
       v(input.area),
-      dateAndSlot(input.order.pickup_date, input.order.pickup_slot),
+      shortDate(input.order.pickup_date),
       collects ? `Collect ${money(input.order.quoted_amount)} at the door` : "Nothing to collect",
     ],
   };
@@ -359,7 +347,6 @@ export function agentNewJobMessage(input: {
 export function agentDailyDigestMessage(input: {
   agentName: string | null;
   jobCount: number;
-  firstSlot: string | null;
   date: string;
 }): WhatsappMessage {
   return {
@@ -367,7 +354,13 @@ export function agentDailyDigestMessage(input: {
     variables: [
       v(input.agentName, "there"),
       String(input.jobCount),
-      input.firstSlot ? slotLabel(input.firstSlot) : "-",
+      // The approved template still has a third placeholder, which used to be
+      // the first window of the day. Pickups carry no window now, so it is
+      // filled with the same dash any absent variable gets — Meta rejects a
+      // send whose variable count does not match the approved body, so the
+      // placeholder cannot simply be dropped from this side. Retire it when
+      // the template copy is resubmitted.
+      "-",
     ],
     // One digest per agent per day. The date is what makes tomorrow's digest a
     // different message rather than a duplicate of today's.
@@ -375,19 +368,9 @@ export function agentDailyDigestMessage(input: {
   };
 }
 
-export function agentSlotReminderMessage(input: {
-  order: Order;
-  area: string;
-}): WhatsappMessage {
-  return {
-    template: WA_TEMPLATE.agentSlotReminder,
-    variables: [
-      v(input.order.order_no),
-      input.order.pickup_slot ? slotLabel(input.order.pickup_slot) : "-",
-      v(input.area),
-    ],
-  };
-}
+// `agentSlotReminderMessage` is gone with the window it announced. The
+// `bombino_agent_slot_reminder` template is still approved on Meta's side and
+// can be archived there.
 
 /**
  * The job the agent is holding has been disrupted.

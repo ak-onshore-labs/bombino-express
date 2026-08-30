@@ -164,33 +164,27 @@ A2's DoD "Company signup stores `itd_customer_id`" is met only in this interim
 sense. Promote to typed columns once docket attribution resolves. **0 company
 accounts exist**, so there is no backfill debt yet.
 
-### 4.6 Agent schedules have no per-date exceptions
+### 4.6 Agent schedules — CLOSED, the whole feature is gone
 
-`agent_weekly_availability` is a pure recurring pattern: an agent who works
-Tuesdays is available *every* Tuesday. There is no way to mark leave, sickness,
-or a one-off day off, so a customer can book a window on a day the only rostered
-agent is absent.
+Was: `agent_weekly_availability` is a recurring pattern with no per-date
+exceptions, so a customer can book a window on a day the only rostered agent is
+absent. The planned fix was an `agent_availability_exceptions` table resolved as
+`pattern MINUS exceptions`.
 
-The fix is an `agent_availability_exceptions` table resolved as
-`pattern MINUS exceptions`, plus an override control on `/agent/schedule`.
-Deferred deliberately — the recurring pattern was the requirement, and this is
-the obvious next iteration rather than a defect in it.
+**Do not build it.** Pickup windows were removed entirely: a customer picks a
+date, the agent collects when they reach the address, and every free job is
+offered to every agent. `migrations/drop_pickup_slots.sql` drops
+`orders.pickup_slot`, `agent_weekly_availability`, and the long-dead per-date
+`agent_availability`. `/agent/schedule` and `server/availabilityDb.ts` are
+deleted.
 
-Related: `agent_availability` (the earlier per-date table) is **deprecated and
-unread**, retained only because §4 forbids destructive DDL during the phase.
-It holds 13 rows of test data. Drop after the deadline.
-
-### 4.7 Pickup availability is new scope
+### 4.7 Pickup availability is new scope — CLOSED with 4.6
 
 Neither A3 nor A5 specified it. A3 said "four 3-hour slot options" with no
-notion of whether anyone was working; A5 said nothing about rosters. Two things
-follow for Arbaaz:
-
-- `GET /api/config/slots` is **his** under M1. To avoid colliding I put the
-  customer-facing reads on `/api/pickup/slots` and `/api/pickup/coverage`.
-  His endpoint should delegate to `server/availabilityDb.ts`, not re-derive.
-- The ops board may now show orders constrained by a roster he does not know
-  exists.
+notion of whether anyone was working; A5 said nothing about rosters — and both
+are moot now. `/api/pickup/slots` and `/api/pickup/coverage` are gone, so
+`GET /api/config/slots` under M1 has nothing to delegate to and no roster
+constrains what the ops board sees.
 
 ### 4.8 Booking is not literally "zero ITD calls"
 

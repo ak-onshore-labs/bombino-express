@@ -27,7 +27,6 @@ export type OrderInsert = {
   status: string;
   pickup_request: PickupRequest;
   pickup_date: string | null;
-  pickup_slot: string | null;
   origin_address_id: string;
   consignee: Json;
   items: Json;
@@ -45,7 +44,6 @@ export type OrderRow = {
   status: string;
   pickup_request: number;
   pickup_date: string | null;
-  pickup_slot: string | null;
   origin_address_id: string | null;
   consignee: Json;
   items: Json;
@@ -71,7 +69,7 @@ export async function insertOrderAndReturnRow(input: OrderInsert): Promise<Order
     .from("orders")
     .insert(input)
     .select(
-      "id, order_no, user_id, status, pickup_request, pickup_date, pickup_slot, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, created_at, updated_at"
+      "id, order_no, user_id, status, pickup_request, pickup_date, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, created_at, updated_at"
     )
     .single();
 
@@ -108,7 +106,7 @@ export async function insertOrderEvent(input: {
 }
 
 const ORDER_COLUMNS =
-  "id, order_no, user_id, status, pickup_request, pickup_date, pickup_slot, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, metadata, created_at, updated_at";
+  "id, order_no, user_id, status, pickup_request, pickup_date, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, metadata, created_at, updated_at";
 
 /**
  * Narrow a DB row to the shared `Order` contract.
@@ -487,7 +485,7 @@ export async function listOrdersByUserId(userId: string): Promise<OrderRow[] | n
   const { data, error } = await client
     .from("orders")
     .select(
-      "id, order_no, user_id, status, pickup_request, pickup_date, pickup_slot, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, created_at, updated_at"
+      "id, order_no, user_id, status, pickup_request, pickup_date, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, created_at, updated_at"
     )
     .eq("user_id", userId)
     // Most recently moved first — an order the agent just advanced should lead.

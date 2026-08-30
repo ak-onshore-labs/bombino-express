@@ -9,3 +9,5 @@ dist
 docs/whatsapp.env
 # Vendor API notes pasted with live bearer tokens / session cookies in them
 CUSTOMER CREATION API DETAILS.txt
+# Vendor credentials pasted in by hand (Cashfree VRS client id/secret)
+third-party-integrations/

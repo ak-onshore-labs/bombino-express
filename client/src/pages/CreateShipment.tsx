@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useMemo, useLayoutEffect, useRef, type CSSProperties } from 'react';
+﻿import { useState, useEffect, useCallback, useMemo, useLayoutEffect, useRef, type CSSProperties } from 'react';
 import confetti from 'canvas-confetti';
 import {
   ArrowLeft,
@@ -38,19 +38,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAppStore } from '@/lib/store';
-import {
-  usePickupCoverage,
-  usePickupSlots,
-  type SlotOffer,
-} from '@/hooks/usePickupAvailability';
-import { PICKUP_SLOTS } from '@shared/pickupSlots';
-
-/** Local calendar date as `YYYY-MM-DD`. Never `toISOString()`, which is UTC
- *  and rolls the date backwards for anyone east of Greenwich — including
- *  every customer this app has. */
-function toIsoDate(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
+import { PICKUP_CUTOFF_HOUR, earliestPickupDate, todayInIst } from '@shared/istTime';
 import { lbToKg, inToCm } from '@/lib/mockData';
 import { apiRequest } from '@/lib/queryClient';
 import { payForOrder } from '@/lib/razorpay';
@@ -152,7 +140,6 @@ interface CreateShipmentPayload {
 interface OrderCreatePayload {
   pickup_request: 1 | 2;
   pickup_date?: string | null;
-  pickup_slot?: string | null;
   payment_method: 'pay_now' | 'pay_at_pickup' | 'pay_at_dropoff' | 'cod';
   booked_weight?: number | null;
   quoted_amount?: number | null;
@@ -356,6 +343,56 @@ function getDispatchType(serviceCode: string): string | undefined {
   return undefined;
 }
 
+/**
+ * The product type each box size settles.
+ *
+ * A preset is a declaration of what is being sent, not only how big it is:
+ * choosing the envelope says "paper", choosing a parcel size says "goods". So
+ * the size answers the product-type question and the select is locked to the
+ * answer. Keyed by `PresetId`, so a new preset will not compile until it says
+ * which type it means.
+ */
+const PRESET_PRODUCT_TYPE: Record<PresetId, string> = {
+  envelope: 'DOX',
+  small: 'SPX',
+  medium: 'SPX',
+  large: 'SPX',
+};
+
+/** The select's label for each product type. The info sheet adds the code. */
+const PRODUCT_TYPE_LABEL: Record<string, string> = {
+  DOX: 'Documents',
+  SPX: 'Package',
+  COMMERCIAL: 'Commercial',
+  'CSB V': 'CSB V',
+};
+
+/**
+ * What each product type means, for the info sheet.
+ *
+ * Keyed by the same value the select carries, so the sheet explains exactly
+ * the options on offer and no others — a personal customer reading about CSB V
+ * is reading about a filing they cannot make.
+ */
+const PRODUCT_TYPE_INFO: Record<string, { title: string; body: string }> = {
+  DOX: {
+    title: 'Documents (DOX)',
+    body: 'Standard industry code for shipments containing only paper — no commercial value, no duties.',
+  },
+  SPX: {
+    title: 'Package (SPX)',
+    body: "Small Parcel Express — usually containing physical goods that aren't just paper.",
+  },
+  COMMERCIAL: {
+    title: 'Commercial',
+    body: 'Goods meant for sale or trade. Requires a formal invoice and duty assessment.',
+  },
+  'CSB V': {
+    title: 'CSB V',
+    body: 'Courier Shipping Bill V — a simplified export process for low-value goods usually under ₹5,00,000 sent via courier.',
+  },
+};
+
 export default function CreateShipment() {
   const [, setLocation] = useLocation();
   const { isLoggedIn, user, logout } = useAppStore();
@@ -374,7 +411,21 @@ export default function CreateShipment() {
 
   const [pickupRequest, setPickupRequest] = useState<'1' | '2'>('1');
   const [pickupDate, setPickupDate] = useState('');
-  const [pickupSlot, setPickupSlot] = useState('');
+
+  // ── Pickup cutoff ──────────────────────────────────────────────────────
+  // Bookings taken after 3 PM IST are collected the next day at the earliest:
+  // ops routes the afternoon's work before then, and a pickup accepted at 4 PM
+  // is one nobody can reach. Recomputed on render rather than on a timer — a
+  // form open across the cutoff is caught by the effect below on the next
+  // render, and by `POST /api/orders` regardless.
+  const earliestDate = earliestPickupDate();
+  const cutoffPassed = earliestDate !== todayInIst();
+
+  // A date chosen before the cutoff, submitted after it. Clear it rather than
+  // letting the customer submit into a 409 they did nothing to cause.
+  useEffect(() => {
+    if (pickupDate && pickupDate < earliestDate) setPickupDate('');
+  }, [pickupDate, earliestDate]);
   const [paymentMethod, setPaymentMethod] = useState('');
   const [pickupDatePickerOpen, setPickupDatePickerOpen] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -457,47 +508,35 @@ export default function CreateShipment() {
   // they can opt into replacing it.
   const [showKycUpdate, setShowKycUpdate] = useState(false);
 
-  // ── Pickup availability ────────────────────────────────────────────────
-  // Windows are gated twice: the clock (a window that has started is gone) and
-  // the agent roster (a window nobody is working is not offered). Both are
-  // computed server-side; this only renders the answer. `POST /api/orders`
-  // re-checks, because the roster can change while the form is open.
-  const coverageRange = useMemo(() => {
-    const from = new Date();
-    const to = new Date();
-    to.setDate(to.getDate() + 60);
-    return { from: toIsoDate(from), to: toIsoDate(to) };
-  }, []);
+  // ── Product Type ───────────────────────────────────────────────────────
+  // Partitioned by account type, because the two halves are different customs
+  // regimes rather than different sizes of the same thing: a personal customer
+  // sends documents or a package, a company files a commercial invoice or a
+  // CSB V courier shipping bill. Offering all four to everyone was offering
+  // most customers a filing they cannot make.
+  //
+  // Packaging does NOT narrow this list. It reads as though it should — an
+  // already-packed parcel sounds like "document or package" — but that is the
+  // personal list restated, and applying it to a company account would leave
+  // no valid option at all.
+  const presetProductType = selectedPreset ? PRESET_PRODUCT_TYPE[selectedPreset] : null;
 
-  const { data: coveredDates, isLoading: coverageLoading } = usePickupCoverage(
-    coverageRange.from,
-    coverageRange.to,
-    isLoggedIn && pickupRequest === '1',
-  );
+  const productTypeOptions = useMemo(() => {
+    const values = isCompanyAccount ? ['COMMERCIAL', 'CSB V'] : ['DOX', 'SPX'];
+    const base = values.map((value) => ({ value, label: PRODUCT_TYPE_LABEL[value] ?? value }));
 
-  const { data: slotOffersData, isLoading: slotsLoading } = usePickupSlots(
-    pickupDate,
-    isLoggedIn && pickupRequest === '1',
-  );
+    // A preset settles the question by itself, so the type it implies is added
+    // for a company account, which carries neither DOX nor SPX otherwise. The
+    // select is locked in that state, so this only ever renders the one value.
+    if (presetProductType && !base.some((o) => o.value === presetProductType)) {
+      const label = PRODUCT_TYPE_LABEL[presetProductType] ?? presetProductType;
+      return [{ value: presetProductType, label }, ...base];
+    }
+    return base;
+  }, [isCompanyAccount, presetProductType]);
 
-  // Fall back to all four windows marked unavailable rather than an empty grid,
-  // so the layout does not jump while the first request is in flight.
-  const slotOffers: SlotOffer[] =
-    slotOffersData ??
-    PICKUP_SLOTS.map((s) => ({
-      value: s.value,
-      label: s.label,
-      available: false,
-      reason: 'no_agent' as const,
-    }));
-
-  // A window the customer already picked can lapse while they fill in the rest
-  // of the form. Drop it rather than letting them submit into a 409.
-  useEffect(() => {
-    if (!pickupSlot || !slotOffersData) return;
-    const chosen = slotOffersData.find((s) => s.value === pickupSlot);
-    if (chosen && !chosen.available) setPickupSlot('');
-  }, [slotOffersData, pickupSlot]);
+  /** Choosing a box size IS the product-type answer, so the select is locked. */
+  const productTypeLocked = presetProductType !== null;
 
   // ── Payment methods ────────────────────────────────────────────────────
   // Two of the four are tied to how the parcel reaches us, and offering the
@@ -544,8 +583,40 @@ export default function CreateShipment() {
   const fieldBorderClass = (key: string) =>
     cn(
       'h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl',
-      fieldErrors[key] && 'border-2 border-primary'
+      // `field-shake` is both the animation and the marker `scrollToFirstError`
+      // queries, so any field that can turn red is automatically findable. Add
+      // it wherever a component styles its own invalid state (see KycUpload).
+      fieldErrors[key] && 'border-2 border-primary field-shake'
     );
+
+  /**
+   * Take the customer to the first field they missed.
+   *
+   * A step can be taller than the viewport, so marking a field red off-screen
+   * tells nobody anything: the Continue button simply stops working. This
+   * scrolls the topmost invalid field into view and replays the shake.
+   *
+   * Runs after paint, because the elements it looks for do not carry the class
+   * until React has committed the new `fieldErrors`. The animation is restarted
+   * by hand — the class is already on the element after a second failed
+   * attempt, and CSS will not re-run an animation that never stopped.
+   */
+  const scrollToFirstError = () => {
+    requestAnimationFrame(() => {
+      const marked = Array.from(document.querySelectorAll<HTMLElement>('.field-shake'));
+      if (marked.length === 0) return;
+
+      for (const el of marked) {
+        el.style.animation = 'none';
+        void el.offsetHeight; // reflow, so the restart below is a real restart
+        el.style.animation = '';
+      }
+
+      // `querySelectorAll` returns document order, which on a single-column
+      // form is visual order, so the first match is the topmost field.
+      marked[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  };
 
   const { toast } = useToast();
 
@@ -568,6 +639,108 @@ export default function CreateShipment() {
       colors: ['#14567C', '#ffffff'],
     });
   }, [newOrderNo]);
+
+  // ── Steps and the back button ──────────────────────────────────────────
+  // The four steps are local state, not routes, so without this the browser
+  // and Android back button leave the booking entirely: a customer correcting
+  // an address on step 3 lands on Home with everything they typed gone.
+  //
+  // Each step forward pushes a history entry tagged with its number, so back
+  // pops to the previous step instead. The URL never changes — these are steps
+  // in one screen, not four addresses, and a shareable /create-shipment?step=3
+  // would promise a resumable state that does not exist.
+
+  /** Latest values for the popstate listener, which is bound once on mount. */
+  const currentStepRef = useRef(currentStep);
+  currentStepRef.current = currentStep;
+  const newOrderNoRef = useRef(newOrderNo);
+  newOrderNoRef.current = newOrderNo;
+  const setLocationRef = useRef(setLocation);
+  setLocationRef.current = setLocation;
+
+  const goToStep = (step: number) => {
+    window.history.pushState({ ...window.history.state, bombinoStep: step }, '');
+    setCurrentStep(step);
+  };
+
+  // Tag the entry the customer arrived on, so a back press from step 2 lands
+  // on a marked step-1 entry rather than an anonymous one this cannot tell
+  // apart from the page they came from. Mount only: re-running it while the
+  // customer is on step 3 would relabel that entry as step 1.
+  useEffect(() => {
+    window.history.replaceState({ ...window.history.state, bombinoStep: 1 }, '');
+  }, []);
+
+  useEffect(() => {
+    const onPopState = (event: PopStateEvent) => {
+      // Booked. Back means "leave", not "edit the order I just placed" — the
+      // form behind the success screen is a shipment that already exists.
+      if (newOrderNoRef.current) {
+        setLocationRef.current('/home');
+        return;
+      }
+
+      const step = (event.state as { bombinoStep?: number } | null)?.bombinoStep;
+      // No tag means the entry predates this screen, so the customer is
+      // leaving. Wouter has already handled it; nothing to do here.
+      if (typeof step !== 'number' || step === currentStepRef.current) return;
+
+      setFieldErrors({});
+      setStepError('');
+      setCurrentStep(step);
+    };
+
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  /**
+   * Set the product type and drop everything derived from the old one.
+   *
+   * Rates are quoted per product type and the CSB V fields belong to CSB V
+   * alone, so both must go with it. Shared by the select and by the effect
+   * below, which would otherwise leave a stale quote attached to a type the
+   * customer never picked.
+   */
+  const applyProductType = useCallback((value: string) => {
+    setProductType(value);
+    // Answering the field clears its mark; otherwise the select stays red and
+    // shakes again on the next submit even though it is now filled in.
+    setFieldErrors((prev) => {
+      if (!prev.productType) return prev;
+      const next = { ...prev };
+      delete next.productType;
+      return next;
+    });
+    setRateResults(null);
+    setSelectedService(null);
+    setRatesError('');
+    setServiceSelectionError('');
+    if (value !== 'CSB V') {
+      setCsbvHsCode('');
+      setCsbvEcommerce('no');
+      setCsbvScheme('no');
+      setCsbvBondType('igst');
+      setCsbvIgstAmount('');
+      setCsbvLutNumber('');
+      setCsbvLutFrom('');
+      setCsbvLutTill('');
+      setCsbvDispatchType('Postal');
+    }
+  }, []);
+
+  // Keep the chosen type inside what is on offer. A preset forces its own
+  // type; dropping a preset that had forced one leaves the field empty rather
+  // than holding a value the customer never chose from the list they can see.
+  useEffect(() => {
+    if (presetProductType) {
+      if (productType !== presetProductType) applyProductType(presetProductType);
+      return;
+    }
+    if (productType && !productTypeOptions.some((o) => o.value === productType)) {
+      applyProductType('');
+    }
+  }, [presetProductType, productTypeOptions, productType, applyProductType]);
 
   useEffect(() => {
     if (!selectedPreset) return;
@@ -805,7 +978,7 @@ export default function CreateShipment() {
                 <div className="flex justify-between gap-3">
                   <span className="text-muted-foreground shrink-0">Pickup</span>
                   <span className="font-medium text-foreground text-right">
-                    {pickupDate} · {pickupSlot}
+                    {pickupDate}
                   </span>
                 </div>
               )}
@@ -906,9 +1079,9 @@ export default function CreateShipment() {
       if (!senderZip.trim()) e.senderZip = true;
       if (kycRequired && !kycOnFile && !kycResult) e.kycMissing = true;
       if (pickupRequest === '1' && !pickupDate) e.pickupDate = true;
-      if (pickupRequest === '1' && !pickupSlot) e.pickupSlot = true;
       if (Object.keys(e).length) {
         setFieldErrors(e);
+        scrollToFirstError();
         return;
       }
     }
@@ -923,6 +1096,7 @@ export default function CreateShipment() {
       if (!receiverZip.trim()) e.receiverZip = true;
       if (Object.keys(e).length) {
         setFieldErrors(e);
+        scrollToFirstError();
         return;
       }
     }
@@ -936,22 +1110,29 @@ export default function CreateShipment() {
       if (!dimH.trim()) e.dimH = true;
       if (Object.keys(e).length) {
         setFieldErrors(e);
+        scrollToFirstError();
         return;
       }
       const trimmedContent = shipmentContent.trim();
       setHsCode(trimmedContent ? (getHsnCode(trimmedContent) || '') : '');
     }
-    if (currentStep < 4) setCurrentStep(currentStep + 1);
+    if (currentStep < 4) goToStep(currentStep + 1);
   };
 
+  /**
+   * The in-app back arrow. Delegates to the browser rather than setting the
+   * step directly, so one code path serves the arrow, the Android back
+   * gesture, and the desktop back button — and the history stack cannot drift
+   * out of step with what is on screen.
+   */
   const handleBack = () => {
+    if (currentStep > 1) {
+      window.history.back();
+      return;
+    }
     setFieldErrors({});
     setStepError('');
-    if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
-    } else {
-      setLocation('/home');
-    }
+    setLocation('/home');
   };
 
   const getWeightLb = (): number => {
@@ -968,12 +1149,19 @@ export default function CreateShipment() {
     setSubmitError('');
     setServiceSelectionError('');
     setFieldErrors({});
+    // Both of these are mandatory and neither is a text input, so they report
+    // through their own error state rather than `fieldErrors`. They still get
+    // taken to and shaken — a customer who missed the product type should not
+    // have to hunt a step for it.
     if (!productType.trim()) {
       setSubmitError('Please select a product type');
+      setFieldErrors({ productType: true });
+      scrollToFirstError();
       return;
     }
     if (!selectedService) {
       setServiceSelectionError('Please select a shipping service');
+      scrollToFirstError();
       return;
     }
     const invE: Record<string, boolean> = {};
@@ -985,6 +1173,7 @@ export default function CreateShipment() {
     if (!invoiceUnitRate.trim() || Number.isNaN(ur) || ur <= 0) invE.invoiceUnitRate = true;
     if (Object.keys(invE).length) {
       setFieldErrors(invE);
+      scrollToFirstError();
       return;
     }
     if (productType === 'CSB V') {
@@ -1013,11 +1202,12 @@ export default function CreateShipment() {
 
       if (Object.keys(csbvE).length) {
         setFieldErrors(csbvE);
+        scrollToFirstError();
         return;
       }
     }
-    if (pickupRequest === '1' && (!pickupDate || !pickupSlot)) {
-      setSubmitError('Please go back to step 1 and choose a pickup date and time slot');
+    if (pickupRequest === '1' && !pickupDate) {
+      setSubmitError('Please go back to step 1 and choose a pickup date');
       return;
     }
     const weightLb = getWeightLb();
@@ -1144,7 +1334,6 @@ export default function CreateShipment() {
     pendingOrderRef.current = {
       pickup_request: pickupRequest === '1' ? 1 : 2,
       pickup_date: pickupRequest === '1' ? pickupDate : null,
-      pickup_slot: pickupRequest === '1' ? pickupSlot : null,
       booked_weight: Number.isFinite(weightKg) ? parseFloat(weightKg.toFixed(2)) : null,
       quoted_amount: quotedAmount != null && Number.isFinite(quotedAmount) ? quotedAmount : null,
       packaging_required: packagingRequired,
@@ -1480,12 +1669,8 @@ export default function CreateShipment() {
                       type="button"
                       onClick={() => {
                         setPickupRequest(val);
-                        if (val === '2') {
-                          setPickupDate('');
-                          setPickupSlot('');
-                        }
+                        if (val === '2') setPickupDate('');
                         clearFieldError('pickupDate');
-                        clearFieldError('pickupSlot');
                       }}
                       className={cn(
                         'px-3 py-1 text-xs',
@@ -1528,55 +1713,6 @@ export default function CreateShipment() {
                     </button>
                     {fieldErrors.pickupDate && (
                       <p className="text-xs text-red-600 mt-1">This field is required</p>
-                    )}
-                  </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground mb-1.5 block">
-                      Pickup window
-                      <span className="text-red-400">*</span>
-                    </Label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {slotOffers.map(({ value, label, available, reason }) => (
-                        <button
-                          key={value}
-                          type="button"
-                          disabled={!available}
-                          onClick={() => {
-                            if (!available) return;
-                            setPickupSlot(value);
-                            clearFieldError('pickupSlot');
-                          }}
-                          className={cn(
-                            'px-3 py-2 rounded-lg border transition-colors text-left',
-                            !available && 'opacity-50 cursor-not-allowed bg-muted/40',
-                            available && pickupSlot === value
-                              ? 'bg-primary text-white border-primary'
-                              : 'border-border text-muted-foreground'
-                          )}
-                          data-testid={`button-pickup-slot-${value}`}
-                        >
-                          <span className="block text-xs">{label}</span>
-                          {/* Say why, rather than hiding the window. A gap in
-                              the grid reads as a bug; a reason reads as a fact. */}
-                          {!available && (
-                            <span className="block text-[10px] mt-0.5 font-medium">
-                              {reason === 'past' ? 'Too late today' : 'No agent free'}
-                            </span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                    {slotsLoading && (
-                      <p className="text-xs text-muted-foreground mt-1">Checking availability…</p>
-                    )}
-                    {!slotsLoading && slotOffers.every((s) => !s.available) && (
-                      <p className="text-xs text-red-600 mt-1" data-testid="text-no-slots">
-                        No pickup windows left on this date. Pick another date, or choose
-                        drop-off.
-                      </p>
-                    )}
-                    {fieldErrors.pickupSlot && (
-                      <p className="text-xs text-red-600 mt-1">Please choose a pickup window</p>
                     )}
                   </div>
                 </div>
@@ -1931,6 +2067,66 @@ export default function CreateShipment() {
               </p>
             </div>
 
+            {/* Packaging — asked here, on the Package step, because it is a
+                fact about the parcel and not about how it travels. Sits between
+                weight and dimensions on purpose: the answer changes what the
+                customer should measure, since a parcel we pack ends up in our
+                box and not theirs. Carries no price: any packaging cost is
+                settled at the hub with the rest of the reprice, so nothing on
+                this card moves the quote. */}
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+              <Label className="text-sm font-semibold mb-3 block">Packaging</Label>
+
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs text-muted-foreground">Do you need us to pack it?</span>
+                <div className="flex gap-3">
+                  {(
+                    [
+                      { val: false, label: 'Already packed' },
+                      { val: true, label: 'Pack it for me' },
+                    ] as const
+                  ).map(({ val, label }) => (
+                    <button
+                      key={String(val)}
+                      type="button"
+                      onClick={() => {
+                        setPackagingRequired(val);
+                        // The preset block is about to disappear. Clear what it
+                        // put in the dimension fields with it — leaving numbers
+                        // the customer never typed, under a hint telling them to
+                        // measure their own box, is the wrong kind of quiet.
+                        if (!val && selectedPreset) {
+                          setSelectedPreset(null);
+                          setDimL('');
+                          setDimW('');
+                          setDimH('');
+                        }
+                      }}
+                      className={cn(
+                        'px-3 py-1 text-xs',
+                        'rounded-full border',
+                        'transition-colors',
+                        packagingRequired === val
+                          ? 'bg-primary text-white border-primary'
+                          : 'border-border text-muted-foreground'
+                      )}
+                      data-testid={`button-packaging-${val ? 'yes' : 'no'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <p className="text-[10px] text-muted-foreground mt-3 pt-3 border-t border-border">
+                {packagingRequired
+                  ? pickupRequest === '1'
+                    ? 'The agent brings packaging material to your door. Any packaging charge is added when we weigh the parcel — not to the quote below.'
+                    : 'We pack your parcel at the hub counter. Any packaging charge is added when we weigh it — not to the quote below.'
+                  : 'Hand us a sealed parcel. Fragile items travel better packed by us.'}
+              </p>
+            </div>
+
             <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
               <div className="flex items-center justify-between mb-3">
                 <Label className="text-sm font-semibold">
@@ -1957,46 +2153,64 @@ export default function CreateShipment() {
                   </button>
                 </div>
               </div>
-              <div className="mt-3 mb-3">
-                <button
-                  type="button"
-                  onClick={() => setShowPresetSheet(true)}
-                  className="w-full py-2 px-3 border border-dashed border-[#14567C] rounded-xl bg-blue-50/40 text-[#14567C] text-xs font-medium flex items-center justify-center gap-2 hover:bg-blue-50 transition-colors"
-                >
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    aria-hidden
+              {/* Which object to measure depends on the answer given one card
+                  up. A customer packing their own parcel measures the box they
+                  will hand over; one asking us to pack measures the contents,
+                  because the box does not exist yet. Same fields, different
+                  question — so the question is stated rather than assumed. */}
+              <p
+                className="text-[10px] text-muted-foreground mt-2"
+                data-testid="text-dimensions-hint"
+              >
+                {packagingRequired
+                  ? 'Measure the items you are sending, not a box. We pick packaging to fit and re-measure at the hub.'
+                  : 'Measure the packed parcel at its widest points, including the box.'}
+              </p>
+              {/* Presets are our standard box sizes, so they only mean
+                  anything when we are the ones packing. A customer measuring a
+                  box they already sealed has nothing to pick from a list. */}
+              {packagingRequired && (
+                <div className="mt-3 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowPresetSheet(true)}
+                    className="w-full py-2 px-3 border border-dashed border-[#14567C] rounded-xl bg-blue-50/40 text-[#14567C] text-xs font-medium flex items-center justify-center gap-2 hover:bg-blue-50 transition-colors"
                   >
-                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-                  </svg>
-                  Choose preset size
-                </button>
-                {selectedPreset && (
-                  <div className="flex items-center gap-1.5 mt-2">
-                    <span className="flex items-center gap-1 bg-blue-50 border border-[#14567C]/20 rounded-full px-3 py-1 text-xs text-[#14567C] font-medium">
-                      {DIMENSION_PRESETS.find((p) => p.id === selectedPreset)?.label}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedPreset(null);
-                          setDimL('');
-                          setDimW('');
-                          setDimH('');
-                        }}
-                        className="ml-1 text-[#14567C]/60 hover:text-[#14567C]"
-                        aria-label="Clear preset"
-                      >
-                        ✕
-                      </button>
-                    </span>
-                  </div>
-                )}
-              </div>
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      aria-hidden
+                    >
+                      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                    </svg>
+                    Choose preset size
+                  </button>
+                  {selectedPreset && (
+                    <div className="flex items-center gap-1.5 mt-2">
+                      <span className="flex items-center gap-1 bg-blue-50 border border-[#14567C]/20 rounded-full px-3 py-1 text-xs text-[#14567C] font-medium">
+                        {DIMENSION_PRESETS.find((p) => p.id === selectedPreset)?.label}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedPreset(null);
+                            setDimL('');
+                            setDimW('');
+                            setDimH('');
+                          }}
+                          className="ml-1 text-[#14567C]/60 hover:text-[#14567C]"
+                          aria-label="Clear preset"
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="grid grid-cols-3 gap-2">
                 <div>
                   <Label className="text-xs text-muted-foreground">
@@ -2115,51 +2329,6 @@ export default function CreateShipment() {
               <p className="text-[10px] text-muted-foreground mt-1.5">Customs declared value for international shipping</p>
             </div>
 
-            {/* Packaging — asked here, on the Package step, because it is a
-                fact about the parcel and not about how it travels. Carries no
-                price: any packaging cost is settled at the hub with the rest of
-                the reprice, so nothing on this card moves the quote. */}
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
-              <Label className="text-sm font-semibold mb-3 block">Packaging</Label>
-
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-xs text-muted-foreground">Do you need us to pack it?</span>
-                <div className="flex gap-3">
-                  {(
-                    [
-                      { val: false, label: 'Already packed' },
-                      { val: true, label: 'Pack it for me' },
-                    ] as const
-                  ).map(({ val, label }) => (
-                    <button
-                      key={String(val)}
-                      type="button"
-                      onClick={() => setPackagingRequired(val)}
-                      className={cn(
-                        'px-3 py-1 text-xs',
-                        'rounded-full border',
-                        'transition-colors',
-                        packagingRequired === val
-                          ? 'bg-primary text-white border-primary'
-                          : 'border-border text-muted-foreground'
-                      )}
-                      data-testid={`button-packaging-${val ? 'yes' : 'no'}`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <p className="text-[10px] text-muted-foreground mt-3 pt-3 border-t border-border">
-                {packagingRequired
-                  ? pickupRequest === '1'
-                    ? 'The agent brings packaging material to your door. Any packaging charge is added when we weigh the parcel — not to the quote below.'
-                    : 'We pack your parcel at the hub counter. Any packaging charge is added when we weigh it — not to the quote below.'
-                  : 'Hand us a sealed parcel. Fragile items travel better packed by us.'}
-              </p>
-            </div>
-
             {stepError && (
               <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3">
                 <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
@@ -2201,35 +2370,35 @@ export default function CreateShipment() {
                   </div>
                   <Select
                     value={productType || undefined}
-                    onValueChange={(v) => {
-                      setProductType(v);
-                      setRateResults(null);
-                      setSelectedService(null);
-                      setRatesError('');
-                      setServiceSelectionError('');
-                      if (v !== 'CSB V') {
-                        setCsbvHsCode('');
-                        setCsbvEcommerce('no');
-                        setCsbvScheme('no');
-                        setCsbvBondType('igst');
-                        setCsbvIgstAmount('');
-                        setCsbvLutNumber('');
-                        setCsbvLutFrom('');
-                        setCsbvLutTill('');
-                        setCsbvDispatchType('Postal');
-                      }
-                    }}
+                    onValueChange={applyProductType}
+                    disabled={productTypeLocked}
                   >
-                    <SelectTrigger className="mt-1">
+                    <SelectTrigger
+                      className={cn(
+                        'mt-1',
+                        fieldErrors.productType && 'border-2 border-primary field-shake'
+                      )}
+                      data-testid="select-product-type"
+                    >
                       <SelectValue placeholder="Select product type" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="DOX">Documents</SelectItem>
-                      <SelectItem value="SPX">Package</SelectItem>
-                      <SelectItem value="COMMERCIAL">Commercial</SelectItem>
-                      <SelectItem value="CSB V">CSB V</SelectItem>
+                      {productTypeOptions.map(({ value, label }) => (
+                        <SelectItem key={value} value={value}>
+                          {label}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
+                  {productTypeLocked && (
+                    <p
+                      className="text-[10px] text-muted-foreground mt-1"
+                      data-testid="text-product-type-locked"
+                    >
+                      Set by the {DIMENSION_PRESETS.find((p) => p.id === selectedPreset)?.label}{' '}
+                      size you chose. Clear it on the Package step to change this.
+                    </p>
+                  )}
                 </div>
                 {productType === 'CSB V' && (
                   <div className="mt-3 space-y-3 pt-3 border-t border-border">
@@ -2566,7 +2735,7 @@ export default function CreateShipment() {
                   ) : null}
 
                   {serviceSelectionError ? (
-                    <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 mt-3">
+                    <div className="field-shake flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 mt-3">
                       <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
                       <p className="text-xs text-red-600">{serviceSelectionError}</p>
                     </div>
@@ -2882,30 +3051,16 @@ export default function CreateShipment() {
               </button>
             </div>
             <div className="space-y-4">
-              <div>
-                <p className="font-medium text-sm text-gray-900 mb-0.5">Documents (DOX)</p>
-                <p className="text-xs text-gray-500 leading-relaxed">
-                  Standard industry code for shipments containing only paper — no commercial value, no duties.
-                </p>
-              </div>
-              <div>
-                <p className="font-medium text-sm text-gray-900 mb-0.5">Package (SPX)</p>
-                <p className="text-xs text-gray-500 leading-relaxed">
-                  Small Parcel Express — usually containing physical goods that aren't just paper.
-                </p>
-              </div>
-              <div>
-                <p className="font-medium text-sm text-gray-900 mb-0.5">Commercial</p>
-                <p className="text-xs text-gray-500 leading-relaxed">
-                  Goods meant for sale or trade. Requires a formal invoice and duty assessment.
-                </p>
-              </div>
-              <div>
-                <p className="font-medium text-sm text-gray-900 mb-0.5">CSB V</p>
-                <p className="text-xs text-gray-500 leading-relaxed">
-                  Courier Shipping Bill V — a simplified export process for low-value goods usually under ₹5,00,000 sent via courier.
-                </p>
-              </div>
+              {productTypeOptions.map(({ value }) => {
+                const info = PRODUCT_TYPE_INFO[value];
+                if (!info) return null;
+                return (
+                  <div key={value}>
+                    <p className="font-medium text-sm text-gray-900 mb-0.5">{info.title}</p>
+                    <p className="text-xs text-gray-500 leading-relaxed">{info.body}</p>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -3188,27 +3343,22 @@ export default function CreateShipment() {
                   clearFieldError('pickupDate');
                   setPickupDatePickerOpen(false);
                 }}
-                disabled={[
-                  { before: new Date(new Date().setHours(0, 0, 0, 0)) },
-                  // A date nobody is rostered for cannot be selected. While
-                  // coverage is still loading nothing extra is disabled, so
-                  // the picker never flickers dates in and out.
-                  (date: Date) => {
-                    if (coverageLoading || !coveredDates) return false;
-                    return !coveredDates.includes(toIsoDate(date));
-                  },
-                ]}
+                // Everything before the earliest bookable date is off, which
+                // is today's date up to 3 PM IST and tomorrow's after it.
+                disabled={{ before: new Date(`${earliestDate}T00:00:00`) }}
                 autoFocus
                 className="w-full [--cell-size:2.75rem]"
                 classNames={{ root: 'w-full' }}
               />
-              {!coverageLoading && coveredDates?.length === 0 && (
+              {/* Say why today is greyed out. An unexplained disabled date
+                  reads as a bug; a reason reads as a fact. */}
+              {cutoffPassed && (
                 <p
-                  className="text-xs text-red-600 mt-3 text-center"
-                  data-testid="text-no-coverage"
+                  className="text-xs text-muted-foreground mt-3 text-center"
+                  data-testid="text-pickup-cutoff"
                 >
-                  No pickup agent is scheduled in this period. Choose drop-off instead,
-                  or try again later.
+                  Bookings made after {PICKUP_CUTOFF_HOUR % 12 || 12}{' '}
+                  {PICKUP_CUTOFF_HOUR >= 12 ? 'PM' : 'AM'} are collected from the next day.
                 </p>
               )}
             </div>
@@ -3252,7 +3402,7 @@ export default function CreateShipment() {
                   {pickupRequest === '1' ? 'Pickup' : 'Drop-off'}
                 </span>
                 <span className="font-medium text-foreground text-right">
-                  {pickupRequest === '1' ? `${pickupDate} · ${pickupSlot}` : 'At the hub'}
+                  {pickupRequest === '1' ? pickupDate : 'At the hub'}
                 </span>
               </div>
               <div className="flex justify-between gap-3">

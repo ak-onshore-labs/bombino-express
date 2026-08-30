@@ -10,7 +10,7 @@ import {
   CalendarDays,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { slotLabel, todayInIst } from '@shared/pickupSlots';
+import { todayInIst } from '@shared/istTime';
 import { bandForDate } from '@/lib/agentGrouping';
 import type { AgentPickup } from '@/hooks/useAgentPickups';
 
@@ -123,31 +123,32 @@ function shortDate(date: string): string {
 }
 
 /**
- * The appointment: `10 AM – 12 PM`, or `12 Aug · 10 AM – 12 PM` with the date.
+ * The appointment: `12 Aug`, and nothing finer.
+ *
+ * A pickup used to carry a two-hour window as well. It no longer does — the
+ * customer picks a day and the agent collects when they reach the address — so
+ * a date is the whole of what there is to say.
  *
  * Sentence case, not mono caps. The whole surface reads as plain sans now, and
- * a window shouted in capitals was the kind of formality the brief cut.
+ * a date shouted in capitals was the kind of formality the brief cut.
  */
-export function windowLabel(pickup: AgentPickup, withDate = false): string {
-  const slot = pickup.pickup_slot ? slotLabel(pickup.pickup_slot) : null;
-  const date = pickup.pickup_date && withDate ? shortDate(pickup.pickup_date) : null;
-  if (!slot && !date) return 'No time';
-  return [date, slot].filter(Boolean).join(' · ');
+export function windowLabel(pickup: AgentPickup): string {
+  return pickup.pickup_date ? shortDate(pickup.pickup_date) : 'No date';
 }
 
 /**
- * The `Time` fact, as every screen says it: `Today · 10 AM – 12 PM` when it is
- * today's, and the date in front of it when it is not.
+ * The `Time` fact, as every screen says it: `Today` for today's work, and the
+ * date itself for anything else.
  */
 export function timeValue(pickup: AgentPickup, today = todayInIst()): string {
   const band = bandForDate(pickup.pickup_date, today);
-  if (band === 'today') return `Today · ${windowLabel(pickup)}`;
-  return windowLabel(pickup, true);
+  if (band === 'today') return 'Today';
+  return windowLabel(pickup);
 }
 
-/** `12 Aug · 10 AM – 12 PM` — a forward-dated job's calendar line. */
+/** `12 Aug` — a forward-dated job's calendar line. */
 export function dateValue(pickup: AgentPickup): string {
-  return windowLabel(pickup, true);
+  return windowLabel(pickup);
 }
 
 export function weightLabel(pickup: AgentPickup): string {

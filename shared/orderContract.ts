@@ -98,7 +98,6 @@ export interface Order {
   /** ITD's convention: 1 = pickup, 2 = drop-off. */
   pickup_request: 1 | 2;
   pickup_date: string | null;
-  pickup_slot: string | null;
   origin_address_id: string | null;
   consignee: unknown;
   items: unknown;
@@ -356,5 +355,5 @@ export function isInternalOnlyStatus(status: OrderStatus): boolean {
  */
 export function isPaymentSatisfied(order: Order): boolean {
   if (order.is_cod || order.payment_method === 'cod') return true;
-  return order.payment_status === 'paid';
+  return false;
 }

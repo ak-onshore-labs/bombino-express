@@ -27,7 +27,7 @@ import {
   isPaymentSatisfied,
   roleSatisfies,
 } from "../shared/orderContract.js";
-import { todayInIst } from "../shared/pickupSlots.js";
+import { todayInIst } from "../shared/istTime.js";
 
 /**
  * Context the guards need beyond the order itself — chiefly "who is asking",

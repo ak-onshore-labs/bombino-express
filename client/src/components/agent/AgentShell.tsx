@@ -4,7 +4,7 @@ import { Link, useLocation } from 'wouter';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import bombinoLogo from '@/assets/bombino-logo.png';
-import { DAY_NAMES_SHORT, dayOfWeekForDate, todayInIst } from '@shared/pickupSlots';
+import { DAY_NAMES_SHORT, dayOfWeekForDate, todayInIst } from '@shared/istTime';
 import { AgentNav } from './AgentNav';
 
 /**

@@ -61,7 +61,6 @@ export interface OrderDetailOrder {
   status: OrderStatus;
   pickup_request: 1 | 2;
   pickup_date: string | null;
-  pickup_slot: string | null;
   consignee: OrderConsignee | null;
   items: Record<string, unknown> | null;
   booked_weight: number | null;
@@ -266,19 +265,3 @@ export function paymentStatusLabel(status: string): string {
   return PAYMENT_STATUS_LABELS[status] ?? status;
 }
 
-/** `'09:00-11:00'` → `'9:00 AM – 11:00 AM'`. Falls back to the raw value. */
-export function formatSlot(slot: string | null): string | null {
-  if (!slot) return null;
-  const parts = slot.split('-');
-  if (parts.length !== 2) return slot;
-  const to12h = (hhmm: string): string | null => {
-    const [h, m] = hhmm.split(':').map(Number);
-    if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
-    const suffix = h >= 12 ? 'PM' : 'AM';
-    const hour = h % 12 === 0 ? 12 : h % 12;
-    return `${hour}:${String(m).padStart(2, '0')} ${suffix}`;
-  };
-  const from = to12h(parts[0]);
-  const till = to12h(parts[1]);
-  return from && till ? `${from} – ${till}` : slot;
-}

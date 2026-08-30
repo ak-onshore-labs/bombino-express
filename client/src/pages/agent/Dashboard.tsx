@@ -23,7 +23,7 @@ import {
   useOrderAction,
   type PickupEntry,
 } from '@/hooks/useAgentPickups';
-import { todayInIst } from '@shared/pickupSlots';
+import { todayInIst } from '@shared/istTime';
 
 /**
  * The agent's home. Three things and nothing else.
@@ -273,9 +273,7 @@ export default function Dashboard() {
         const lateB = bandForDate(b.order.pickup_date, today) === 'overdue' ? 0 : 1;
         if (lateA !== lateB) return lateA - lateB;
 
-        const byDate = (a.order.pickup_date ?? '').localeCompare(b.order.pickup_date ?? '');
-        if (byDate !== 0) return byDate;
-        return (a.order.pickup_slot ?? '').localeCompare(b.order.pickup_slot ?? '');
+        return (a.order.pickup_date ?? '').localeCompare(b.order.pickup_date ?? '');
       });
   }, [mine, today]);
 
@@ -301,12 +299,11 @@ export default function Dashboard() {
           rank[bandForDate(a.order.pickup_date, today)] -
           rank[bandForDate(b.order.pickup_date, today)];
         if (byBand !== 0) return byBand;
-        // Both fields sort as plain strings (`YYYY-MM-DD`, `HH:MM-HH:MM`), which
-        // is calendar then clock order.
+        // `pickup_date` sorts as a plain `YYYY-MM-DD` string, which is calendar
+        // order. Within a day, oldest booking first — there is no finer time on
+        // a pickup any more to break the tie with.
         const byDate = (a.order.pickup_date ?? '').localeCompare(b.order.pickup_date ?? '');
         if (byDate !== 0) return byDate;
-        const bySlot = (a.order.pickup_slot ?? '').localeCompare(b.order.pickup_slot ?? '');
-        if (bySlot !== 0) return bySlot;
         return new Date(a.order.created_at).getTime() - new Date(b.order.created_at).getTime();
       });
   }, [available, today]);

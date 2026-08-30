@@ -16,7 +16,7 @@ import {
   timeValue,
   weightLabel,
 } from '@/components/agent/PickupCard';
-import { todayInIst } from '@shared/pickupSlots';
+import { todayInIst } from '@shared/istTime';
 import { docketItem, type OrderConsignee } from '@/lib/orderDetail';
 import { HandoverOtpSheet, type HandoverOtpKind } from '@/components/agent/HandoverOtpSheet';
 import { useAvailablePickups, useMyPickups, useOrderAction } from '@/hooks/useAgentPickups';

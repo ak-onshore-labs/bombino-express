@@ -34,7 +34,7 @@ import { getCodeForOwner } from "./handoverCodes.js";
 import { getUserContactsByIds } from "./ordersDb.js";
 import { sendTemplate } from "./whatsapp.js";
 import { getWhatsappRecipient } from "./whatsappDb.js";
-import { getAgent, listAgentsForPickup } from "./whatsappAgents.js";
+import { getAgent, listAllAgents } from "./whatsappAgents.js";
 import {
   agentJobCancelledMessage,
   agentNewJobMessage,
@@ -260,10 +260,13 @@ export async function notifyOrderBooked(input: {
 /**
  * A pickup has entered the pool.
  *
- * Fans out to the agents rostered for the window, not to every agent. Each
- * gets their own dedupe key, so the first one to claim it does not suppress
- * the others' messages — they were already sent — and a replayed booking does
- * not send anyone a second copy.
+ * Fans out to every agent. It used to go only to those rostered for the booked
+ * window; there is no window any more, so there is nothing to narrow it by —
+ * a free job is one any agent can take.
+ *
+ * Each gets their own dedupe key, so the first one to claim it does not
+ * suppress the others' messages — they were already sent — and a replayed
+ * booking does not send anyone a second copy.
  */
 export async function notifyAgentsOfNewJob(input: {
   order: Order;
@@ -272,10 +275,7 @@ export async function notifyAgentsOfNewJob(input: {
   const { order } = input;
   if (order.pickup_request !== 1) return;
 
-  const agents = await listAgentsForPickup({
-    date: order.pickup_date,
-    slot: order.pickup_slot,
-  });
+  const agents = await listAllAgents();
   if (agents.length === 0) return;
 
   const message = agentNewJobMessage({ order, area: pickupArea(input.address) });

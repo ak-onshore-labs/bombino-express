@@ -1,4 +1,6 @@
 import { supabase } from "./supabaseClient.js";
+import { decryptField, encryptField } from "./fieldCrypto.js";
+import type { OcrColumns } from "./accountDocsDb.js";
 
 export type KycDocumentRow = {
   id: string;
@@ -36,6 +38,19 @@ const META_COLUMNS =
   "id, user_id, capability_id, document_type, document_no, original_filename, mime_type, file_size_bytes, created_at, updated_at";
 
 /** Metadata only — never pulls the base64 blob, which can be several MB. */
+/** Undo the encryption on the way out of every read in this module. */
+function decodeKycMeta(row: KycDocumentMeta): KycDocumentMeta {
+  return { ...row, document_no: decryptField(row.document_no) };
+}
+
+function decodeKycRow(row: KycDocumentRow): KycDocumentRow {
+  return {
+    ...row,
+    document_no: decryptField(row.document_no),
+    file_data: decryptField(row.file_data),
+  };
+}
+
 export async function getKycByUserId(userId: string): Promise<KycDocumentMeta | null> {
   const client = getClient();
   if (!client) return null;
@@ -50,7 +65,7 @@ export async function getKycByUserId(userId: string): Promise<KycDocumentMeta | 
     logError("getKycByUserId", error);
     return null;
   }
-  return data as KycDocumentMeta | null;
+  return data ? decodeKycMeta(data as KycDocumentMeta) : null;
 }
 
 /** Full row including file_data — for serving the owner their own document. */
@@ -68,7 +83,7 @@ export async function getKycFileByUserId(userId: string): Promise<KycDocumentRow
     logError("getKycFileByUserId", error);
     return null;
   }
-  return data as KycDocumentRow | null;
+  return data ? decodeKycRow(data as KycDocumentRow) : null;
 }
 
 export async function getKycByCapabilityId(capabilityId: string): Promise<KycDocumentRow | null> {
@@ -85,7 +100,7 @@ export async function getKycByCapabilityId(capabilityId: string): Promise<KycDoc
     logError("getKycByCapabilityId", error);
     return null;
   }
-  return data as KycDocumentRow | null;
+  return data ? decodeKycRow(data as KycDocumentRow) : null;
 }
 
 export type UpsertKycInput = {
@@ -97,6 +112,8 @@ export type UpsertKycInput = {
   mime_type: string;
   file_size_bytes: number;
   file_data: string;
+  /** Absent leaves the stored verdict alone; see accountDocsDb.toOcrColumns. */
+  ocr?: OcrColumns;
 };
 
 export async function upsertKycDocument(input: UpsertKycInput): Promise<KycDocumentMeta | null> {
@@ -115,12 +132,17 @@ export async function upsertKycDocument(input: UpsertKycInput): Promise<KycDocum
       .from("kyc_documents")
       .update({
         document_type: input.document_type,
-        document_no: input.document_no,
+        // Encrypted at rest; throws without ENCRYPTION_KEY rather than
+        // writing an identity document in the clear. See server/fieldCrypto.ts.
+        document_no: encryptField(input.document_no),
         original_filename: input.original_filename,
         mime_type: input.mime_type,
+        // The original file's size, not the ciphertext's: it is shown back to
+        // the customer and sent to ITD as the size of what they uploaded.
         file_size_bytes: input.file_size_bytes,
-        file_data: input.file_data,
+        file_data: encryptField(input.file_data),
         updated_at: now,
+        ...(input.ocr ?? {}),
       })
       .eq("user_id", input.user_id)
       .select(META_COLUMNS)
@@ -130,7 +152,7 @@ export async function upsertKycDocument(input: UpsertKycInput): Promise<KycDocum
       logError("upsertKycDocument:update", error);
       return null;
     }
-    return data as KycDocumentMeta;
+    return decodeKycMeta(data as KycDocumentMeta);
   }
 
   const { data, error } = await client
@@ -139,13 +161,14 @@ export async function upsertKycDocument(input: UpsertKycInput): Promise<KycDocum
       user_id: input.user_id,
       capability_id: input.capability_id,
       document_type: input.document_type,
-      document_no: input.document_no,
+      document_no: encryptField(input.document_no),
       original_filename: input.original_filename,
       mime_type: input.mime_type,
       file_size_bytes: input.file_size_bytes,
-      file_data: input.file_data,
+      file_data: encryptField(input.file_data),
       created_at: now,
       updated_at: now,
+      ...(input.ocr ?? {}),
     })
     .select(META_COLUMNS)
     .single();
@@ -154,5 +177,5 @@ export async function upsertKycDocument(input: UpsertKycInput): Promise<KycDocum
     logError("upsertKycDocument:insert", error);
     return null;
   }
-  return data as KycDocumentMeta;
+  return decodeKycMeta(data as KycDocumentMeta);
 }

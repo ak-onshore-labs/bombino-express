@@ -118,7 +118,6 @@ export interface CancellationRow {
   customerStatus: string;
   pickup_request: 1 | 2;
   pickup_date: string | null;
-  pickup_slot: string | null;
   quoted_amount: number | null;
   final_amount: number | null;
   payment_method: string;

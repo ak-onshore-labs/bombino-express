@@ -11,7 +11,7 @@ import {
   useOrderAction,
   type PickupEntry,
 } from '@/hooks/useAgentPickups';
-import { todayInIst } from '@shared/pickupSlots';
+import { todayInIst } from '@shared/istTime';
 
 /**
  * Jobs nobody has taken, in three bands: Late, Today, then Later.

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { CreateShipmentResponse } from "./itd.js";
 import { supabase } from "./supabaseClient.js";
 import type { ChatMessage } from "./supportTypes.js";
+import type { CompanyCategory } from "../shared/accountSpec.js";
 
 type Json = Record<string, unknown> | unknown[] | null;
 
@@ -122,6 +123,18 @@ type UpsertItdUserInput = {
   account_type?: "personal" | "company";
   company_name?: string | null;
   gstin?: string | null;
+  company_category?: CompanyCategory | null;
+  contract_head?: string | null;
+  group_code?: string | null;
+  contact_person?: string | null;
+  lut_no?: string | null;
+  iec_branch_code?: string | null;
+  bank_account_no?: string | null;
+  bank_ad_code?: string | null;
+  contract_signed_name?: string | null;
+  contract_version?: string | null;
+  contract_accepted_at?: string | null;
+  contract_accepted_ip?: string | null;
 };
 
 export async function upsertItdUserAndReturnId(
@@ -140,6 +153,18 @@ export async function upsertItdUserAndReturnId(
     account_type,
     company_name,
     gstin,
+    company_category,
+    contract_head,
+    group_code,
+    contact_person,
+    lut_no,
+    iec_branch_code,
+    bank_account_no,
+    bank_ad_code,
+    contract_signed_name,
+    contract_version,
+    contract_accepted_at,
+    contract_accepted_ip,
     ...rest
   } = payload;
   const optionalCols: Record<string, string | null | undefined> = {};
@@ -153,6 +178,18 @@ export async function upsertItdUserAndReturnId(
   if (account_type !== undefined) optionalCols.account_type = account_type;
   if (company_name !== undefined) optionalCols.company_name = company_name;
   if (gstin !== undefined) optionalCols.gstin = gstin;
+  if (company_category !== undefined) optionalCols.company_category = company_category;
+  if (contract_head !== undefined) optionalCols.contract_head = contract_head;
+  if (group_code !== undefined) optionalCols.group_code = group_code;
+  if (contact_person !== undefined) optionalCols.contact_person = contact_person;
+  if (lut_no !== undefined) optionalCols.lut_no = lut_no;
+  if (iec_branch_code !== undefined) optionalCols.iec_branch_code = iec_branch_code;
+  if (bank_account_no !== undefined) optionalCols.bank_account_no = bank_account_no;
+  if (bank_ad_code !== undefined) optionalCols.bank_ad_code = bank_ad_code;
+  if (contract_signed_name !== undefined) optionalCols.contract_signed_name = contract_signed_name;
+  if (contract_version !== undefined) optionalCols.contract_version = contract_version;
+  if (contract_accepted_at !== undefined) optionalCols.contract_accepted_at = contract_accepted_at;
+  if (contract_accepted_ip !== undefined) optionalCols.contract_accepted_ip = contract_accepted_ip;
 
   const { data, error } = await client
     .from("itd_users")

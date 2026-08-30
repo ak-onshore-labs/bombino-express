@@ -7,12 +7,6 @@ import { BandHeader } from '@/components/agent/BandHeader';
 import { JobCard, money } from '@/components/agent/PickupCard';
 import { useCollections } from '@/hooks/useAgentPickups';
 import { useAppStore } from '@/lib/store';
-import {
-  PICKUP_SLOTS,
-  dayOfWeekForDate,
-  slotWindowState,
-  todayInIst,
-} from '@shared/pickupSlots';
 
 /**
  * Who the agent is, what they are carrying, and the way out.
@@ -24,8 +18,8 @@ import {
  * and get a phone number when something has gone wrong.
  *
  * Reached from the person icon in the top bar, which is where the sign-out
- * button used to be. The nav is full at five tabs (`AgentNav`) and this is not
- * a sixth destination worth truncating the other five for.
+ * button used to be — not from `AgentNav`, which is reserved for the surfaces
+ * an agent moves between during a shift.
  */
 
 /** The profile as `GET /api/user/profile` returns it. */
@@ -97,34 +91,6 @@ export default function Profile() {
     };
   }, []);
 
-  const today = todayInIst();
-  const [weeklyPattern, setWeeklyPattern] = useState<Record<number, string[]> | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch('/api/agent/availability', {
-          credentials: 'include',
-          cache: 'no-store',
-        });
-        if (!res.ok) return;
-        const body = (await res.json()) as { availability: Record<number, string[]> };
-        if (!cancelled) setWeeklyPattern(body.availability ?? {});
-      } catch {
-        // A missing schedule shows as a dash, which is honest enough.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const todaySlots = weeklyPattern?.[dayOfWeekForDate(today)] ?? [];
-  const windowsLeft = PICKUP_SLOTS.filter(
-    (s) => todaySlots.includes(s.value) && slotWindowState(s.value, today) !== 'past',
-  ).length;
-
   const name = profile?.full_name ?? user?.fullName ?? 'Pickup agent';
   const code = profile?.itd_customer_code ?? user?.code ?? null;
 
@@ -167,7 +133,7 @@ export default function Profile() {
               </Link>
               <Link
                 href="/agent/collections"
-                className="flex items-baseline justify-between gap-4 px-4 py-[15px] border-b border-[#E8EDF2]!"
+                className="flex items-baseline justify-between gap-4 px-4 py-[15px]"
                 data-testid="link-profile-count"
               >
                 <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#94A3B8]">
@@ -175,18 +141,6 @@ export default function Profile() {
                 </span>
                 <span className="text-xl font-bold text-[#1B2A41]">
                   {collections?.totals.count ?? 0}
-                </span>
-              </Link>
-              <Link
-                href="/agent/schedule"
-                className="flex items-baseline justify-between gap-4 px-4 py-[15px]"
-                data-testid="link-profile-schedule"
-              >
-                <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#94A3B8]">
-                  Times left today
-                </span>
-                <span className="text-xl font-bold text-[#1B2A41]">
-                  {todaySlots.length > 0 ? `${windowsLeft} of ${todaySlots.length}` : 'Off'}
                 </span>
               </Link>
             </JobCard>

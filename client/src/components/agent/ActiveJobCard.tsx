@@ -11,7 +11,7 @@ import {
 } from '@/components/agent/PickupCard';
 import { useOrderAction, type PickupEntry } from '@/hooks/useAgentPickups';
 import { bandForDate } from '@/lib/agentGrouping';
-import { todayInIst } from '@shared/pickupSlots';
+import { todayInIst } from '@shared/istTime';
 
 /**
  * The job in hand, with the next move on the row it belongs to.

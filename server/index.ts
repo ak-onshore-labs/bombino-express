@@ -13,6 +13,9 @@ import cookieSession from "cookie-session";
 import { registerRoutes } from "./routes";
 import { assertDatabaseUrl, getPgPoolConfig } from "./pgPoolConfig";
 import { warnIfPaymentsTestModeEnabled } from "./paymentsTestMode";
+import { warnIfOcrBypassEnabled } from "./cashfreeOcr";
+import { warnIfIdentityBypassEnabled } from "./cashfreeIdentity";
+import { assertFieldCryptoConfigured } from "./fieldCrypto";
 import { warnIfFixedOtpEnabled } from "./otp";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -325,7 +328,15 @@ app.use((req, res, next) => {
     app.use(cookieBackedSession());
   }
 
+  // Before anything can serve a request. Identity documents cannot be written
+  // without a key, and the failure this prevents is a deploy that looks healthy
+  // while quietly refusing every upload — or worse, an older build that stored
+  // them in the clear. Dying at boot is the loud version.
+  assertFieldCryptoConfigured();
+
   warnIfPaymentsTestModeEnabled();
+  warnIfOcrBypassEnabled();
+  warnIfIdentityBypassEnabled();
   warnIfFixedOtpEnabled();
 
   await registerRoutes(httpServer, app);

@@ -16,7 +16,7 @@ import {
 } from '@/components/agent/PickupCard';
 import { BAND_LABEL, bandForEntry, bandForDate } from '@/lib/agentGrouping';
 import { useMyPickups, type PickupEntry } from '@/hooks/useAgentPickups';
-import { todayInIst } from '@shared/pickupSlots';
+import { todayInIst } from '@shared/istTime';
 
 /**
  * The agent's own jobs, in two bands: Today, then Later.
@@ -72,7 +72,7 @@ function TodayCard({ entry, today }: { entry: PickupEntry; today: string }) {
               late ? 'text-[#B91C1C]' : 'text-[#1B2A41]',
             )}
           >
-            {windowLabel(pickup, late)}
+            {windowLabel(pickup)}
           </span>
           <span className="text-[17px] font-semibold text-[#475569] shrink-0">
             {weightLabel(pickup)}
