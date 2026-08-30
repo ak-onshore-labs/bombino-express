@@ -55,7 +55,7 @@ export function OpsOrderCard({ order }: { order: OpsBoardOrder }) {
         {order.pickup_date && (
           <span className="inline-flex items-center gap-1">
             <MapPin className="w-3.5 h-3.5" aria-hidden />
-            {[order.pickup_date, order.pickup_slot].filter(Boolean).join(' · ')}
+            {order.pickup_date}
           </span>
         )}
         {order.pickup_request === 1 && (

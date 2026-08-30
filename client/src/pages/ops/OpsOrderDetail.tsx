@@ -341,12 +341,8 @@ export default function OpsOrderDetail() {
           value={order.pickup_request === 2 ? 'Drop-off' : 'Pickup'}
         />
         <Fact
-          label="Pickup window"
-          value={
-            order.pickup_date || order.pickup_slot
-              ? [order.pickup_date, order.pickup_slot].filter(Boolean).join(' · ')
-              : '—'
-          }
+          label="Pickup date"
+          value={order.pickup_date ?? '—'}
         />
         <Fact label="Booked weight" value={order.booked_weight != null ? `${order.booked_weight} kg` : '—'} />
         <Fact label="Actual weight" value={order.actual_weight != null ? `${order.actual_weight} kg` : '—'} />

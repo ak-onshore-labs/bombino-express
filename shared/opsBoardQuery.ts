@@ -8,7 +8,7 @@
  */
 
 import type { OrderStatus, PaymentMethod } from './orderContract';
-import { nowInIst, startOfIstDayIso } from './pickupSlots';
+import { nowInIst, startOfIstDayIso } from './istTime';
 
 // ── Sections ──────────────────────────────────────────────────────────────
 

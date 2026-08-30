@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { User, Mail, Phone, Building2, Loader2, ShieldCheck, UserRound } from 'lucide-react';
+import { User, Mail, Phone, Building2, Loader2, ShieldCheck, UserRound, MapPin } from 'lucide-react';
 import { useLocation, Link } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,7 +18,9 @@ import { AuthShell } from '@/components/auth/AuthShell';
 import { useAppStore, type AuthUser } from '@/lib/store';
 import { apiRequest } from '@/lib/queryClient';
 import { parseApiErrorCode, parseApiErrorMessage } from '@/lib/apiError';
+import { usePincodeLookup } from '@/hooks/usePincodeLookup';
 import { validateGstin } from '@shared/gstin';
+import { INDIA_HUBS } from '@shared/hubs';
 import { SIGNATURE_ERROR, isValidSignature } from '@shared/contract';
 import {
   COMPANY_CATEGORIES,
@@ -81,6 +83,12 @@ export default function Signup() {
     bank_account_no: '',
     bank_ad_code: '',
   });
+  const [address, setAddress] = useState('');
+  const [pincode, setPincode] = useState('');
+  const [city, setCity] = useState('');
+  const [state, setState] = useState('');
+  const [hubId, setHubId] = useState('');
+  const { hint: pincodeHint, lookup: lookupPincode } = usePincodeLookup();
 
   // Both paths
   const [email, setEmail] = useState('');
@@ -234,6 +242,14 @@ export default function Signup() {
       if (!contactPerson.trim()) nextErrors.contactPerson = 'Contact person is required';
       const gstinCheck = validateGstin(gstin);
       if (!gstinCheck.valid) nextErrors.gstin = gstinCheck.message ?? 'Invalid GST number';
+      if (!address.trim()) nextErrors.address = 'Address is required';
+      else if (address.trim().length > 200) nextErrors.address = 'Address must be 200 characters or less';
+      if (!/^\d{6}$/.test(pincode.trim())) nextErrors.pincode = 'Enter a 6-digit pincode';
+      if (!city.trim()) nextErrors.city = 'City is required';
+      else if (city.trim().length > 80) nextErrors.city = 'City must be 80 characters or less';
+      if (!state.trim()) nextErrors.state = 'State is required';
+      else if (state.trim().length > 80) nextErrors.state = 'State must be 80 characters or less';
+      if (!hubId) nextErrors.hubId = 'Select a hub';
       for (const field of activeExtras) {
         const spec = EXTRA_FIELD_SPECS[field];
         if (!spec.pattern.test(extras[field].trim())) nextErrors[field] = spec.error;
@@ -350,6 +366,11 @@ export default function Signup() {
               company_category: category,
               contact_person: contactPerson.trim(),
               email: email.trim(),
+              address: address.trim(),
+              pincode: pincode.trim(),
+              city: city.trim(),
+              state: state.trim(),
+              hub_id: Number(hubId),
               ...Object.fromEntries(activeExtras.map((f) => [f, extras[f].trim()])),
               contract_accepted: true,
               contract_signed_name: contractSignedName.trim(),
@@ -639,6 +660,105 @@ export default function Signup() {
                   inputClass={fieldClass}
                 />
 
+                <div>
+                  <Label className={fieldLabelClass}>Address</Label>
+                  <div className="relative mt-2">
+                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                    <Input
+                      value={address}
+                      onChange={(e) => { setAddress(e.target.value); setErrors((prev) => ({ ...prev, address: '' })); }}
+                      placeholder="Street address"
+                      maxLength={200}
+                      className={fieldClass}
+                      autoComplete="street-address"
+                      data-testid="input-company-address"
+                    />
+                  </div>
+                  {errors.address && <p role="alert" className="text-sm text-red-500 mt-1.5">{errors.address}</p>}
+                </div>
+
+                <div>
+                  <Label className={fieldLabelClass}>Pincode</Label>
+                  <Input
+                    value={pincode}
+                    onChange={(e) => {
+                      setPincode(e.target.value.replace(/\D/g, '').slice(0, 6));
+                      setErrors((prev) => ({ ...prev, pincode: '' }));
+                    }}
+                    onBlur={() => {
+                      void lookupPincode(pincode, 'IN', ({ city: nextCity, state: nextState }) => {
+                        setCity(nextCity);
+                        setState(nextState);
+                        setErrors((prev) => ({ ...prev, city: '', state: '' }));
+                      });
+                    }}
+                    placeholder="6-digit pincode"
+                    inputMode="numeric"
+                    maxLength={6}
+                    className="h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl mt-2"
+                    autoComplete="postal-code"
+                    data-testid="input-company-pincode"
+                  />
+                  {pincodeHint && (
+                    <p className="text-xs text-muted-foreground mt-1">{pincodeHint}</p>
+                  )}
+                  {errors.pincode && <p role="alert" className="text-sm text-red-500 mt-1.5">{errors.pincode}</p>}
+                </div>
+
+                <div>
+                  <Label className={fieldLabelClass}>City</Label>
+                  <Input
+                    value={city}
+                    onChange={(e) => { setCity(e.target.value); setErrors((prev) => ({ ...prev, city: '' })); }}
+                    placeholder="City"
+                    maxLength={80}
+                    className="h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl mt-2"
+                    autoComplete="address-level2"
+                    data-testid="input-company-city"
+                  />
+                  {errors.city && <p role="alert" className="text-sm text-red-500 mt-1.5">{errors.city}</p>}
+                </div>
+
+                <div>
+                  <Label className={fieldLabelClass}>State</Label>
+                  <Input
+                    value={state}
+                    onChange={(e) => { setState(e.target.value); setErrors((prev) => ({ ...prev, state: '' })); }}
+                    placeholder="State"
+                    maxLength={80}
+                    className="h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl mt-2"
+                    autoComplete="address-level1"
+                    data-testid="input-company-state"
+                  />
+                  {errors.state && <p role="alert" className="text-sm text-red-500 mt-1.5">{errors.state}</p>}
+                </div>
+
+                <div>
+                  <Label className={fieldLabelClass}>Hub</Label>
+                  <Select
+                    value={hubId || undefined}
+                    onValueChange={(value) => {
+                      setHubId(value);
+                      setErrors((prev) => ({ ...prev, hubId: '' }));
+                    }}
+                  >
+                    <SelectTrigger
+                      className="mt-2 h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl"
+                      data-testid="select-company-hub"
+                    >
+                      <SelectValue placeholder="Select a hub" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {INDIA_HUBS.map((hub) => (
+                        <SelectItem key={hub.id} value={String(hub.id)}>
+                          {hub.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {errors.hubId && <p role="alert" className="text-sm text-red-500 mt-1.5">{errors.hubId}</p>}
+                </div>
+
                 {activeExtras.map((field) => {
                   const spec = EXTRA_FIELD_SPECS[field];
                   return (
@@ -727,6 +847,18 @@ export default function Signup() {
                     </>
                   )}
                   <PreviewRow label="Email" value={email} />
+                  {accountType === 'company' && (
+                    <>
+                      <PreviewRow label="Address" value={address} />
+                      <PreviewRow label="Pincode" value={pincode} />
+                      <PreviewRow label="City" value={city} />
+                      <PreviewRow label="State" value={state} />
+                      <PreviewRow
+                        label="Hub"
+                        value={INDIA_HUBS.find((h) => String(h.id) === hubId)?.name ?? hubId}
+                      />
+                    </>
+                  )}
                   {activeExtras.map((field) => (
                     <PreviewRow
                       key={field}

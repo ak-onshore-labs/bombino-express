@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'wouter';
 import { Download, Loader2, Search } from 'lucide-react';
-import { nowInIst } from '@shared/pickupSlots';
+import { nowInIst } from '@shared/istTime';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

@@ -355,5 +355,5 @@ export function isInternalOnlyStatus(status: OrderStatus): boolean {
  */
 export function isPaymentSatisfied(order: Order): boolean {
   if (order.is_cod || order.payment_method === 'cod') return true;
-  return false;
+  return order.payment_status === 'paid';
 }

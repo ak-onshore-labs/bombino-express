@@ -5,7 +5,7 @@ import {
   matchesOpsSection,
   type OpsBoardSection,
 } from '@shared/opsBoardQuery';
-import { nowInIst } from '@shared/pickupSlots';
+import { nowInIst } from '@shared/istTime';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { OpsOrderCard } from '@/components/ops/OpsOrderCard';
 import {

@@ -15,7 +15,6 @@ export type OpsBoardOrder = {
   created_at: string;
   pickup_request: number;
   pickup_date: string | null;
-  pickup_slot: string | null;
   payment_method: string;
   payment_status: string;
   is_cod: boolean;

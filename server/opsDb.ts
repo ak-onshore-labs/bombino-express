@@ -18,7 +18,7 @@ import {
   type OpsBoardSection,
   type OpsBoardSort,
 } from "../shared/opsBoardQuery.js";
-import { nowInIst, startOfIstDayIso } from "../shared/pickupSlots.js";
+import { nowInIst, startOfIstDayIso } from "../shared/istTime.js";
 import { getUserContactsByIds, toOrder, type OrderRow } from "./ordersDb.js";
 
 /** PostgREST default max-rows is ~1000; page past that so export never truncates. */
@@ -60,7 +60,6 @@ export type OpsBoardOrder = {
   created_at: string;
   pickup_request: number;
   pickup_date: string | null;
-  pickup_slot: string | null;
   payment_method: string;
   payment_status: string;
   is_cod: boolean;
@@ -123,7 +122,6 @@ function mapBoardRow(row: Record<string, unknown>): OpsBoardOrder {
     created_at: String(row.created_at),
     pickup_request: row.pickup_request === 2 ? 2 : 1,
     pickup_date: (row.pickup_date as string | null) ?? null,
-    pickup_slot: (row.pickup_slot as string | null) ?? null,
     payment_method: String(row.payment_method),
     payment_status: String(row.payment_status),
     is_cod: Boolean(row.is_cod),
