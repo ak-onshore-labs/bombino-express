@@ -4,7 +4,7 @@ import { Loader2, Search } from 'lucide-react';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { matchesOpsSection } from '@shared/opsBoardQuery';
+import { isCodOrder, matchesOpsSection } from '@shared/opsBoardQuery';
 import {
   useOpsCancellations,
   useOpsOrders,
@@ -59,7 +59,7 @@ export default function OpsDashboard() {
       weigh: orders.filter((order) => order.status === 'received_at_hub').length,
       settle: orders.filter((order) => order.status === 'weighed').length,
       dispatched: orders.filter((order) => matchesOpsSection(order, 'dispatched')).length,
-      cod: orders.filter((order) => order.is_cod).length,
+      cod: orders.filter((order) => isCodOrder(order)).length,
     }),
     [orders]
   );

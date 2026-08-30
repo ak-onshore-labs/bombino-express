@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Loader2, LogOut } from 'lucide-react';
 import { useLocation } from 'wouter';
 import {
@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import {
   fetchOpsOrdersExport,
+  useOpsBoardFiltered,
   useOpsOrders,
   type OpsBoardOrder,
 } from '@/hooks/useOpsOrders';
@@ -103,9 +104,8 @@ function OrderList({ orders }: { orders: OpsBoardOrder[] }) {
 }
 
 /**
- * Pickups / Drop-offs / Dispatched — same GET /api/ops/orders list, filtered
- * in the client. Search and filters are local to the section. Download hits
- * the uncapped export endpoint with the same filters.
+ * Pickups / Drop-offs / Dispatched — default uses capped GET /api/ops/orders;
+ * when filters or search are active, switches to uncapped export query.
  */
 export function OpsSectionBoard({
   title,
@@ -123,8 +123,15 @@ export function OpsSectionBoard({
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const { logout } = useAppStore();
-  const { data: orders, isLoading, error, isError } = useOpsOrders();
+  const {
+    data: orders,
+    isLoading: cappedLoading,
+    error,
+    isError,
+  } = useOpsOrders();
   const [exporting, setExporting] = useState(false);
+  const [view, setView] = useState<OpsBoardView>('cards');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
 
   const forbidden =
     isError &&
@@ -147,7 +154,7 @@ export function OpsSectionBoard({
   );
 
   const {
-    visible,
+    visible: cappedVisible,
     filters,
     setFilters,
     sort,
@@ -158,9 +165,35 @@ export function OpsSectionBoard({
     clear,
   } = useOpsBoardFilters(sectionOrders, filterConfig);
 
-  const searching = query.trim().length > 0;
-  const [view, setView] = useState<OpsBoardView>('cards');
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      setDebouncedQuery(query);
+    }, 300);
+    return () => window.clearTimeout(handle);
+  }, [query]);
+
+  const trimmedDebounced = debouncedQuery.trim();
+  const needsUncapped = activeCount > 0 || trimmedDebounced.length > 0;
+
+  const filteredQuery = useOpsBoardFiltered({
+    section,
+    filters,
+    sort,
+    query: trimmedDebounced,
+    enabled: needsUncapped,
+  });
+
+  const visible = needsUncapped
+    ? (filteredQuery.data ?? [])
+    : cappedVisible;
+
   const hideCardsOnDesktop = view === 'table';
+  const listRefreshing =
+    needsUncapped && filteredQuery.isFetching && !!filteredQuery.data;
+  const listFirstFetch =
+    needsUncapped && filteredQuery.isFetching && !filteredQuery.data;
+  const showCappedSpinner = !needsUncapped && cappedLoading;
+  const showListSpinner = listFirstFetch;
 
   const handleDownload = async (): Promise<void> => {
     setExporting(true);
@@ -172,7 +205,6 @@ export function OpsSectionBoard({
         dateField: filters.dateField,
         dateRange: filters.dateRange,
         paymentMethod: filters.paymentMethod,
-        cod: filters.cod,
         q: query.trim() || undefined,
         sort,
       });
@@ -224,75 +256,125 @@ export function OpsSectionBoard({
     );
   }
 
+  if (isError && !forbidden) {
+    return (
+      <OpsShell title={title} subtitle={subtitle} wide>
+        <p className="text-sm text-red-600 py-8 text-center" data-testid="ops-board-error">
+          Could not load orders. Try refreshing.
+        </p>
+      </OpsShell>
+    );
+  }
+
   const grouped = groupOrdersByPhase(visible);
   const filledPhases = STAGE_PHASES.filter((phase) => grouped[phase.id].length > 0);
   const colClass = COL_CLASS[filledPhases.length] ?? 'md:grid-cols-3';
 
+  const showEmptySection =
+    !needsUncapped && !cappedLoading && sectionOrders.length === 0;
+  const showNoMatchesCapped =
+    !needsUncapped &&
+    !cappedLoading &&
+    sectionOrders.length > 0 &&
+    visible.length === 0;
+  const showNoMatchesFiltered =
+    needsUncapped &&
+    !filteredQuery.isFetching &&
+    !filteredQuery.isError &&
+    visible.length === 0;
+  const showFilteredError =
+    needsUncapped && filteredQuery.isError && !filteredQuery.data;
+
   return (
     <OpsShell title={title} subtitle={subtitle} wide>
-      {isLoading && (
+      <OpsBoardFilterBar
+        config={filterConfig}
+        filters={filters}
+        setFilters={setFilters}
+        sort={sort}
+        setSort={setSort}
+        query={query}
+        setQuery={setQuery}
+        activeCount={activeCount}
+        onClear={clear}
+        view={view}
+        setView={setView}
+        onDownload={() => void handleDownload()}
+        downloadBusy={exporting}
+        windowMode={needsUncapped ? 'filtered' : 'capped'}
+        matchCount={needsUncapped ? visible.length : undefined}
+      />
+
+      {(showCappedSpinner || showListSpinner) && (
         <div className="flex justify-center py-16" data-testid="ops-board-loading">
           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
         </div>
       )}
 
-      {isError && !forbidden && (
-        <p className="text-sm text-red-600 py-8 text-center" data-testid="ops-board-error">
-          Could not load orders. Try refreshing.
+      {showFilteredError && (
+        <p className="text-sm text-red-600 py-8 text-center" data-testid="ops-board-filtered-error">
+          Could not load filtered orders. Try again.
         </p>
       )}
 
-      {!isLoading && !isError && (
-        <>
-          <OpsBoardFilterBar
-            config={filterConfig}
-            filters={filters}
-            setFilters={setFilters}
-            sort={sort}
-            setSort={setSort}
-            query={query}
-            setQuery={setQuery}
-            activeCount={activeCount}
-            onClear={clear}
-            view={view}
-            setView={setView}
-            onDownload={() => void handleDownload()}
-            downloadBusy={exporting}
-          />
+      {showEmptySection && (
+        <p className="text-sm text-muted-foreground py-12 text-center" data-testid="ops-board-empty">
+          No orders in this section.
+        </p>
+      )}
 
-          {sectionOrders.length === 0 && (
-            <p className="text-sm text-muted-foreground py-12 text-center" data-testid="ops-board-empty">
-              No orders in this section.
-            </p>
+      {showNoMatchesCapped && (
+        <div className="py-12 text-center" data-testid="ops-board-no-matches">
+          <p className="text-sm text-muted-foreground">
+            {query.trim().length > 0 && activeCount === 0
+              ? 'No matches'
+              : 'No orders match these filters. Among the latest 200 orders.'}
+          </p>
+          {activeCount > 0 && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="mt-3"
+              onClick={clear}
+              data-testid="ops-filters-clear-empty"
+            >
+              Clear filters
+            </Button>
           )}
+        </div>
+      )}
 
-          {sectionOrders.length > 0 && visible.length === 0 && (
-            <div className="py-12 text-center" data-testid="ops-board-no-matches">
-              <p className="text-sm text-muted-foreground">
-                {searching && activeCount === 0
-                  ? 'No matches'
-                  : 'No orders match these filters. Among the latest 200 orders.'}
-              </p>
-              {activeCount > 0 && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  className="mt-3"
-                  onClick={clear}
-                  data-testid="ops-filters-clear-empty"
-                >
-                  Clear filters
-                </Button>
-              )}
-            </div>
+      {showNoMatchesFiltered && (
+        <div className="py-12 text-center" data-testid="ops-board-no-matches">
+          <p className="text-sm text-muted-foreground">
+            No orders match these filters.
+          </p>
+          {activeCount > 0 && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="mt-3"
+              onClick={clear}
+              data-testid="ops-filters-clear-empty"
+            >
+              Clear filters
+            </Button>
           )}
+        </div>
+      )}
 
-          {visible.length > 0 && view === 'table' && (
+      {visible.length > 0 && (
+        <div
+          className={cn(listRefreshing && 'opacity-60 transition-opacity')}
+          data-testid="ops-board-list"
+        >
+          {view === 'table' && (
             <OpsBoardTable orders={visible} showStage={mode === 'stages'} />
           )}
 
-          {visible.length > 0 && mode === 'flat' && (
+          {mode === 'flat' && (
             <div
               className={cn(
                 'rounded-2xl border border-border bg-white px-3 divide-y divide-border',
@@ -304,7 +386,7 @@ export function OpsSectionBoard({
             </div>
           )}
 
-          {visible.length > 0 && mode === 'stages' && filledPhases.length > 0 && (
+          {mode === 'stages' && filledPhases.length > 0 && (
             <>
               <div
                 className={cn(
@@ -356,7 +438,7 @@ export function OpsSectionBoard({
               </div>
             </>
           )}
-        </>
+        </div>
       )}
     </OpsShell>
   );

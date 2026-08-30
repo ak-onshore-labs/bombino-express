@@ -25,6 +25,7 @@ export type OpsBoardOrderLike = {
   order_no: string;
   consignee_name: string | null;
   consignee_city: string | null;
+  awb_no: string | null;
 };
 
 export function matchesOpsSection(
@@ -101,7 +102,6 @@ export type OpsFilterConfig = {
   dateRange?: boolean;
   pickupDate?: boolean;
   paymentMethod?: boolean;
-  cod?: boolean;
   sort?: boolean;
 };
 
@@ -111,7 +111,6 @@ export const PICKUPS_FILTER_CONFIG: OpsFilterConfig = {
   dateRange: true,
   pickupDate: true,
   paymentMethod: true,
-  cod: true,
   sort: true,
 };
 
@@ -121,7 +120,6 @@ export const DROPOFFS_FILTER_CONFIG: OpsFilterConfig = {
   dateRange: true,
   pickupDate: false,
   paymentMethod: true,
-  cod: true,
   sort: true,
 };
 
@@ -131,7 +129,6 @@ export const DISPATCHED_FILTER_CONFIG: OpsFilterConfig = {
   dateRange: true,
   pickupDate: true,
   paymentMethod: true,
-  cod: true,
   sort: true,
 };
 
@@ -147,7 +144,6 @@ export type OpsAssignmentFilter = 'all' | 'assigned' | 'unassigned';
 export type OpsDateField = 'booking' | 'pickup';
 export type OpsDateRange = 'all' | 'today' | '7d' | '30d' | 'tomorrow' | 'week';
 export type OpsPaymentMethodFilter = 'all' | PaymentMethod;
-export type OpsCodFilter = 'all' | 'cod';
 export type OpsBoardSort = 'newest' | 'oldest';
 
 export type OpsBoardFilters = {
@@ -156,7 +152,6 @@ export type OpsBoardFilters = {
   dateField: OpsDateField;
   dateRange: OpsDateRange;
   paymentMethod: OpsPaymentMethodFilter;
-  cod: OpsCodFilter;
 };
 
 export const DEFAULT_OPS_BOARD_FILTERS: OpsBoardFilters = {
@@ -165,7 +160,6 @@ export const DEFAULT_OPS_BOARD_FILTERS: OpsBoardFilters = {
   dateField: 'booking',
   dateRange: 'all',
   paymentMethod: 'all',
-  cod: 'all',
 };
 
 export const PAYMENT_METHODS: readonly PaymentMethod[] = [
@@ -215,7 +209,7 @@ function bookingCutoffYmd(range: OpsDateRange): string | null {
 export function matchesSearch(order: OpsBoardOrderLike, query: string): boolean {
   const needle = query.trim().toLowerCase();
   if (!needle) return true;
-  const hay = [order.order_no, order.consignee_name, order.consignee_city]
+  const hay = [order.order_no, order.consignee_name, order.consignee_city, order.awb_no]
     .filter((v): v is string => Boolean(v))
     .join(' ')
     .toLowerCase();
@@ -275,10 +269,13 @@ export function matchesFilters(
   if (config.dateRange && !matchesDate(order, filters, config)) return false;
 
   if (config.paymentMethod && filters.paymentMethod !== 'all') {
-    if (order.payment_method !== filters.paymentMethod) return false;
+    // COD is a payment choice, but is_cod-flagged rows may not have method==='cod'.
+    if (filters.paymentMethod === 'cod') {
+      if (!isCodOrder(order)) return false;
+    } else if (order.payment_method !== filters.paymentMethod) {
+      return false;
+    }
   }
-
-  if (config.cod && filters.cod === 'cod' && !isCodOrder(order)) return false;
 
   return true;
 }
@@ -292,7 +289,6 @@ export function countActiveFilters(
   if (config.stage && filters.stage !== 'all') n += 1;
   if (config.dateRange && filters.dateRange !== 'all') n += 1;
   if (config.paymentMethod && filters.paymentMethod !== 'all') n += 1;
-  if (config.cod && filters.cod !== 'all') n += 1;
   return n;
 }
 

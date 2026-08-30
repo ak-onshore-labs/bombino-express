@@ -12,7 +12,6 @@ import {
   type OpsAssignmentFilter,
   type OpsBoardFilters,
   type OpsBoardSort,
-  type OpsCodFilter,
   type OpsDateField,
   type OpsDateRange,
   type OpsDateRangeOption,
@@ -26,7 +25,6 @@ export type {
   OpsAssignmentFilter,
   OpsBoardFilters,
   OpsBoardSort,
-  OpsCodFilter,
   OpsDateField,
   OpsDateRange,
   OpsDateRangeOption,
@@ -77,6 +75,7 @@ export function useOpsBoardFilters(
 
   const clear = useCallback(() => {
     setFilters(DEFAULT_OPS_BOARD_FILTERS);
+    setQuery('');
   }, []);
 
   return {

@@ -66,7 +66,6 @@ const ordersExportQuerySchema = z.object({
   paymentMethod: z
     .enum(["all", "pay_now", "pay_at_pickup", "pay_at_dropoff", "cod"])
     .optional(),
-  cod: z.enum(["all", "cod"]).optional(),
   q: z.string().optional(),
   sort: z.enum(["newest", "oldest"]).optional(),
 });
@@ -161,7 +160,6 @@ export function registerOpsRoutes(app: Express): void {
           dateField: q.dateField ?? DEFAULT_OPS_BOARD_FILTERS.dateField,
           dateRange: q.dateRange ?? DEFAULT_OPS_BOARD_FILTERS.dateRange,
           paymentMethod: q.paymentMethod ?? DEFAULT_OPS_BOARD_FILTERS.paymentMethod,
-          cod: q.cod ?? DEFAULT_OPS_BOARD_FILTERS.cod,
         },
         query: q.q ?? "",
         sort: q.sort ?? "newest",
