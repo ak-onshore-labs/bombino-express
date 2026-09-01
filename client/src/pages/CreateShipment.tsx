@@ -38,7 +38,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAppStore } from '@/lib/store';
-import { PICKUP_CUTOFF_HOUR, earliestPickupDate, todayInIst } from '@shared/istTime';
+import { earliestPickupDate, todayInIst } from '@shared/istTime';
+import {
+  formatCutoffHour,
+  formatPickupCities,
+  getPickupServiceability,
+  isPickupBlocked,
+  pickupCutoffHour,
+} from '@shared/pickupPincodes';
 import { lbToKg, inToCm } from '@/lib/mockData';
 import { apiRequest } from '@/lib/queryClient';
 import { payForOrder } from '@/lib/razorpay';
@@ -412,20 +419,6 @@ export default function CreateShipment() {
   const [pickupRequest, setPickupRequest] = useState<'1' | '2'>('1');
   const [pickupDate, setPickupDate] = useState('');
 
-  // ── Pickup cutoff ──────────────────────────────────────────────────────
-  // Bookings taken after 3 PM IST are collected the next day at the earliest:
-  // ops routes the afternoon's work before then, and a pickup accepted at 4 PM
-  // is one nobody can reach. Recomputed on render rather than on a timer — a
-  // form open across the cutoff is caught by the effect below on the next
-  // render, and by `POST /api/orders` regardless.
-  const earliestDate = earliestPickupDate();
-  const cutoffPassed = earliestDate !== todayInIst();
-
-  // A date chosen before the cutoff, submitted after it. Clear it rather than
-  // letting the customer submit into a 409 they did nothing to cause.
-  useEffect(() => {
-    if (pickupDate && pickupDate < earliestDate) setPickupDate('');
-  }, [pickupDate, earliestDate]);
   const [paymentMethod, setPaymentMethod] = useState('');
   const [pickupDatePickerOpen, setPickupDatePickerOpen] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -439,6 +432,43 @@ export default function CreateShipment() {
   const [senderCity, setSenderCity] = useState('');
   const [senderState, setSenderState] = useState('');
   const [senderZip, setSenderZip] = useState('');
+
+  // ── Pickup coverage ────────────────────────────────────────────────────
+  // Agents run out of a few hubs only. Outside their pincodes there is nobody
+  // to send, so the choice collapses to drop-off; inside them a handful of
+  // pincodes sit beyond the hub's normal beat and cost extra to reach, which
+  // the customer should see here rather than on the invoice. `POST /api/orders`
+  // re-checks both — this only keeps the form off a rejection.
+  const pickupCoverage = useMemo(() => getPickupServiceability(senderZip), [senderZip]);
+  const pickupBlocked = isPickupBlocked(senderZip);
+  const pickupSurcharge = pickupCoverage.serviceable && pickupCoverage.remark === 'out_of_city';
+
+  // Covers a pincode typed after pickup was chosen, and one arriving whole
+  // from a saved address.
+  useEffect(() => {
+    if (!pickupBlocked) return;
+    setPickupRequest((prev) => (prev === '1' ? '2' : prev));
+    setPickupDate('');
+  }, [pickupBlocked]);
+
+  // ── Pickup cutoff ──────────────────────────────────────────────────────
+  // Past the collecting hub's cutoff, today is no longer bookable: ops route
+  // the day's work by then, and a pickup accepted after it is one nobody can
+  // reach. Hubs keep different hours, so this follows the sender's pincode —
+  // and falls back to the earliest of them while the pincode is still being
+  // typed, which can only ever be stricter than the truth. Recomputed on
+  // render rather than on a timer: a form open across the cutoff is caught by
+  // the effect below on the next render, and by `POST /api/orders` regardless.
+  const pickupCutoff = pickupCutoffHour(senderZip);
+  const earliestDate = earliestPickupDate(pickupCutoff);
+  const cutoffPassed = earliestDate !== todayInIst();
+
+  // A date chosen before the cutoff, submitted after it — or one left over
+  // from a pincode whose hub worked later. Clear it rather than letting the
+  // customer submit into a 409 they did nothing to cause.
+  useEffect(() => {
+    if (pickupDate && pickupDate < earliestDate) setPickupDate('');
+  }, [pickupDate, earliestDate]);
   const [senderAddress, setSenderAddress] = useState('');
 
   const [receiverName, setReceiverName] = useState('');
@@ -1663,30 +1693,58 @@ export default function CreateShipment() {
                       { val: '1', label: 'Pickup' },
                       { val: '2', label: 'Drop-off' },
                     ] as const
-                  ).map(({ val, label }) => (
-                    <button
-                      key={val}
-                      type="button"
-                      onClick={() => {
-                        setPickupRequest(val);
-                        if (val === '2') setPickupDate('');
-                        clearFieldError('pickupDate');
-                      }}
-                      className={cn(
-                        'px-3 py-1 text-xs',
-                        'rounded-full border',
-                        'transition-colors',
-                        pickupRequest === val
-                          ? 'bg-primary text-white border-primary'
-                          : 'border-border text-muted-foreground'
-                      )}
-                      data-testid={`button-pickup-request-${val}`}
-                    >
-                      {label}
-                    </button>
-                  ))}
+                  ).map(({ val, label }) => {
+                    const unavailable = val === '1' && pickupBlocked;
+                    return (
+                      <button
+                        key={val}
+                        type="button"
+                        disabled={unavailable}
+                        onClick={() => {
+                          setPickupRequest(val);
+                          if (val === '2') setPickupDate('');
+                          clearFieldError('pickupDate');
+                        }}
+                        className={cn(
+                          'px-3 py-1 text-xs',
+                          'rounded-full border',
+                          'transition-colors',
+                          unavailable
+                            ? 'border-border text-muted-foreground/50 line-through cursor-not-allowed'
+                            : pickupRequest === val
+                              ? 'bg-primary text-white border-primary'
+                              : 'border-border text-muted-foreground'
+                        )}
+                        data-testid={`button-pickup-request-${val}`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
+
+              {pickupBlocked && (
+                <p
+                  className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-snug text-amber-900"
+                  data-testid="text-pickup-not-serviceable"
+                >
+                  We can&apos;t pick up from {senderZip} just yet — doorstep pickup is available
+                  in {formatPickupCities()}. You can still drop your parcel off at our hub, and
+                  we&apos;ll take it from there.
+                </p>
+              )}
+
+              {pickupRequest === '1' && pickupSurcharge && pickupCoverage.serviceable && (
+                <p
+                  className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-snug text-amber-900"
+                  data-testid="text-pickup-out-of-city"
+                >
+                  {pickupCoverage.area} is just outside {pickupCoverage.city} city limits.
+                  We&apos;ll still come to you — there&apos;s an extra pickup charge for this area,
+                  and we&apos;ll confirm the amount when we weigh your parcel.
+                </p>
+              )}
 
               {pickupRequest === '1' && (
                 <div className="mt-3 space-y-3 pt-3 border-t border-border">
@@ -1713,6 +1771,14 @@ export default function CreateShipment() {
                     </button>
                     {fieldErrors.pickupDate && (
                       <p className="text-xs text-red-600 mt-1">This field is required</p>
+                    )}
+                    {!cutoffPassed && pickupCoverage.serviceable && (
+                      <p
+                        className="text-[11px] text-muted-foreground mt-1"
+                        data-testid="text-pickup-same-day-cutoff"
+                      >
+                        Book by {formatCutoffHour(pickupCutoff)} today and we can collect today.
+                      </p>
                     )}
                   </div>
                 </div>
@@ -3343,8 +3409,8 @@ export default function CreateShipment() {
                   clearFieldError('pickupDate');
                   setPickupDatePickerOpen(false);
                 }}
-                // Everything before the earliest bookable date is off, which
-                // is today's date up to 3 PM IST and tomorrow's after it.
+                // Everything before the earliest bookable date is off: today
+                // up to the hub's cutoff, tomorrow from the cutoff onwards.
                 disabled={{ before: new Date(`${earliestDate}T00:00:00`) }}
                 autoFocus
                 className="w-full [--cell-size:2.75rem]"
@@ -3357,8 +3423,8 @@ export default function CreateShipment() {
                   className="text-xs text-muted-foreground mt-3 text-center"
                   data-testid="text-pickup-cutoff"
                 >
-                  Bookings made after {PICKUP_CUTOFF_HOUR % 12 || 12}{' '}
-                  {PICKUP_CUTOFF_HOUR >= 12 ? 'PM' : 'AM'} are collected from the next day.
+                  Bookings made after {formatCutoffHour(pickupCutoff)} are collected from the
+                  next day.
                 </p>
               )}
             </div>
@@ -3403,6 +3469,14 @@ export default function CreateShipment() {
                 </span>
                 <span className="font-medium text-foreground text-right">
                   {pickupRequest === '1' ? pickupDate : 'At the hub'}
+                  {pickupRequest === '1' && pickupSurcharge && (
+                    <span
+                      className="block text-[10px] font-normal text-amber-700"
+                      data-testid="text-review-out-of-city"
+                    >
+                      Extra pickup charge for this area
+                    </span>
+                  )}
                 </span>
               </div>
               <div className="flex justify-between gap-3">

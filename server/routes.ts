@@ -87,7 +87,13 @@ import {
   readCancellationRequest,
 } from "../shared/orderContract.js";
 import type { Order, OrderStatus, Role } from "../shared/orderContract.js";
-import { PICKUP_CUTOFF_HOUR, earliestPickupDate } from "../shared/istTime.js";
+import { earliestPickupDate } from "../shared/istTime.js";
+import {
+  formatCutoffHour,
+  formatPickupCities,
+  getPickupServiceability,
+  pickupCutoffHour,
+} from "../shared/pickupPincodes.js";
 import {
   generateOtp,
   hashOtp,
@@ -3049,23 +3055,40 @@ export async function registerRoutes(
     }
     const body = parsed.data;
 
-    // Authoritative pickup-date check. The form disables everything before the
-    // same boundary, but that is a convenience: the 3 PM IST cutoff can pass
-    // while a customer is still filling the form in, and nothing stops a
-    // hand-crafted request. Runs before the address write so a rejected
-    // booking leaves nothing behind.
-    if (body.pickup_request === 1 && body.pickup_date) {
-      const earliest = earliestPickupDate();
-      if (body.pickup_date < earliest) {
+    // Authoritative pickup checks — coverage first, then the date, because a
+    // pincode we do not serve has no cutoff worth quoting. The form applies
+    // both, but that is a convenience: its copy of the hub table can be stale,
+    // the cutoff can pass while a customer is still filling the form in, and
+    // nothing stops a hand-crafted request. Both run before the address write,
+    // so a rejected booking leaves nothing behind.
+    if (body.pickup_request === 1) {
+      const coverage = getPickupServiceability(body.origin_address.pincode);
+      if (!coverage.serviceable) {
         res.status(409).json({
           message:
-            `Pickups booked after ${PICKUP_CUTOFF_HOUR % 12 || 12} ` +
-            `${PICKUP_CUTOFF_HOUR >= 12 ? "PM" : "AM"} are collected from the next day. ` +
-            `Choose ${earliest} or later.`,
-          code: "PICKUP_DATE_TOO_EARLY",
-          earliest_pickup_date: earliest,
+            `We can't pick up from ${body.origin_address.pincode || "that pincode"} just yet. ` +
+            `Doorstep pickup is available in ${formatPickupCities()} — ` +
+            `choose drop-off and you can hand your parcel in at our hub.`,
+          code: "PICKUP_PINCODE_NOT_SERVICEABLE",
         });
         return;
+      }
+
+      // Each hub keeps its own hours, so the boundary is the one that applies
+      // where the parcel actually is, not a company-wide constant.
+      if (body.pickup_date) {
+        const cutoff = pickupCutoffHour(body.origin_address.pincode);
+        const earliest = earliestPickupDate(cutoff);
+        if (body.pickup_date < earliest) {
+          res.status(409).json({
+            message:
+              `Pickups in ${coverage.city} booked after ${formatCutoffHour(cutoff)} ` +
+              `are collected from the next day. Choose ${earliest} or later.`,
+            code: "PICKUP_DATE_TOO_EARLY",
+            earliest_pickup_date: earliest,
+          });
+          return;
+        }
       }
     }
 

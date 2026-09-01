@@ -69,11 +69,14 @@ export const DAY_NAMES_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
  * After this hour (IST), today is no longer bookable for pickup.
  *
  * Ops needs the back half of the afternoon to route what has already been
- * booked; a pickup accepted at 4 PM is a pickup nobody can reach. 15 means the
- * cutoff falls at 15:00 exactly — 14:59 still books today, 15:00 does not.
+ * booked; a pickup accepted after the local cutoff is one nobody can reach.
+ * 15 means the cutoff falls at 15:00 exactly — 14:59 still books today, 15:00
+ * does not.
  *
- * Every caller reads the rule from `earliestPickupDate` rather than comparing
- * against this constant themselves, so moving the cutoff is one edit.
+ * This is the floor, not the rule: each hub runs its own cutoff (Fort's riders
+ * are out until 7 PM, Delhi's until 5) and callers pass that hour in. It stays
+ * the default for a pincode no hub claims — see `PICKUP_CUTOFF_HOUR_BY_HUB` in
+ * shared/pickupPincodes.ts.
  */
 export const PICKUP_CUTOFF_HOUR = 15;
 
@@ -87,14 +90,18 @@ function nextDay(isoDate: string): string {
 
 /**
  * The earliest date a pickup may be booked for: today before the cutoff,
- * tomorrow from the cutoff onwards.
+ * tomorrow from the cutoff onwards. `cutoffHour` is the collecting hub's own
+ * cutoff; omit it for the conservative default.
  *
  * The single source of the rule. The booking form disables everything before
  * it, and `POST /api/orders` rejects anything before it — the form's copy is a
  * convenience, since the cutoff can pass while a customer is still filling the
  * rest of it in, and nothing stops a hand-crafted request.
  */
-export function earliestPickupDate(now: Date = new Date()): string {
+export function earliestPickupDate(
+  cutoffHour: number = PICKUP_CUTOFF_HOUR,
+  now: Date = new Date()
+): string {
   const ist = nowInIst(now);
-  return ist.hour >= PICKUP_CUTOFF_HOUR ? nextDay(ist.date) : ist.date;
+  return ist.hour >= cutoffHour ? nextDay(ist.date) : ist.date;
 }
