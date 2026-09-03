@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { User, Mail, Phone, Building2, Loader2, ShieldCheck, UserRound, MapPin, ArrowRight } from 'lucide-react';
+import { User, Mail, Phone, Building2, Loader2, ShieldCheck, UserRound, MapPin } from 'lucide-react';
 import { useLocation, Link } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -77,20 +77,18 @@ export default function Signup() {
   const [companyName, setCompanyName] = useState('');
   const [gstin, setGstin] = useState('');
   const [contactPerson, setContactPerson] = useState('');
-  // Registered address + servicing hub: ITD's add_customer rejects a company
-  // without them, so they are collected here rather than at first booking.
-  const [address, setAddress] = useState('');
-  const [pincode, setPincode] = useState('');
-  const [city, setCity] = useState('');
-  const [state, setState] = useState('');
-  const [hubId, setHubId] = useState('');
-  const { hint: pincodeHint, lookup: lookupPincode } = usePincodeLookup();
   const [extras, setExtras] = useState<Record<ExtraField, string>>({
     lut_no: '',
     iec_branch_code: '',
     bank_account_no: '',
     bank_ad_code: '',
   });
+  const [address, setAddress] = useState('');
+  const [pincode, setPincode] = useState('');
+  const [city, setCity] = useState('');
+  const [state, setState] = useState('');
+  const [hubId, setHubId] = useState('');
+  const { hint: pincodeHint, lookup: lookupPincode } = usePincodeLookup();
 
   // Both paths
   const [email, setEmail] = useState('');
@@ -857,6 +855,18 @@ export default function Signup() {
                     </>
                   )}
                   <PreviewRow label="Email" value={email} />
+                  {accountType === 'company' && (
+                    <>
+                      <PreviewRow label="Address" value={address} />
+                      <PreviewRow label="Pincode" value={pincode} />
+                      <PreviewRow label="City" value={city} />
+                      <PreviewRow label="State" value={state} />
+                      <PreviewRow
+                        label="Hub"
+                        value={INDIA_HUBS.find((h) => String(h.id) === hubId)?.name ?? hubId}
+                      />
+                    </>
+                  )}
                   {activeExtras.map((field) => (
                     <PreviewRow
                       key={field}

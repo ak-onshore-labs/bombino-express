@@ -2057,7 +2057,7 @@ export async function registerRoutes(
 
   const signupCompanySchema = z.object({
     phone: phoneSchema,
-    company_name: z.string().trim().min(1, "Company name is required").max(120),
+    company_name: z.string().trim().min(1, "Company name is required"),
     gstin: z.string().trim().length(15, "GST number must be 15 characters"),
     // Which of the four the account is. Optional so that a client built before
     // the categories existed still opens a plain corporate account rather than
@@ -2071,8 +2071,8 @@ export async function registerRoutes(
     iec_branch_code: z.string().trim().optional(),
     bank_account_no: z.string().trim().optional(),
     bank_ad_code: z.string().trim().optional(),
-    // ITD registration needs the registered address and the servicing hub;
-    // add_customer rejects a company without them.
+    // ITD add_customer — collected on the company details step alongside the
+    // onboarding matrix. company_id / location_code live in itd.ts.
     address: z.string().trim().min(1, "Address is required").max(200),
     pincode: z.string().trim().regex(/^\d{6}$/, "Enter a 6-digit pincode"),
     city: z.string().trim().min(1, "City is required").max(80),
@@ -2122,12 +2122,12 @@ export async function registerRoutes(
       company_category,
       contact_person,
       email,
+      contract_signed_name,
       address,
       pincode,
       city,
       state,
       hub_id,
-      contract_signed_name,
     } = parsed.data;
     const gstin = rawGstin.toUpperCase();
 

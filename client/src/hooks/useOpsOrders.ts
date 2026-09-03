@@ -1,5 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AvailableAction } from '@shared/orderContract';
+import type {
+  OpsBoardFilters,
+  OpsBoardSection,
+  OpsBoardSort,
+} from '@shared/opsBoardQuery';
 import { apiRequest } from '@/lib/queryClient';
 import { parseApiErrorMessage } from '@/lib/apiError';
 
@@ -69,6 +74,7 @@ export type OpsActionError = Error & {
 };
 
 export const OPS_ORDERS_KEY = ['/api/ops/orders'] as const;
+export const OPS_ORDERS_EXPORT_KEY = ['/api/ops/orders/export'] as const;
 export const OPS_USERS_KEY = ['/api/ops/users'] as const;
 export const OPS_PAYMENTS_KEY = ['/api/ops/payments'] as const;
 export const OPS_CANCELLATIONS_KEY = ['/api/ops/cancellations'] as const;
@@ -211,6 +217,7 @@ export function useOpsOrderAction(orderId: string | undefined) {
       if (!orderId) return;
       void queryClient.invalidateQueries({ queryKey: opsOrderDetailKey(orderId) });
       void queryClient.invalidateQueries({ queryKey: OPS_ORDERS_KEY });
+      void queryClient.invalidateQueries({ queryKey: OPS_ORDERS_EXPORT_KEY });
     },
   });
 }
@@ -239,6 +246,81 @@ export function useOpsPayments(range: OpsPaymentRange) {
     },
     retry: false,
     refetchOnMount: 'always',
+  });
+}
+
+/** One-shot uncapped payments for CSV (does not touch the capped ledger cache). */
+export async function fetchOpsPaymentsExport(
+  range: OpsPaymentRange,
+): Promise<OpsPaymentRow[]> {
+  const res = await fetch(
+    `/api/ops/payments/export?range=${encodeURIComponent(range)}`,
+    { credentials: 'include' },
+  );
+  const data = await readJson<{ payments: OpsPaymentRow[] }>(res);
+  return data.payments;
+}
+
+export type OpsOrdersExportQuery = {
+  section: 'pickups' | 'dropoffs' | 'dispatched';
+  assignment?: string;
+  stage?: string;
+  dateField?: string;
+  dateRange?: string;
+  paymentMethod?: string;
+  q?: string;
+  sort?: string;
+};
+
+/** One-shot uncapped orders for CSV (does not touch the capped board cache). */
+export async function fetchOpsOrdersExport(
+  params: OpsOrdersExportQuery,
+): Promise<OpsBoardOrder[]> {
+  const qs = new URLSearchParams();
+  qs.set('section', params.section);
+  if (params.assignment) qs.set('assignment', params.assignment);
+  if (params.stage) qs.set('stage', params.stage);
+  if (params.dateField) qs.set('dateField', params.dateField);
+  if (params.dateRange) qs.set('dateRange', params.dateRange);
+  if (params.paymentMethod) qs.set('paymentMethod', params.paymentMethod);
+  if (params.q) qs.set('q', params.q);
+  if (params.sort) qs.set('sort', params.sort);
+  const res = await fetch(`/api/ops/orders/export?${qs.toString()}`, {
+    credentials: 'include',
+  });
+  const data = await readJson<{ orders: OpsBoardOrder[] }>(res);
+  return data.orders;
+}
+
+/**
+ * Uncapped filtered board list — same GET /api/ops/orders/export as CSV.
+ * Enabled only when filters/search are active; does not touch OPS_ORDERS_KEY.
+ */
+export function useOpsBoardFiltered(opts: {
+  section: OpsBoardSection;
+  filters: OpsBoardFilters;
+  sort: OpsBoardSort;
+  query: string;
+  enabled: boolean;
+}) {
+  const { section, filters, sort, query, enabled } = opts;
+  return useQuery({
+    queryKey: [...OPS_ORDERS_EXPORT_KEY, section, filters, sort, query],
+    queryFn: () =>
+      fetchOpsOrdersExport({
+        section,
+        assignment: filters.assignment,
+        stage: filters.stage,
+        dateField: filters.dateField,
+        dateRange: filters.dateRange,
+        paymentMethod: filters.paymentMethod,
+        q: query || undefined,
+        sort,
+      }),
+    enabled,
+    retry: false,
+    refetchOnMount: 'always',
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -308,6 +390,7 @@ export function useOpsAssign(orderId: string | undefined) {
       if (!orderId) return;
       void queryClient.invalidateQueries({ queryKey: opsOrderDetailKey(orderId) });
       void queryClient.invalidateQueries({ queryKey: OPS_ORDERS_KEY });
+      void queryClient.invalidateQueries({ queryKey: OPS_ORDERS_EXPORT_KEY });
     },
   });
 }

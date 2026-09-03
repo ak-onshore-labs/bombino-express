@@ -1,16 +1,18 @@
 /**
- * Ops board phases — derived from the frozen OrderStatus ladder in
- * shared/orderContract.ts. Grouping is display-only; the API returns a flat list.
+ * Ops board phases — display labels + grouping. Status sets and
+ * phaseIdForStatus live in shared/opsBoardQuery so the stage filter and
+ * export cannot drift from what the board shows.
  */
 
 import type { OrderStatus } from '@shared/orderContract';
+import {
+  OPS_PHASE_STATUSES,
+  phaseIdForStatus,
+  type OpsPhaseId,
+} from '@shared/opsBoardQuery';
 
-export type OpsPhaseId =
-  | 'inbound'
-  | 'hub'
-  | 'settled'
-  | 'dispatched'
-  | 'cancelled';
+export type { OpsPhaseId };
+export { phaseIdForStatus };
 
 export type OpsPhase = {
   id: OpsPhaseId;
@@ -28,54 +30,37 @@ export const OPS_PHASES: readonly OpsPhase[] = [
     label: 'Pickup / inbound',
     collapsedByDefault: false,
     showAsColumn: true,
-    statuses: [
-      'pickup_requested',
-      'agent_accepted',
-      'out_for_pickup',
-      'picked_up',
-      'awaiting_dropoff',
-    ],
+    statuses: OPS_PHASE_STATUSES.inbound,
   },
   {
     id: 'hub',
     label: 'At hub',
     collapsedByDefault: false,
     showAsColumn: true,
-    statuses: ['received_at_hub', 'weighed'],
+    statuses: OPS_PHASE_STATUSES.hub,
   },
   {
     id: 'settled',
     label: 'Settled',
     collapsedByDefault: false,
     showAsColumn: true,
-    statuses: ['settled', 'ready_for_docket'],
+    statuses: OPS_PHASE_STATUSES.settled,
   },
   {
     id: 'dispatched',
     label: 'Dispatched',
     collapsedByDefault: false,
     showAsColumn: true,
-    statuses: ['dispatched'],
+    statuses: OPS_PHASE_STATUSES.dispatched,
   },
   {
     id: 'cancelled',
     label: 'Cancelled',
     collapsedByDefault: true,
     showAsColumn: false,
-    statuses: ['cancelled'],
+    statuses: OPS_PHASE_STATUSES.cancelled,
   },
 ] as const;
-
-const STATUS_TO_PHASE = new Map<string, OpsPhaseId>();
-for (const phase of OPS_PHASES) {
-  for (const status of phase.statuses) {
-    STATUS_TO_PHASE.set(status, phase.id);
-  }
-}
-
-export function phaseIdForStatus(status: string): OpsPhaseId {
-  return STATUS_TO_PHASE.get(status) ?? 'inbound';
-}
 
 export function groupOrdersByPhase<T extends { status: string }>(
   orders: T[]

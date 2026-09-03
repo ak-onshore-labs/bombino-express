@@ -6,11 +6,11 @@ import {
   coerceDateRange,
   dateRangesForField,
   type OpsBoardFilters,
-  type OpsCodFilter,
   type OpsDateField,
   type OpsFilterConfig,
   type OpsStageFilter,
 } from '@/hooks/useOpsBoardFilters';
+import { cn } from '@/lib/utils';
 
 function Chip({
   active,
@@ -69,6 +69,7 @@ export function OpsFilterPanel({
   const dateField = config.pickupDate === false ? 'booking' : filters.dateField;
   const showPickupToggle = config.dateRange && config.pickupDate !== false;
   const pickupNote = dateField === 'pickup' && filters.dateRange !== 'all';
+  const dateLabel = showPickupToggle ? 'Date' : 'Date (booking)';
 
   return (
     <div className="space-y-5" data-testid="ops-filter-panel">
@@ -121,44 +122,58 @@ export function OpsFilterPanel({
       )}
 
       {config.dateRange && (
-        <div className="space-y-3">
-          {showPickupToggle && (
-            <Group label="Date">
-              {(
-                [
-                  ['booking', 'Booking'],
-                  ['pickup', 'Pickup'],
-                ] as const satisfies ReadonlyArray<readonly [OpsDateField, string]>
-              ).map(([value, label]) => (
+        <div className="space-y-2" data-testid="ops-filter-date-block">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            {dateLabel}
+          </p>
+          <div className="rounded-xl border border-border bg-muted/20 p-2 space-y-2">
+            {showPickupToggle && (
+              <div
+                className="inline-flex rounded-lg border border-border bg-white p-0.5 gap-0.5"
+                data-testid="ops-filter-date-field"
+              >
+                {(
+                  [
+                    ['booking', 'Booking'],
+                    ['pickup', 'Pickup'],
+                  ] as const satisfies ReadonlyArray<readonly [OpsDateField, string]>
+                ).map(([value, label]) => (
+                  <Button
+                    key={value}
+                    type="button"
+                    size="sm"
+                    variant={dateField === value ? 'default' : 'ghost'}
+                    className="h-8"
+                    onClick={() =>
+                      setFilters((f) => ({
+                        ...f,
+                        dateField: value,
+                        dateRange: coerceDateRange(value, f.dateRange),
+                      }))
+                    }
+                    data-testid={`ops-filter-date-field-${value}`}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            )}
+            <div
+              className={cn('flex flex-wrap gap-1.5', showPickupToggle && 'pl-0.5')}
+              data-testid="ops-filter-date-range"
+            >
+              {dateRangesForField(dateField).map(({ value, label }) => (
                 <Chip
                   key={value}
-                  active={dateField === value}
-                  onClick={() =>
-                    setFilters((f) => ({
-                      ...f,
-                      dateField: value,
-                      dateRange: coerceDateRange(value, f.dateRange),
-                    }))
-                  }
-                  testId={`ops-filter-date-field-${value}`}
+                  active={filters.dateRange === value}
+                  onClick={() => setFilters((f) => ({ ...f, dateRange: value }))}
+                  testId={`ops-filter-date-range-${value}`}
                 >
                   {label}
                 </Chip>
               ))}
-            </Group>
-          )}
-          <Group label={showPickupToggle ? 'Range' : 'Date'}>
-            {dateRangesForField(dateField).map(({ value, label }) => (
-              <Chip
-                key={value}
-                active={filters.dateRange === value}
-                onClick={() => setFilters((f) => ({ ...f, dateRange: value }))}
-                testId={`ops-filter-date-range-${value}`}
-              >
-                {label}
-              </Chip>
-            ))}
-          </Group>
+            </div>
+          </div>
           {pickupNote && (
             <p className="text-xs text-muted-foreground" data-testid="ops-filter-pickup-note">
               Orders without a pickup date are hidden.
@@ -184,26 +199,6 @@ export function OpsFilterPanel({
               testId={`ops-filter-payment-${method}`}
             >
               {paymentMethodLabel(method)}
-            </Chip>
-          ))}
-        </Group>
-      )}
-
-      {config.cod && (
-        <Group label="COD">
-          {(
-            [
-              ['all', 'All'],
-              ['cod', 'COD'],
-            ] as const satisfies ReadonlyArray<readonly [OpsCodFilter, string]>
-          ).map(([value, label]) => (
-            <Chip
-              key={value}
-              active={filters.cod === value}
-              onClick={() => setFilters((f) => ({ ...f, cod: value }))}
-              testId={`ops-filter-cod-${value}`}
-            >
-              {label}
             </Chip>
           ))}
         </Group>

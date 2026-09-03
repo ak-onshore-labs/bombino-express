@@ -1,5 +1,14 @@
 import { forwardRef, useState, type ComponentProps, type Dispatch, type SetStateAction } from 'react';
-import { ListFilter, Search, X } from 'lucide-react';
+import {
+  ArrowUpDown,
+  Download,
+  LayoutGrid,
+  ListFilter,
+  Loader2,
+  Rows3,
+  Search,
+  X,
+} from 'lucide-react';
 import { OpsFilterPanel } from '@/components/ops/OpsFilterPanel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -38,6 +47,9 @@ function datePillLabel(filters: OpsBoardFilters): string {
 
 export type OpsBoardView = 'cards' | 'table';
 
+const segmentShell =
+  'inline-flex items-center gap-1 rounded-lg border border-border bg-white p-0.5 shrink-0';
+
 function SortToggle({
   sort,
   setSort,
@@ -46,11 +58,16 @@ function SortToggle({
   setSort: Dispatch<SetStateAction<OpsBoardSort>>;
 }) {
   return (
-    <div className="flex gap-1 shrink-0">
+    <div className={segmentShell} data-testid="ops-board-sort-toggle">
+      <ArrowUpDown
+        className="w-3.5 h-3.5 text-muted-foreground ml-1.5 shrink-0"
+        aria-hidden
+      />
       <Button
         type="button"
         size="sm"
-        variant={sort === 'newest' ? 'default' : 'outline'}
+        variant={sort === 'newest' ? 'default' : 'ghost'}
+        className="h-8"
         onClick={() => setSort('newest')}
         data-testid="ops-sort-newest"
       >
@@ -59,7 +76,8 @@ function SortToggle({
       <Button
         type="button"
         size="sm"
-        variant={sort === 'oldest' ? 'default' : 'outline'}
+        variant={sort === 'oldest' ? 'default' : 'ghost'}
+        className="h-8"
         onClick={() => setSort('oldest')}
         data-testid="ops-sort-oldest"
       >
@@ -77,23 +95,30 @@ function ViewToggle({
   setView: Dispatch<SetStateAction<OpsBoardView>>;
 }) {
   return (
-    <div className="hidden md:flex gap-1 shrink-0" data-testid="ops-board-view-toggle">
+    <div
+      className={cn(segmentShell, 'hidden md:inline-flex')}
+      data-testid="ops-board-view-toggle"
+    >
       <Button
         type="button"
         size="sm"
-        variant={view === 'cards' ? 'default' : 'outline'}
+        variant={view === 'cards' ? 'default' : 'ghost'}
+        className="h-8 gap-1"
         onClick={() => setView('cards')}
         data-testid="ops-view-cards"
       >
+        <LayoutGrid className="w-3.5 h-3.5" aria-hidden />
         Cards
       </Button>
       <Button
         type="button"
         size="sm"
-        variant={view === 'table' ? 'default' : 'outline'}
+        variant={view === 'table' ? 'default' : 'ghost'}
+        className="h-8 gap-1"
         onClick={() => setView('table')}
         data-testid="ops-view-table"
       >
+        <Rows3 className="w-3.5 h-3.5" aria-hidden />
         Table
       </Button>
     </div>
@@ -163,8 +188,7 @@ function ActivePills({
     pills.push({
       key: 'date',
       label: datePillLabel(filters),
-      onRemove: () =>
-        setFilters((f) => ({ ...f, dateField: 'booking', dateRange: 'all' })),
+      onRemove: () => setFilters((f) => ({ ...f, dateRange: 'all' })),
     });
   }
   if (config.paymentMethod && filters.paymentMethod !== 'all') {
@@ -172,13 +196,6 @@ function ActivePills({
       key: 'payment',
       label: paymentMethodLabel(filters.paymentMethod),
       onRemove: () => setFilters((f) => ({ ...f, paymentMethod: 'all' })),
-    });
-  }
-  if (config.cod && filters.cod !== 'all') {
-    pills.push({
-      key: 'cod',
-      label: 'COD',
-      onRemove: () => setFilters((f) => ({ ...f, cod: 'all' })),
     });
   }
 
@@ -229,6 +246,11 @@ export function OpsBoardFilterBar({
   onClear,
   view,
   setView,
+  onDownload,
+  downloadDisabled,
+  downloadBusy,
+  windowMode = 'capped',
+  matchCount,
 }: {
   config: OpsFilterConfig;
   filters: OpsBoardFilters;
@@ -241,6 +263,13 @@ export function OpsBoardFilterBar({
   onClear: () => void;
   view?: OpsBoardView;
   setView?: Dispatch<SetStateAction<OpsBoardView>>;
+  onDownload?: () => void;
+  downloadDisabled?: boolean;
+  downloadBusy?: boolean;
+  /** Default (capped 200) vs uncapped filtered export list. */
+  windowMode?: 'capped' | 'filtered';
+  /** Shown when windowMode is filtered. */
+  matchCount?: number;
 }) {
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
@@ -267,15 +296,33 @@ export function OpsBoardFilterBar({
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search order no or consignee"
+            placeholder="Search order, consignee, or AWB"
             className="h-11 pl-9 rounded-xl bg-white"
             data-testid="ops-section-search"
-            aria-label="Search order no or consignee"
+            aria-label="Search order, consignee, or AWB"
           />
         </div>
         {config.sort && <SortToggle sort={sort} setSort={setSort} />}
         {view != null && setView != null && (
           <ViewToggle view={view} setView={setView} />
+        )}
+        {onDownload != null && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="shrink-0"
+            onClick={onDownload}
+            disabled={downloadDisabled || downloadBusy}
+            data-testid="ops-board-download"
+          >
+            {downloadBusy ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Download className="w-4 h-4" />
+            )}
+            Download
+          </Button>
         )}
         {isMobile ? (
           <>
@@ -317,7 +364,9 @@ export function OpsBoardFilterBar({
       />
 
       <p className="text-xs text-muted-foreground" data-testid="ops-board-window-caption">
-        Among the latest 200 orders.
+        {windowMode === 'filtered'
+          ? `${matchCount ?? 0} matching orders`
+          : 'Among the latest 200 orders.'}
       </p>
     </div>
   );
