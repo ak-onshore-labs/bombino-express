@@ -179,3 +179,70 @@ export async function upsertKycDocument(input: UpsertKycInput): Promise<KycDocum
   }
   return decodeKycMeta(data as KycDocumentMeta);
 }
+
+/**
+ * Ops Part 1 — existence only. Selects `user_id` and never reads encrypted
+ * columns (document_no / file_data) or capability_id.
+ */
+export async function kycExistsForUserIds(userIds: string[]): Promise<Set<string> | null> {
+  const found = new Set<string>();
+  if (userIds.length === 0) return found;
+
+  const client = getClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("kyc_documents")
+    .select("user_id")
+    .in("user_id", userIds);
+
+  if (error) {
+    logError("kycExistsForUserIds", error);
+    return null;
+  }
+
+  for (const row of data ?? []) {
+    if (typeof row.user_id === "string") found.add(row.user_id);
+  }
+  return found;
+}
+
+export type KycOpsMeta = {
+  document_type: string;
+  ocr_status: string | null;
+  original_filename: string;
+  mime_type: string;
+  file_size_bytes: number;
+  updated_at: string;
+};
+
+const OPS_KYC_COLUMNS =
+  "document_type, ocr_status, original_filename, mime_type, file_size_bytes, updated_at";
+
+/** Shipment KYC meta for ops. No document_no, file_data, or capability_id. */
+export async function getKycOpsMetaByUserId(userId: string): Promise<KycOpsMeta | null> {
+  const client = getClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("kyc_documents")
+    .select(OPS_KYC_COLUMNS)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    logError("getKycOpsMetaByUserId", error);
+    return null;
+  }
+  if (!data) return null;
+
+  return {
+    document_type: String(data.document_type ?? ""),
+    ocr_status: typeof data.ocr_status === "string" ? data.ocr_status : null,
+    original_filename: String(data.original_filename ?? ""),
+    mime_type: String(data.mime_type ?? ""),
+    file_size_bytes:
+      typeof data.file_size_bytes === "number" ? data.file_size_bytes : 0,
+    updated_at: String(data.updated_at ?? ""),
+  };
+}

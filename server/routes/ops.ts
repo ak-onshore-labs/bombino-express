@@ -22,12 +22,26 @@ import {
   type OpsBoardSection,
 } from "../../shared/opsBoardQuery.js";
 import {
+  accountDocExistsForUserIds,
+  getAccountDocumentByUserIdAndSlot,
+  listAccountDocOpsMetaByUserId,
+} from "../accountDocsDb.js";
+import {
   findActiveAgentById,
   findItdUserIdByPhone,
+  getCustomerForOps,
   insertStaffUser,
+  listCustomersForOps,
   listStaffUsers,
 } from "../appDb.js";
 import { getCodeForOwner, issueCode } from "../handoverCodes.js";
+import {
+  getIdentityVerificationByUserIdAndKind,
+  identityExistsForUserIds,
+  listIdentityOpsMetaByUserId,
+  type IdentityKind,
+} from "../identityDb.js";
+import { getKycFileByUserId, getKycOpsMetaByUserId, kycExistsForUserIds } from "../kycDb.js";
 import { notifyOrderTransition } from "../notify.js";
 import { availableActions } from "../orderLifecycle.js";
 import { insertOrderEvent } from "../ordersDb.js";
@@ -42,7 +56,13 @@ import {
   type OpsOrderDetail,
   type OpsPaymentRange,
 } from "../opsDb.js";
-import { requireRole, requireUser } from "../routeGuards.js";
+import { requireRole, requireUser, ensureDbUser } from "../routeGuards.js";
+import {
+  AuditLogUnavailableError,
+  logDocumentAccess,
+  logDocumentAccessOrThrow,
+} from "../documentAccessLog.js";
+import { isDocSlot } from "../../shared/accountSpec.js";
 
 const createStaffSchema = z.object({
   full_name: z.string().trim().min(1, "Full name is required"),
@@ -50,6 +70,72 @@ const createStaffSchema = z.object({
   role: z.enum(["agent", "admin"]),
   hub_id: z.coerce.number().int().refine(isIndiaHubId, "Select a valid hub"),
 });
+
+const customersListQuerySchema = z.object({
+  q: z.string().max(80).optional(),
+});
+
+const customerIdSchema = z.string().uuid();
+
+const identityKindSchema = z.enum(["aadhaar", "pan", "gstin"]);
+
+function sanitizeContentFilename(name: string): string {
+  return name.replace(/"/g, "");
+}
+
+function sendOpsDocumentFile(
+  res: Response,
+  doc: { mime_type: string; file_data: string; original_filename: string }
+): void {
+  const buffer = Buffer.from(doc.file_data, "base64");
+  res.set({
+    "Content-Type": doc.mime_type,
+    "Content-Length": String(buffer.length),
+    "Cache-Control": "no-store",
+    "X-Robots-Tag": "noindex, nofollow, noarchive",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "Content-Disposition": `inline; filename="${sanitizeContentFilename(doc.original_filename)}"`,
+  });
+  res.send(buffer);
+}
+
+async function requireOpsKycActorAndCustomer(
+  req: Request,
+  res: Response
+): Promise<{ customerId: string; actorId: string } | null> {
+  const actorId = req.session.dbUserId;
+  if (!actorId) {
+    res.status(401).json({ message: "Not authenticated" });
+    return null;
+  }
+  const parsedId = customerIdSchema.safeParse(req.params.id);
+  if (!parsedId.success) {
+    res.status(404).json({ message: "Customer not found" });
+    return null;
+  }
+  const customer = await getCustomerForOps(parsedId.data);
+  if (!customer) {
+    res.status(404).json({ message: "Customer not found" });
+    return null;
+  }
+  return { customerId: customer.id, actorId };
+}
+
+async function kycOnFileUserIds(userIds: string[]): Promise<Set<string> | null> {
+  if (userIds.length === 0) return new Set();
+  const [kyc, docs, identity] = await Promise.all([
+    kycExistsForUserIds(userIds),
+    accountDocExistsForUserIds(userIds),
+    identityExistsForUserIds(userIds),
+  ]);
+  if (kyc === null || docs === null || identity === null) return null;
+  const onFile = new Set<string>();
+  for (const id of userIds) {
+    if (kyc.has(id) || docs.has(id) || identity.has(id)) onFile.add(id);
+  }
+  return onFile;
+}
 
 const assignPickupSchema = z.object({
   agent_id: z.string().uuid("agent_id must be a uuid"),
@@ -343,6 +429,245 @@ export function registerOpsRoutes(app: Express): void {
       });
 
       res.json({ order: updated });
+    }
+  );
+
+  // GET /api/ops/customers — customer directory (meta + KYC-on-file, no numbers)
+  app.get(
+    "/api/ops/customers",
+    requireUser,
+    requireRole("admin", "super_admin"),
+    async (req: Request, res: Response) => {
+      const parsed = customersListQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        res.status(400).json({
+          message: parsed.error.issues[0]?.message ?? "Invalid query",
+        });
+        return;
+      }
+
+      const rows = await listCustomersForOps({ q: parsed.data.q });
+      if (rows === null) {
+        res.status(502).json({ message: "Could not load customers" });
+        return;
+      }
+
+      const onFile = await kycOnFileUserIds(rows.map((row) => row.id));
+      if (onFile === null) {
+        res.status(502).json({ message: "Could not load customers" });
+        return;
+      }
+      res.json({
+        customers: rows.map((row) => ({
+          id: row.id,
+          full_name: row.full_name,
+          phone: row.phone,
+          account_type: row.account_type,
+          created_at: row.created_at,
+          kyc_on_file: onFile.has(row.id),
+        })),
+      });
+    }
+  );
+
+  // GET /api/ops/customers/:id — one customer + KYC meta (no numbers / bytes)
+  app.get(
+    "/api/ops/customers/:id",
+    requireUser,
+    requireRole("admin", "super_admin"),
+    async (req: Request, res: Response) => {
+      const parsedId = customerIdSchema.safeParse(req.params.id);
+      if (!parsedId.success) {
+        res.status(404).json({ message: "Customer not found" });
+        return;
+      }
+
+      const customer = await getCustomerForOps(parsedId.data);
+      if (!customer) {
+        res.status(404).json({ message: "Customer not found" });
+        return;
+      }
+
+      const [shipmentKyc, identity, documents] = await Promise.all([
+        getKycOpsMetaByUserId(customer.id),
+        listIdentityOpsMetaByUserId(customer.id),
+        listAccountDocOpsMetaByUserId(customer.id),
+      ]);
+
+      const onFile =
+        shipmentKyc !== null || identity.length > 0 || documents.length > 0;
+
+      res.json({
+        customer: {
+          id: customer.id,
+          full_name: customer.full_name,
+          phone: customer.phone,
+          account_type: customer.account_type,
+          company_name: customer.company_name,
+          company_category: customer.company_category,
+          gstin: customer.account_type === "company" ? customer.gstin : null,
+          created_at: customer.created_at,
+        },
+        kyc: {
+          on_file: onFile,
+          shipment_kyc: shipmentKyc,
+          identity,
+          documents,
+        },
+      });
+    }
+  );
+
+  const opsKycGate = [
+    requireUser,
+    ensureDbUser,
+    requireRole("super_admin"),
+  ] as const;
+
+  // GET /api/ops/customers/:id/kyc/file — shipment KYC image (super_admin, logged)
+  app.get(
+    "/api/ops/customers/:id/kyc/file",
+    ...opsKycGate,
+    async (req: Request, res: Response) => {
+      const ctx = await requireOpsKycActorAndCustomer(req, res);
+      if (!ctx) return;
+
+      try {
+        const doc = await getKycFileByUserId(ctx.customerId);
+        if (!doc) {
+          logDocumentAccess(req, {
+            source: "kyc",
+            outcome: "not_found",
+            userId: ctx.customerId,
+            actorUserId: ctx.actorId,
+            action: "view",
+          });
+          res.status(404).json({ message: "Document not found." });
+          return;
+        }
+
+        await logDocumentAccessOrThrow(req, {
+          source: "kyc",
+          outcome: "served",
+          documentId: doc.id,
+          userId: ctx.customerId,
+          actorUserId: ctx.actorId,
+          action: "view",
+          capabilityId: doc.capability_id,
+        });
+        sendOpsDocumentFile(res, doc);
+      } catch (err) {
+        if (err instanceof AuditLogUnavailableError) {
+          res.status(500).json({ message: "Audit unavailable." });
+          return;
+        }
+        console.error("[GET /api/ops/customers/:id/kyc/file] failed:", err);
+        res.status(500).json({ message: "Failed to retrieve document." });
+      }
+    }
+  );
+
+  // GET /api/ops/customers/:id/documents/:slot/file — onboarding slot (super_admin)
+  app.get(
+    "/api/ops/customers/:id/documents/:slot/file",
+    ...opsKycGate,
+    async (req: Request, res: Response) => {
+      const ctx = await requireOpsKycActorAndCustomer(req, res);
+      if (!ctx) return;
+
+      if (!isDocSlot(req.params.slot)) {
+        res.status(404).json({ message: "Document not found." });
+        return;
+      }
+
+      try {
+        const doc = await getAccountDocumentByUserIdAndSlot(ctx.customerId, req.params.slot);
+        if (!doc) {
+          logDocumentAccess(req, {
+            source: "account",
+            outcome: "not_found",
+            userId: ctx.customerId,
+            actorUserId: ctx.actorId,
+            action: "view",
+          });
+          res.status(404).json({ message: "Document not found." });
+          return;
+        }
+
+        await logDocumentAccessOrThrow(req, {
+          source: "account",
+          outcome: "served",
+          documentId: doc.id,
+          userId: ctx.customerId,
+          actorUserId: ctx.actorId,
+          action: "view",
+          capabilityId: doc.capability_id,
+        });
+        sendOpsDocumentFile(res, doc);
+      } catch (err) {
+        if (err instanceof AuditLogUnavailableError) {
+          res.status(500).json({ message: "Audit unavailable." });
+          return;
+        }
+        console.error("[GET /api/ops/customers/:id/documents/:slot/file] failed:", err);
+        res.status(500).json({ message: "Failed to retrieve document." });
+      }
+    }
+  );
+
+  // GET /api/ops/customers/:id/identity/:kind — one decrypted number (super_admin)
+  app.get(
+    "/api/ops/customers/:id/identity/:kind",
+    ...opsKycGate,
+    async (req: Request, res: Response) => {
+      const ctx = await requireOpsKycActorAndCustomer(req, res);
+      if (!ctx) return;
+
+      const parsedKind = identityKindSchema.safeParse(req.params.kind);
+      if (!parsedKind.success) {
+        res.status(404).json({ message: "Document not found." });
+        return;
+      }
+      const kind: IdentityKind = parsedKind.data;
+
+      try {
+        const row = await getIdentityVerificationByUserIdAndKind(ctx.customerId, kind);
+        if (!row) {
+          logDocumentAccess(req, {
+            source: "identity",
+            outcome: "not_found",
+            userId: ctx.customerId,
+            actorUserId: ctx.actorId,
+            action: "view",
+            capabilityId: null,
+          });
+          res.status(404).json({ message: "Document not found." });
+          return;
+        }
+
+        await logDocumentAccessOrThrow(req, {
+          source: "identity",
+          outcome: "served",
+          documentId: row.id,
+          userId: ctx.customerId,
+          actorUserId: ctx.actorId,
+          action: "view",
+          capabilityId: null,
+        });
+        res.set("Cache-Control", "no-store");
+        res.json({
+          kind: row.kind,
+          document_no: row.document_no,
+          status: row.status,
+        });
+      } catch (err) {
+        if (err instanceof AuditLogUnavailableError) {
+          res.status(500).json({ message: "Audit unavailable." });
+          return;
+        }
+        console.error("[GET /api/ops/customers/:id/identity/:kind] failed:", err);
+        res.status(500).json({ message: "Failed to retrieve document." });
+      }
     }
   );
 

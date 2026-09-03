@@ -309,6 +309,119 @@ export async function listStaffUsers(): Promise<StaffUserRow[] | null> {
   }));
 }
 
+const OPS_CUSTOMER_COLUMNS =
+  "id, full_name, phone, account_type, company_name, company_category, gstin, created_at";
+
+const OPS_CUSTOMER_LIST_LIMIT = 200;
+
+export type OpsCustomerRow = {
+  id: string;
+  full_name: string;
+  phone: string | null;
+  account_type: "personal" | "company";
+  company_name: string | null;
+  company_category: string | null;
+  gstin: string | null;
+  created_at: string;
+};
+
+export type ListCustomersForOpsInput = {
+  q?: string;
+  limit?: number;
+};
+
+/** Strip PostgREST `.or()` metacharacters so a typed name cannot break the filter. */
+function sanitizeCustomerSearch(raw: string): string {
+  return raw.trim().slice(0, 80).replace(/[,()"\\]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function escapeIlikePattern(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+}
+
+function mapOpsCustomerRow(row: {
+  id?: unknown;
+  full_name?: unknown;
+  phone?: unknown;
+  account_type?: unknown;
+  company_name?: unknown;
+  company_category?: unknown;
+  gstin?: unknown;
+  created_at?: unknown;
+}): OpsCustomerRow {
+  return {
+    id: String(row.id ?? ""),
+    full_name: String(row.full_name ?? ""),
+    phone: typeof row.phone === "string" ? row.phone : null,
+    account_type: row.account_type === "company" ? "company" : "personal",
+    company_name: typeof row.company_name === "string" ? row.company_name : null,
+    company_category: typeof row.company_category === "string" ? row.company_category : null,
+    gstin: typeof row.gstin === "string" ? row.gstin : null,
+    created_at: String(row.created_at ?? ""),
+  };
+}
+
+/**
+ * Ops customer directory. Customers only — staff never appear here.
+ * Search is server-side so a name older than the 200-row cap is still findable.
+ */
+export async function listCustomersForOps(
+  input: ListCustomersForOpsInput = {}
+): Promise<OpsCustomerRow[] | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const limit = input.limit ?? OPS_CUSTOMER_LIST_LIMIT;
+  const q = typeof input.q === "string" ? sanitizeCustomerSearch(input.q) : "";
+
+  let query = client
+    .from("itd_users")
+    .select(OPS_CUSTOMER_COLUMNS)
+    .eq("role", "customer")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (q) {
+    const compact = q.replace(/[\s-]/g, "");
+    if (/^\d{10}$/.test(compact)) {
+      query = query.eq("phone", compact);
+    } else {
+      const pattern = `%${escapeIlikePattern(q)}%`;
+      query = query.or(`full_name.ilike."${pattern}",phone.ilike."${pattern}"`);
+    }
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    logSupabaseError("listCustomersForOps", error);
+    return null;
+  }
+
+  return (data ?? []).map(mapOpsCustomerRow).filter((row) => row.id !== "");
+}
+
+/** One customer by id. Null when missing or not role=customer. */
+export async function getCustomerForOps(id: string): Promise<OpsCustomerRow | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("itd_users")
+    .select(OPS_CUSTOMER_COLUMNS)
+    .eq("id", id)
+    .eq("role", "customer")
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("getCustomerForOps", error);
+    return null;
+  }
+  if (!data) return null;
+  const row = mapOpsCustomerRow(data);
+  return row.id ? row : null;
+}
+
 /**
  * One staff row that is an active pickup agent. Used to validate an ops
  * assignment target — `orders.agent_id` FK only proves the id exists, not

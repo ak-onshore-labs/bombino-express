@@ -218,6 +218,28 @@ export async function listIdentityVerificationsByUserId(
   return ((data ?? []) as IdentityVerificationMeta[]).map(decodeIdentity);
 }
 
+/** One kind for one claimed account — ops KYC viewer. Decrypts document_no. */
+export async function getIdentityVerificationByUserIdAndKind(
+  userId: string,
+  kind: IdentityKind
+): Promise<IdentityVerificationMeta | null> {
+  const client = getClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("identity_verifications")
+    .select(META_COLUMNS)
+    .eq("user_id", userId)
+    .eq("kind", kind)
+    .maybeSingle();
+
+  if (error) {
+    logError("getIdentityVerificationByUserIdAndKind", error);
+    return null;
+  }
+  return data ? decodeIdentity(data as IdentityVerificationMeta) : null;
+}
+
 /**
  * Hand the staged verifications to the account that was just created.
  *
@@ -270,4 +292,77 @@ export async function deleteIdentityVerificationsBySignupRef(
     return 0;
   }
   return data?.length ?? 0;
+}
+
+/**
+ * Ops Part 1 — existence only. Selects `user_id` and never reads encrypted
+ * document_no (or the vendor `details` payload).
+ */
+export async function identityExistsForUserIds(userIds: string[]): Promise<Set<string> | null> {
+  const found = new Set<string>();
+  if (userIds.length === 0) return found;
+
+  const client = getClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("identity_verifications")
+    .select("user_id")
+    .in("user_id", userIds);
+
+  if (error) {
+    logError("identityExistsForUserIds", error);
+    return null;
+  }
+
+  for (const row of data ?? []) {
+    if (typeof row.user_id === "string") found.add(row.user_id);
+  }
+  return found;
+}
+
+export type IdentityOpsMeta = {
+  kind: IdentityKind;
+  status: IdentityStatus;
+  verified_at: string;
+};
+
+const OPS_IDENTITY_COLUMNS = "kind, status, verified_at";
+
+function isIdentityKind(value: unknown): value is IdentityKind {
+  return value === "aadhaar" || value === "pan" || value === "gstin";
+}
+
+function isIdentityStatus(value: unknown): value is IdentityStatus {
+  return value === "verified" || value === "self_declared" || value === "bypassed";
+}
+
+/** Identity-kind rows for ops. No document_no, details, or verified_name. */
+export async function listIdentityOpsMetaByUserId(
+  userId: string
+): Promise<IdentityOpsMeta[]> {
+  const client = getClient();
+  if (!client) return [];
+
+  const { data, error } = await client
+    .from("identity_verifications")
+    .select(OPS_IDENTITY_COLUMNS)
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    logError("listIdentityOpsMetaByUserId", error);
+    return [];
+  }
+
+  const rows: IdentityOpsMeta[] = [];
+  for (const row of data ?? []) {
+    if (!isIdentityKind(row.kind) || !isIdentityStatus(row.status)) continue;
+    rows.push({
+      kind: row.kind,
+      status: row.status,
+      verified_at: String(row.verified_at ?? ""),
+    });
+  }
+  return rows;
 }

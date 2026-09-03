@@ -6,6 +6,7 @@
 
 import type { LucideIcon } from 'lucide-react';
 import {
+  ContactRound,
   LayoutDashboard,
   Package,
   Send,
@@ -67,6 +68,14 @@ export const OPS_NAV: readonly OpsNavItem[] = [
     icon: Wallet,
     mobile: false,
     mobileMore: true,
+  },
+  {
+    label: 'Customers',
+    mobileLabel: 'Customers',
+    path: '/ops/customers',
+    icon: ContactRound,
+    mobile: false,
+    mobileMore: false,
   },
   {
     label: 'Users',
