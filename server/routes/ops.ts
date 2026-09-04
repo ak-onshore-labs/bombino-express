@@ -49,6 +49,7 @@ import {
   assignPickup,
   getOrderByIdForOps,
   listAllOrdersForOps,
+  listOpsOrdersByCustomer,
   listOpsOrdersForExport,
   listOpsPayments,
   listOrderEventsForOps,
@@ -167,7 +168,7 @@ function asOrder(row: OpsOrderDetail): Order {
   return {
     id: row.id,
     order_no: row.order_no,
-    user_id: row.user_id,
+    user_id: row.user_id ?? "",
     status: row.status as Order["status"],
     pickup_request: row.pickup_request === 2 ? 2 : 1,
     pickup_date: row.pickup_date,
@@ -515,6 +516,34 @@ export function registerOpsRoutes(app: Express): void {
           documents,
         },
       });
+    }
+  );
+
+  // GET /api/ops/customers/:id/orders — this customer's bookings (registered only)
+  app.get(
+    "/api/ops/customers/:id/orders",
+    requireUser,
+    requireRole("admin", "super_admin"),
+    async (req: Request, res: Response) => {
+      const parsedId = customerIdSchema.safeParse(req.params.id);
+      if (!parsedId.success) {
+        res.status(404).json({ message: "Customer not found" });
+        return;
+      }
+
+      const customer = await getCustomerForOps(parsedId.data);
+      if (!customer) {
+        res.status(404).json({ message: "Customer not found" });
+        return;
+      }
+
+      const orders = await listOpsOrdersByCustomer(customer.id);
+      if (orders === null) {
+        res.status(502).json({ message: "Could not load orders" });
+        return;
+      }
+
+      res.json({ orders });
     }
   );
 

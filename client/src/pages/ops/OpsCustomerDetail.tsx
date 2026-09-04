@@ -1,17 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Loader2, X } from 'lucide-react';
 import { Link, useParams } from 'wouter';
 import { OpsShell } from '@/components/ops/OpsShell';
+import { OpsOrderCard } from '@/components/ops/OpsOrderCard';
 import { Button } from '@/components/ui/button';
 import {
   fetchOpsCustomerDocumentFile,
   fetchOpsCustomerIdentityNumber,
   fetchOpsCustomerKycFile,
   useOpsCustomerDetail,
+  useOpsCustomerOrders,
+  type OpsAccountDocMeta,
+  type OpsCustomerDetail,
   type OpsIdentityMeta,
+  type OpsShipmentKycMeta,
 } from '@/hooks/useOpsCustomers';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { parseApiErrorMessage } from '@/lib/apiError';
+import { formatIst } from '@/lib/orderDetail';
 import { useAppStore } from '@/lib/store';
 import {
   COMPANY_CATEGORY_SPECS,
@@ -69,28 +75,56 @@ function identityStatusLabel(status: string): string {
   return status;
 }
 
-function ocrStatusLabel(status: string | null): string {
-  if (!status) return '—';
-  if (status === 'match') return 'Verified';
-  if (status === 'unreadable') return 'Unreadable';
-  if (status === 'unavailable') return 'Unavailable';
-  if (status === 'skipped') return 'Skipped';
-  if (status === 'bypassed') return 'Bypassed';
-  return status;
+function documentLabel(raw: string): string {
+  if (isDocSlot(raw)) return DOC_SLOT_SPECS[raw].label;
+  if (raw === 'aadhaar') return 'Aadhaar Card';
+  if (raw === 'pan') return 'PAN Card';
+  if (raw === 'gstin') return 'GSTIN';
+  return raw.trim() !== '' ? raw : 'Document';
 }
 
-function ViewDocumentPlaceholder() {
-  return (
-    <Button
-      type="button"
-      variant="outline"
-      disabled
-      className="h-9 rounded-lg text-xs font-semibold"
-      data-testid="ops-kyc-view-document-placeholder"
-    >
-      View document
-    </Button>
-  );
+type MimeKind = 'image' | 'pdf' | 'other';
+
+function mimeKind(mime: string): MimeKind {
+  if (mime.startsWith('image/')) return 'image';
+  if (mime === 'application/pdf') return 'pdf';
+  return 'other';
+}
+
+type ViewableDoc = {
+  key: string;
+  label: string;
+  source: 'onboarding' | 'shipment';
+  mime_type: string;
+  original_filename: string;
+  updated_at: string;
+  load: () => Promise<Blob>;
+};
+
+function viewableDocuments(data: OpsCustomerDetail): ViewableDoc[] {
+  const rows: ViewableDoc[] = data.kyc.documents.map((row: OpsAccountDocMeta) => ({
+    key: row.doc_slot,
+    label: documentLabel(row.doc_slot),
+    source: 'onboarding' as const,
+    mime_type: row.mime_type,
+    original_filename: row.original_filename,
+    updated_at: row.updated_at,
+    load: () => fetchOpsCustomerDocumentFile(data.customer.id, row.doc_slot),
+  }));
+
+  const shipment: OpsShipmentKycMeta | null = data.kyc.shipment_kyc;
+  if (shipment) {
+    rows.push({
+      key: 'shipment-kyc',
+      label: documentLabel(shipment.document_type),
+      source: 'shipment',
+      mime_type: shipment.mime_type,
+      original_filename: shipment.original_filename,
+      updated_at: shipment.updated_at,
+      load: () => fetchOpsCustomerKycFile(data.customer.id),
+    });
+  }
+  return rows;
 }
 
 type PreviewState = {
@@ -160,13 +194,18 @@ export default function OpsCustomerDetail() {
   const role = useAppStore((s) => s.user?.role);
   const canViewKyc = role === 'super_admin';
   const { data, isLoading, isError, error } = useOpsCustomerDetail(id);
+  const ordersQuery = useOpsCustomerOrders(id);
 
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const [fileBusy, setFileBusy] = useState<string | null>(null);
-  const [fileError, setFileError] = useState('');
+  const [fileErrors, setFileErrors] = useState<Record<string, string>>({});
   const [revealed, setRevealed] = useState<Partial<Record<OpsIdentityMeta['kind'], string>>>({});
   const [revealBusy, setRevealBusy] = useState<OpsIdentityMeta['kind'] | null>(null);
   const [revealError, setRevealError] = useState('');
+
+  const docs = useMemo(() => (data ? viewableDocuments(data) : []), [data]);
+  const showSource = docs.some((doc) => doc.source === 'onboarding') &&
+    docs.some((doc) => doc.source === 'shipment');
 
   useEffect(() => {
     return () => {
@@ -190,7 +229,11 @@ export default function OpsCustomerDetail() {
     load: () => Promise<Blob>,
   ): Promise<void> => {
     if (!id) return;
-    setFileError('');
+    setFileErrors((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
     setFileBusy(key);
     try {
       const blob = await load();
@@ -200,7 +243,10 @@ export default function OpsCustomerDetail() {
         return { title, objectUrl, mime: blob.type };
       });
     } catch (err) {
-      setFileError(parseApiErrorMessage(err, 'Could not load document.'));
+      setFileErrors((prev) => ({
+        ...prev,
+        [key]: parseApiErrorMessage(err, 'Could not load document.'),
+      }));
     } finally {
       setFileBusy(null);
     }
@@ -256,16 +302,165 @@ export default function OpsCustomerDetail() {
 
           {data && (
             <>
+              <div
+                className="flex flex-wrap items-center gap-2 mb-5"
+                data-testid="ops-customer-header"
+              >
+                <span className="inline-block text-[11px] font-bold uppercase tracking-wide rounded-md bg-[#F3F4F6] px-2 py-1">
+                  {data.customer.account_type === 'company' ? 'Company' : 'Personal'}
+                </span>
+                <p className="text-sm text-muted-foreground tabular-nums">
+                  {data.customer.phone ?? '—'}
+                </p>
+              </div>
+
+              <section
+                className="rounded-2xl border border-border bg-white p-4 mb-6"
+                data-testid="ops-customer-kyc-documents"
+              >
+                <h2 className="text-base font-extrabold text-foreground mb-3">Documents</h2>
+
+                {docs.length === 0 ? (
+                  <p
+                    className="text-sm text-muted-foreground"
+                    data-testid={data.kyc.on_file ? 'ops-kyc-no-documents' : 'ops-kyc-empty'}
+                  >
+                    {data.kyc.on_file
+                      ? 'No documents on file to view.'
+                      : 'No KYC records on file — nothing to verify.'}
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-border rounded-xl border border-border">
+                    {docs.map((doc) => {
+                      const kind = mimeKind(doc.mime_type);
+                      return (
+                        <li
+                          key={doc.key}
+                          className="flex items-start justify-between gap-3 px-3 py-2.5"
+                        >
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-sm font-semibold">{doc.label}</p>
+                              {kind !== 'other' && (
+                                <span className="inline-block text-[11px] font-bold rounded-md bg-[#F3F4F6] px-2 py-0.5">
+                                  {kind === 'pdf' ? 'PDF' : 'Image'}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                              {showSource
+                                ? `${doc.source === 'shipment' ? 'Shipment' : 'Onboarding'} · `
+                                : ''}
+                              {doc.original_filename || '—'}
+                              {doc.updated_at ? ` · uploaded ${formatIst(doc.updated_at)}` : ''}
+                            </p>
+                            {fileErrors[doc.key] && (
+                              <p className="text-xs text-red-600 mt-1">{fileErrors[doc.key]}</p>
+                            )}
+                          </div>
+                          {canViewKyc ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-9 rounded-lg text-xs font-semibold shrink-0"
+                              disabled={fileBusy === doc.key}
+                              onClick={() =>
+                                void openBlob(doc.key, doc.original_filename || doc.key, () =>
+                                  doc.load(),
+                                )
+                              }
+                              data-testid={
+                                doc.key === 'shipment-kyc'
+                                  ? 'ops-kyc-view-shipment'
+                                  : `ops-kyc-view-slot-${doc.key}`
+                              }
+                            >
+                              {fileBusy === doc.key ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                'View'
+                              )}
+                            </Button>
+                          ) : null}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+
+                {docs.length > 0 && !canViewKyc && (
+                  <p className="text-xs text-muted-foreground mt-3" data-testid="ops-kyc-admin-note">
+                    Document viewing needs a super-admin account.
+                  </p>
+                )}
+                {canViewKyc && docs.length > 0 && (
+                  <p className="text-xs text-muted-foreground mt-3">
+                    Each view is recorded.
+                  </p>
+                )}
+              </section>
+
+              {data.kyc.identity.length > 0 && (
+                <section
+                  className="rounded-2xl border border-border bg-white p-4 mb-6"
+                  data-testid="ops-customer-kyc-identity"
+                >
+                  <h2 className="text-sm font-semibold text-foreground mb-3">Identity numbers</h2>
+                  <ul className="divide-y divide-border rounded-xl border border-border">
+                    {data.kyc.identity.map((row) => (
+                      <li
+                        key={row.kind}
+                        className="flex items-center justify-between gap-3 px-3 py-2.5"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold">{identityKindLabel(row.kind)}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {identityStatusLabel(row.status)}
+                          </p>
+                          {revealed[row.kind] && (
+                            <p
+                              className="text-sm font-mono font-semibold mt-1 break-all"
+                              data-testid={`ops-kyc-revealed-${row.kind}`}
+                            >
+                              {revealed[row.kind]}
+                            </p>
+                          )}
+                        </div>
+                        {canViewKyc ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-9 rounded-lg text-xs font-semibold shrink-0"
+                            disabled={revealBusy === row.kind}
+                            onClick={() => void revealNumber(row.kind)}
+                            data-testid={`ops-kyc-reveal-${row.kind}`}
+                          >
+                            {revealBusy === row.kind ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              'Reveal number'
+                            )}
+                          </Button>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                  {revealError && (
+                    <p className="text-xs text-red-600 mt-2">{revealError}</p>
+                  )}
+                  {canViewKyc && (
+                    <p className="text-xs text-muted-foreground mt-3">
+                      Numbers are revealed one at a time.
+                    </p>
+                  )}
+                </section>
+              )}
+
               <section
                 className="rounded-2xl border border-border bg-white px-4 mb-6"
                 data-testid="ops-customer-facts"
               >
-                <Fact label="Name" value={data.customer.full_name} />
                 <Fact label="Phone" value={data.customer.phone} />
-                <Fact
-                  label="Account type"
-                  value={data.customer.account_type === 'company' ? 'Company' : 'Personal'}
-                />
                 {data.customer.account_type === 'company' && (
                   <>
                     <Fact label="Company" value={data.customer.company_name} />
@@ -285,181 +480,27 @@ export default function OpsCustomerDetail() {
 
               <section
                 className="rounded-2xl border border-border bg-white p-4 mb-6"
-                data-testid="ops-customer-kyc"
+                data-testid="ops-customer-orders"
               >
-                <div className="flex items-start justify-between gap-3 mb-4">
-                  <h2 className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground">
-                    KYC
-                  </h2>
-                  <span
-                    className={cn(
-                      'inline-block text-[11px] font-bold rounded-md px-2 py-1',
-                      data.kyc.on_file
-                        ? 'bg-emerald-50 text-emerald-800'
-                        : 'bg-[#F3F4F6] text-muted-foreground',
-                    )}
-                  >
-                    {data.kyc.on_file ? 'KYC on file' : 'No KYC'}
-                  </span>
-                </div>
-
-                {data.kyc.identity.length > 0 && (
-                  <div className="mb-4" data-testid="ops-customer-kyc-identity">
-                    <p className="text-xs font-semibold text-muted-foreground mb-2">
-                      Identity numbers
-                    </p>
-                    <ul className="divide-y divide-border rounded-xl border border-border">
-                      {data.kyc.identity.map((row) => (
-                        <li
-                          key={row.kind}
-                          className="flex items-center justify-between gap-3 px-3 py-2.5"
-                        >
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold">{identityKindLabel(row.kind)}</p>
-                            <p className="text-xs text-muted-foreground mt-0.5">
-                              {identityStatusLabel(row.status)}
-                            </p>
-                            {revealed[row.kind] && (
-                              <p
-                                className="text-sm font-mono font-semibold mt-1 break-all"
-                                data-testid={`ops-kyc-revealed-${row.kind}`}
-                              >
-                                {revealed[row.kind]}
-                              </p>
-                            )}
-                          </div>
-                          {canViewKyc ? (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="h-9 rounded-lg text-xs font-semibold shrink-0"
-                              disabled={revealBusy === row.kind}
-                              onClick={() => void revealNumber(row.kind)}
-                              data-testid={`ops-kyc-reveal-${row.kind}`}
-                            >
-                              {revealBusy === row.kind ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                              ) : (
-                                'Reveal number'
-                              )}
-                            </Button>
-                          ) : null}
-                        </li>
-                      ))}
-                    </ul>
-                    {revealError && (
-                      <p className="text-xs text-red-600 mt-2">{revealError}</p>
-                    )}
+                <h2 className="text-base font-extrabold text-foreground mb-3">Orders</h2>
+                {ordersQuery.isLoading && (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
                   </div>
                 )}
-
-                {data.kyc.documents.length > 0 && (
-                  <div className="mb-4" data-testid="ops-customer-kyc-documents">
-                    <p className="text-xs font-semibold text-muted-foreground mb-2">
-                      Onboarding documents
-                    </p>
-                    <ul className="divide-y divide-border rounded-xl border border-border">
-                      {data.kyc.documents.map((row) => (
-                        <li
-                          key={row.doc_slot}
-                          className="flex items-center justify-between gap-3 px-3 py-2.5"
-                        >
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold">
-                              {isDocSlot(row.doc_slot)
-                                ? DOC_SLOT_SPECS[row.doc_slot].label
-                                : row.doc_slot}
-                            </p>
-                            <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                              {ocrStatusLabel(row.ocr_status)}
-                              {row.original_filename ? ` · ${row.original_filename}` : ''}
-                            </p>
-                          </div>
-                          {canViewKyc ? (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="h-9 rounded-lg text-xs font-semibold shrink-0"
-                              disabled={fileBusy === row.doc_slot}
-                              onClick={() =>
-                                void openBlob(row.doc_slot, row.original_filename || row.doc_slot, () =>
-                                  fetchOpsCustomerDocumentFile(data.customer.id, row.doc_slot),
-                                )
-                              }
-                              data-testid={`ops-kyc-view-slot-${row.doc_slot}`}
-                            >
-                              {fileBusy === row.doc_slot ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                              ) : (
-                                'View'
-                              )}
-                            </Button>
-                          ) : (
-                            <ViewDocumentPlaceholder />
-                          )}
-                        </li>
-                      ))}
-                    </ul>
+                {ordersQuery.isError && (
+                  <p className="text-sm text-muted-foreground">Could not load orders.</p>
+                )}
+                {!ordersQuery.isLoading && !ordersQuery.isError && (ordersQuery.data?.length ?? 0) === 0 && (
+                  <p className="text-sm text-muted-foreground">No orders on file.</p>
+                )}
+                {!ordersQuery.isLoading && !ordersQuery.isError && (ordersQuery.data?.length ?? 0) > 0 && (
+                  <div className="rounded-xl border border-border px-3">
+                    {ordersQuery.data!.map((order) => (
+                      <OpsOrderCard key={order.id} order={order} />
+                    ))}
                   </div>
                 )}
-
-                {data.kyc.shipment_kyc && (
-                  <div className="mb-4" data-testid="ops-customer-kyc-shipment">
-                    <p className="text-xs font-semibold text-muted-foreground mb-2">
-                      Shipment KYC
-                    </p>
-                    <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl border border-border">
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold">
-                          {data.kyc.shipment_kyc.document_type}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                          {ocrStatusLabel(data.kyc.shipment_kyc.ocr_status)}
-                          {data.kyc.shipment_kyc.original_filename
-                            ? ` · ${data.kyc.shipment_kyc.original_filename}`
-                            : ''}
-                        </p>
-                      </div>
-                      {canViewKyc ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-9 rounded-lg text-xs font-semibold shrink-0"
-                          disabled={fileBusy === 'shipment-kyc'}
-                          onClick={() =>
-                            void openBlob(
-                              'shipment-kyc',
-                              data.kyc.shipment_kyc!.original_filename ||
-                                data.kyc.shipment_kyc!.document_type,
-                              () => fetchOpsCustomerKycFile(data.customer.id),
-                            )
-                          }
-                          data-testid="ops-kyc-view-shipment"
-                        >
-                          {fileBusy === 'shipment-kyc' ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            'View'
-                          )}
-                        </Button>
-                      ) : (
-                        <ViewDocumentPlaceholder />
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {fileError && <p className="text-xs text-red-600 mb-2">{fileError}</p>}
-
-                {!data.kyc.on_file && (
-                  <p className="text-sm text-muted-foreground">No KYC records on file.</p>
-                )}
-
-                <p className="text-xs text-muted-foreground mt-2">
-                  {canViewKyc
-                    ? 'Each view is recorded. Numbers are revealed one at a time.'
-                    : 'Document viewing is available on desktop for authorised reviewers.'}
-                </p>
               </section>
             </>
           )}

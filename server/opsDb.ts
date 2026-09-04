@@ -25,7 +25,7 @@ import { getUserContactsByIds, toOrder, type OrderRow } from "./ordersDb.js";
 const EXPORT_PAGE_SIZE = 1000;
 
 const BOARD_COLUMNS =
-  "id, order_no, status, created_at, pickup_request, pickup_date, payment_method, payment_status, is_cod, quoted_amount, final_amount, consignee, agent_id, awb_no";
+  "id, order_no, user_id, status, created_at, pickup_request, pickup_date, payment_method, payment_status, is_cod, quoted_amount, final_amount, consignee, agent_id, awb_no";
 
 const DETAIL_COLUMNS =
   "id, order_no, user_id, status, pickup_request, pickup_date, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, itd_docket_response, metadata, created_at, updated_at";
@@ -56,6 +56,8 @@ function consigneeField(
 export type OpsBoardOrder = {
   id: string;
   order_no: string;
+  user_id: string | null;
+  customer_name: string | null;
   status: string;
   created_at: string;
   pickup_request: number;
@@ -75,7 +77,8 @@ export type OpsBoardOrder = {
 export type OpsOrderDetail = {
   id: string;
   order_no: string;
-  user_id: string;
+  user_id: string | null;
+  customer_name: string | null;
   status: string;
   pickup_request: number;
   pickup_date: string | null;
@@ -114,10 +117,18 @@ function toNum(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function parseUserId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed !== "" ? trimmed : null;
+}
+
 function mapBoardRow(row: Record<string, unknown>): OpsBoardOrder {
   return {
     id: String(row.id),
     order_no: String(row.order_no),
+    user_id: parseUserId(row.user_id),
+    customer_name: null,
     status: String(row.status),
     created_at: String(row.created_at),
     pickup_request: row.pickup_request === 2 ? 2 : 1,
@@ -139,7 +150,8 @@ function mapDetailRow(row: Record<string, unknown>): OpsOrderDetail {
   return {
     id: String(row.id),
     order_no: String(row.order_no),
-    user_id: String(row.user_id),
+    user_id: parseUserId(row.user_id),
+    customer_name: null,
     status: String(row.status),
     pickup_request: row.pickup_request === 2 ? 2 : 1,
     pickup_date: (row.pickup_date as string | null) ?? null,
@@ -181,6 +193,28 @@ async function withAgentNames<T extends { agent_id: string | null; agent_name: s
   });
 }
 
+/** Batch-resolve user_id → account-holder full_name. Missing contacts stay null. */
+async function withCustomerNames<
+  T extends { user_id: string | null; customer_name: string | null },
+>(orders: T[]): Promise<T[]> {
+  const ids = orders
+    .map((order) => order.user_id)
+    .filter((id): id is string => Boolean(id));
+  if (ids.length === 0) return orders;
+
+  const contacts = await getUserContactsByIds(ids);
+  return orders.map((order) => {
+    if (!order.user_id) return order;
+    const name = contacts.get(order.user_id)?.full_name?.trim();
+    return { ...order, customer_name: name ? name : null };
+  });
+}
+
+async function withBoardNames(orders: OpsBoardOrder[]): Promise<OpsBoardOrder[]> {
+  const withAgents = await withAgentNames(orders);
+  return withCustomerNames(withAgents);
+}
+
 /** Newest-first board list. Hard cap 200. Optional exact status filter. */
 export async function listAllOrdersForOps(opts: {
   status?: string;
@@ -206,7 +240,7 @@ export async function listAllOrdersForOps(opts: {
     return null;
   }
 
-  return withAgentNames((data ?? []).map((row) => mapBoardRow(row as Record<string, unknown>)));
+  return withBoardNames((data ?? []).map((row) => mapBoardRow(row as Record<string, unknown>)));
 }
 
 /** Full order by id — no user_id filter. */
@@ -226,8 +260,31 @@ export async function getOrderByIdForOps(id: string): Promise<OpsOrderDetail | n
   }
   if (!data) return null;
 
-  const [detail] = await withAgentNames([mapDetailRow(data as Record<string, unknown>)]);
+  const [detail] = await withCustomerNames(
+    await withAgentNames([mapDetailRow(data as Record<string, unknown>)])
+  );
   return detail ?? null;
+}
+
+/** Registered customer's orders — never matches null user_id (guests). */
+export async function listOpsOrdersByCustomer(
+  userId: string
+): Promise<OpsBoardOrder[] | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("orders")
+    .select(BOARD_COLUMNS)
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    logSupabaseError("listOpsOrdersByCustomer", error);
+    return null;
+  }
+
+  return withBoardNames((data ?? []).map((row) => mapBoardRow(row as Record<string, unknown>)));
 }
 
 /**
@@ -582,7 +639,7 @@ export async function listOpsOrdersForExport(
     from += EXPORT_PAGE_SIZE;
   }
 
-  const mapped = await withAgentNames(rawRows.map((row) => mapBoardRow(row)));
+  const mapped = await withBoardNames(rawRows.map((row) => mapBoardRow(row)));
   const config = filterConfigForSection(params.section);
   return applyOpsBoardQuery(mapped, {
     filters: params.filters,

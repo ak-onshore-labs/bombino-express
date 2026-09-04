@@ -1,4 +1,5 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import type { OpsBoardOrder } from '@/hooks/useOpsOrders';
 
 export type OpsCustomerListRow = {
   id: string;
@@ -93,6 +94,23 @@ export function useOpsCustomerDetail(id: string | undefined) {
         credentials: 'include',
       });
       return readJson<OpsCustomerDetail>(res);
+    },
+    enabled: Boolean(id),
+    retry: false,
+    refetchOnMount: 'always',
+  });
+}
+
+export function useOpsCustomerOrders(id: string | undefined) {
+  return useQuery({
+    queryKey: id ? [...opsCustomerDetailKey(id), 'orders'] : ['/api/ops/customers', 'missing', 'orders'],
+    queryFn: async () => {
+      if (!id) throw new Error('404: Customer not found');
+      const res = await fetch(`/api/ops/customers/${encodeURIComponent(id)}/orders`, {
+        credentials: 'include',
+      });
+      const data = await readJson<{ orders: OpsBoardOrder[] }>(res);
+      return data.orders;
     },
     enabled: Boolean(id),
     retry: false,

@@ -57,6 +57,7 @@ export function OpsBoardTable({
             {showStage && <th className="px-4 py-3">Stage</th>}
             <th className="px-4 py-3">Status</th>
             <th className="px-4 py-3">Mode</th>
+            <th className="px-4 py-3">Customer</th>
             <th className="px-4 py-3">Consignee</th>
             <th className="px-4 py-3">Agent</th>
             <th className="px-4 py-3">Payment</th>
@@ -98,6 +99,20 @@ export function OpsBoardTable({
                   />
                 </td>
                 <td className="px-4 py-3">{mode}</td>
+                <td className="px-4 py-3">
+                  {order.user_id ? (
+                    <Link
+                      href={`/ops/customers/${order.user_id}`}
+                      className="font-semibold text-foreground hover:underline"
+                      onClick={(event) => event.stopPropagation()}
+                      data-testid={`ops-board-customer-${order.order_no}`}
+                    >
+                      {order.customer_name?.trim() || 'Customer'}
+                    </Link>
+                  ) : (
+                    '—'
+                  )}
+                </td>
                 <td className="px-4 py-3">{consigneeLabel(order)}</td>
                 <td className="px-4 py-3">{agentLabel(order)}</td>
                 <td className="px-4 py-3">{paymentLabel(order)}</td>

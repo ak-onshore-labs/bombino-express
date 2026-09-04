@@ -11,6 +11,8 @@ import { parseApiErrorMessage } from '@/lib/apiError';
 export type OpsBoardOrder = {
   id: string;
   order_no: string;
+  user_id: string | null;
+  customer_name: string | null;
   status: string;
   created_at: string;
   pickup_request: number;
@@ -37,7 +39,6 @@ export type OpsOrderEvent = {
 };
 
 export type OpsOrderDetail = OpsBoardOrder & {
-  user_id: string;
   origin_address_id: string | null;
   consignee: unknown;
   items: unknown;

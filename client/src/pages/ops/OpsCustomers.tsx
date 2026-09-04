@@ -7,6 +7,16 @@ import { useOpsCustomers } from '@/hooks/useOpsCustomers';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 
+function formatJoined(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
 function DesktopOnlyNotice() {
   return (
     <p
@@ -94,6 +104,9 @@ export default function OpsCustomers() {
                       </p>
                       <p className="text-sm text-muted-foreground tabular-nums mt-0.5">
                         {row.phone ?? '—'}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Joined {formatJoined(row.created_at)}
                       </p>
                     </div>
                     <div className="shrink-0 text-right flex flex-col items-end gap-1">
