@@ -327,6 +327,8 @@ export type OpsCustomerRow = {
 
 export type ListCustomersForOpsInput = {
   q?: string;
+  account_type?: "personal" | "company";
+  kyc?: "on_file" | "none";
   limit?: number;
 };
 
@@ -363,7 +365,8 @@ function mapOpsCustomerRow(row: {
 
 /**
  * Ops customer directory. Customers only — staff never appear here.
- * Search is server-side so a name older than the 200-row cap is still findable.
+ * Search, account_type, and KYC filters run in SQL (ops_list_customers),
+ * then the 200 newest matches are returned.
  */
 export async function listCustomersForOps(
   input: ListCustomersForOpsInput = {}
@@ -374,31 +377,22 @@ export async function listCustomersForOps(
   const limit = input.limit ?? OPS_CUSTOMER_LIST_LIMIT;
   const q = typeof input.q === "string" ? sanitizeCustomerSearch(input.q) : "";
 
-  let query = client
-    .from("itd_users")
-    .select(OPS_CUSTOMER_COLUMNS)
-    .eq("role", "customer")
-    .order("created_at", { ascending: false })
-    .limit(limit);
-
-  if (q) {
-    const compact = q.replace(/[\s-]/g, "");
-    if (/^\d{10}$/.test(compact)) {
-      query = query.eq("phone", compact);
-    } else {
-      const pattern = `%${escapeIlikePattern(q)}%`;
-      query = query.or(`full_name.ilike."${pattern}",phone.ilike."${pattern}"`);
-    }
-  }
-
-  const { data, error } = await query;
+  const { data, error } = await client.rpc("ops_list_customers", {
+    p_q: q || null,
+    p_account_type: input.account_type ?? null,
+    p_kyc: input.kyc ?? null,
+    p_limit: limit,
+  });
 
   if (error) {
     logSupabaseError("listCustomersForOps", error);
     return null;
   }
 
-  return (data ?? []).map(mapOpsCustomerRow).filter((row) => row.id !== "");
+  const raw = Array.isArray(data) ? data : [];
+  return raw
+    .map((row) => mapOpsCustomerRow(row as Parameters<typeof mapOpsCustomerRow>[0]))
+    .filter((row) => row.id !== "");
 }
 
 /** One customer by id. Null when missing or not role=customer. */

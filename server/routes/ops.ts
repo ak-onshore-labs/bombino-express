@@ -22,7 +22,7 @@ import {
   type OpsBoardSection,
 } from "../../shared/opsBoardQuery.js";
 import {
-  accountDocExistsForUserIds,
+  accountDocSlotsForUserIds,
   getAccountDocumentByUserIdAndSlot,
   listAccountDocOpsMetaByUserId,
 } from "../accountDocsDb.js";
@@ -37,7 +37,7 @@ import {
 import { getCodeForOwner, issueCode } from "../handoverCodes.js";
 import {
   getIdentityVerificationByUserIdAndKind,
-  identityExistsForUserIds,
+  identityKindsForUserIds,
   listIdentityOpsMetaByUserId,
   type IdentityKind,
 } from "../identityDb.js";
@@ -47,6 +47,7 @@ import { availableActions } from "../orderLifecycle.js";
 import { insertOrderEvent } from "../ordersDb.js";
 import {
   assignPickup,
+  countOrdersForOpsCustomers,
   getOrderByIdForOps,
   listAllOrdersForOps,
   listOpsOrdersByCustomer,
@@ -74,6 +75,8 @@ const createStaffSchema = z.object({
 
 const customersListQuerySchema = z.object({
   q: z.string().max(80).optional(),
+  account_type: z.enum(["personal", "company"]).optional(),
+  kyc: z.enum(["on_file", "none"]).optional(),
 });
 
 const customerIdSchema = z.string().uuid();
@@ -121,21 +124,6 @@ async function requireOpsKycActorAndCustomer(
     return null;
   }
   return { customerId: customer.id, actorId };
-}
-
-async function kycOnFileUserIds(userIds: string[]): Promise<Set<string> | null> {
-  if (userIds.length === 0) return new Set();
-  const [kyc, docs, identity] = await Promise.all([
-    kycExistsForUserIds(userIds),
-    accountDocExistsForUserIds(userIds),
-    identityExistsForUserIds(userIds),
-  ]);
-  if (kyc === null || docs === null || identity === null) return null;
-  const onFile = new Set<string>();
-  for (const id of userIds) {
-    if (kyc.has(id) || docs.has(id) || identity.has(id)) onFile.add(id);
-  }
-  return onFile;
 }
 
 const assignPickupSchema = z.object({
@@ -447,26 +435,53 @@ export function registerOpsRoutes(app: Express): void {
         return;
       }
 
-      const rows = await listCustomersForOps({ q: parsed.data.q });
+      const rows = await listCustomersForOps({
+        q: parsed.data.q,
+        account_type: parsed.data.account_type,
+        kyc: parsed.data.kyc,
+      });
       if (rows === null) {
         res.status(502).json({ message: "Could not load customers" });
         return;
       }
 
-      const onFile = await kycOnFileUserIds(rows.map((row) => row.id));
-      if (onFile === null) {
+      const pageIds = rows.map((row) => row.id);
+      const [slotsByUser, shipmentByUser, kindsByUser, orderCounts] =
+        await Promise.all([
+          accountDocSlotsForUserIds(pageIds),
+          kycExistsForUserIds(pageIds),
+          identityKindsForUserIds(pageIds),
+          countOrdersForOpsCustomers(pageIds),
+        ]);
+      if (
+        slotsByUser === null ||
+        shipmentByUser === null ||
+        kindsByUser === null ||
+        orderCounts === null
+      ) {
         res.status(502).json({ message: "Could not load customers" });
         return;
       }
+
       res.json({
-        customers: rows.map((row) => ({
-          id: row.id,
-          full_name: row.full_name,
-          phone: row.phone,
-          account_type: row.account_type,
-          created_at: row.created_at,
-          kyc_on_file: onFile.has(row.id),
-        })),
+        customers: rows.map((row) => {
+          const doc_slots = slotsByUser.get(row.id) ?? [];
+          const identity_kinds = kindsByUser.get(row.id) ?? [];
+          const shipment_kyc = shipmentByUser.has(row.id);
+          return {
+            id: row.id,
+            full_name: row.full_name,
+            phone: row.phone,
+            account_type: row.account_type,
+            created_at: row.created_at,
+            kyc_on_file:
+              doc_slots.length > 0 || shipment_kyc || identity_kinds.length > 0,
+            order_count: orderCounts.get(row.id) ?? 0,
+            doc_slots,
+            shipment_kyc,
+            identity_kinds,
+          };
+        }),
       });
     }
   );

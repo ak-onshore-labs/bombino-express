@@ -321,6 +321,35 @@ export async function identityExistsForUserIds(userIds: string[]): Promise<Set<s
   return found;
 }
 
+/** Ops list chips — identity kind presence only. No document_no. */
+export async function identityKindsForUserIds(
+  userIds: string[]
+): Promise<Map<string, string[]> | null> {
+  const byUser = new Map<string, string[]>();
+  if (userIds.length === 0) return byUser;
+
+  const client = getClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("identity_verifications")
+    .select("user_id, kind")
+    .in("user_id", userIds);
+
+  if (error) {
+    logError("identityKindsForUserIds", error);
+    return null;
+  }
+
+  for (const row of data ?? []) {
+    if (typeof row.user_id !== "string" || !isIdentityKind(row.kind)) continue;
+    const kinds = byUser.get(row.user_id) ?? [];
+    if (!kinds.includes(row.kind)) kinds.push(row.kind);
+    byUser.set(row.user_id, kinds);
+  }
+  return byUser;
+}
+
 export type IdentityOpsMeta = {
   kind: IdentityKind;
   status: IdentityStatus;

@@ -387,6 +387,35 @@ export async function accountDocExistsForUserIds(userIds: string[]): Promise<Set
   return found;
 }
 
+/** Ops list chips — doc_slot presence only. No document_no / file_data / capability_id. */
+export async function accountDocSlotsForUserIds(
+  userIds: string[]
+): Promise<Map<string, string[]> | null> {
+  const byUser = new Map<string, string[]>();
+  if (userIds.length === 0) return byUser;
+
+  const client = getClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("account_documents")
+    .select("user_id, doc_slot")
+    .in("user_id", userIds);
+
+  if (error) {
+    logError("accountDocSlotsForUserIds", error);
+    return null;
+  }
+
+  for (const row of data ?? []) {
+    if (typeof row.user_id !== "string" || !isDocSlot(row.doc_slot)) continue;
+    const slots = byUser.get(row.user_id) ?? [];
+    if (!slots.includes(row.doc_slot)) slots.push(row.doc_slot);
+    byUser.set(row.user_id, slots);
+  }
+  return byUser;
+}
+
 export type AccountDocOpsMeta = {
   doc_slot: DocSlot;
   ocr_status: string | null;

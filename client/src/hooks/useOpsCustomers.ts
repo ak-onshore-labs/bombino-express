@@ -8,6 +8,16 @@ export type OpsCustomerListRow = {
   account_type: 'personal' | 'company';
   created_at: string;
   kyc_on_file: boolean;
+  order_count: number;
+  doc_slots: string[];
+  shipment_kyc: boolean;
+  identity_kinds: string[];
+};
+
+export type OpsCustomerListFilters = {
+  q: string;
+  account_type?: 'personal' | 'company';
+  kyc?: 'on_file' | 'none';
 };
 
 export type OpsShipmentKycMeta = {
@@ -67,13 +77,19 @@ async function readJson<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
-export function useOpsCustomers(q: string) {
-  const trimmed = q.trim();
+export function useOpsCustomers(filters: OpsCustomerListFilters) {
+  const trimmed = filters.q.trim();
+  const accountType = filters.account_type;
+  const kyc = filters.kyc;
   return useQuery({
-    queryKey: [...OPS_CUSTOMERS_KEY, trimmed],
+    queryKey: [...OPS_CUSTOMERS_KEY, trimmed, accountType ?? '', kyc ?? ''],
     queryFn: async () => {
-      const params = trimmed ? `?q=${encodeURIComponent(trimmed)}` : '';
-      const res = await fetch(`/api/ops/customers${params}`, {
+      const params = new URLSearchParams();
+      if (trimmed) params.set('q', trimmed);
+      if (accountType) params.set('account_type', accountType);
+      if (kyc) params.set('kyc', kyc);
+      const qs = params.toString();
+      const res = await fetch(`/api/ops/customers${qs ? `?${qs}` : ''}`, {
         credentials: 'include',
       });
       const data = await readJson<{ customers: OpsCustomerListRow[] }>(res);

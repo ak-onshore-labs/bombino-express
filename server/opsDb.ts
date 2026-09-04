@@ -287,6 +287,35 @@ export async function listOpsOrdersByCustomer(
   return withBoardNames((data ?? []).map((row) => mapBoardRow(row as Record<string, unknown>)));
 }
 
+/** Grouped order counts for a page of registered customer ids. */
+export async function countOrdersForOpsCustomers(
+  userIds: string[]
+): Promise<Map<string, number> | null> {
+  const counts = new Map<string, number>();
+  if (userIds.length === 0) return counts;
+
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client.rpc("ops_customer_order_counts", {
+    p_ids: userIds,
+  });
+
+  if (error) {
+    logSupabaseError("countOrdersForOpsCustomers", error);
+    return null;
+  }
+
+  const raw = Array.isArray(data) ? data : [];
+  for (const row of raw) {
+    const rec = row as { user_id?: unknown; order_count?: unknown };
+    if (typeof rec.user_id !== "string") continue;
+    const n = typeof rec.order_count === "number" ? rec.order_count : Number(rec.order_count);
+    if (Number.isFinite(n)) counts.set(rec.user_id, n);
+  }
+  return counts;
+}
+
 /**
  * Admin-directed assign. Copies claimPickup's atomic UPDATE so self-claim and
  * ops-assign share one mutex: exactly one winner under READ COMMITTED.
