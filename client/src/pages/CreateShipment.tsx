@@ -410,6 +410,32 @@ const PRODUCT_TYPE_INFO: Record<string, { title: string; body: string }> = {
 };
 
 /**
+ * One thing already on file, on the booking gate.
+ *
+ * A tick and two words: what we have, and what it is. The point is not
+ * decoration but arithmetic the customer can do at a glance — three fewer
+ * things to type than a stranger would face.
+ */
+function ReadyRow({ label, value }: { label: string; value: string }): React.JSX.Element {
+  return (
+    <li className="flex items-center gap-3">
+      <span
+        className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-green-100 text-green-700"
+        aria-hidden
+      >
+        <Check className="h-3.5 w-3.5" strokeWidth={3} />
+      </span>
+      <span className="min-w-0 flex-1 text-left">
+        <span className="block text-[11px] uppercase tracking-wider text-muted-foreground">
+          {label}
+        </span>
+        <span className="block truncate text-sm font-medium text-foreground">{value}</span>
+      </span>
+    </li>
+  );
+}
+
+/**
  * A named group inside a step.
  *
  * The sender step asks for five unrelated things — who you are, where the
@@ -1172,18 +1198,54 @@ export default function CreateShipment() {
           </div>
         </header>
 
-        <main className="flex flex-col items-center justify-center min-h-[60vh] max-w-md mx-auto px-4 text-center">
-          <div className="w-16 h-16 bg-[lab(34.0831_-9.57756_-27.7093)]/8 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Send className="w-8 h-8 text-[lab(34.0831_-9.57756_-27.7093)]" />
+        <main className="mx-auto flex min-h-[60vh] max-w-md flex-col justify-center px-4 py-6">
+          {/* Centred, not stranded.
+              This screen is three buttons and used to hang them in the top
+              third of an empty page, with the support orb floating alone in
+              the space underneath. What fills that space now is the reason
+              somebody can press the first button at all: the things we
+              already hold for them, said plainly. */}
+          <div className="text-center">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[lab(34.0831_-9.57756_-27.7093)]/8">
+              <Send className="h-7 w-7 text-[lab(34.0831_-9.57756_-27.7093)]" />
+            </div>
+            <h2 className="text-xl font-bold text-[lab(34.0831_-9.57756_-27.7093)]">
+              Send a parcel
+            </h2>
+            <p className="mx-auto mt-1.5 max-w-[32ch] text-sm leading-relaxed text-muted-foreground">
+              {guestProfile
+                ? 'Pick up where you left off. Nothing to type twice.'
+                : 'India to the USA, door to door. Sign in, or book as a guest.'}
+            </p>
           </div>
-          <h2 className="text-lg font-semibold text-[lab(34.0831_-9.57756_-27.7093)] mb-2">
-            Send a parcel
-          </h2>
-          <p className="text-sm text-muted-foreground mb-6">
-            {guestProfile
-              ? 'Your number and identity document are already on file.'
-              : 'Sign in to use your saved addresses and documents, or book as a guest.'}
-          </p>
+
+          {/* What a returning guest is actually continuing WITH. Three lines
+              of fact rather than an empty half-screen, and each one is a thing
+              they would otherwise have to provide again. */}
+          {guestProfile && (
+            <ul className="mt-6 space-y-2.5 rounded-2xl border border-border bg-card p-4">
+              {/* Only what the button does not already say. It carries the
+                  name and the number; repeating them here would be the same
+                  two facts three times on one short screen. */}
+              {guestProfile.kyc && (
+                <ReadyRow label="Identity document" value={guestProfile.kyc.summary} />
+              )}
+              {guestProfile.email && (
+                <ReadyRow label="Receipts go to" value={guestProfile.email} />
+              )}
+              {guestProfile.orders.length > 0 && (
+                <ReadyRow
+                  label="Filed against your number"
+                  value={
+                    guestProfile.orders.length === 1
+                      ? '1 previous booking'
+                      : `${guestProfile.orders.length} previous bookings`
+                  }
+                />
+              )}
+            </ul>
+          )}
+
 
           {/* Someone we have met before does not get asked who they are.
               Their number is verified, their document is on file and their
