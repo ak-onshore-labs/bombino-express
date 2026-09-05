@@ -149,12 +149,16 @@ export function SupportFab() {
   const isMobile = useIsMobile();
   const [location] = useLocation();
   /**
-   * Screens that park their own action bar on top of the nav.
+   * Screens that put their own control in the bottom band.
    *
-   * Only booking today. Kept as a list rather than a prop because the FAB is
-   * mounted by BottomNav, not by the page, so the page has no way to tell it.
+   * Booking parks a Continue bar there; the guest profile ends in Sign out.
+   * Either way a floating button landing on top of it is a tap the customer
+   * loses to the wrong target, so the FAB steps up out of the way.
+   *
+   * A list rather than a prop because the FAB is mounted by BottomNav, not by
+   * the page, so the page has no way to tell it.
    */
-  const hasStickyActions = location === '/create';
+  const hasStickyActions = location === '/create' || location.startsWith('/guest-profile');
 
   const isPositioned = position !== null;
 

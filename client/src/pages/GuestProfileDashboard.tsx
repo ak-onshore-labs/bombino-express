@@ -174,28 +174,6 @@ export default function GuestProfileDashboard(): React.JSX.Element {
   return (
     <GuestShell onBack={() => setLocation('/home')}>
       <div className="space-y-4 px-4 py-4">
-        {/* Who we think they are. The number is the identity, so it leads. */}
-        <section
-          className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 shadow-sm"
-          data-testid="guest-profile-identity"
-        >
-          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-primary/10">
-            <UserCircle className="h-6 w-6 text-primary" aria-hidden />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-base font-semibold text-foreground">
-              {guestProfile.full_name?.trim() || 'Guest'}
-            </p>
-            <p className="mt-0.5 flex items-center gap-1.5 text-sm text-muted-foreground">
-              <ShieldCheck
-                className="h-4 w-4 shrink-0 text-green-600"
-                aria-label="Verified"
-              />
-              <span className="truncate">{formatGuestPhone(guestProfile.phone)}</span>
-            </p>
-          </div>
-        </section>
-
         {/* One card, one ask.
             The action lives with the list of gaps rather than in a card of its
             own repeating the same sentence, and the label follows the state:
