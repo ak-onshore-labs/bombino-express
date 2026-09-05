@@ -31,6 +31,7 @@ import { useKycOnFile } from '@/hooks/useKycOnFile';
 import { GuestVerification } from '@/components/GuestVerification';
 import { ContractSignature } from '@/components/ContractSignature';
 import { useGuestProfile, invalidateGuestProfile } from '@/hooks/useGuestProfile';
+import { useRaisedSupportFab } from '@/hooks/useRaisedSupportFab';
 import { formatGuestPhone, type ShadowProfileFieldKey } from '@/lib/shadowProfile';
 import { ShipmentContentSearch } from '@/components/ShipmentContentSearch';
 import {
@@ -503,6 +504,9 @@ function StepActions({
   nextLabel: string;
   step: number;
 }): React.JSX.Element {
+  // This bar is the bottom band while it is on screen.
+  useRaisedSupportFab();
+
   return (
     <div className="sticky bottom-nav-stack z-30 -mx-4 mt-2 border-t border-border bg-background/95 px-4 py-3 backdrop-blur-sm md:-mx-6 md:px-6">
       {/* Above the buttons, not below them: an error a customer has to scroll
@@ -1198,7 +1202,12 @@ export default function CreateShipment() {
           </div>
         </header>
 
-        <main className="mx-auto flex min-h-[60vh] max-w-md flex-col justify-center px-4 py-6">
+        {/* Centred in the space it actually has, not in an arbitrary 60vh.
+            The old height left roughly two fifths of the screen empty below
+            the last button, which is where the support orb ended up floating
+            on its own. Header (3.5rem) and the bottom nav are subtracted so
+            the block sits optically centred on any phone. */}
+        <main className="mx-auto flex min-h-[calc(100dvh-3.5rem-var(--nav-stack))] max-w-md flex-col justify-center px-4 py-6">
           {/* Centred, not stranded.
               This screen is three buttons and used to hang them in the top
               third of an empty page, with the support orb floating alone in
@@ -1246,13 +1255,12 @@ export default function CreateShipment() {
             </ul>
           )}
 
-
           {/* Someone we have met before does not get asked who they are.
               Their number is verified, their document is on file and their
               past orders are filed against the same ref — so the first button
               is their own name, not a choice between two kinds of stranger. */}
           {guestProfile ? (
-            <div className="w-full space-y-3">
+            <div className="mt-5 w-full space-y-3">
               <Button
                 onClick={() => setGuestMode(true)}
                 className="w-full h-auto flex-col gap-1 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] font-semibold py-3 rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
@@ -1289,7 +1297,7 @@ export default function CreateShipment() {
               </button>
             </div>
           ) : (
-            <div className="w-full space-y-3">
+            <div className="mt-6 w-full space-y-3">
               <Button
                 onClick={() => setLocation('/login?redirect=/create')}
                 className="w-full bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] font-semibold h-12 rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
@@ -1316,7 +1324,7 @@ export default function CreateShipment() {
               returning customer what we will need, when we have it, reads as
               an app that has not looked. */}
           {!guestProfile && (
-            <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
+            <p className="mt-5 text-center text-xs leading-relaxed text-muted-foreground">
               Either way we&rsquo;ll need your phone number and an identity document —
               Indian customs requires one on every shipment.
             </p>

@@ -243,10 +243,16 @@ export default function GuestProfileDashboard(): React.JSX.Element {
         {/* Last, and quiet. Nothing here is destroyed by it — the copy in the
             dialog says so — but it is the only way to stop this device being
             somebody, so it must be findable rather than hidden. */}
+        {/* Auto width, centred, and deliberately not full bleed.
+            The support orb floats in the bottom-right corner on every customer
+            screen, and a full-width button as the last row ran straight under
+            it — one tap, two targets. Keeping this one out of the corner is
+            steadier than pushing the orb around per page, and a quiet exit
+            reads better as a short button than as a bar. */}
         <button
           type="button"
           onClick={() => setSignOutOpen(true)}
-          className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-card py-3 text-sm font-semibold text-muted-foreground hover:bg-muted"
+          className="mx-auto flex items-center justify-center gap-2 rounded-xl border border-border bg-card px-5 py-3 text-sm font-semibold text-muted-foreground hover:bg-muted"
           data-testid="button-guest-sign-out"
         >
           <LogOut className="h-4 w-4" aria-hidden />
