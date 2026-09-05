@@ -191,6 +191,29 @@ textarea::placeholder {
   bottom: var(--agent-nav-stack);
 }
 
+/* A form's action bar, parked above the customer BottomNav.
+ *
+ * `sticky` rather than `fixed`: it travels with the form column, so it cannot
+ * cover a field on a short step and cannot escape the max-width the rest of
+ * the page is laid out in. The offset is the nav's own height token, the same
+ * way .bottom-agent-nav rides the agent bar.
+ *
+ * On desktop there is no BottomNav (it is md:hidden), so the offset collapses. */
+.bottom-nav-stack {
+  bottom: var(--nav-stack);
+}
+
+@media (min-width: 768px) {
+  .bottom-nav-stack {
+    bottom: 0;
+  }
+}
+
+/* Scroll clearance for a step that ends in one: nav + the bar's own height. */
+.pb-step-actions {
+  padding-bottom: calc(var(--nav-stack) + 4.5rem);
+}
+
 /* ShipmentDetails: scroll clearance above BottomNav + fixed WhatsApp/Call strip (keep in sync with strip layout). */
 .pb-nav-strip {
   padding-bottom: calc(var(--nav-stack) + 5rem);

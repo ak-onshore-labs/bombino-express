@@ -19,6 +19,28 @@ export function requireUser(req: Request, res: Response, next: NextFunction): vo
 }
 
 /**
+ * An account OR a guest holding a verified phone.
+ *
+ * A guest booking deliberately has no `session.user` — that is the whole point
+ * of it — but it does get `session.guestRef` minted at order creation, and the
+ * customer still has to be able to pay for the order they just placed. Routes
+ * that serve both mount this instead of `requireUser`.
+ *
+ * It proves only that SOMEONE identifiable is asking. It says nothing about
+ * what they may touch: every route behind it still resolves the caller and
+ * checks the order belongs to them (`paymentCaller` / `ownsOrder` in
+ * server/routes/payments.ts). Never use this where ownership is not checked
+ * downstream.
+ */
+export function requireUserOrGuest(req: Request, res: Response, next: NextFunction): void {
+  if (!req.session.user && !req.session.guestRef) {
+    res.status(401).json({ message: "Not authenticated" });
+    return;
+  }
+  next();
+}
+
+/**
  * Role gate. Interim stand-in for M1's `requireRole` — same signature and the
  * same 403 body shape, so swapping in the real one is an import change.
  *

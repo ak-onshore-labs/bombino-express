@@ -16,6 +16,7 @@ import { AccountDocuments } from '@/components/AccountDocuments';
 import { ContractSignature } from '@/components/ContractSignature';
 import { AuthShell } from '@/components/auth/AuthShell';
 import { useAppStore, type AuthUser } from '@/lib/store';
+import { useGuestProfile } from '@/hooks/useGuestProfile';
 import { apiRequest } from '@/lib/queryClient';
 import { parseApiErrorCode, parseApiErrorMessage } from '@/lib/apiError';
 import { usePincodeLookup } from '@/hooks/usePincodeLookup';
@@ -55,16 +56,52 @@ const ACCOUNT_TYPES = ['personal', 'company'] as const satisfies readonly Accoun
  * upload has something fixed to be judged against. See AccountDocuments and
  * server/cashfreeIdentity.ts.
  */
-type Step = 'details' | 'otp' | 'documents' | 'preview';
+/**
+ * `account_type` is a step of its own, and the first one.
+ *
+ * It used to be a two-tab toggle above the details form, which made the single
+ * most consequential choice on this screen — it decides the documents, the
+ * fields, who signs the contract, and what the invoice says — look like a
+ * filter over a form that had already started. People filled in a personal
+ * account and found the toggle afterwards.
+ *
+ * Nothing is asked until it is answered.
+ */
+type Step = 'account_type' | 'details' | 'otp' | 'documents' | 'preview';
 
-const TOTAL_STEPS = 4;
+const TOTAL_STEPS = 5;
 
 export default function Signup() {
   const [, setLocation] = useLocation();
   const { login } = useAppStore();
 
-  const [accountType, setAccountType] = useState<AccountType>('personal');
-  const [step, setStep] = useState<Step>('details');
+  /**
+   * Preselected by whoever sent them here.
+   *
+   * The guest profile offers "Personal account" and "Company account" as two
+   * separate doors, so the choice has already been made by the time this
+   * screen opens — landing a business on the personal form and leaving them to
+   * find the toggle is how a company account gets opened as a personal one.
+   *
+   * Still a toggle: the param sets the starting position, it does not lock it.
+   */
+  const initialAccountType: AccountType =
+    new URLSearchParams(window.location.search).get('type') === 'company'
+      ? 'company'
+      : 'personal';
+  const [accountType, setAccountType] = useState<AccountType>(initialAccountType);
+  /** Set once the guest profile answers, unless the customer has moved it. */
+  const accountTypeTouched = useRef(false);
+  /**
+   * The guest profile offers the two shapes as separate doors, so arriving
+   * with `?type=` means the question has already been answered and asking it
+   * again on the next screen would be asking twice. Everyone else starts on
+   * the choice.
+   */
+  const typePreselected = new URLSearchParams(window.location.search).has('type');
+  const [step, setStep] = useState<Step>(
+    new URLSearchParams(window.location.search).has('type') ? 'details' : 'account_type'
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -92,6 +129,65 @@ export default function Signup() {
 
   // Both paths
   const [email, setEmail] = useState('');
+
+  /**
+   * What the guest already told us, carried into the account they are opening.
+   *
+   * A guest who books has given a name and an email at least once, and the
+   * server holds both against their verified number. Asking for them again on
+   * the way to an account is asking the same person the same question twice.
+   *
+   * Fills only what is still empty, so a customer who has started typing — or
+   * who is opening a COMPANY account and wants the contact person to be
+   * somebody else — keeps what they entered.
+   */
+  const { data: guestProfile } = useGuestProfile();
+  useEffect(() => {
+    if (!guestProfile) return;
+    // They already answered this on their profile, where it is stored. Landing
+    // them on the other shape would be ignoring their own record.
+    if (guestProfile.account_type && !accountTypeTouched.current && !typePreselected) {
+      setAccountType(guestProfile.account_type);
+      setStep((current) => (current === 'account_type' ? 'details' : current));
+    }
+    if (guestProfile.full_name) {
+      setFullName((current) => current || guestProfile.full_name || '');
+      setContactPerson((current) => current || guestProfile.full_name || '');
+    }
+    if (guestProfile.email) setEmail((current) => current || guestProfile.email || '');
+    setPhone((current) => current || guestProfile.phone);
+
+    // The company set, which the profile now collects in full. Every one of
+    // these is a field this form would otherwise ask for a second time.
+    if (guestProfile.company_category) {
+      setCategory((current) => current || guestProfile.company_category!);
+    }
+    if (guestProfile.company_name) {
+      setCompanyName((current) => current || guestProfile.company_name || '');
+    }
+    if (guestProfile.gstin) setGstin((current) => current || guestProfile.gstin || '');
+    if (guestProfile.contact_person) {
+      setContactPerson((current) => current || guestProfile.contact_person || '');
+    }
+    if (guestProfile.address_line_1) {
+      setAddress((current) => current || guestProfile.address_line_1 || '');
+    }
+    if (guestProfile.pincode) setPincode((current) => current || guestProfile.pincode || '');
+    if (guestProfile.city) setCity((current) => current || guestProfile.city || '');
+    if (guestProfile.state) setState((current) => current || guestProfile.state || '');
+    if (guestProfile.hub_id) setHubId((current) => current || guestProfile.hub_id || '');
+
+    const savedExtras = guestProfile.extras;
+    if (savedExtras && Object.keys(savedExtras).length > 0) {
+      setExtras((current) => {
+        const next = { ...current };
+        for (const [key, value] of Object.entries(savedExtras)) {
+          if (value && !next[key as ExtraField]) next[key as ExtraField] = value;
+        }
+        return next;
+      });
+    }
+  }, [guestProfile]);
   const [missingDocs, setMissingDocs] = useState<DocSlot[]>([]);
   const [flaggedDocs, setFlaggedDocs] = useState<readonly DocSlot[]>([]);
 
@@ -201,7 +297,14 @@ export default function Signup() {
     (tabs?.[next] as HTMLButtonElement | undefined)?.focus();
   };
 
+  /** Answer the first question and move on. */
+  const chooseAccountType = (next: AccountType): void => {
+    switchAccountType(next);
+    setStep('details');
+  };
+
   const switchAccountType = (next: AccountType): void => {
+    accountTypeTouched.current = true;
     setAccountType(next);
     setStep('details');
     setErrors({});
@@ -398,6 +501,10 @@ export default function Signup() {
 
   /** The step behind each one, for both the arrow and the browser. */
   const PREVIOUS_STEP: Partial<Record<Step, Step>> = {
+    // Only when this screen asked the question. Someone sent here from the
+    // guest profile chose there, so Back belongs outside the flow rather than
+    // on a step they never saw.
+    ...(typePreselected ? {} : { details: 'account_type' as const }),
     otp: 'details',
     documents: 'details',
     preview: 'documents',
@@ -436,16 +543,20 @@ export default function Signup() {
           : 'Confirm & create account';
 
   const stepIndex =
-    step === 'details'
+    step === 'account_type'
       ? 1
-      : step === 'otp'
+      : step === 'details'
         ? 2
-        : step === 'documents'
+        : step === 'otp'
           ? 3
-          : 4;
+          : step === 'documents'
+            ? 4
+            : 5;
 
   const stepSubtitle =
-    step === 'details' ? (
+    step === 'account_type' ? (
+      'What kind of account is this? It decides what we ask for next.'
+    ) : step === 'details' ? (
       'Tell us who the account is for.'
     ) : step === 'otp' ? (
       <>
@@ -476,7 +587,10 @@ export default function Signup() {
       totalSteps={TOTAL_STEPS}
       testId="screen-signup"
       beforeCard={
-        step === 'details' ? (
+        // Shown from the details step onward so the answer stays visible and
+        // correctable. It is no longer where the choice is MADE — that is step
+        // one — so it never appears before it has been answered.
+        step === 'details' && !typePreselected ? (
           <div className="flex bg-muted rounded-xl p-1 mb-5" role="tablist" aria-label="Account type">
             {ACCOUNT_TYPES.map((type) => (
               <button
@@ -505,18 +619,97 @@ export default function Signup() {
       }
       footer={
         step === 'details' ? (
-          <p className="text-center text-sm text-muted-foreground mt-5">
-            Already registered?{' '}
-            <Link
-              href={redirect ? `/login?redirect=${encodeURIComponent(redirect)}` : '/login'}
-              className="text-[#F2A123] font-semibold hover:underline"
-            >
-              Sign in
-            </Link>
-          </p>
+          <div className="mt-5 space-y-2 text-center">
+            <p className="text-sm text-muted-foreground">
+              Already registered?{' '}
+              <Link
+                href={redirect ? `/login?redirect=${encodeURIComponent(redirect)}` : '/login'}
+                className="text-[#F2A123] font-semibold hover:underline"
+              >
+                Sign in
+              </Link>
+            </p>
+            {/* The way back to an ITD account that predates phone sign-in.
+                Since a number we have never seen comes straight here, this is
+                the only entry to /api/auth/link/itd — and it is offered here
+                because that endpoint needs a verification only minutes old,
+                which is what the customer has just done to reach this screen. */}
+            {preVerified && phone && (
+              <p className="text-xs text-muted-foreground">
+                Shipped with Bombino before this app?{' '}
+                <Link
+                  href={`/login?link=1&phone=${encodeURIComponent(phone)}${
+                    redirect ? `&redirect=${encodeURIComponent(redirect)}` : ''
+                  }`}
+                  className="font-semibold text-[#2F4468] underline underline-offset-4"
+                  data-testid="link-existing-itd-account"
+                >
+                  Link your existing account
+                </Link>
+              </p>
+            )}
+          </div>
         ) : null
       }
     >
+            {step === 'account_type' && (
+              <div className="space-y-3" data-testid="step-account-type">
+                {/* The same two cards the guest profile offers, on purpose: a
+                    customer who saw them there should meet the same choice
+                    worded the same way here. Each subtitle names what the
+                    shape actually costs — the document list comes straight
+                    from shared/accountSpec.ts. */}
+                <button
+                  type="button"
+                  onClick={() => chooseAccountType('personal')}
+                  className="flex w-full items-start gap-3 rounded-xl border border-[#E2E8F0] bg-white p-4 text-left transition-colors hover:border-[#F2A123] active:scale-[0.99]"
+                  data-testid="button-choose-personal"
+                >
+                  <span
+                    className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"
+                    aria-hidden
+                  >
+                    <UserRound className="h-5 w-5" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold text-foreground">
+                      Personal account
+                    </span>
+                    <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+                      Sending your own parcels. We&rsquo;ll ask for your Aadhaar and PAN.
+                    </span>
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => chooseAccountType('company')}
+                  className="flex w-full items-start gap-3 rounded-xl border border-[#E2E8F0] bg-white p-4 text-left transition-colors hover:border-[#F2A123] active:scale-[0.99]"
+                  data-testid="button-choose-company"
+                >
+                  <span
+                    className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"
+                    aria-hidden
+                  >
+                    <Building2 className="h-5 w-5" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold text-foreground">
+                      Company account
+                    </span>
+                    <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+                      Shipping under a GSTIN. Invoices in the company name, and the
+                      documents depend on the category.
+                    </span>
+                  </span>
+                </button>
+
+                <p className="pt-1 text-center text-xs leading-relaxed text-muted-foreground">
+                  You can change this on the next screen, before anything is saved.
+                </p>
+              </div>
+            )}
+
             {step === 'details' && accountType === 'personal' && (
               <>
                 <div>
@@ -908,6 +1101,10 @@ export default function Signup() {
               <p role="alert" className="text-sm text-red-500">{errors.form}</p>
             )}
 
+            {/* No footer button on the choice step: picking a card IS the
+                action, and a disabled Continue underneath it would only ask
+                the same question twice. */}
+            {step !== 'account_type' && (
             <Button
               onClick={primaryAction}
               disabled={isLoading}
@@ -916,6 +1113,7 @@ export default function Signup() {
             >
               {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : primaryLabel}
             </Button>
+            )}
 
     </AuthShell>
   );

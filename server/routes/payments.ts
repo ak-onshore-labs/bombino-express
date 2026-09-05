@@ -39,7 +39,7 @@
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import { notifyPaymentFailed, notifyPaymentReceived } from "../notify.js";
-import { ensureDbUser, requireUser } from "../routeGuards.js";
+import { ensureDbUser, requireUserOrGuest } from "../routeGuards.js";
 import { getOrderById, getUserContactsByIds, insertOrderEvent } from "../ordersDb.js";
 import {
   attachRazorpayOrderId,
@@ -140,7 +140,11 @@ export function registerPaymentRoutes(app: Express): void {
   // What the client may offer, decided here rather than guessed there. Two
   // booleans and no secrets: the key id is only handed out by `/order`, which
   // has already checked the order is payable.
-  app.get("/api/payments/config", requireUser, (_req: Request, res: Response) => {
+  // Guests too: they are the callers most likely to be asking, having just
+  // booked without an account. `requireUser` here 401'd every guest, and the
+  // client's session interceptor read that 401 as an expired session and signed
+  // them out mid-payment.
+  app.get("/api/payments/config", requireUserOrGuest, (_req: Request, res: Response) => {
     res.json({
       gateway_configured: isRazorpayConfigured(),
       test_mode: isPaymentsTestModeEnabled(),
@@ -158,7 +162,7 @@ export function registerPaymentRoutes(app: Express): void {
   // finds. What it skips is only the money.
   app.post(
     "/api/payments/test/settle",
-    requireUser,
+    requireUserOrGuest,
     ensureDbUser,
     async (req: Request, res: Response) => {
       // 404, not 403: an endpoint that is off should not confirm it exists.
@@ -265,7 +269,7 @@ export function registerPaymentRoutes(app: Express): void {
   // gateway order we never created.
   app.post(
     "/api/payments/razorpay/order",
-    requireUser,
+    requireUserOrGuest,
     ensureDbUser,
     async (req: Request, res: Response) => {
       const caller = paymentCallerFrom(req);
@@ -380,7 +384,7 @@ export function registerPaymentRoutes(app: Express): void {
   // safe to report honestly to the customer.
   app.post(
     "/api/payments/razorpay/verify",
-    requireUser,
+    requireUserOrGuest,
     ensureDbUser,
     async (req: Request, res: Response) => {
       const caller = paymentCallerFrom(req);

@@ -1170,6 +1170,53 @@ export async function listAddressesByUserIdAndType(
   return data ?? [];
 }
 
+/**
+ * The same list, for a guest.
+ *
+ * A guest's pickup address is a real `addresses` row like anyone else's — see
+ * migrations/add_guest_orders.sql, which made `user_id` nullable and added
+ * `guest_ref` precisely so ops and the agent app could keep reading pickup
+ * addresses through `orders.origin_address_id` without a second code path.
+ * `findOrCreateAddress` has been writing these rows since guest booking
+ * existed; nothing was reading them back.
+ *
+ * Ordering matches the account version deliberately: most-used first, then
+ * most-recent, so a returning guest's usual pickup address leads.
+ */
+export async function listAddressesByGuestRefAndType(
+  guestRef: string,
+  type: "sender" | "recipient"
+): Promise<
+  {
+    id: string;
+    full_name: string;
+    company: string | null;
+    phone: string;
+    address_line_1: string;
+    city: string;
+    state: string | null;
+    pincode: string | null;
+    type: "sender" | "recipient";
+  }[] | null
+> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("addresses")
+    .select("id, full_name, company, phone, address_line_1, city, state, pincode, type, country_code")
+    .eq("guest_ref", guestRef)
+    .eq("type", type)
+    .order("use_count", { ascending: false })
+    .order("last_used_at", { ascending: false });
+
+  if (error) {
+    logSupabaseError("listAddressesByGuestRefAndType", error);
+    return null;
+  }
+  return data ?? [];
+}
+
 export async function markNotificationRead(
   notificationId: string,
   userId: string

@@ -26,8 +26,25 @@ import { useAppStore } from '@/lib/store';
  * `/api/account/verification` is the same shape: the banner asks it on every
  * customer screen, including ones a signed-out visitor can reach, and its 401
  * means "nobody is signed in" rather than "your session just died".
+ *
+ * `/api/payments/` is the guest case. A guest pays for the order they just
+ * booked with no `session.user` at all, so a 401 from these endpoints does not
+ * distinguish "your session died" from "you never had one" — and treating it
+ * as an expiry signed a guest out of their own checkout and dropped them on
+ * the login screen. The payment call reports its own failure to the customer;
+ * a genuinely dead account session is still caught by `verifySession` on the
+ * next foreground, and by the first non-payment request.
  */
-const NOT_AN_EXPIRY = ['/api/auth/', '/api/kyc/me', '/api/account/verification'];
+const NOT_AN_EXPIRY = [
+  '/api/auth/',
+  '/api/kyc/me',
+  '/api/account/verification',
+  '/api/payments/',
+  // The guest's own endpoints. Their 401 means "no verified number in this
+  // browser" — the normal state for a visitor — and treating it as an expiry
+  // would bounce a guest to the login screen for looking at their own profile.
+  '/api/guest/',
+];
 
 function isExpiryPath(url: string): boolean {
   return !NOT_AN_EXPIRY.some((prefix) => url.includes(prefix));

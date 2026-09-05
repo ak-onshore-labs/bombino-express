@@ -12,6 +12,8 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 import { type DisplayRow } from '@/lib/shipmentRows';
 import { useNotifications, useOrderHistory } from '@/hooks/useCustomerOrders';
+import { useGuestProfile } from '@/hooks/useGuestProfile';
+import { GuestOrders } from '@/components/GuestOrders';
 import HomeDesktop from '@/pages/HomeDesktop';
 
 function HomeShipmentsSkeleton() {
@@ -97,6 +99,10 @@ function HomeMobile() {
   const [trackingNumber, setTrackingNumber] = useState('');
   const [, setLocation] = useLocation();
   const { isLoggedIn, user } = useAppStore();
+  // A guest's bookings live nowhere they can reach — /orders is an account
+  // screen. Home is where someone looks for "where is my parcel", so the
+  // orders they placed belong here rather than only behind the profile link.
+  const { data: guestProfile } = useGuestProfile({ enabled: !isLoggedIn });
 
   // Both poll while the tab is in front — home is the screen a customer leaves
   // open, and it was the worst offender for showing yesterday's state.
@@ -198,20 +204,52 @@ function HomeMobile() {
           </Link>
         </div>
 
-        {/* ZONE 3: Auth Banner (Guest Only) */}
-        {!isLoggedIn && (
-          <div className="flex items-center justify-between py-4 px-1" data-testid="zone-auth">
-            <p className="text-sm text-muted-foreground">Sign in to manage your shipments</p>
-            <div className="flex gap-2.5">
+        {/* ZONE 2.5: A guest's own bookings.
+            Above the sign-in prompt deliberately: what they already have with
+            us outranks an invitation to open an account. Capped at three —
+            Home is a starting point, and the full list is one tap away. */}
+        {!isLoggedIn && guestProfile && guestProfile.orders.length > 0 && (
+          <GuestOrders orders={guestProfile.orders} limit={3} showViewAll />
+        )}
+
+        {/* ZONE 3: Auth (visitors we do not recognise).
+            Was a bare row: a sentence wrapping to two lines beside two small
+            buttons of near-equal weight, with a red-tinted shadow left over
+            from an older palette sitting under a navy button. It read as
+            something dropped between two cards rather than part of the page.
+
+            Now one line, one action, and the second offered as text. Hidden
+            entirely from a guest we recognise — their orders are already above
+            this and the side menu holds the way in, so telling them to sign in
+            to manage shipments they can see is noise. */}
+        {!isLoggedIn && !guestProfile && (
+          <div
+            className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between"
+            data-testid="zone-auth"
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-foreground">
+                Keep your shipments in one place
+              </p>
+              <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                Sign in to track every parcel and reuse your saved details.
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-4">
               <Link href="/login">
-                <Button size="sm" className="h-9 px-4 bg-primary hover:bg-primary/90 rounded-xl text-xs font-medium shadow-[0_2px_8px_rgba(198,40,40,0.2)]" data-testid="button-login">
-                  Login
+                <Button
+                  className="h-10 rounded-xl bg-primary px-5 text-sm font-semibold hover:bg-primary/90"
+                  data-testid="button-login"
+                >
+                  Sign in
                 </Button>
               </Link>
-              <Link href="/signup">
-                <Button size="sm" variant="outline" className="h-9 px-4 rounded-xl text-xs font-medium border-border text-foreground hover:bg-muted/80" data-testid="button-signup">
-                  Sign Up
-                </Button>
+              <Link
+                href="/signup"
+                className="text-sm font-semibold text-[#2F4468] underline underline-offset-4"
+                data-testid="button-signup"
+              >
+                Create account
               </Link>
             </div>
           </div>

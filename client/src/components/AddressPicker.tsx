@@ -18,6 +18,14 @@ export interface SavedAddress {
 interface AddressPickerProps {
   type: 'sender' | 'recipient';
   onSelect: (address: SavedAddress) => void;
+  /**
+   * Whether this caller has anything saved to offer.
+   *
+   * Not "is there an account" any more: a guest's pickup addresses are real
+   * rows keyed on their `guest_ref`, and /api/addresses answers for either.
+   * The create page passes true for a signed-in customer OR a guest whose
+   * number is verified — the two cases the endpoint recognises.
+   */
   isLoggedIn: boolean;
 }
 
@@ -32,6 +40,7 @@ export function AddressPicker({ type, onSelect, isLoggedIn }: AddressPickerProps
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
+    // Nobody identified yet: asking would 401 and there is nothing to show.
     if (!isLoggedIn) {
       setAddresses([]);
       setSelectedId(null);

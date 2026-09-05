@@ -9,6 +9,7 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAppStore } from '@/lib/store';
+import { useGuestProfile } from '@/hooks/useGuestProfile';
 import { cn } from '@/lib/utils';
 import { getStatusLabel, getStatusColor } from '@/lib/awbStatus';
 import { type DisplayRow } from '@/lib/shipmentRows';
@@ -255,6 +256,10 @@ export default function Orders() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [, setLocation] = useLocation();
   const { isLoggedIn } = useAppStore();
+  // A guest's bookings are not in this list — /api/orders answers to an
+  // account — but they do exist, on their own profile. The Orders tab is
+  // exactly where someone goes looking for them.
+  const { data: guestProfile } = useGuestProfile({ enabled: !isLoggedIn });
   const { toast } = useToast();
   const [tab, setTab] = useState<OrdersTab>('shipments');
 
@@ -439,10 +444,39 @@ export default function Orders() {
           <CancellationsPanel enabled={isLoggedIn} />
         ) : !isLoggedIn ? (
           <div className="text-center py-16">
-            <p className="text-sm text-muted-foreground mb-4">Sign in to view your shipments.</p>
-            <Button className="bg-[lab(34.0831_-9.57756_-27.7093)] hover:bg-[#2F4468] rounded-lg" onClick={() => setLocation('/login')}>
-              Login
-            </Button>
+            {guestProfile ? (
+              <>
+                <p className="text-sm text-muted-foreground mb-1">
+                  {guestProfile.orders.length > 0
+                    ? 'You booked as a guest.'
+                    : 'Nothing booked yet.'}
+                </p>
+                <p className="text-xs text-muted-foreground mb-4">
+                  {/* A guest with no bookings still has a profile worth
+                      pointing at — their verified number and their document
+                      live there, and that is what the next booking reuses. */}
+                  {guestProfile.orders.length === 0
+                    ? 'Your verified number and documents are on your profile.'
+                    : guestProfile.orders.length === 1
+                      ? 'Your booking is on your profile.'
+                      : `Your ${guestProfile.orders.length} bookings are on your profile.`}
+                </p>
+                <Button
+                  className="bg-[lab(34.0831_-9.57756_-27.7093)] hover:bg-[#2F4468] rounded-lg"
+                  onClick={() => setLocation('/guest-profile')}
+                  data-testid="button-orders-guest-profile"
+                >
+                  View my profile
+                </Button>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground mb-4">Sign in to view your shipments.</p>
+                <Button className="bg-[lab(34.0831_-9.57756_-27.7093)] hover:bg-[#2F4468] rounded-lg" onClick={() => setLocation('/login')}>
+                  Login
+                </Button>
+              </>
+            )}
           </div>
         ) : loading ? (
           <>

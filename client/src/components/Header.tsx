@@ -2,6 +2,7 @@ import { Menu, Bell } from 'lucide-react';
 import { Link } from 'wouter';
 import { useAppStore } from '@/lib/store';
 import { TopBar } from '@/components/TopBar';
+import { GuestProfileBanner } from '@/components/GuestProfileBanner';
 import { useUnreadNotificationCount } from '@/hooks/useCustomerOrders';
 
 interface HeaderProps {
@@ -27,6 +28,11 @@ export function Header({ onMenuClick }: HeaderProps) {
       // guard. Desktop gets its copy from AppLayout.
       below={
         <div className="md:hidden">
+          {/* Below the sticky bar, inside its `below` slot: above the header it
+              would push the bar down the page, inside it it would pin a strip
+              of the viewport on every screen. Renders nothing for an account
+              holder or a visitor with no verified number. */}
+          <GuestProfileBanner />
         </div>
       }
       left={

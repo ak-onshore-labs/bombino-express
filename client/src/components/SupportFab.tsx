@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Sparkles } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 
@@ -147,6 +147,14 @@ export function SupportFab() {
   }, [position]);
 
   const isMobile = useIsMobile();
+  const [location] = useLocation();
+  /**
+   * Screens that park their own action bar on top of the nav.
+   *
+   * Only booking today. Kept as a list rather than a prop because the FAB is
+   * mounted by BottomNav, not by the page, so the page has no way to tell it.
+   */
+  const hasStickyActions = location === '/create';
 
   const isPositioned = position !== null;
 
@@ -166,7 +174,13 @@ export function SupportFab() {
     : {
         left: "auto",
         right: "1rem",
-        bottom: "calc(4rem + env(safe-area-inset-bottom, 0px) + 1rem)",
+        // Cleared over a screen that parks its own action bar on the nav.
+        // Booking has Continue down there, and a floating button sitting on
+        // top of the one action the customer came to press is a tap they lose
+        // to the wrong target.
+        bottom: hasStickyActions
+          ? "calc(4rem + env(safe-area-inset-bottom, 0px) + 5.5rem)"
+          : "calc(4rem + env(safe-area-inset-bottom, 0px) + 1rem)",
         touchAction: "none",
       };
 

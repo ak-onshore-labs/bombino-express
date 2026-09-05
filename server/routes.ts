@@ -13,6 +13,7 @@ import {
   insertLoginAuditLog,
   resolveSupportSession,
   listAddressesByUserIdAndType,
+  listAddressesByGuestRefAndType,
   getShipmentDocument,
   listShipmentDocumentKinds,
   listNotificationsByUserId,
@@ -77,6 +78,10 @@ import {
 import { ensureDbUser, requireRole, requireUser } from "./routeGuards.js";
 import { registerAgentRoutes } from "./routes/agent.js";
 import { registerPaymentRoutes } from "./routes/payments.js";
+import { registerGuestProfileRoutes } from "./routes/guestProfile.js";
+import { seedSignupDocumentFromGuestKyc } from "./guestKycMirror.js";
+import { deleteGuestProfilesFor } from "./guestProfileDb.js";
+import { getLatestGuestRefForPhone, upsertGuestProfile } from "./guestProfileDb.js";
 import { registerWhatsappRoutes } from "./routes/whatsapp.js";
 import { registerWhatsappScheduleRoutes } from "./routes/whatsappSchedule.js";
 import { registerOpsRoutes } from "./routes/ops.js";
@@ -255,6 +260,7 @@ export async function registerRoutes(
   // Razorpay (A4). Self-contained: gateway order, verify, webhook. The webhook
   // is unauthenticated by design — its signature is its authentication.
   registerPaymentRoutes(app);
+  registerGuestProfileRoutes(app);
 
   // WhatsApp delivery receipts, and the STOP word. Unauthenticated by design
   // too — the secret in the path is what the provider was given.
@@ -517,7 +523,18 @@ export async function registerRoutes(
 
   async function assertPhoneVerified(
     phone: unknown,
-    res: Response
+    res: Response,
+    /**
+     * The request, when a live guest session may stand in for a fresh OTP.
+     *
+     * Only passed by routes a returning guest reaches from their profile
+     * rather than mid-signup. `session.guestRef` can only have been minted by
+     * an OTP on `session.guestPhone`, so it proves the same number — what it
+     * does not carry is the ten-minute freshness, and for a customer filling
+     * in their own profile over several visits that window is the wrong rule.
+     * Signup's own calls omit this and stay strict.
+     */
+    req?: Request
   ): Promise<string | null> {
     const parsed = phoneSchema.safeParse(phone);
     if (!parsed.success) {
@@ -526,6 +543,11 @@ export async function registerRoutes(
         .json({ message: "A verified phone number is required", code: PHONE_UNVERIFIED });
       return null;
     }
+
+    if (req?.session.guestRef && req.session.guestPhone === parsed.data) {
+      return parsed.data;
+    }
+
     const verified = await hasRecentVerification(
       parsed.data,
       "auth",
@@ -729,7 +751,12 @@ export async function registerRoutes(
    * name they liked stamped on it.
    */
   app.post("/api/signup/contract/preview", async (req: Request, res: Response) => {
-    const phone = await assertPhoneVerified(req.body?.phone, res);
+    // `req` so a guest can read the contract they are being asked to sign.
+    // Theirs sits at the end of the sender step, which a customer measuring a
+    // parcel can easily reach more than ten minutes after the OTP — and being
+    // refused sight of a contract you are about to sign is the wrong failure.
+    // The session ref proves the same number; nothing here is written.
+    const phone = await assertPhoneVerified(req.body?.phone, res, req);
     if (!phone) return;
 
     const signedName =
@@ -970,7 +997,10 @@ export async function registerRoutes(
 
   // POST /api/signup/identity/gstin — verify a GST number against the GST portal
   app.post("/api/signup/identity/gstin", async (req: Request, res: Response) => {
-    const phone = await assertPhoneVerified(req.body?.phone, res);
+    // `req` is passed so a guest completing their profile can verify a GSTIN
+    // without a fresh SMS. Everything below is unchanged: shape and checksum
+    // first, then the registry, then the name match.
+    const phone = await assertPhoneVerified(req.body?.phone, res, req);
     if (!phone) return;
 
     const gstin = typeof req.body?.gstin === "string" ? req.body.gstin.trim().toUpperCase() : "";
@@ -1025,6 +1055,19 @@ export async function registerRoutes(
       details: result.details,
     });
     if (!banked) return;
+
+    // A guest verified this from their own profile, so the number belongs on
+    // it. Signup keeps reading identity_verifications as it always has; this
+    // is the copy the profile screen renders, and it is only ever written
+    // after the registry agreed.
+    if (req.session.guestRef && req.session.guestPhone === phone) {
+      void upsertGuestProfile({
+        guest_ref: req.session.guestRef,
+        phone,
+        gstin: result.gstin,
+        gstin_verified_name: result.legalName ?? null,
+      }).catch((err) => console.error("[signup/identity] guest profile gstin write failed:", err));
+    }
 
     req.session.save((err) => {
       if (err) console.error("[signup/identity] session save error:", err);
@@ -1317,6 +1360,12 @@ export async function registerRoutes(
       res.json({ documents: [] });
       return;
     }
+    // A guest arriving at signup has already given us an identity document to
+    // book with. Filling the slot it answers here means the documents step
+    // opens with it in place rather than asking for the same file twice; a
+    // slot they have staged themselves is left alone.
+    await seedSignupDocumentFromGuestKyc(signupRef);
+
     const rows = await listDocumentsBySignupRef(signupRef);
     res.set("Cache-Control", "no-store");
     res.json({
@@ -1404,9 +1453,29 @@ export async function registerRoutes(
    * Returns null when neither holds, which the caller answers as 401.
    */
   async function resolveKycOwner(
-    req: Request
+    req: Request,
+    options?: { allowSessionGuest?: boolean }
   ): Promise<{ userId: string; guestRef: null } | { userId: null; guestRef: string } | null> {
     if (req.session.dbUserId) return { userId: req.session.dbUserId, guestRef: null };
+
+    /**
+     * Reading your own document, on a session that already proved the number.
+     *
+     * Opt-in, and only the GETs opt in. The ten-minute OTP window below is the
+     * right rule for a WRITE — it is what stops a stale session uploading
+     * against a number proved yesterday — but applied to a read it means a
+     * returning guest cannot see the document they already gave us, and the
+     * booking screen offers them an upload form for a document that is on
+     * file.
+     *
+     * `session.guestRef` is not weaker proof for a read: it is minted only by
+     * signupRefForPhone, which only ever runs after an OTP on that number, and
+     * it is the same ref /api/guest/profile is already trusted to answer from.
+     * The row it reaches is the caller's own by construction.
+     */
+    if (options?.allowSessionGuest && req.session.guestRef) {
+      return { userId: null, guestRef: req.session.guestRef };
+    }
 
     // A guest names the number they proved, and it is checked here rather than
     // trusted — the same shape /api/signup/documents uses. Falls back to the
@@ -1504,6 +1573,11 @@ export async function registerRoutes(
     phone: string
   ): Promise<Map<DocSlot, { document_no: string | null; capability_id: string }> | null> {
     const signupRef = req.session.signupRef;
+    // Seeded here as well as on the documents read, so a client that skipped
+    // that screen — or reached this with a document uploaded since — is held
+    // to what the customer has actually given us rather than to what one GET
+    // happened to have copied.
+    if (signupRef) await seedSignupDocumentFromGuestKyc(signupRef);
     const staged = signupRef ? await listDocumentsBySignupRef(signupRef) : [];
     const stagedBySlot = new Map(
       staged.map((row) => [
@@ -1653,8 +1727,17 @@ export async function registerRoutes(
       if (claimed.orders > 0) {
         console.log(`[signup] claimed ${claimed.orders} guest order(s) for ${userId}`);
       }
+
+      // The guest profile has no reader once an account exists: signup wrote
+      // the name, email and company details to itd_users, and the claim above
+      // moved everything that hung off the ref. Leaving it would keep a second
+      // copy of a customer's personal data that nothing ever reads again.
+      const dropped = await deleteGuestProfilesFor(phone, claimed.refs);
+      if (dropped > 0) {
+        console.log(`[signup] removed ${dropped} guest profile row(s) for ${phone}`);
+      }
     } catch (err) {
-      console.error("[signup] claiming guest orders failed:", err);
+      console.error("[signup] claiming guest bookings failed:", err);
     }
     delete req.session.guestRef;
     delete req.session.guestPhone;
@@ -2418,6 +2501,43 @@ export async function registerRoutes(
     // the old number had staged.
     await signupRefForPhone(req, phone);
 
+    // Give a returning guest their own records back — as their identity AND as
+    // the ref this booking stages under.
+    //
+    // signupRefForPhone has just minted a fresh ref for this browser. That is
+    // right for a guest we have never met and wrong for one we have: their
+    // profile, their identity document and their orders all sit in Postgres
+    // under the ref an earlier session happened to hold, and a fresh one
+    // reaches none of it.
+    //
+    // Both fields are set, and that is the point. `guestRef` alone made
+    // /api/guest/profile recognise them while POST /api/orders — which files
+    // under `signupRef` and checks KYC under it — still saw a stranger, so a
+    // returning guest was refused with "add your identity document" for a
+    // document already on file. One ref, or the two halves disagree.
+    //
+    // Overwriting the ref just minted orphans nothing: minting writes no rows,
+    // it only puts a uuid in the session. Discarding what an EARLIER phone
+    // staged has already happened inside signupRefForPhone above, which is why
+    // that call stays.
+    //
+    // Authorised by the OTP just proved on this exact number — the only thing
+    // that identifies a guest at all.
+    const existingRef = await getLatestGuestRefForPhone(phone);
+    if (existingRef) {
+      req.session.signupRef = existingRef;
+      req.session.signupPhone = phone;
+      req.session.guestRef = existingRef;
+      req.session.guestPhone = phone;
+    } else {
+      // Nothing to adopt: a number we have never seen. The freshly minted
+      // signupRef stands, and anything the last guest on this browser left is
+      // cleared so a shared device does not answer this number with someone
+      // else's orders.
+      delete req.session.guestRef;
+      delete req.session.guestPhone;
+    }
+
     req.session.save((err) => {
       if (err) console.error("[guest/phone/verify] session save error:", err);
       res.json({ status: "verified" as const });
@@ -2445,6 +2565,36 @@ export async function registerRoutes(
 
     const existing = await findItdUserIdByPhone(phone);
     if (!existing) {
+      // No account — but not necessarily a stranger.
+      //
+      // A number that has booked as a guest already has a profile, an identity
+      // document and orders filed against one `guest_ref`. Answering it with
+      // "do you have an account?" asks somebody we recognise to introduce
+      // themselves, so their number signs them straight back into being that
+      // guest instead.
+      //
+      // Adopting the ref here is the same move /api/guest/phone/verify makes,
+      // and for the same reason: `signupRef` is what booking and the document
+      // endpoints resolve, `guestRef` is what the profile reads, and they have
+      // to be the one uuid or the two halves disagree.
+      const guestRef = await getLatestGuestRefForPhone(phone);
+      if (guestRef) {
+        req.session.signupRef = guestRef;
+        req.session.signupPhone = phone;
+        req.session.guestRef = guestRef;
+        req.session.guestPhone = phone;
+
+        req.session.save((err) => {
+          if (err) console.error("[phone/continue] guest session save error:", err);
+          res.json({ status: "guest" as const });
+        });
+        return;
+      }
+
+      // Genuinely new. The choice screen stays for these: it is the only route
+      // to "I already have a Bombino account" (/api/auth/link/itd), which a
+      // customer whose ITD account predates phone sign-in still needs.
+      //
       // Consuming the code above still leaves hasRecentVerification(phone,
       // "auth", …) true for the next few minutes, so the follow-up link or
       // signup call can prove ownership of this number without a second SMS.
@@ -2987,7 +3137,18 @@ export async function registerRoutes(
 
   app.get(
     "/api/addresses",
-    requireUser,
+    // Guests too. Their pickup addresses are real rows keyed on `guest_ref`
+    // (migrations/add_guest_orders.sql) written by findOrCreateAddress at
+    // booking — until now nothing read them back, so a returning guest retyped
+    // an address we already had. Ownership is the session's ref, never a value
+    // from the request.
+    //
+    // NO auth guard, deliberately. This is a list, and a caller we cannot
+    // identify has an honest answer: nothing saved. A 401 here was worse than
+    // useless — the client's session interceptor reads one as an expired
+    // session, so a guest verifying a number that had never booked (signupRef
+    // set, guestRef not yet) was signed out and dropped on /login the moment
+    // the booking form asked for their saved addresses.
     ensureDbUser,
     async (req: Request, res: Response) => {
       const parseType = z.enum(["sender", "recipient"]).safeParse(req.query.type);
@@ -2995,12 +3156,24 @@ export async function registerRoutes(
         return res.status(400).json({ message: "type must be sender or recipient" });
       }
 
-      if (!req.session.dbUserId) {
-        return res.json([]);
+      if (req.session.dbUserId) {
+        const rows = await listAddressesByUserIdAndType(req.session.dbUserId, parseType.data);
+        return res.json(rows ?? []);
       }
 
-      const rows = await listAddressesByUserIdAndType(req.session.dbUserId, parseType.data);
-      return res.json(rows ?? []);
+      // `signupRef` as well as `guestRef`: the two are the same uuid, and a
+      // guest carries only the first until their first booking promotes it.
+      const guestRef =
+        req.session.guestRef ??
+        (req.session.signupRef && req.session.signupPhone ? req.session.signupRef : null);
+
+      if (guestRef) {
+        const rows = await listAddressesByGuestRefAndType(guestRef, parseType.data);
+        return res.json(rows ?? []);
+      }
+
+      // Nobody identified, or identified with nothing saved. Same answer.
+      return res.json([]);
     }
   );
 
@@ -3484,6 +3657,15 @@ export async function registerRoutes(
       payment_method: z.enum(PAYMENT_METHODS),
       booked_weight: z.number().optional().nullable(),
       quoted_amount: z.number().optional().nullable(),
+      /**
+       * The shipping contract, signed on the sender step of a guest booking.
+       *
+       * Optional in the schema and required below for guests only: an account
+       * signed it once at signup and its acceptance lives on itd_users, so
+       * asking again per shipment would be asking twice for the same thing.
+       */
+      contract_accepted: z.boolean().optional(),
+      contract_signed_name: z.string().trim().max(120).optional(),
       // Absent on clients booking against the older shape — read as "no
       // packaging", which is what every order before this option was.
       packaging_required: z.boolean().optional(),
@@ -3560,6 +3742,20 @@ export async function registerRoutes(
     // uploaded nothing yet. The KYC gates below say that properly.
     const bookingAsGuest = !req.session.dbUserId;
     const guestPhone = bookingAsGuest ? body.origin_address.phone.trim() : null;
+
+    // A guest has never signed the contract — there was no account creation to
+    // sign it at — so the shipment cannot move without it. Checked here as
+    // well as on the form: the form is a convenience, this is the record.
+    if (bookingAsGuest) {
+      const signedName = (body.contract_signed_name ?? "").trim();
+      if (body.contract_accepted !== true || signedName.length < 2) {
+        res.status(422).json({
+          message: "Please accept the shipping terms and sign with your full name.",
+          code: "CONTRACT_REQUIRED",
+        });
+        return;
+      }
+    }
 
     if (bookingAsGuest) {
       // Two ways to prove the number, and the second one matters as much as
@@ -3734,7 +3930,24 @@ export async function registerRoutes(
       packaging_required: body.packaging_required ?? false,
       payment_method: body.payment_method,
       is_cod: body.payment_method === "cod",
-      metadata: { kyc_verified: bookingKyc.verified },
+      metadata: {
+        kyc_verified: bookingKyc.verified,
+        // The guest's acceptance, kept with the shipment it authorised. An
+        // account's lives on itd_users; a guest has no row of their own to
+        // carry it, and the order is the thing the terms are about.
+        ...(bookingAsGuest
+          ? {
+              contract: {
+                signed_name: (body.contract_signed_name ?? "").trim(),
+                version: CONTRACT_VERSION,
+                accepted_at: new Date().toISOString(),
+                // Evidence alongside the timestamp, not proof on its own —
+                // behind a proxy it is only as good as `trust proxy`.
+                accepted_ip: req.ip ?? null,
+              },
+            }
+          : {}),
+      },
     });
 
     if (!order) {
@@ -3756,6 +3969,20 @@ export async function registerRoutes(
       // in server/routes/payments.ts.
       req.session.guestRef = guestRef;
       req.session.guestPhone = guestPhone!;
+
+      // Open the guest's profile row from what the booking already declared,
+      // rather than waiting for them to volunteer it later. This is what the
+      // profile screen reads, and a guest who never touches it should still
+      // find their own name and orders there on their next visit.
+      //
+      // Best-effort: the order is placed and paid for either way, and a failed
+      // bookkeeping write must not turn a successful booking into a 500.
+      void upsertGuestProfile({
+        guest_ref: guestRef,
+        phone: guestPhone!,
+        full_name: body.origin_address.full_name || null,
+        email: body.origin_address.email || null,
+      }).catch((err) => console.error("[orders] guest profile upsert failed:", err));
     }
 
     void insertOrderEvent({
@@ -4919,7 +5146,7 @@ export async function registerRoutes(
     // what decides whose it is, and a guest is only ever handed their own ref.
     ensureDbUser,
     async (req: Request, res: Response) => {
-      const owner = await resolveKycOwner(req);
+      const owner = await resolveKycOwner(req, { allowSessionGuest: true });
       if (!owner) {
         res.status(401).json({ message: "Not authenticated" });
         return;
@@ -4945,7 +5172,7 @@ export async function registerRoutes(
     "/api/kyc/me/file",
     ensureDbUser,
     async (req: Request, res: Response) => {
-      const owner = await resolveKycOwner(req);
+      const owner = await resolveKycOwner(req, { allowSessionGuest: true });
       if (!owner) {
         res.status(401).json({ message: "Not authenticated" });
         return;
@@ -4988,7 +5215,14 @@ export async function registerRoutes(
       // Who owns the document this writes. An account if there is one;
       // otherwise the guest ref this browser staged under, which can only
       // exist if an OTP on that number was verified.
-      const kycOwner = await resolveKycOwner(req);
+      //
+      // `allowSessionGuest` is what lets a guest replace their document from
+      // their own profile rather than only mid-booking, where a fresh OTP had
+      // just been typed. The ref is no weaker a proof of the number — it can
+      // only have been minted by an OTP on it — and this same session can
+      // already read that document and book against it. The ten-minute window
+      // was the wrong rule for a customer tidying up their own record.
+      const kycOwner = await resolveKycOwner(req, { allowSessionGuest: true });
       if (!kycOwner) {
         res.status(401).json({ message: "Not authenticated", code: PHONE_UNVERIFIED });
         return;

@@ -26,8 +26,35 @@ import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
 import Privacy from "@/pages/Privacy";
 import Profile from "@/pages/Profile";
+import GuestProfileDashboard from "@/pages/GuestProfileDashboard";
+import GuestAccountSetup from "@/pages/GuestAccountSetup";
+import { useGuestProfile } from "@/hooks/useGuestProfile";
+import { useAppStore } from "@/lib/store";
 import Support from "@/pages/Support";
 import NotFound from "@/pages/not-found";
+
+/**
+ * `/profile` for whoever is asking.
+ *
+ * A signed-out visitor who has verified a number is not a stranger to be shown
+ * a sign-in wall: they have a name, an identity document and orders filed
+ * against them. Chosen here rather than inside `Profile` so a guest never
+ * mounts that screen at all — it is entirely account machinery (KYC matrix,
+ * username, unlink, sign out), none of which applies to a number with no
+ * account behind it.
+ *
+ * Undecided while the profile read is in flight: rendering `Profile` first and
+ * redirecting after would flash "sign in to view your profile" at someone on
+ * their way to their own.
+ */
+function ProfileRoute() {
+  const isLoggedIn = useAppStore((s) => s.isLoggedIn);
+  const { data: guestProfile, isLoading } = useGuestProfile({ enabled: !isLoggedIn });
+
+  if (!isLoggedIn && isLoading) return null;
+  if (!isLoggedIn && guestProfile) return <GuestProfileDashboard />;
+  return <Profile />;
+}
 
 function CustomerRouter() {
   return (
@@ -48,7 +75,16 @@ function CustomerRouter() {
       <Route path="/login" component={Login} />
       <Route path="/signup" component={Signup} />
       <Route path="/privacy" component={Privacy} />
-      <Route path="/profile" component={Profile} />
+      <Route path="/profile" component={ProfileRoute} />
+      {/* The guest equivalent of /profile. Kept as its own route rather than a
+          branch inside Profile: that screen is entirely account machinery —
+          KYC matrix, username, unlink, sign-out — and none of it applies to a
+          number that has no account behind it yet. */}
+      <Route path="/guest-profile" component={GuestProfileDashboard} />
+      {/* The form itself. Kept off the profile screen so that screen can stay a
+          summary: a dozen fields answered one row at a time is right for
+          correcting one and wrong for finishing the set. */}
+      <Route path="/guest-profile/setup" component={GuestAccountSetup} />
       <Route path="/help" component={Support} />
       <Route component={NotFound} />
     </Switch>
