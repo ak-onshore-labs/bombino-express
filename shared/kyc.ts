@@ -65,6 +65,15 @@ export interface KycSummary {
   mime_type: string;
   file_size_bytes: number;
   updated_at: string;
+  /**
+   * Smart OCR's verdict on the upload (server/cashfreeOcr.ts):
+   * `match` is the only one where the number on the document was read and
+   * agreed with the number typed. `unreadable`, `unavailable`, `skipped` and
+   * `bypassed` all mean nobody confirmed it, and the surfaces that show a
+   * document have to say so rather than imply a check that did not happen.
+   * Null on rows written before OCR existed.
+   */
+  ocr_status?: string | null;
 }
 
 export function toKycSummary(row: {
@@ -74,6 +83,7 @@ export function toKycSummary(row: {
   mime_type: string;
   file_size_bytes: number;
   updated_at: string;
+  ocr_status?: string | null;
 }): KycSummary {
   return {
     document_type: row.document_type,
@@ -82,5 +92,6 @@ export function toKycSummary(row: {
     mime_type: row.mime_type,
     file_size_bytes: row.file_size_bytes,
     updated_at: row.updated_at,
+    ocr_status: row.ocr_status ?? null,
   };
 }

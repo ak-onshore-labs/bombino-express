@@ -4,6 +4,8 @@ import type { OcrColumns } from "./accountDocsDb.js";
 
 export type KycDocumentRow = {
   id: string;
+  /** Smart OCR's verdict — see server/cashfreeOcr.ts. Null on pre-OCR rows. */
+  ocr_status?: string | null;
   user_id: string;
   capability_id: string;
   document_type: string;
@@ -34,8 +36,12 @@ function logError(operation: string, error: { message?: string; code?: string } 
   });
 }
 
+// One literal, deliberately: PostgREST types the result from this string, and
+// a concatenation defeats that and makes every read `GenericStringError`.
+// `ocr_status` rides along because every surface showing a document on file
+// has to be able to say whether anything actually checked it.
 const META_COLUMNS =
-  "id, user_id, capability_id, document_type, document_no, original_filename, mime_type, file_size_bytes, created_at, updated_at";
+  "id, user_id, capability_id, document_type, document_no, original_filename, mime_type, file_size_bytes, ocr_status, created_at, updated_at";
 
 /** Metadata only — never pulls the base64 blob, which can be several MB. */
 /** Undo the encryption on the way out of every read in this module. */

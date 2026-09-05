@@ -654,6 +654,19 @@ export async function registerRoutes(
    * the vendor contract and the refusal policy.
    */
 
+  /**
+   * Which identity check a KYC document type answers.
+   *
+   * Only these two. A passport or a driving licence is a valid identity
+   * document for a booking and is not a check any account owes; a GSTIN has
+   * its own endpoint, because that one is verified against the registry
+   * rather than asserted.
+   */
+  const IDENTITY_KIND_FOR_KYC_TYPE: Record<string, IdentityKind | undefined> = {
+    "Aadhaar Number": "aadhaar",
+    "PAN Number": "pan",
+  };
+
   const IDENTITY_KIND_BY_SLOT: Record<VerifiedDocSlot, IdentityKind> = {
     aadhaar_card: "aadhaar",
     pan_card: "pan",
@@ -5349,6 +5362,39 @@ export async function registerRoutes(
             const state = await getVerificationState(kycOwner.userId, accountType, category);
             void refreshKycVerifiedOnOpenOrders(kycOwner.userId, state.verified);
           }
+        }
+
+        // Bank the identity row a guest would otherwise have to produce again
+        // at signup.
+        //
+        // Signup asks for the number first (/api/signup/identity/aadhaar and
+        // /pan write it `self_declared`) and proves it with the OCR on the
+        // card uploaded afterwards. A guest does both at once, here: the
+        // number is typed on this form and this upload is the OCR that backs
+        // it. The row was simply never written, so `assertIdentityVerified`
+        // asked a guest-turned-customer for a check they had already passed.
+        //
+        // Guests only. An account holder has no signup_ref to write against
+        // and is past the gate that reads these.
+        //
+        // Best-effort: the document is saved and the booking gate is satisfied
+        // either way, and signup can still ask for the number if this fails.
+        const identityKind = IDENTITY_KIND_FOR_KYC_TYPE[documentType];
+        if (identityKind && kycOwner.guestRef) {
+          void upsertIdentityVerification({
+            signup_ref: kycOwner.guestRef,
+            kind: identityKind,
+            document_no: normalizedDocumentNo,
+            // Same word signup uses for these two: the number is asserted by
+            // the customer, and what stands behind it is the OCR match above,
+            // never a registry.
+            status: "self_declared",
+            reference_id: null,
+            verified_name: null,
+            details: null,
+          }).catch((err) =>
+            console.error("[kyc/upload] identity row write failed:", err)
+          );
         }
 
         res.json({
