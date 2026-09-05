@@ -15,6 +15,7 @@ import { Link, useLocation } from 'wouter';
 import bombinoLogo from '@/assets/bombino-logo.png';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
+import { useGuestProfile } from '@/hooks/useGuestProfile';
 import { apiRequest } from '@/lib/queryClient';
 import { useUnreadNotificationCount } from '@/hooks/useCustomerOrders';
 
@@ -71,6 +72,9 @@ function NavItem({
 export function DesktopSidebar() {
   const [location] = useLocation();
   const { isLoggedIn, user, logout } = useAppStore();
+  // A verified guest has a profile screen of their own — see SideMenu for why
+  // hiding it left their details unreachable once the banner cleared.
+  const { data: guestProfile } = useGuestProfile({ enabled: !isLoggedIn });
   // Shares the polled notification list with the mobile header — see the note
   // on `useUnreadNotificationCount`. One query, two badges, always in step.
   const unreadCount = useUnreadNotificationCount(isLoggedIn);
@@ -99,7 +103,13 @@ export function DesktopSidebar() {
   };
 
   const visibleAccountNav = ACCOUNT_NAV.filter(
-    (item) => !('authRequired' in item && item.authRequired) || isLoggedIn
+    (item) => !('authRequired' in item && item.authRequired) || isLoggedIn || !!guestProfile
+  ).map((item) =>
+    // Same row, same label, different destination: /profile is the account
+    // screen and turns a guest away, /guest-profile is theirs.
+    item.path === '/profile' && !isLoggedIn && guestProfile
+      ? { ...item, path: '/guest-profile' }
+      : item
   );
 
   return (

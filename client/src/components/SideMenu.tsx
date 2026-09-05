@@ -1,6 +1,8 @@
-import { X, User, LogOut, LogIn, Bot, Phone } from 'lucide-react';
+import { X, User, LogOut, LogIn, Bot, Phone, ShieldCheck } from 'lucide-react';
 import { Link } from 'wouter';
 import { useAppStore } from '@/lib/store';
+import { useGuestProfile } from '@/hooks/useGuestProfile';
+import { formatGuestPhone } from '@/lib/shadowProfile';
 import { apiRequest } from '@/lib/queryClient';
 import bombinoLogo from '@/assets/bombino-logo.png';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
@@ -12,6 +14,17 @@ interface SideMenuProps {
 
 export function SideMenu({ isOpen, onClose }: SideMenuProps) {
   const { isLoggedIn, user, logout } = useAppStore();
+  /**
+   * A guest is not a stranger.
+   *
+   * Someone who verified a number and booked has a profile, an identity
+   * document and orders filed against them — and this menu used to offer them
+   * nothing but "Sign In", which is how their details went missing the moment
+   * they left the confirmation screen. The banner is not a substitute: it
+   * hides itself once the profile is complete, which is exactly when someone
+   * is most likely to come looking for what they filled in.
+   */
+  const { data: guestProfile } = useGuestProfile({ enabled: !isLoggedIn });
   if (!isOpen) return null;
 
   return (
@@ -43,10 +56,30 @@ export function SideMenu({ isOpen, onClose }: SideMenuProps) {
               </div>
               <div>
                 <p className="font-semibold text-foreground">
-                  {isLoggedIn ? (user?.fullName || user?.email) : 'Guest'}
+                  {isLoggedIn
+                    ? user?.fullName || user?.email
+                    : guestProfile?.full_name?.trim() || 'Guest'}
                 </p>
-                <p className="text-xs text-muted-foreground">
-                  {isLoggedIn ? user?.email : 'Sign in to continue'}
+                {/* One size whoever is looking: this line holds the account
+                    email and the guest's number, and scaling only one branch
+                    made the menu header change size with the session. */}
+                <p className="text-sm text-muted-foreground">
+                  {isLoggedIn ? (
+                    user?.email
+                  ) : guestProfile ? (
+                    // The tick says "verified" without spending a word on it.
+                    // Its meaning is not lost to a screen reader: the label is
+                    // on the icon, which is what the word used to be.
+                    <span className="flex items-center gap-1">
+                      <ShieldCheck
+                        className="h-4 w-4 shrink-0 text-green-600"
+                        aria-label="Verified"
+                      />
+                      {formatGuestPhone(guestProfile.phone)}
+                    </span>
+                  ) : (
+                    'Sign in to continue'
+                  )}
                 </p>
               </div>
             </div>
@@ -85,17 +118,35 @@ export function SideMenu({ isOpen, onClose }: SideMenuProps) {
                 </button>
               </>
             ) : (
-              <Link
-                href="/login"
-                onClick={onClose}
-                className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted active:scale-[0.98] transition-all"
-                data-testid="link-login"
-              >
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center">
-                  <LogIn className="w-5 h-5 text-primary" />
-                </div>
-                <span className="font-medium">Sign In</span>
-              </Link>
+              <>
+                {/* The way back to a guest's own details. Same position and
+                    same wording as the account entry above it, because it is
+                    the same errand. */}
+                {guestProfile && (
+                  <Link
+                    href="/guest-profile"
+                    onClick={onClose}
+                    className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted active:scale-[0.98] transition-all"
+                    data-testid="link-guest-profile"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center">
+                      <User className="w-5 h-5 text-primary" />
+                    </div>
+                    <span className="font-medium">My Profile</span>
+                  </Link>
+                )}
+                <Link
+                  href="/login"
+                  onClick={onClose}
+                  className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted active:scale-[0.98] transition-all"
+                  data-testid="link-login"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center">
+                    <LogIn className="w-5 h-5 text-primary" />
+                  </div>
+                  <span className="font-medium">Sign In</span>
+                </Link>
+              </>
             )}
 
             <div className="border-t border-border my-4" />

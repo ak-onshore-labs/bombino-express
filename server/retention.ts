@@ -27,6 +27,10 @@
  */
 
 import { supabase } from "./supabaseClient.js";
+import {
+  deleteGuestProfilesByRefs,
+  listAbandonedGuestProfileRefs,
+} from "./guestProfileDb.js";
 
 /** Days an unclaimed signup's documents are kept before deletion. */
 export const ABANDONED_SIGNUP_RETENTION_DAYS = Number(
@@ -38,6 +42,8 @@ export interface SweepResult {
   documents: number;
   identityVerifications: number;
   errors: string[];
+  /** Guest profiles nobody came back for — see the note where they are swept. */
+  guestProfiles: number;
 }
 
 /**
@@ -47,6 +53,36 @@ export interface SweepResult {
  * cleared one table and not the other should say so and be re-run, not look
  * like it did nothing.
  */
+/**
+ * Every ref that has a booking behind it.
+ *
+ * These are customers, not abandoned signups. A guest ref outlives the session
+ * that minted it — the same uuid comes back on every visit — so age alone no
+ * longer distinguishes "nobody finished this" from "somebody has been shipping
+ * with us since March".
+ *
+ * Returns an empty set on failure, and every caller reads that as "delete
+ * nothing": a sweep that cannot tell the two apart must not guess.
+ */
+async function listRefsWithOrders(): Promise<Set<string>> {
+  if (!supabase) return new Set();
+
+  const { data, error } = await supabase
+    .from("orders")
+    .select("guest_ref")
+    .not("guest_ref", "is", null);
+
+  if (error) {
+    console.error("[retention] could not read booked guest refs, sweeping nothing:", error.message);
+    return new Set();
+  }
+  return new Set(
+    (data ?? [])
+      .map((row) => (row as { guest_ref: string | null }).guest_ref)
+      .filter((ref): ref is string => !!ref)
+  );
+}
+
 export async function sweepAbandonedSignups(
   retentionDays: number = ABANDONED_SIGNUP_RETENTION_DAYS
 ): Promise<SweepResult> {
@@ -55,6 +91,7 @@ export async function sweepAbandonedSignups(
     cutoff,
     documents: 0,
     identityVerifications: 0,
+    guestProfiles: 0,
     errors: [],
   };
 
@@ -66,30 +103,70 @@ export async function sweepAbandonedSignups(
   // `signup_ref IS NOT NULL` is the safety rail, not the date. A claimed row
   // has its signup_ref cleared when the account takes ownership, so this can
   // never reach a real customer's documents however old they are.
-  const { data: docs, error: docsError } = await supabase
-    .from("account_documents")
-    .delete()
-    .not("signup_ref", "is", null)
-    .lt("created_at", cutoff)
-    .select("id");
+  //
+  // That rail is no longer enough on its own. A signup_ref used to be
+  // ephemeral, minted per browser and abandoned with the signup; it is now
+  // also a guest's durable identity, handed back to them by
+  // /api/guest/phone/verify on every visit. So a customer who has been
+  // shipping as a guest for months carries rows that look exactly like an
+  // abandoned signup: old, and owned by no account.
+  //
+  // The distinction is whether anything was ever booked under that ref.
+  // `bookedRefs` is that set, and rows belonging to it are left alone at any
+  // age. What is still swept is the original target: documents staged by
+  // somebody who started signup, uploaded an Aadhaar, and never came back.
+  const bookedRefs = await listRefsWithOrders();
+  const isBooked = (ref: string | null): boolean => !!ref && bookedRefs.has(ref);
 
-  if (docsError) {
-    result.errors.push(`account_documents: ${docsError.message}`);
-  } else {
-    result.documents = docs?.length ?? 0;
+  for (const [table, label] of [
+    ["account_documents", "documents"],
+    ["identity_verifications", "identityVerifications"],
+  ] as const) {
+    const { data: stale, error: readError } = await supabase
+      .from(table)
+      .select("id, signup_ref")
+      .not("signup_ref", "is", null)
+      .lt("created_at", cutoff);
+
+    if (readError) {
+      result.errors.push(`${table}: ${readError.message}`);
+      continue;
+    }
+
+    const rows = (stale ?? []) as Array<{ id: string; signup_ref: string | null }>;
+    const sweepable = rows.filter((row) => !isBooked(row.signup_ref)).map((row) => row.id);
+    if (sweepable.length === 0) continue;
+
+    const { data: deleted, error: deleteError } = await supabase
+      .from(table)
+      .delete()
+      .in("id", sweepable)
+      .select("id");
+
+    if (deleteError) {
+      result.errors.push(`${table}: ${deleteError.message}`);
+    } else {
+      result[label] = deleted?.length ?? 0;
+    }
   }
 
-  const { data: identities, error: identityError } = await supabase
-    .from("identity_verifications")
-    .delete()
-    .not("signup_ref", "is", null)
-    .lt("created_at", cutoff)
-    .select("id");
-
-  if (identityError) {
-    result.errors.push(`identity_verifications: ${identityError.message}`);
-  } else {
-    result.identityVerifications = identities?.length ?? 0;
+  // Guest profiles, and only the ones with nothing behind them.
+  //
+  // A profile whose ref owns an order belongs to a real customer: their orders
+  // stay reachable by verifying that number, and deleting the name attached to
+  // them would leave the bookings looking like a stranger's. What goes is the
+  // other kind — a number verified once, a name half typed, nothing since.
+  //
+  // Not swept by `signup_ref IS NOT NULL` like the two tables above, because a
+  // guest ref is a durable identity rather than an in-flight signup: the same
+  // uuid is what /api/guest/phone/verify hands back to a returning customer.
+  try {
+    const abandoned = await listAbandonedGuestProfileRefs(cutoff);
+    result.guestProfiles = await deleteGuestProfilesByRefs(abandoned);
+  } catch (err) {
+    result.errors.push(
+      `guest_profiles: ${err instanceof Error ? err.message : String(err)}`
+    );
   }
 
   // Worth a log line every time, including the quiet ones: a sweep that has
@@ -97,7 +174,8 @@ export async function sweepAbandonedSignups(
   console.log(
     `[retention] swept abandoned signups older than ${retentionDays}d ` +
       `(before ${cutoff}): ${result.documents} document(s), ` +
-      `${result.identityVerifications} identity row(s)` +
+      `${result.identityVerifications} identity row(s), ` +
+      `${result.guestProfiles} guest profile(s)` +
       (result.errors.length > 0 ? ` — errors: ${result.errors.join("; ")}` : "")
   );
 

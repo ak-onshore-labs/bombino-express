@@ -17,10 +17,11 @@ import {
   Info,
   X,
   CalendarIcon,
+  ShieldCheck,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useLocation } from 'wouter';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { BottomNav } from '@/components/BottomNav';
 import { CorridorRouteInfo } from '@/components/CorridorRouteInfo';
 import { AddressPicker, type SavedAddress } from '@/components/AddressPicker';
@@ -28,6 +29,9 @@ import { KycUpload, type KycUploadResult } from '@/components/KycUpload';
 import { KycOnFileCard } from '@/components/KycOnFileCard';
 import { useKycOnFile } from '@/hooks/useKycOnFile';
 import { GuestVerification } from '@/components/GuestVerification';
+import { ContractSignature } from '@/components/ContractSignature';
+import { useGuestProfile, invalidateGuestProfile } from '@/hooks/useGuestProfile';
+import { formatGuestPhone, type ShadowProfileFieldKey } from '@/lib/shadowProfile';
 import { ShipmentContentSearch } from '@/components/ShipmentContentSearch';
 import {
   DimensionPresetSheet,
@@ -49,6 +53,7 @@ import {
 } from '@shared/pickupPincodes';
 import { lbToKg, inToCm } from '@/lib/mockData';
 import { apiRequest } from '@/lib/queryClient';
+import { parseApiErrorMessage } from '@/lib/apiError';
 import { payForOrder } from '@/lib/razorpay';
 import { PaymentTestModeSwitch } from '@/components/PaymentTestModeSwitch';
 import { cn } from '@/lib/utils';
@@ -166,6 +171,9 @@ interface OrderCreatePayload {
     country_name?: string | null;
   };
   consignee: Record<string, unknown>;
+  /** Guest bookings only. An account signed the contract at signup. */
+  contract_accepted?: boolean;
+  contract_signed_name?: string;
   items: Record<string, unknown>;
 }
 
@@ -401,9 +409,117 @@ const PRODUCT_TYPE_INFO: Record<string, { title: string; body: string }> = {
   },
 };
 
+/**
+ * A named group inside a step.
+ *
+ * The sender step asks for five unrelated things — who you are, where the
+ * parcel is collected from, how it is collected, your identity document, and
+ * the terms — and ran them together as one column of fields more than two
+ * screens long. Naming the groups is what lets somebody find the part they
+ * came back to fix, and what tells them the form is four short things rather
+ * than one endless one.
+ */
+function SectionLabel({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}): React.JSX.Element {
+  return (
+    <p
+      className={cn(
+        'px-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground',
+        className
+      )}
+    >
+      {children}
+    </p>
+  );
+}
+
+/**
+ * Where each step is going, said on the button that goes there.
+ *
+ * "Continue" three times running tells a customer nothing about what is
+ * coming; the destination is the one piece of information the button has.
+ */
+const NEXT_LABEL: Record<number, string> = {
+  1: 'Continue to receiver',
+  2: 'Continue to package',
+  3: 'Continue to invoice',
+};
+
+/**
+ * The step's actions, parked at the bottom of the screen.
+ *
+ * They used to sit at the natural end of the form, which on the sender step is
+ * more than two screens down: a customer who had filled everything in had to
+ * scroll past the contract to find out how to proceed, and anyone checking
+ * whether they were done had to scroll to look. Sticky puts the answer where
+ * the thumb already is.
+ *
+ * Sticky rather than fixed, so it stays inside the form column and cannot
+ * cover a short step's content. Back sits beside Continue because the header's
+ * arrow is at the far top of a long page, and going back a step is the second
+ * most likely thing anybody wants here.
+ */
+function StepActions({
+  stepError,
+  onBack,
+  onNext,
+  nextLabel,
+  step,
+}: {
+  stepError: string;
+  onBack: () => void;
+  onNext: () => void;
+  nextLabel: string;
+  step: number;
+}): React.JSX.Element {
+  return (
+    <div className="sticky bottom-nav-stack z-30 -mx-4 mt-2 border-t border-border bg-background/95 px-4 py-3 backdrop-blur-sm md:-mx-6 md:px-6">
+      {/* Above the buttons, not below them: an error a customer has to scroll
+          past the action to read is an error they will not read. Announced,
+          because the failure is usually a field somewhere off-screen. */}
+      {stepError && (
+        <div
+          role="alert"
+          className="mb-3 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+          <p className="text-xs text-red-600">{stepError}</p>
+        </div>
+      )}
+
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex h-12 shrink-0 items-center justify-center gap-1 rounded-xl border border-border px-4 text-sm font-semibold text-muted-foreground transition-colors hover:bg-muted active:scale-[0.99]"
+          data-testid="button-prev-step"
+        >
+          <ArrowLeft className="h-4 w-4" aria-hidden />
+          {step === 1 ? 'Exit' : 'Back'}
+        </button>
+
+        <Button
+          onClick={onNext}
+          className="h-12 flex-1 rounded-xl bg-[#F2A123] text-sm font-semibold text-[lab(34.0831_-9.57756_-27.7093)] shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] hover:bg-[#F2A123]/90"
+          data-testid="button-next-step"
+        >
+          {nextLabel}
+          <ArrowRight className="ml-1 h-4 w-4" aria-hidden />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export default function CreateShipment() {
   const [, setLocation] = useLocation();
   const { isLoggedIn, user, logout, login } = useAppStore();
+  const queryClient = useQueryClient();
   const [currentStep, setCurrentStep] = useState(1);
   const [newOrderNo, setNewOrderNo] = useState('');
   const [newOrderId, setNewOrderId] = useState('');
@@ -439,6 +555,64 @@ export default function CreateShipment() {
    */
   const [guestMode, setGuestMode] = useState(false);
   const [guestVerifiedPhone, setGuestVerifiedPhone] = useState<string | null>(null);
+
+  /**
+   * The guest this browser already is, if any.
+   *
+   * A verified number, an identity document and past orders all live on the
+   * server against one `guest_ref`, and the session carries it. Reading it here
+   * is what stops this screen asking a returning customer to prove, upload and
+   * type things it can already see.
+   */
+  const { data: guestProfile } = useGuestProfile({ enabled: !isLoggedIn });
+
+  /**
+   * They asked to book as somebody else.
+   *
+   * The escape hatch for a shared or borrowed phone: recognition survives as
+   * long as the session cookie does, so there has to be a way to say "not me"
+   * that is visible rather than buried. Set, it forces the OTP card back on
+   * screen and the next verification re-points the session at whatever number
+   * is proved.
+   */
+  const [forceReverify, setForceReverify] = useState(false);
+
+  /**
+   * The shipping contract, signed before the parcel is described.
+   *
+   * An account signs this once at signup; a guest never did, so the terms the
+   * shipment moves under were never agreed to. It sits at the end of the
+   * sender step — after the number is proved and the document is on file, so
+   * there is somebody to hold to it, and before the receiver's address, so it
+   * is agreed before the booking is worth anything.
+   */
+  const [contractAccepted, setContractAccepted] = useState(false);
+  const [contractSignedName, setContractSignedName] = useState('');
+  const [contractError, setContractError] = useState('');
+
+  /** Recognised, and not being overridden — no OTP to re-enter. */
+  const recognisedGuest = !isLoggedIn && !forceReverify ? guestProfile ?? null : null;
+
+  /**
+   * Carry what the server already knows onto the form.
+   *
+   * The phone is the load-bearing one: `guestVerifiedPhone` is what the
+   * Continue gate checks and what `useKycOnFile` keys its `enabled` on, so
+   * seeding it is what lets a recognised guest skip the OTP card and still see
+   * their document. The name and email are convenience.
+   *
+   * Only fills what is empty. A customer who has started typing — or who is
+   * sending on someone else's behalf and deliberately changed the sender —
+   * must not have it overwritten underneath them.
+   */
+  useEffect(() => {
+    if (!guestMode || !recognisedGuest) return;
+
+    setGuestVerifiedPhone((current) => current ?? recognisedGuest.phone);
+    setSenderPhone((current) => current || recognisedGuest.phone);
+    setSenderName((current) => current || recognisedGuest.full_name || '');
+    setSenderEmail((current) => current || recognisedGuest.email || '');
+  }, [guestMode, recognisedGuest]);
 
   const [senderName, setSenderName] = useState(isLoggedIn ? user?.fullName ?? '' : '');
   const [senderEmail, setSenderEmail] = useState(isLoggedIn ? user?.email ?? '' : '');
@@ -547,6 +721,37 @@ export default function CreateShipment() {
   const { data: kycOnFile } = useKycOnFile({
     enabled: isLoggedIn || (guestMode && !!guestVerifiedPhone),
   });
+
+  // ── Shadow profile ─────────────────────────────────────────────────────
+  //
+  // Nothing is stored here. A verified number is already a server-side record:
+  // `signupRefForPhone` mints its ref at the OTP, the identity document is
+  // staged against that ref, and booking writes the profile row and the order.
+  // This screen only asks for what is missing and tells the cache to re-read.
+  /**
+   * What this booking still owes, if anything.
+   *
+   * Most guests type both into the sender step and the booking writes them, so
+   * this is usually empty and nothing is asked. When it is not, the ask sits
+   * on the confirmation as a card rather than arriving as a modal over it: the
+   * parcel is booked either way, and a popup over good news reads as a toll.
+   */
+  const missingGuestDetails = useMemo((): ShadowProfileFieldKey[] => {
+    if (isLoggedIn || !guestMode || !guestVerifiedPhone) return [];
+    const missing: ShadowProfileFieldKey[] = [];
+    if (!(guestProfile?.full_name ?? senderName).trim()) missing.push('full_name');
+    if (!(guestProfile?.email ?? senderEmail).trim()) missing.push('email');
+    return missing;
+  }, [isLoggedIn, guestMode, guestVerifiedPhone, guestProfile, senderName, senderEmail]);
+
+  // The server owns `orders.payment_status`; the profile screen reads it back
+  // through /api/guest/profile. All this has to do is drop the cached copy
+  // once the payment stops moving, so the badge there is not a stale 'pending'.
+  useEffect(() => {
+    if (isLoggedIn || !guestMode || !guestVerifiedPhone || !newOrderNo) return;
+    if (payStatus === 'paying') return;
+    invalidateGuestProfile(queryClient);
+  }, [isLoggedIn, guestMode, guestVerifiedPhone, newOrderNo, payStatus, queryClient]);
 
   // Company accounts are identified by GST at signup and never hold a KYC
   // document, so gating booking on one locked them out of the flow entirely.
@@ -848,6 +1053,11 @@ export default function CreateShipment() {
       setNewOrderNo(data.order.order_no);
       setNewOrderId(data.order.id);
 
+      // POST /api/orders wrote the profile row and the order against this
+      // guest's ref, so there is nothing to save here — only a stale cache to
+      // drop, so the banner and /guest-profile see the booking immediately.
+      if (guestMode && guestVerifiedPhone) invalidateGuestProfile(queryClient);
+
       // Order first, money second — deliberately. Opening checkout before the
       // order exists would leave a paid customer with nothing to attach the
       // payment to if the booking then failed.
@@ -970,34 +1180,85 @@ export default function CreateShipment() {
             Send a parcel
           </h2>
           <p className="text-sm text-muted-foreground mb-6">
-            Sign in to use your saved addresses and documents, or book as a guest.
+            {guestProfile
+              ? 'Your number and identity document are already on file.'
+              : 'Sign in to use your saved addresses and documents, or book as a guest.'}
           </p>
 
-          <div className="w-full space-y-3">
-            <Button
-              onClick={() => setLocation('/login?redirect=/create')}
-              className="w-full bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] font-semibold h-12 rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
-              data-testid="button-login-to-create"
-            >
-              Sign in
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => setGuestMode(true)}
-              className="w-full h-12 rounded-xl border-[#E2E8F0] text-sm font-semibold text-[lab(34.0831_-9.57756_-27.7093)] hover:bg-muted"
-              data-testid="button-continue-as-guest"
-            >
-              Continue as guest
-            </Button>
-          </div>
+          {/* Someone we have met before does not get asked who they are.
+              Their number is verified, their document is on file and their
+              past orders are filed against the same ref — so the first button
+              is their own name, not a choice between two kinds of stranger. */}
+          {guestProfile ? (
+            <div className="w-full space-y-3">
+              <Button
+                onClick={() => setGuestMode(true)}
+                className="w-full h-auto flex-col gap-1 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] font-semibold py-3 rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
+                data-testid="button-continue-as-known-guest"
+              >
+                <span className="text-sm font-semibold">
+                  Continue as {guestProfile.full_name?.trim() || 'guest'}
+                </span>
+                <span className="flex items-center gap-1 text-xs font-medium opacity-80">
+                  <ShieldCheck className="h-3.5 w-3.5 shrink-0" aria-label="Verified" />
+                  {formatGuestPhone(guestProfile.phone)}
+                </span>
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setLocation('/login?redirect=/create')}
+                className="w-full h-12 rounded-xl border-[#E2E8F0] text-sm font-semibold text-[lab(34.0831_-9.57756_-27.7093)] hover:bg-muted"
+                data-testid="button-login-to-create"
+              >
+                Sign in
+              </Button>
+              {/* Visible, not buried. Recognition lasts as long as the session
+                  cookie, and a borrowed phone needs one obvious way out. */}
+              <button
+                type="button"
+                onClick={() => {
+                  setForceReverify(true);
+                  setGuestMode(true);
+                }}
+                className="w-full text-xs font-semibold text-muted-foreground underline underline-offset-4"
+                data-testid="button-use-different-number"
+              >
+                Use a different number
+              </button>
+            </div>
+          ) : (
+            <div className="w-full space-y-3">
+              <Button
+                onClick={() => setLocation('/login?redirect=/create')}
+                className="w-full bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] font-semibold h-12 rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
+                data-testid="button-login-to-create"
+              >
+                Sign in
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setGuestMode(true)}
+                className="w-full h-12 rounded-xl border-[#E2E8F0] text-sm font-semibold text-[lab(34.0831_-9.57756_-27.7093)] hover:bg-muted"
+                data-testid="button-continue-as-guest"
+              >
+                Continue as guest
+              </Button>
+            </div>
+          )}
 
           {/* Said here rather than discovered at the document step. Guest is a
               shorter path, not a lighter one, and finding that out three
-              screens in is how a booking gets abandoned. */}
-          <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
-            Either way we&rsquo;ll need your phone number and an identity document —
-            Indian customs requires one on every shipment.
-          </p>
+              screens in is how a booking gets abandoned.
+
+              Not said at all to someone who has already done both: telling a
+              returning customer what we will need, when we have it, reads as
+              an app that has not looked. */}
+          {!guestProfile && (
+            <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
+              Either way we&rsquo;ll need your phone number and an identity document —
+              Indian customs requires one on every shipment.
+            </p>
+          )}
         </main>
 
         <BottomNav />
@@ -1126,22 +1387,63 @@ export default function CreateShipment() {
             </div>
           )}
 
-          <div className="space-y-2">
-            <Button
-              onClick={() => setLocation(guestMode ? '/signup?redirect=/orders' : '/orders')}
-              className="w-full h-12 bg-primary hover:bg-primary/90 text-sm rounded-xl shadow-md flex items-center justify-center gap-2"
-              data-testid="button-view-orders"
+          {/* The ask, once, and never as a form over good news.
+              The parcel is booked either way, so this is an invitation with a
+              count on it rather than a field to fill in on a confirmation
+              screen. The form itself lives at /guest-profile/setup. */}
+          {guestMode && guestVerifiedPhone && guestProfile && missingGuestDetails.length > 0 && (
+            <section
+              className="mb-4 rounded-xl border border-border bg-card p-4 text-left"
+              data-testid="success-guest-details"
             >
-              <FileText className="w-4 h-4" />
-              {/* A guest has no orders list to send them to, and tracking is
-                  keyed on the AWB, which this order will not have until ops
-                  dockets it — so "track it" would dead-end today.
-                  An account is the thing that actually works: signing up on the
-                  number they just verified attaches this order to it, along
-                  with the documents they uploaded. Offered after the booking,
-                  never as a condition of it. */}
-              {guestMode ? 'Save this order to an account' : 'Go to My Orders'}
-            </Button>
+              <p className="text-sm font-semibold text-foreground">
+                Save yourself the typing next time
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                {missingGuestDetails.length === 1
+                  ? 'One detail is missing from your profile.'
+                  : `${missingGuestDetails.length} details are missing from your profile.`}{' '}
+                Add them once and your next booking is mostly filled in already.
+              </p>
+              <Button
+                variant="outline"
+                onClick={() => setLocation('/guest-profile/setup')}
+                className="mt-3 h-11 w-full rounded-xl border-border text-sm font-semibold"
+                data-testid="button-success-add-details"
+              >
+                Add my details
+              </Button>
+            </section>
+          )}
+
+          <div className="space-y-2">
+            {/* A guest has no orders list to send them to, and tracking is keyed
+                on the AWB, which this order will not have until ops dockets it —
+                so neither "My Orders" nor "track it" leads anywhere for them.
+                Their profile does: the number, the document and this order are
+                already filed together there, and it asks for what is missing
+                without making an account the price of seeing it. */}
+            {guestMode ? (
+              guestVerifiedPhone && (
+                <Button
+                  onClick={() => setLocation('/guest-profile')}
+                  className="w-full h-12 bg-primary hover:bg-primary/90 text-sm rounded-xl shadow-md flex items-center justify-center gap-2"
+                  data-testid="button-view-guest-profile"
+                >
+                  <FileText className="w-4 h-4" />
+                  View your profile
+                </Button>
+              )
+            ) : (
+              <Button
+                onClick={() => setLocation('/orders')}
+                className="w-full h-12 bg-primary hover:bg-primary/90 text-sm rounded-xl shadow-md flex items-center justify-center gap-2"
+                data-testid="button-view-orders"
+              >
+                <FileText className="w-4 h-4" />
+                Go to My Orders
+              </Button>
+            )}
             <Button
               variant="outline"
               onClick={() => setLocation('/home')}
@@ -1175,6 +1477,16 @@ export default function CreateShipment() {
       // only fail three steps later, after the parcel details are typed.
       if (guestMode) {
         if (!guestVerifiedPhone) e.guestPhone = true;
+        // Signed, and signed by somebody. The server re-checks both when the
+        // order is written, so letting it through here would only fail later.
+        if (!contractAccepted || contractSignedName.trim().length < 2) {
+          e.contract = true;
+          setContractError(
+            contractAccepted
+              ? 'Type your full name to sign.'
+              : 'Please accept the terms to continue.'
+          );
+        }
         // One document, same as the account path below. `kycOnFile` counts as
         // well as `kycResult`: a guest who uploaded, then stepped back to fix
         // an address, still has the row the server checks — demanding a fresh
@@ -1467,6 +1779,14 @@ export default function CreateShipment() {
         country_name: ITD_COUNTRY_MAP[destinationCountry]?.name ?? destinationCountry,
       },
       items: payload as unknown as Record<string, unknown>,
+      // Only a guest signs here. The server refuses a guest booking without
+      // it, and ignores it for an account.
+      ...(guestMode
+        ? {
+            contract_accepted: contractAccepted,
+            contract_signed_name: contractSignedName.trim(),
+          }
+        : {}),
     };
 
     setPaymentError('');
@@ -1613,7 +1933,49 @@ export default function CreateShipment() {
                 Short on purpose. The documents are asked for further down,
                 after the address: a long form is easier to face once the
                 address behind it is settled. */}
-            {guestMode && (
+            {/* Already proved, in an earlier session. The card below asks for
+                an SMS code; a customer whose session still carries a verified
+                ref has nothing to prove, so they get a line saying who they
+                are booking as and a way to change it. */}
+            {guestMode && recognisedGuest && (
+              <div
+                className="flex items-center gap-3 rounded-xl border border-[#E2E8F0] bg-white p-4"
+                data-testid="guest-recognised"
+              >
+                <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-green-100">
+                  <ShieldCheck className="h-4 w-4 text-green-700" aria-label="Verified" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-[lab(34.0831_-9.57756_-27.7093)]">
+                    Booking as {recognisedGuest.full_name?.trim() || 'guest'}
+                  </p>
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                    {formatGuestPhone(recognisedGuest.phone)}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Everything downstream is keyed on the verified number, so
+                    // it all has to come off together: the gate re-arms, the
+                    // staged document stops counting, and the sender fields go
+                    // back to being this customer's to type.
+                    setForceReverify(true);
+                    setGuestVerifiedPhone(null);
+                    setKycResult(null);
+                    setSenderPhone('');
+                    setSenderName('');
+                    setSenderEmail('');
+                  }}
+                  className="shrink-0 text-xs font-semibold text-[#2F4468] underline underline-offset-4"
+                  data-testid="button-guest-change-identity"
+                >
+                  Change
+                </button>
+              </div>
+            )}
+
+            {guestMode && !recognisedGuest && (
               <GuestVerification
                 onVerifiedPhoneChange={(verified) => {
                   setGuestVerifiedPhone(verified);
@@ -1657,7 +2019,9 @@ export default function CreateShipment() {
 
             <AddressPicker
               type="sender"
-              isLoggedIn={isLoggedIn}
+              // A verified guest has saved addresses too — the rows written
+              // against their guest_ref by earlier bookings.
+              isLoggedIn={isLoggedIn || !!guestVerifiedPhone}
               onSelect={(address: SavedAddress) => {
                 setSenderName(address.full_name);
                 setSenderCompany(address.company ?? '');
@@ -1669,6 +2033,8 @@ export default function CreateShipment() {
                 setFieldErrors({});
               }}
             />
+
+            <SectionLabel>Sender details</SectionLabel>
 
             <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-3 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
               <div>
@@ -1822,6 +2188,8 @@ export default function CreateShipment() {
                 </div>
               </div>
             </div>
+
+            <SectionLabel>Collection</SectionLabel>
 
             <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
               <Label className="text-sm font-semibold mb-3 block">Pickup or Drop-off?</Label>
@@ -1981,6 +2349,34 @@ export default function CreateShipment() {
               </div>
             )}
 
+            {/* Last on the sender step, and the last thing before the parcel's
+                destination is asked for. An account holder signed this at
+                signup; a guest had never been shown it at all, so shipments
+                were moving under terms nobody had agreed to. */}
+            {guestMode && guestVerifiedPhone && <SectionLabel>Terms</SectionLabel>}
+
+            {guestMode && guestVerifiedPhone && (
+              <ContractSignature
+                accepted={contractAccepted}
+                onAcceptedChange={(accepted) => {
+                  setContractAccepted(accepted);
+                  setContractError('');
+                  clearFieldError('contract');
+                }}
+                signedName={contractSignedName}
+                onSignedNameChange={(name) => {
+                  setContractSignedName(name);
+                  setContractError('');
+                  clearFieldError('contract');
+                }}
+                phone={guestVerifiedPhone}
+                // Whose shipment it is. The sender's name is what the docket
+                // and the invoice carry, so it is the name that signs.
+                accountName={senderName.trim() || 'Guest'}
+                error={contractError}
+              />
+            )}
+
             {/* Company accounts: nothing here. Identity was settled by GST at
                 signup — see A2. Personal accounts still need a document on
                 file, but are only asked once. */}
@@ -2019,21 +2415,13 @@ export default function CreateShipment() {
               )
             )}
 
-            {stepError && (
-              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3">
-                <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-red-600">{stepError}</p>
-              </div>
-            )}
-
-            <Button
-              onClick={handleNext}
-              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
-              data-testid="button-next-step"
-            >
-              Continue
-              <ArrowRight className="w-4 h-4 ml-1" />
-            </Button>
+            <StepActions
+              stepError={stepError}
+              onBack={handleBack}
+              onNext={handleNext}
+              nextLabel={NEXT_LABEL[currentStep] ?? 'Continue'}
+              step={currentStep}
+            />
           </div>
         )}
 
@@ -2228,21 +2616,13 @@ export default function CreateShipment() {
               </div>
             </div>
 
-            {stepError && (
-              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3">
-                <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-red-600">{stepError}</p>
-              </div>
-            )}
-
-            <Button
-              onClick={handleNext}
-              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
-              data-testid="button-next-step"
-            >
-              Continue
-              <ArrowRight className="w-4 h-4 ml-1" />
-            </Button>
+            <StepActions
+              stepError={stepError}
+              onBack={handleBack}
+              onNext={handleNext}
+              nextLabel={NEXT_LABEL[currentStep] ?? 'Continue'}
+              step={currentStep}
+            />
           </div>
         )}
 
@@ -2593,21 +2973,13 @@ export default function CreateShipment() {
               <p className="text-[10px] text-muted-foreground mt-1.5">Customs declared value for international shipping</p>
             </div>
 
-            {stepError && (
-              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3">
-                <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-red-600">{stepError}</p>
-              </div>
-            )}
-
-            <Button
-              onClick={handleNext}
-              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
-              data-testid="button-next-step"
-            >
-              Continue
-              <ArrowRight className="w-4 h-4 ml-1" />
-            </Button>
+            <StepActions
+              stepError={stepError}
+              onBack={handleBack}
+              onNext={handleNext}
+              nextLabel={NEXT_LABEL[currentStep] ?? 'Continue'}
+              step={currentStep}
+            />
           </div>
         )}
 
