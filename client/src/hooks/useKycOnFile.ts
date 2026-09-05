@@ -12,6 +12,8 @@ export interface KycOnFile {
   mime_type?: string;
   file_size_bytes?: number;
   updated_at?: string;
+  /** Smart OCR's verdict. See shared/kyc.ts §KycSummary. */
+  ocr_status?: string | null;
 }
 
 export const KYC_QUERY_KEY = ['/api/kyc/me'] as const;

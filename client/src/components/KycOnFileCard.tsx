@@ -82,6 +82,14 @@ export function KycOnFileCard({
   className,
 }: KycOnFileCardProps): React.JSX.Element {
   const [open, setOpen] = useState(defaultOpen);
+  /**
+   * Whether anything actually read this document.
+   *
+   * `match` is Smart OCR agreeing the number on the card is the number the
+   * customer typed. `unreadable`, `unavailable`, `skipped` and `bypassed` are
+   * the ops queue: the file is stored and nobody has confirmed it.
+   */
+  const checked = kyc.ocr_status === 'match';
   const [fullscreen, setFullscreen] = useState(false);
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [pdfBase64, setPdfBase64] = useState<string | null>(null);
@@ -241,17 +249,43 @@ export function KycOnFileCard({
   return (
     <div
       className={cn(
-        'rounded-xl border border-green-200 bg-green-50/50 p-4 shadow-sm space-y-3',
+        'rounded-xl border p-4 shadow-sm space-y-3',
+        checked ? 'border-green-200 bg-green-50/50' : 'border-blue-200 bg-blue-50/40',
         className,
       )}
       data-testid="kyc-on-file-badge"
     >
       <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0">
-          <ShieldCheck className="w-5 h-5 text-green-700" />
+        <div
+          className={cn(
+            'w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0',
+            checked ? 'bg-green-100' : 'bg-blue-100'
+          )}
+        >
+          <ShieldCheck className={cn('w-5 h-5', checked ? 'text-green-700' : 'text-blue-700')} />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-foreground">KYC on file</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold text-foreground">
+              {checked ? 'Identity verified' : 'Document on file'}
+            </p>
+            {/* Said plainly, because "KYC on file" read as a tick whatever
+                Smart OCR made of the upload. Only `match` means the number on
+                the document was read and agreed with the number typed; every
+                other verdict is a document nobody has confirmed, and ops still
+                has to look at it. */}
+            <span
+              className={cn(
+                'shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold',
+                checked
+                  ? 'border-green-200 bg-green-50 text-green-700'
+                  : 'border-blue-200 bg-blue-50 text-blue-700'
+              )}
+              data-testid="badge-kyc-ocr-status"
+            >
+              {checked ? 'Checked' : 'In review'}
+            </span>
+          </div>
           <p className="text-xs text-muted-foreground mt-0.5">
             {kyc.document_type} ••{kyc.last_four}
           </p>
@@ -268,7 +302,12 @@ export function KycOnFileCard({
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 border-t border-green-200/70 pt-3">
+      <div
+        className={cn(
+          'grid grid-cols-2 gap-3 border-t pt-3',
+          checked ? 'border-green-200/70' : 'border-blue-200/70'
+        )}
+      >
         <DetailRow label="Document type" value={kyc.document_type} />
         <DetailRow label="Number" value={`•••• ${kyc.last_four}`} />
         <DetailRow label="File" value={kyc.original_filename || '—'} />
@@ -279,7 +318,10 @@ export function KycOnFileCard({
       </div>
 
       {open && (
-        <div className="border-t border-green-200/70 pt-3" data-testid="kyc-preview">
+        <div
+          className={cn('border-t pt-3', checked ? 'border-green-200/70' : 'border-blue-200/70')}
+          data-testid="kyc-preview"
+        >
           {loading && (
             <div className="flex items-center justify-center gap-2 h-32 text-muted-foreground">
               <Loader2 className="w-4 h-4 animate-spin" />
