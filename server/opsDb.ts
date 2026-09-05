@@ -11,14 +11,24 @@ import {
   readCancellationRequest,
   type Order,
 } from "../shared/orderContract.js";
+import {
+  applyOpsBoardQuery,
+  filterConfigForSection,
+  type OpsBoardFilters,
+  type OpsBoardSection,
+  type OpsBoardSort,
+} from "../shared/opsBoardQuery.js";
 import { nowInIst, startOfIstDayIso } from "../shared/istTime.js";
 import { getUserContactsByIds, toOrder, type OrderRow } from "./ordersDb.js";
 
+/** PostgREST default max-rows is ~1000; page past that so export never truncates. */
+const EXPORT_PAGE_SIZE = 1000;
+
 const BOARD_COLUMNS =
-  "id, order_no, status, created_at, pickup_request, pickup_date, payment_method, payment_status, is_cod, quoted_amount, final_amount, consignee, agent_id, awb_no";
+  "id, order_no, user_id, status, created_at, pickup_request, pickup_date, payment_method, payment_status, is_cod, quoted_amount, final_amount, consignee, agent_id, awb_no";
 
 const DETAIL_COLUMNS =
-  "id, order_no, user_id, guest_ref, guest_name, guest_email, guest_phone, status, pickup_request, pickup_date, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, itd_docket_response, metadata, created_at, updated_at";
+  "id, order_no, user_id, status, pickup_request, pickup_date, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, itd_docket_response, metadata, created_at, updated_at";
 
 function getSupabaseClient() {
   return supabase;
@@ -46,6 +56,8 @@ function consigneeField(
 export type OpsBoardOrder = {
   id: string;
   order_no: string;
+  user_id: string | null;
+  customer_name: string | null;
   status: string;
   created_at: string;
   pickup_request: number;
@@ -57,10 +69,6 @@ export type OpsBoardOrder = {
   final_amount: number | null;
   consignee_name: string | null;
   consignee_city: string | null;
-  /** Booked without an account. Its KYC is complete either way — guest
-   *  booking compels the same documents — so this is context, not a warning. */
-  is_guest: boolean;
-  guest_name: string | null;
   agent_id: string | null;
   agent_name: string | null;
   awb_no: string | null;
@@ -69,12 +77,8 @@ export type OpsBoardOrder = {
 export type OpsOrderDetail = {
   id: string;
   order_no: string;
-  /** Null on a guest booking — read the guest_* fields for who placed it. */
   user_id: string | null;
-  guest_ref: string | null;
-  guest_name: string | null;
-  guest_email: string | null;
-  guest_phone: string | null;
+  customer_name: string | null;
   status: string;
   pickup_request: number;
   pickup_date: string | null;
@@ -113,10 +117,18 @@ function toNum(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function parseUserId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed !== "" ? trimmed : null;
+}
+
 function mapBoardRow(row: Record<string, unknown>): OpsBoardOrder {
   return {
     id: String(row.id),
     order_no: String(row.order_no),
+    user_id: parseUserId(row.user_id),
+    customer_name: null,
     status: String(row.status),
     created_at: String(row.created_at),
     pickup_request: row.pickup_request === 2 ? 2 : 1,
@@ -128,8 +140,6 @@ function mapBoardRow(row: Record<string, unknown>): OpsBoardOrder {
     final_amount: toNum(row.final_amount),
     consignee_name: consigneeField(row.consignee, ["name", "full_name"]),
     consignee_city: consigneeField(row.consignee, ["city", "consignee_city"]),
-    is_guest: row.user_id == null,
-    guest_name: (row.guest_name as string | null) ?? null,
     agent_id: (row.agent_id as string | null) ?? null,
     agent_name: null,
     awb_no: (row.awb_no as string | null) ?? null,
@@ -140,13 +150,8 @@ function mapDetailRow(row: Record<string, unknown>): OpsOrderDetail {
   return {
     id: String(row.id),
     order_no: String(row.order_no),
-    // Not String(): a guest order has no user, and String(null) is the text
-    // "null", which reads as a real id everywhere downstream.
-    user_id: (row.user_id as string | null) ?? null,
-    guest_ref: (row.guest_ref as string | null) ?? null,
-    guest_name: (row.guest_name as string | null) ?? null,
-    guest_email: (row.guest_email as string | null) ?? null,
-    guest_phone: (row.guest_phone as string | null) ?? null,
+    user_id: parseUserId(row.user_id),
+    customer_name: null,
     status: String(row.status),
     pickup_request: row.pickup_request === 2 ? 2 : 1,
     pickup_date: (row.pickup_date as string | null) ?? null,
@@ -188,6 +193,28 @@ async function withAgentNames<T extends { agent_id: string | null; agent_name: s
   });
 }
 
+/** Batch-resolve user_id → account-holder full_name. Missing contacts stay null. */
+async function withCustomerNames<
+  T extends { user_id: string | null; customer_name: string | null },
+>(orders: T[]): Promise<T[]> {
+  const ids = orders
+    .map((order) => order.user_id)
+    .filter((id): id is string => Boolean(id));
+  if (ids.length === 0) return orders;
+
+  const contacts = await getUserContactsByIds(ids);
+  return orders.map((order) => {
+    if (!order.user_id) return order;
+    const name = contacts.get(order.user_id)?.full_name?.trim();
+    return { ...order, customer_name: name ? name : null };
+  });
+}
+
+async function withBoardNames(orders: OpsBoardOrder[]): Promise<OpsBoardOrder[]> {
+  const withAgents = await withAgentNames(orders);
+  return withCustomerNames(withAgents);
+}
+
 /** Newest-first board list. Hard cap 200. Optional exact status filter. */
 export async function listAllOrdersForOps(opts: {
   status?: string;
@@ -213,7 +240,7 @@ export async function listAllOrdersForOps(opts: {
     return null;
   }
 
-  return withAgentNames((data ?? []).map((row) => mapBoardRow(row as Record<string, unknown>)));
+  return withBoardNames((data ?? []).map((row) => mapBoardRow(row as Record<string, unknown>)));
 }
 
 /** Full order by id — no user_id filter. */
@@ -233,8 +260,60 @@ export async function getOrderByIdForOps(id: string): Promise<OpsOrderDetail | n
   }
   if (!data) return null;
 
-  const [detail] = await withAgentNames([mapDetailRow(data as Record<string, unknown>)]);
+  const [detail] = await withCustomerNames(
+    await withAgentNames([mapDetailRow(data as Record<string, unknown>)])
+  );
   return detail ?? null;
+}
+
+/** Registered customer's orders — never matches null user_id (guests). */
+export async function listOpsOrdersByCustomer(
+  userId: string
+): Promise<OpsBoardOrder[] | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("orders")
+    .select(BOARD_COLUMNS)
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    logSupabaseError("listOpsOrdersByCustomer", error);
+    return null;
+  }
+
+  return withBoardNames((data ?? []).map((row) => mapBoardRow(row as Record<string, unknown>)));
+}
+
+/** Grouped order counts for a page of registered customer ids. */
+export async function countOrdersForOpsCustomers(
+  userIds: string[]
+): Promise<Map<string, number> | null> {
+  const counts = new Map<string, number>();
+  if (userIds.length === 0) return counts;
+
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client.rpc("ops_customer_order_counts", {
+    p_ids: userIds,
+  });
+
+  if (error) {
+    logSupabaseError("countOrdersForOpsCustomers", error);
+    return null;
+  }
+
+  const raw = Array.isArray(data) ? data : [];
+  for (const row of raw) {
+    const rec = row as { user_id?: unknown; order_count?: unknown };
+    if (typeof rec.user_id !== "string") continue;
+    const n = typeof rec.order_count === "number" ? rec.order_count : Number(rec.order_count);
+    if (Number.isFinite(n)) counts.set(rec.user_id, n);
+  }
+  return counts;
 }
 
 /**
@@ -465,22 +544,33 @@ function threeWayTotals(payments: OpsPaymentRow[]): OpsPaymentTotals {
 /**
  * Ops-wide payment ledger. No collected_by filter — cash, UPI, and gateway
  * all appear. Window is IST today or the last 7 IST days.
+ *
+ * `limit` defaults to 500 for the ledger/dashboard. Pass `null` for export
+ * (omit `.limit()`). If payments ever exceed PostgREST max-rows (~1000),
+ * paginate with `.range()` — not needed at current volume (~24 rows).
  */
 export async function listOpsPayments(
-  range: OpsPaymentRange
+  range: OpsPaymentRange,
+  opts?: { limit?: number | null }
 ): Promise<{ payments: OpsPaymentRow[]; totals: OpsPaymentTotals } | null> {
   const client = getSupabaseClient();
   if (!client) return null;
 
   const startIso = startIsoForRange(range);
-  const { data, error } = await client
+  const limit = opts?.limit === undefined ? 500 : opts.limit;
+  let query = client
     .from("payments")
     .select(
       "id, txn_id, order_id, amount, currency, method, collection_mode, collected_by, collected_at, status, reference, orders(order_no)"
     )
     .gte("collected_at", startIso)
-    .order("collected_at", { ascending: false })
-    .limit(500);
+    .order("collected_at", { ascending: false });
+
+  if (limit != null) {
+    query = query.limit(limit);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     logSupabaseError("listOpsPayments", error);
@@ -522,6 +612,70 @@ export async function listOpsPayments(
   });
 
   return { payments, totals: threeWayTotals(payments) };
+}
+
+export type OpsOrdersExportParams = {
+  section: OpsBoardSection;
+  filters: OpsBoardFilters;
+  query: string;
+  sort: OpsBoardSort;
+};
+
+/**
+ * Uncapped board export. Section gate runs in PostgREST (paginated); search /
+ * COD / IST windows / assignment / stage / payment / sort run in JS via
+ * applyOpsBoardQuery so they cannot drift from the client board.
+ */
+export async function listOpsOrdersForExport(
+  params: OpsOrdersExportParams
+): Promise<OpsBoardOrder[] | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const rawRows: Record<string, unknown>[] = [];
+  let from = 0;
+
+  for (;;) {
+    let query = client
+      .from("orders")
+      .select(BOARD_COLUMNS)
+      .order("created_at", { ascending: false })
+      .range(from, from + EXPORT_PAGE_SIZE - 1);
+
+    if (params.section === "pickups") {
+      query = query
+        .eq("pickup_request", 1)
+        .neq("status", "dispatched")
+        .neq("status", "cancelled");
+    } else if (params.section === "dropoffs") {
+      query = query
+        .eq("pickup_request", 2)
+        .neq("status", "dispatched")
+        .neq("status", "cancelled");
+    } else {
+      query = query.eq("status", "dispatched");
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      logSupabaseError("listOpsOrdersForExport", error);
+      return null;
+    }
+
+    const page = (data ?? []) as Record<string, unknown>[];
+    rawRows.push(...page);
+    if (page.length < EXPORT_PAGE_SIZE) break;
+    from += EXPORT_PAGE_SIZE;
+  }
+
+  const mapped = await withBoardNames(rawRows.map((row) => mapBoardRow(row)));
+  const config = filterConfigForSection(params.section);
+  return applyOpsBoardQuery(mapped, {
+    filters: params.filters,
+    config,
+    query: params.query,
+    sort: params.sort,
+  });
 }
 
 /**

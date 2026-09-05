@@ -6,6 +6,7 @@ import {
   encryptNullable,
 } from "./fieldCrypto.js";
 import {
+  isDocSlot,
   verificationState,
   type AccountKind,
   type CompanyCategory,
@@ -273,13 +274,28 @@ export async function getSignupDocumentWithFile(
   return data ? decodeRow(data as AccountDocumentRow) : null;
 }
 
-/**
- * The same, for a slot an account already owns.
- *
- * The post-signup twin of getSignupDocumentWithFile: once documents can be
- * completed after the account exists, the Aadhaar mirror has to be able to read
- * from the user_id side too.
- */
+/** Full claimed-account row for one slot — ops KYC viewer. Decrypts at the boundary. */
+export async function getAccountDocumentByUserIdAndSlot(
+  userId: string,
+  docSlot: DocSlot
+): Promise<AccountDocumentRow | null> {
+  const client = getClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("account_documents")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("doc_slot", docSlot)
+    .maybeSingle();
+
+  if (error) {
+    logError("getAccountDocumentByUserIdAndSlot", error);
+    return null;
+  }
+  return data ? decodeRow(data as AccountDocumentRow) : null;
+}
+
 /**
  * Slot + verdict for many accounts at once, for the ops verification queue.
  *
@@ -423,6 +439,108 @@ export async function deleteAllSignupDocuments(signupRef: string): Promise<numbe
     return 0;
   }
   return data?.length ?? 0;
+}
+
+/**
+ * Ops Part 1 — existence only. Selects `user_id` and never reads encrypted
+ * columns (document_no / file_data) or capability_id.
+ */
+export async function accountDocExistsForUserIds(userIds: string[]): Promise<Set<string> | null> {
+  const found = new Set<string>();
+  if (userIds.length === 0) return found;
+
+  const client = getClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("account_documents")
+    .select("user_id")
+    .in("user_id", userIds);
+
+  if (error) {
+    logError("accountDocExistsForUserIds", error);
+    return null;
+  }
+
+  for (const row of data ?? []) {
+    if (typeof row.user_id === "string") found.add(row.user_id);
+  }
+  return found;
+}
+
+/** Ops list chips — doc_slot presence only. No document_no / file_data / capability_id. */
+export async function accountDocSlotsForUserIds(
+  userIds: string[]
+): Promise<Map<string, string[]> | null> {
+  const byUser = new Map<string, string[]>();
+  if (userIds.length === 0) return byUser;
+
+  const client = getClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("account_documents")
+    .select("user_id, doc_slot")
+    .in("user_id", userIds);
+
+  if (error) {
+    logError("accountDocSlotsForUserIds", error);
+    return null;
+  }
+
+  for (const row of data ?? []) {
+    if (typeof row.user_id !== "string" || !isDocSlot(row.doc_slot)) continue;
+    const slots = byUser.get(row.user_id) ?? [];
+    if (!slots.includes(row.doc_slot)) slots.push(row.doc_slot);
+    byUser.set(row.user_id, slots);
+  }
+  return byUser;
+}
+
+export type AccountDocOpsMeta = {
+  doc_slot: DocSlot;
+  ocr_status: string | null;
+  original_filename: string;
+  mime_type: string;
+  file_size_bytes: number;
+  updated_at: string;
+};
+
+const OPS_DOC_COLUMNS =
+  "doc_slot, ocr_status, original_filename, mime_type, file_size_bytes, updated_at";
+
+/** Onboarding document meta for ops. No document_no, file_data, or capability_id. */
+export async function listAccountDocOpsMetaByUserId(
+  userId: string
+): Promise<AccountDocOpsMeta[]> {
+  const client = getClient();
+  if (!client) return [];
+
+  const { data, error } = await client
+    .from("account_documents")
+    .select(OPS_DOC_COLUMNS)
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    logError("listAccountDocOpsMetaByUserId", error);
+    return [];
+  }
+
+  const rows: AccountDocOpsMeta[] = [];
+  for (const row of data ?? []) {
+    if (!isDocSlot(row.doc_slot)) continue;
+    rows.push({
+      doc_slot: row.doc_slot,
+      ocr_status: typeof row.ocr_status === "string" ? row.ocr_status : null,
+      original_filename: String(row.original_filename ?? ""),
+      mime_type: String(row.mime_type ?? ""),
+      file_size_bytes:
+        typeof row.file_size_bytes === "number" ? row.file_size_bytes : 0,
+      updated_at: String(row.updated_at ?? ""),
+    });
+  }
+  return rows;
 }
 
 /**

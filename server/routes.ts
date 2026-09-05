@@ -2153,7 +2153,7 @@ export async function registerRoutes(
 
   const signupCompanySchema = z.object({
     phone: phoneSchema,
-    company_name: z.string().trim().min(1, "Company name is required").max(120),
+    company_name: z.string().trim().min(1, "Company name is required"),
     gstin: z.string().trim().length(15, "GST number must be 15 characters"),
     // Which of the four the account is. Optional so that a client built before
     // the categories existed still opens a plain corporate account rather than

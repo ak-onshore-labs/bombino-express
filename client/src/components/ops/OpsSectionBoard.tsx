@@ -1,6 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Loader2, LogOut } from 'lucide-react';
 import { useLocation } from 'wouter';
+import {
+  matchesOpsSection,
+  type OpsBoardSection,
+} from '@shared/opsBoardQuery';
+import { nowInIst } from '@shared/istTime';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { OpsOrderCard } from '@/components/ops/OpsOrderCard';
 import {
@@ -10,11 +15,24 @@ import {
 import { OpsBoardTable } from '@/components/ops/OpsBoardTable';
 import { BandHeader } from '@/components/agent/BandHeader';
 import { Button } from '@/components/ui/button';
-import { useOpsOrders, type OpsBoardOrder } from '@/hooks/useOpsOrders';
+import { useToast } from '@/hooks/use-toast';
+import {
+  fetchOpsOrdersExport,
+  useOpsBoardFiltered,
+  useOpsOrders,
+  type OpsBoardOrder,
+} from '@/hooks/useOpsOrders';
 import {
   useOpsBoardFilters,
   type OpsFilterConfig,
 } from '@/hooks/useOpsBoardFilters';
+import { downloadCsv } from '@/lib/csv';
+import {
+  formatIst,
+  paymentMethodLabel,
+  paymentStatusLabel,
+} from '@/lib/orderDetail';
+import { getOrderStatusLabel } from '@/lib/orderStatus';
 import { OPS_PHASES, groupOrdersByPhase } from '@/lib/opsPhases';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
@@ -29,6 +47,52 @@ const COL_CLASS: Record<number, string> = {
   3: 'md:grid-cols-3',
 };
 
+const ORDER_CSV_HEADERS = [
+  'order_no',
+  'status',
+  'mode',
+  'consignee_name',
+  'consignee_city',
+  'agent_name',
+  'payment_method',
+  'payment_status',
+  'is_cod',
+  'quoted_amount',
+  'final_amount',
+  'created_at',
+  'pickup_date',
+  'awb_no',
+] as const;
+
+function orderToCsvRow(order: OpsBoardOrder): (string | number)[] {
+  const isCod = order.is_cod || order.payment_method === 'cod';
+  return [
+    order.order_no,
+    getOrderStatusLabel(order.status),
+    order.pickup_request === 2 ? 'Drop-off' : 'Pickup',
+    order.consignee_name ?? '',
+    order.consignee_city ?? '',
+    order.agent_id ? order.agent_name || 'Assigned' : 'Unassigned',
+    paymentMethodLabel(order.payment_method),
+    paymentStatusLabel(order.payment_status),
+    isCod ? 'Yes' : 'No',
+    order.quoted_amount ?? '',
+    order.final_amount ?? '',
+    formatIst(order.created_at),
+    order.pickup_date ?? '',
+    order.awb_no ?? '',
+  ];
+}
+
+function orderExportFilename(
+  section: OpsBoardSection,
+  dateRange: string,
+): string {
+  const date = nowInIst().date;
+  const rangeHint = dateRange !== 'all' ? `-${dateRange}` : '';
+  return `bombino-${section}${rangeHint}-${date}.csv`;
+}
+
 function OrderList({ orders }: { orders: OpsBoardOrder[] }) {
   return (
     <>
@@ -40,25 +104,34 @@ function OrderList({ orders }: { orders: OpsBoardOrder[] }) {
 }
 
 /**
- * Pickups / Drop-offs / Dispatched — same GET /api/ops/orders list, filtered
- * in the client. Search and filters are local to the section.
+ * Pickups / Drop-offs / Dispatched — default uses capped GET /api/ops/orders;
+ * when filters or search are active, switches to uncapped export query.
  */
 export function OpsSectionBoard({
   title,
   subtitle,
-  filter,
+  section,
   mode,
   filterConfig,
 }: {
   title: string;
   subtitle: string;
-  filter: (order: OpsBoardOrder) => boolean;
+  section: OpsBoardSection;
   mode: 'stages' | 'flat';
   filterConfig: OpsFilterConfig;
 }) {
+  const { toast } = useToast();
   const [, setLocation] = useLocation();
   const { logout } = useAppStore();
-  const { data: orders, isLoading, error, isError } = useOpsOrders();
+  const {
+    data: orders,
+    isLoading: cappedLoading,
+    error,
+    isError,
+  } = useOpsOrders();
+  const [exporting, setExporting] = useState(false);
+  const [view, setView] = useState<OpsBoardView>('cards');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
 
   const forbidden =
     isError &&
@@ -76,12 +149,12 @@ export function OpsSectionBoard({
   };
 
   const sectionOrders = useMemo(
-    () => (orders ?? []).filter(filter),
-    [orders, filter]
+    () => (orders ?? []).filter((order) => matchesOpsSection(order, section)),
+    [orders, section]
   );
 
   const {
-    visible,
+    visible: cappedVisible,
     filters,
     setFilters,
     sort,
@@ -92,9 +165,71 @@ export function OpsSectionBoard({
     clear,
   } = useOpsBoardFilters(sectionOrders, filterConfig);
 
-  const searching = query.trim().length > 0;
-  const [view, setView] = useState<OpsBoardView>('cards');
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      setDebouncedQuery(query);
+    }, 300);
+    return () => window.clearTimeout(handle);
+  }, [query]);
+
+  const trimmedDebounced = debouncedQuery.trim();
+  const needsUncapped = activeCount > 0 || trimmedDebounced.length > 0;
+
+  const filteredQuery = useOpsBoardFiltered({
+    section,
+    filters,
+    sort,
+    query: trimmedDebounced,
+    enabled: needsUncapped,
+  });
+
+  const visible = needsUncapped
+    ? (filteredQuery.data ?? [])
+    : cappedVisible;
+
   const hideCardsOnDesktop = view === 'table';
+  const listRefreshing =
+    needsUncapped && filteredQuery.isFetching && !!filteredQuery.data;
+  const listFirstFetch =
+    needsUncapped && filteredQuery.isFetching && !filteredQuery.data;
+  const showCappedSpinner = !needsUncapped && cappedLoading;
+  const showListSpinner = listFirstFetch;
+
+  const handleDownload = async (): Promise<void> => {
+    setExporting(true);
+    try {
+      const exported = await fetchOpsOrdersExport({
+        section,
+        assignment: filters.assignment,
+        stage: filters.stage,
+        dateField: filters.dateField,
+        dateRange: filters.dateRange,
+        paymentMethod: filters.paymentMethod,
+        q: query.trim() || undefined,
+        sort,
+      });
+      if (exported.length === 0) {
+        toast({
+          title: 'No export data',
+          description: 'No orders match the current filters.',
+        });
+        return;
+      }
+      downloadCsv(
+        orderExportFilename(section, filters.dateRange),
+        [...ORDER_CSV_HEADERS],
+        exported.map(orderToCsvRow),
+      );
+    } catch {
+      toast({
+        title: 'Export failed',
+        description: 'Could not download orders. Try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setExporting(false);
+    }
+  };
 
   if (forbidden) {
     return (
@@ -121,73 +256,125 @@ export function OpsSectionBoard({
     );
   }
 
+  if (isError && !forbidden) {
+    return (
+      <OpsShell title={title} subtitle={subtitle} wide>
+        <p className="text-sm text-red-600 py-8 text-center" data-testid="ops-board-error">
+          Could not load orders. Try refreshing.
+        </p>
+      </OpsShell>
+    );
+  }
+
   const grouped = groupOrdersByPhase(visible);
   const filledPhases = STAGE_PHASES.filter((phase) => grouped[phase.id].length > 0);
   const colClass = COL_CLASS[filledPhases.length] ?? 'md:grid-cols-3';
 
+  const showEmptySection =
+    !needsUncapped && !cappedLoading && sectionOrders.length === 0;
+  const showNoMatchesCapped =
+    !needsUncapped &&
+    !cappedLoading &&
+    sectionOrders.length > 0 &&
+    visible.length === 0;
+  const showNoMatchesFiltered =
+    needsUncapped &&
+    !filteredQuery.isFetching &&
+    !filteredQuery.isError &&
+    visible.length === 0;
+  const showFilteredError =
+    needsUncapped && filteredQuery.isError && !filteredQuery.data;
+
   return (
     <OpsShell title={title} subtitle={subtitle} wide>
-      {isLoading && (
+      <OpsBoardFilterBar
+        config={filterConfig}
+        filters={filters}
+        setFilters={setFilters}
+        sort={sort}
+        setSort={setSort}
+        query={query}
+        setQuery={setQuery}
+        activeCount={activeCount}
+        onClear={clear}
+        view={view}
+        setView={setView}
+        onDownload={() => void handleDownload()}
+        downloadBusy={exporting}
+        windowMode={needsUncapped ? 'filtered' : 'capped'}
+        matchCount={needsUncapped ? visible.length : undefined}
+      />
+
+      {(showCappedSpinner || showListSpinner) && (
         <div className="flex justify-center py-16" data-testid="ops-board-loading">
           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
         </div>
       )}
 
-      {isError && !forbidden && (
-        <p className="text-sm text-red-600 py-8 text-center" data-testid="ops-board-error">
-          Could not load orders. Try refreshing.
+      {showFilteredError && (
+        <p className="text-sm text-red-600 py-8 text-center" data-testid="ops-board-filtered-error">
+          Could not load filtered orders. Try again.
         </p>
       )}
 
-      {!isLoading && !isError && (
-        <>
-          <OpsBoardFilterBar
-            config={filterConfig}
-            filters={filters}
-            setFilters={setFilters}
-            sort={sort}
-            setSort={setSort}
-            query={query}
-            setQuery={setQuery}
-            activeCount={activeCount}
-            onClear={clear}
-            view={view}
-            setView={setView}
-          />
+      {showEmptySection && (
+        <p className="text-sm text-muted-foreground py-12 text-center" data-testid="ops-board-empty">
+          No orders in this section.
+        </p>
+      )}
 
-          {sectionOrders.length === 0 && (
-            <p className="text-sm text-muted-foreground py-12 text-center" data-testid="ops-board-empty">
-              No orders in this section.
-            </p>
+      {showNoMatchesCapped && (
+        <div className="py-12 text-center" data-testid="ops-board-no-matches">
+          <p className="text-sm text-muted-foreground">
+            {query.trim().length > 0 && activeCount === 0
+              ? 'No matches'
+              : 'No orders match these filters. Among the latest 200 orders.'}
+          </p>
+          {activeCount > 0 && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="mt-3"
+              onClick={clear}
+              data-testid="ops-filters-clear-empty"
+            >
+              Clear filters
+            </Button>
           )}
+        </div>
+      )}
 
-          {sectionOrders.length > 0 && visible.length === 0 && (
-            <div className="py-12 text-center" data-testid="ops-board-no-matches">
-              <p className="text-sm text-muted-foreground">
-                {searching && activeCount === 0
-                  ? 'No matches'
-                  : 'No orders match these filters. Among the latest 200 orders.'}
-              </p>
-              {activeCount > 0 && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  className="mt-3"
-                  onClick={clear}
-                  data-testid="ops-filters-clear-empty"
-                >
-                  Clear filters
-                </Button>
-              )}
-            </div>
+      {showNoMatchesFiltered && (
+        <div className="py-12 text-center" data-testid="ops-board-no-matches">
+          <p className="text-sm text-muted-foreground">
+            No orders match these filters.
+          </p>
+          {activeCount > 0 && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="mt-3"
+              onClick={clear}
+              data-testid="ops-filters-clear-empty"
+            >
+              Clear filters
+            </Button>
           )}
+        </div>
+      )}
 
-          {visible.length > 0 && view === 'table' && (
+      {visible.length > 0 && (
+        <div
+          className={cn(listRefreshing && 'opacity-60 transition-opacity')}
+          data-testid="ops-board-list"
+        >
+          {view === 'table' && (
             <OpsBoardTable orders={visible} showStage={mode === 'stages'} />
           )}
 
-          {visible.length > 0 && mode === 'flat' && (
+          {mode === 'flat' && (
             <div
               className={cn(
                 'rounded-2xl border border-border bg-white px-3 divide-y divide-border',
@@ -199,7 +386,7 @@ export function OpsSectionBoard({
             </div>
           )}
 
-          {visible.length > 0 && mode === 'stages' && filledPhases.length > 0 && (
+          {mode === 'stages' && filledPhases.length > 0 && (
             <>
               <div
                 className={cn(
@@ -251,7 +438,7 @@ export function OpsSectionBoard({
               </div>
             </>
           )}
-        </>
+        </div>
       )}
     </OpsShell>
   );
