@@ -7,6 +7,7 @@
 import type { LucideIcon } from 'lucide-react';
 import {
   ContactRound,
+  Route as RouteIcon,
   LayoutDashboard,
   Package,
   Send,
@@ -82,6 +83,16 @@ export const OPS_NAV: readonly OpsNavItem[] = [
     mobileLabel: 'Users',
     path: '/ops/users',
     icon: Users,
+    mobile: false,
+    mobileMore: true,
+  },
+  {
+    // A desk task — editing rider coverage is not something done on a phone in
+    // the street — so it sits in the More sheet rather than on the four-tab bar.
+    label: 'Beats',
+    mobileLabel: 'Beats',
+    path: '/ops/beats',
+    icon: RouteIcon,
     mobile: false,
     mobileMore: true,
   },

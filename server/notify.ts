@@ -34,7 +34,7 @@ import { getCodeForOwner } from "./handoverCodes.js";
 import { getUserContactsByIds } from "./ordersDb.js";
 import { sendTemplate } from "./whatsapp.js";
 import { getWhatsappRecipient } from "./whatsappDb.js";
-import { getAgent, listAllAgents } from "./whatsappAgents.js";
+import { getAgent, listAgentsForPincode } from "./whatsappAgents.js";
 import {
   agentJobCancelledMessage,
   agentNewJobMessage,
@@ -282,9 +282,11 @@ export async function notifyOrderBooked(input: {
 /**
  * A pickup has entered the pool.
  *
- * Fans out to every agent. It used to go only to those rostered for the booked
- * window; there is no window any more, so there is nothing to narrow it by —
- * a free job is one any agent can take.
+ * Fans out to the agents whose beat covers the collection pincode, and to every
+ * agent when the beats cannot answer — see `listAgentsForPincode`. This narrows
+ * who is *told*; it does not narrow who may claim. The pool itself is still
+ * global and FIFO, so a job in an absent rider's beat stays claimable by
+ * anyone, which is what ops' own "adjust all pickup boy" note requires.
  *
  * Each gets their own dedupe key, so the first one to claim it does not
  * suppress the others' messages — they were already sent — and a replayed
@@ -297,7 +299,7 @@ export async function notifyAgentsOfNewJob(input: {
   const { order } = input;
   if (order.pickup_request !== 1) return;
 
-  const agents = await listAllAgents();
+  const agents = await listAgentsForPincode(input.address?.pincode ?? null);
   if (agents.length === 0) return;
 
   const message = agentNewJobMessage({ order, area: pickupArea(input.address) });

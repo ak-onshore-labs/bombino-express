@@ -10,6 +10,16 @@ import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import { isIndiaHubId } from "../../shared/hubs.js";
 import {
+  beatNamesByAgent,
+  getBeat,
+  insertBeat,
+  listBeats,
+  replaceBeatAgents,
+  replaceBeatPincodes,
+  updateBeat,
+  type BeatPincode,
+} from "../beatsDb.js";
+import {
   ORDER_STATUSES,
   isOrderStatus,
   isRole,
@@ -79,6 +89,52 @@ const createStaffSchema = z.object({
   role: z.enum(["agent", "admin"]),
   hub_id: z.coerce.number().int().refine(isIndiaHubId, "Select a valid hub"),
 });
+
+/**
+ * A beat, as ops describe one. `slug` is the id the seed migration keys on, so
+ * it is write-once: creating a beat sets it and nothing can change it after.
+ */
+const createBeatSchema = z.object({
+  slug: z
+    .string()
+    .trim()
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Use lowercase words joined by hyphens"),
+  name: z.string().trim().min(1, "Name the round as ops describe it"),
+  hub: z.string().trim().min(1, "Name the office the riders run out of"),
+  cutoff_hour: z.coerce.number().int().min(0).max(23),
+});
+
+const patchBeatSchema = z
+  .object({
+    name: z.string().trim().min(1).optional(),
+    hub: z.string().trim().min(1).optional(),
+    cutoff_hour: z.coerce.number().int().min(0).max(23).optional(),
+    is_active: z.boolean().optional(),
+  })
+  .refine((patch) => Object.keys(patch).length > 0, "Nothing to change");
+
+/**
+ * A pincode row. `city` and `area` default to blank rather than being required:
+ * ops paste a bare list far more often than an annotated one, and the client
+ * fills the city in from the beat before posting. `remark` is the surcharge
+ * flag, which only Kolkata's sheet has ever set.
+ */
+const beatPincodeSchema = z.object({
+  pincode: z.string().trim().regex(/^\d{6}$/, "Pincodes are six digits"),
+  city: z.string().trim().min(1, "Every pincode needs the city the customer would name"),
+  area: z.string().trim().default(""),
+  remark: z.enum(["ok", "out_of_city"]).default("ok"),
+});
+
+const replacePincodesSchema = z.object({
+  pincodes: z.array(beatPincodeSchema).max(5000),
+});
+
+const replaceAgentsSchema = z.object({
+  agent_ids: z.array(z.string().uuid()).max(200),
+});
+
+const beatIdSchema = z.string().uuid();
 
 const customersListQuerySchema = z.object({
   q: z.string().max(80).optional(),
@@ -789,7 +845,231 @@ export function registerOpsRoutes(app: Express): void {
         res.status(502).json({ message: "Could not load users" });
         return;
       }
-      res.json({ users });
+
+      // Which rounds each agent runs, so the staff list can show coverage
+      // without a trip to the beats screen. Membership is edited there, where
+      // the many-to-many actually lives; this is read-only.
+      //
+      // A failure here is not a failure of the list. The beats tables may not
+      // even be applied yet, and a staff roster that will not render because a
+      // decorative column could not load is worse than one without the column.
+      const beats = await beatNamesByAgent(users.map((u) => u.id));
+
+      res.json({
+        users: users.map((user) => ({
+          ...user,
+          beats: beats?.get(user.id) ?? [],
+        })),
+      });
+    }
+  );
+
+
+  // ── Pickup beats ──────────────────────────────────────────────────────────
+  //
+  // The rider config ops have always sent us in four lines — name, number,
+  // serviceable pincodes, cut-off — finally editable without a deploy.
+  //
+  // Admin-gated throughout. A beat decides what a customer is offered at
+  // booking and who gets WhatsApped about a new job; neither is an agent's to
+  // change, and `requireRole` stays exact rather than becoming a list.
+
+  // GET /api/ops/beats — every beat, retired ones included
+  app.get(
+    "/api/ops/beats",
+    requireUser,
+    requireRole("admin", "super_admin"),
+    async (_req: Request, res: Response) => {
+      const beats = await listBeats();
+      if (beats === null) {
+        res.status(502).json({ message: "Could not load beats" });
+        return;
+      }
+      res.json({ beats });
+    }
+  );
+
+  // GET /api/ops/beats/:id — one beat with its full pincode list
+  app.get(
+    "/api/ops/beats/:id",
+    requireUser,
+    requireRole("admin", "super_admin"),
+    async (req: Request, res: Response) => {
+      const id = beatIdSchema.safeParse(req.params.id);
+      if (!id.success) {
+        res.status(400).json({ message: "Invalid beat id" });
+        return;
+      }
+
+      const beat = await getBeat(id.data);
+      if (beat === "missing") {
+        res.status(404).json({ message: "No such beat" });
+        return;
+      }
+      if (beat === null) {
+        res.status(502).json({ message: "Could not load beat" });
+        return;
+      }
+      res.json({ beat });
+    }
+  );
+
+  // POST /api/ops/beats — create one
+  app.post(
+    "/api/ops/beats",
+    requireUser,
+    requireRole("admin", "super_admin"),
+    async (req: Request, res: Response) => {
+      const parsed = createBeatSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          message: parsed.error.issues[0]?.message ?? "Invalid request",
+        });
+        return;
+      }
+
+      const created = await insertBeat(parsed.data);
+      if (created === "taken") {
+        res.status(409).json({ message: "A beat with that slug already exists" });
+        return;
+      }
+      if (!created) {
+        res.status(502).json({ message: "Could not create beat. Please try again." });
+        return;
+      }
+      res.json({ beat: created });
+    }
+  );
+
+  // PATCH /api/ops/beats/:id — name, hub, cut-off, or retire it
+  app.patch(
+    "/api/ops/beats/:id",
+    requireUser,
+    requireRole("admin", "super_admin"),
+    async (req: Request, res: Response) => {
+      const id = beatIdSchema.safeParse(req.params.id);
+      if (!id.success) {
+        res.status(400).json({ message: "Invalid beat id" });
+        return;
+      }
+
+      const parsed = patchBeatSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          message: parsed.error.issues[0]?.message ?? "Invalid request",
+        });
+        return;
+      }
+
+      const updated = await updateBeat(id.data, parsed.data);
+      if (updated === "missing") {
+        res.status(404).json({ message: "No such beat" });
+        return;
+      }
+      if (updated === null) {
+        res.status(502).json({ message: "Could not update beat. Please try again." });
+        return;
+      }
+      res.json({ beat: updated });
+    }
+  );
+
+  /**
+   * PUT /api/ops/beats/:id/pincodes — replace the whole set.
+   *
+   * A replace, not a patch, because that is the shape of the hand-over: ops are
+   * sent a list and paste a list. It is also the only way to say "this code
+   * came off the round" without hunting for it.
+   *
+   * Duplicates are collapsed here rather than rejected. A pasted list often
+   * repeats a code — the Jaipur sheet named 143 post offices across 69
+   * pincodes — and refusing the paste over that would be pedantry. The first
+   * occurrence wins, matching how the static tables read.
+   */
+  app.put(
+    "/api/ops/beats/:id/pincodes",
+    requireUser,
+    requireRole("admin", "super_admin"),
+    async (req: Request, res: Response) => {
+      const id = beatIdSchema.safeParse(req.params.id);
+      if (!id.success) {
+        res.status(400).json({ message: "Invalid beat id" });
+        return;
+      }
+
+      const parsed = replacePincodesSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          message: parsed.error.issues[0]?.message ?? "Invalid request",
+        });
+        return;
+      }
+
+      const seen: Record<string, true> = {};
+      const pincodes: BeatPincode[] = [];
+      for (const row of parsed.data.pincodes) {
+        if (seen[row.pincode]) continue;
+        seen[row.pincode] = true;
+        pincodes.push(row);
+      }
+
+      const written = await replaceBeatPincodes(id.data, pincodes);
+      if (written === "missing") {
+        res.status(404).json({ message: "No such beat" });
+        return;
+      }
+      if (written === null) {
+        res.status(502).json({ message: "Could not save the pincodes. Please try again." });
+        return;
+      }
+      res.json({ pincode_count: written });
+    }
+  );
+
+  /**
+   * PUT /api/ops/beats/:id/agents — replace the riders on this round.
+   *
+   * Every id is checked to be an active agent first. The table's foreign key
+   * only proves the user exists, and putting an admin or a customer on a beat
+   * would quietly add them to the new-job WhatsApp fan-out.
+   */
+  app.put(
+    "/api/ops/beats/:id/agents",
+    requireUser,
+    requireRole("admin", "super_admin"),
+    async (req: Request, res: Response) => {
+      const id = beatIdSchema.safeParse(req.params.id);
+      if (!id.success) {
+        res.status(400).json({ message: "Invalid beat id" });
+        return;
+      }
+
+      const parsed = replaceAgentsSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          message: parsed.error.issues[0]?.message ?? "Invalid request",
+        });
+        return;
+      }
+
+      for (const agentId of parsed.data.agent_ids) {
+        const agent = await findActiveAgentById(agentId);
+        if (!agent) {
+          res.status(400).json({ message: "One of those is not an active agent" });
+          return;
+        }
+      }
+
+      const written = await replaceBeatAgents(id.data, parsed.data.agent_ids);
+      if (written === "missing") {
+        res.status(404).json({ message: "No such beat" });
+        return;
+      }
+      if (written === null) {
+        res.status(502).json({ message: "Could not save the riders. Please try again." });
+        return;
+      }
+      res.json({ agent_count: written });
     }
   );
 

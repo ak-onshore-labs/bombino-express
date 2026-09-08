@@ -26,6 +26,8 @@ type StaffUser = {
   phone: string | null;
   role: string;
   is_active: boolean;
+  /** Rounds this agent runs. Read-only here — edited at /ops/beats. */
+  beats: string[];
 };
 
 const inputClass = 'h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl mt-2';
@@ -34,6 +36,9 @@ export default function OpsUsers() {
   const queryClient = useQueryClient();
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
+  // ITD attribution for the corporate `add_customer` call, and unrelated to
+  // pickup beats despite sharing city names with them. A rider's coverage is
+  // set at /ops/beats.
   const [hubId, setHubId] = useState('');
   const [role, setRole] = useState<StaffRole>('agent');
   const [formError, setFormError] = useState('');
@@ -234,6 +239,16 @@ export default function OpsUsers() {
                     <p className="text-sm text-muted-foreground tabular-nums mt-0.5">
                       {user.phone ?? '—'}
                     </p>
+                    {user.role === 'agent' && (
+                      <p
+                        className="text-[11px] text-muted-foreground mt-1 truncate"
+                        data-testid={`ops-staff-beats-${user.id}`}
+                      >
+                        {user.beats.length > 0
+                          ? user.beats.join(' · ')
+                          : 'On no beat — nobody tells them about new jobs'}
+                      </p>
+                    )}
                   </div>
                   <div className="shrink-0 text-right">
                     <span className="inline-block text-[11px] font-bold uppercase tracking-wide rounded-md bg-[#F3F4F6] px-2 py-1">

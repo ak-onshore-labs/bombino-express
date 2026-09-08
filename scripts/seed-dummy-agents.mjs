@@ -7,8 +7,6 @@
  * creates the accounts and the data that makes those screens say something:
  *
  *   · 3 agent accounts (role = 'agent')
- *   · a weekly availability pattern per agent, so /agent/schedule is populated
- *     and the customer-facing slot API has someone to offer
  *   · 1 dummy customer + pickup addresses across Mumbai
  *   · orders spread over the agent-visible lifecycle: unclaimed (the Calls
  *     pool), agent_accepted, out_for_pickup, picked_up, one overdue
@@ -67,12 +65,16 @@ const YESTERDAY = istDate(-1);
 // ── Cast ─────────────────────────────────────────────────────────────────────
 // Availability is the current two-hour vocabulary. Each agent works a different
 // shape of week so the schedule screen and the slot API have something to
-// differentiate: Ravi mornings six days, Imran afternoons/evenings weekdays,
-// Sunita a short midweek + weekend pattern.
-const MORNINGS = ['09:00-11:00', '11:00-13:00'];
-const AFTERNOONS = ['13:00-15:00', '15:00-17:00'];
-const EVENINGS = ['17:00-19:00', '19:00-21:00'];
-
+// differentiate.
+//
+// Rosters used to be seeded here too — a weekly pattern per agent, so the slot
+// picker had someone to offer. `migrations/drop_pickup_slots.sql` dropped both
+// availability tables when pickups stopped carrying a time window, and this
+// script kept writing to `agent_weekly_availability` for a while after: the
+// insert failed, `die()` fired, and the run aborted before creating a single
+// order. Nothing replaces it, because nothing narrows a pickup by time any
+// more. What narrows it now is geography — see `pickup_beats` — and beat
+// membership is ops' to assign at /ops/beats, not this script's to invent.
 const AGENTS = [
   {
     key: 'ravi',
@@ -83,24 +85,18 @@ const AGENTS = [
     phone: '9000000014',
     full_name: 'Ravi Deshmukh',
     email: 'ravi.agent@bombino.test',
-    days: [1, 2, 3, 4, 5, 6],
-    slots: [...MORNINGS, '13:00-15:00'],
   },
   {
     key: 'imran',
     phone: '9000000012',
     full_name: 'Imran Shaikh',
     email: 'imran.agent@bombino.test',
-    days: [1, 2, 3, 4, 5],
-    slots: [...AFTERNOONS, ...EVENINGS],
   },
   {
     key: 'sunita',
     phone: '9000000013',
     full_name: 'Sunita Pawar',
     email: 'sunita.agent@bombino.test',
-    days: [0, 3, 4, 6],
-    slots: ['11:00-13:00', '13:00-15:00', '15:00-17:00'],
   },
 ];
 
@@ -604,21 +600,13 @@ async function findOrCreateAddress(userId, a) {
  * a hand-made order sitting in the same table is never touched; payments and
  * order_events go with them by ON DELETE CASCADE.
  */
-async function resetSeed(agentIds) {
+async function resetSeed() {
   const { data: orders, error } = await db
     .from('orders')
     .delete()
     .eq('metadata->>seeded_by', SEED_TAG)
     .select('id');
   if (error) die('reset orders', error);
-
-  if (agentIds.length) {
-    const { error: availError } = await db
-      .from('agent_weekly_availability')
-      .delete()
-      .in('agent_id', agentIds);
-    if (availError) die('reset availability', availError);
-  }
 
   console.log(`Reset: removed ${orders?.length ?? 0} seeded orders (payments cascade).`);
 }
@@ -638,10 +626,8 @@ console.log(
   `customer ${CUSTOMER.phone}  ${CUSTOMER.full_name}  ${customer.created ? 'created' : 'reused'}`
 );
 
-const agentIds = Object.values(agentRows).map((r) => r.id);
-
 if (RESET) {
-  await resetSeed(agentIds);
+  await resetSeed();
 } else {
   const { count, error } = await db
     .from('orders')
@@ -655,25 +641,6 @@ if (RESET) {
     );
     process.exit(1);
   }
-}
-
-// Availability. Deleted and rewritten per agent rather than upserted — the
-// pattern is config, and a partial overwrite would leave an agent rostered into
-// windows this script never chose.
-for (const a of AGENTS) {
-  const agentId = agentRows[a.key].id;
-  const { error: delError } = await db
-    .from('agent_weekly_availability')
-    .delete()
-    .eq('agent_id', agentId);
-  if (delError) die(`clear availability ${a.key}`, delError);
-
-  const rows = a.days.flatMap((day_of_week) =>
-    a.slots.map((slot) => ({ agent_id: agentId, day_of_week, slot }))
-  );
-  const { error } = await db.from('agent_weekly_availability').insert(rows);
-  if (error) die(`availability ${a.key}`, error);
-  console.log(`avail  ${a.full_name.padEnd(18)} ${rows.length} slots (${a.days.length} days)`);
 }
 
 // Addresses, one per locality, all owned by the dummy customer.

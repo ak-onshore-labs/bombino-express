@@ -100,8 +100,11 @@ import {
   formatCutoffHour,
   formatPickupCities,
   getPickupServiceability,
+  pickupCities,
   pickupCutoffHour,
+  type PickupArea,
 } from "../shared/pickupPincodes.js";
+import { getCoverage } from "./pickupCoverageDb.js";
 import {
   generateOtp,
   hashOtp,
@@ -3286,6 +3289,40 @@ export async function registerRoutes(
     }
   );
 
+  // ── Pickup coverage (which pincodes we collect from, and by when) ────────
+
+  /**
+   * The whole coverage map, in one response.
+   *
+   * Deliberately not a per-pincode query. The booking form asks this question
+   * on every keystroke of the sender's pincode, and a round trip per keystroke
+   * would be both slow and wrong — the answer has to be there before the
+   * customer finishes typing, not a moment after. ~700 entries is small enough
+   * to hand over whole and cache.
+   *
+   * No auth: guests book, and this is public information — where the company
+   * collects from and by what time. Nothing here names a rider.
+   *
+   * `source` says whether these are the beats ops last edited or the table
+   * compiled into the build. It is the one thing that makes a stale-coverage
+   * incident diagnosable from a browser, so it ships in the payload rather than
+   * only in a log line.
+   */
+  app.get("/api/pickup/coverage", async (_req: Request, res: Response) => {
+    const { areas, source } = await getCoverage();
+
+    const payload: Record<string, PickupArea> = {};
+    areas.forEach((area, pincode) => {
+      payload[pincode] = area;
+    });
+
+    // Five minutes, matching the server's own cache. An ops edit is visible to
+    // a customer who reloads within that; one already mid-booking keeps the map
+    // they started with, which is the same guarantee POST /api/orders re-checks.
+    res.set("Cache-Control", "public, max-age=300");
+    res.json({ areas: payload, cities: pickupCities(areas), source });
+  });
+
   // ── Postal lookup (pincode → city/state) ─────────────────────────────────
 
   app.get(
@@ -3827,22 +3864,26 @@ export async function registerRoutes(
     // nothing stops a hand-crafted request. Both run before the address write,
     // so a rejected booking leaves nothing behind.
     if (body.pickup_request === 1) {
-      const coverage = getPickupServiceability(body.origin_address.pincode);
+      // Beats as ops last edited them, or the compiled-in table if the database
+      // cannot be reached — never a refusal on the strength of a failed query.
+      const { areas } = await getCoverage();
+
+      const coverage = getPickupServiceability(body.origin_address.pincode, areas);
       if (!coverage.serviceable) {
         res.status(409).json({
           message:
             `We can't pick up from ${body.origin_address.pincode || "that pincode"} just yet. ` +
-            `Doorstep pickup is available in ${formatPickupCities()} — ` +
+            `Doorstep pickup is available in ${formatPickupCities(areas)} — ` +
             `choose drop-off and you can hand your parcel in at our hub.`,
           code: "PICKUP_PINCODE_NOT_SERVICEABLE",
         });
         return;
       }
 
-      // Each hub keeps its own hours, so the boundary is the one that applies
+      // Each beat keeps its own hours, so the boundary is the one that applies
       // where the parcel actually is, not a company-wide constant.
       if (body.pickup_date) {
-        const cutoff = pickupCutoffHour(body.origin_address.pincode);
+        const cutoff = pickupCutoffHour(body.origin_address.pincode, areas);
         const earliest = earliestPickupDate(cutoff);
         if (body.pickup_date < earliest) {
           res.status(409).json({
@@ -4243,8 +4284,8 @@ export async function registerRoutes(
               otp: z
                 .string({ required_error: "Enter the code" })
                 .trim()
-                // 4-6: new codes are four digits, but one issued before that
-                // change is still on somebody's screen. See handoverCodes.ts.
+                // Exactly four. The pattern lives in handoverCodes.ts so the
+                // length the route accepts cannot drift from the length minted.
                 .regex(HANDOVER_CODE_PATTERN, "Enter the 4-digit code"),
             })
             .safeParse(parsed.data.payload ?? {});

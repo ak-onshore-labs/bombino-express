@@ -52,6 +52,7 @@ import {
   isPickupBlocked,
   pickupCutoffHour,
 } from '@shared/pickupPincodes';
+import { usePickupCoverage } from '@/hooks/usePickupCoverage';
 import { lbToKg, inToCm } from '@/lib/mockData';
 import { apiRequest } from '@/lib/queryClient';
 import { parseApiErrorMessage } from '@/lib/apiError';
@@ -61,6 +62,7 @@ import { cn } from '@/lib/utils';
 import { getHsnCode } from '@/lib/hsnData';
 import { useToast } from '@/hooks/use-toast';
 import { usePincodeLookup } from '@/hooks/usePincodeLookup';
+import { DropoffBranches } from '@/components/DropoffBranches';
 import {
   ITD_COUNTRY_LIST,
   ITD_COUNTRY_MAP,
@@ -653,13 +655,21 @@ export default function CreateShipment() {
   const [senderZip, setSenderZip] = useState('');
 
   // ── Pickup coverage ────────────────────────────────────────────────────
-  // Agents run out of a few hubs only. Outside their pincodes there is nobody
-  // to send, so the choice collapses to drop-off; inside them a handful of
-  // pincodes sit beyond the hub's normal beat and cost extra to reach, which
+  // Riders run a fixed set of beats. Outside their pincodes there is nobody to
+  // send, so the choice collapses to drop-off; inside them a handful of
+  // pincodes sit beyond a rider's normal round and cost extra to reach, which
   // the customer should see here rather than on the invoice. `POST /api/orders`
   // re-checks both — this only keeps the form off a rejection.
-  const pickupCoverage = useMemo(() => getPickupServiceability(senderZip), [senderZip]);
-  const pickupBlocked = isPickupBlocked(senderZip);
+  //
+  // The map is the beats as ops last edited them, seeded with the table
+  // compiled into this bundle, so these answers are right before the fetch
+  // lands and right if it never does.
+  const coverage = usePickupCoverage();
+  const pickupCoverage = useMemo(
+    () => getPickupServiceability(senderZip, coverage),
+    [senderZip, coverage]
+  );
+  const pickupBlocked = isPickupBlocked(senderZip, coverage);
   const pickupSurcharge = pickupCoverage.serviceable && pickupCoverage.remark === 'out_of_city';
 
   // Covers a pincode typed after pickup was chosen, and one arriving whole
@@ -678,7 +688,7 @@ export default function CreateShipment() {
   // typed, which can only ever be stricter than the truth. Recomputed on
   // render rather than on a timer: a form open across the cutoff is caught by
   // the effect below on the next render, and by `POST /api/orders` regardless.
-  const pickupCutoff = pickupCutoffHour(senderZip);
+  const pickupCutoff = pickupCutoffHour(senderZip, coverage);
   const earliestDate = earliestPickupDate(pickupCutoff);
   const cutoffPassed = earliestDate !== todayInIst();
 
@@ -2309,9 +2319,20 @@ export default function CreateShipment() {
                   data-testid="text-pickup-not-serviceable"
                 >
                   We can&apos;t pick up from {senderZip} just yet — doorstep pickup is available
-                  in {formatPickupCities()}. You can still drop your parcel off at our hub, and
+                  in {formatPickupCities(coverage)}. You can still drop your parcel off at our hub, and
                   we&apos;ll take it from there.
                 </p>
+              )}
+
+              {/* Telling someone to drop the parcel off is only half an answer
+                  without an address. Shown on a chosen drop-off too, not just a
+                  forced one — the counter is the same either way. */}
+              {(pickupBlocked || pickupRequest === '2') && (
+                <DropoffBranches
+                  pincode={senderZip}
+                  city={senderCity}
+                  state={senderState}
+                />
               )}
 
               {pickupRequest === '1' && pickupSurcharge && pickupCoverage.serviceable && (

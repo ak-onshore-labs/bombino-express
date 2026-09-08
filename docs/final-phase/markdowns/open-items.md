@@ -1,7 +1,7 @@
 # Open Items — A-lane
 
 Running list of what is unresolved, who owns it, and what breaks until it lands.
-Kept by Aditya. Last updated **4 Aug 2026**.
+Kept by Aditya. Last updated **8 Sep 2026**.
 
 Sections: [Needs Arbaaz](#1-needs-arbaaz) · [Needs Bombino / Anas](#2-needs-bombino--anas) ·
 [Migrations](#3-migrations) · [Known debt](#4-known-debt-accepted-for-now) ·
@@ -79,6 +79,11 @@ Carried from §8 of the module spec. A-lane items only.
 | Razorpay confirmation + keys | D9 | Aditya → Bombino | **A4 built** — gateway order, verify, idempotent webhook. Needs `RAZORPAY_KEY_ID` / `_KEY_SECRET` / `_WEBHOOK_SECRET` in the environment and a webhook registered in the dashboard before it can be tested end to end. Unset keys → pay-now returns 503, other three methods unaffected |
 | Refund mechanics — manual flag vs gateway refund | D7 | Aditya → Bombino | **Settled: manual, with a flag** (day-zero-checklist §Refunds). The app never issues a refund. As of 10 Aug the webhook records one issued in the Razorpay dashboard — `refund.processed` marks the `payments` row and flags the order `refund_due` — so a manual refund no longer leaves the order reading `paid`. Execution stays with accounts |
 | Docket attribution (§7) | D4 | Arbaaz → Anas | **Outstanding.** Blocks company-signup attribution — see [4.5] |
+| ~~Create the 15 named riders~~ | Beats | — | **Done 8 Sep.** 15 accounts, 17 beat assignments, applied as SQL from `scripts/seed-pickup-riders.ts --sql`. Every hub but Kolkata now has a named rider, so the new-job fan-out reaches the right people instead of all of them. These are real accounts: each rider can sign in by OTP on their own mobile and receives WhatsApp job alerts for their beat |
+| Andheri riders' phone numbers | Beats | Aditya → Bombino | **Outstanding — the largest remaining gap.** The 8 Sep hand-over named ten pickup boys and gave no numbers, and `itd_users.phone` is the unique key, so none can be given an account. Their nine rounds therefore have nobody on them and a job in any of the **59 Andheri pincodes still notifies every agent** — including, now, riders in Jaipur and Chennai. All ten names are held in `PENDING_RIDERS` (`scripts/pickupRiders.ts`) and echoed into the SQL comments of `migrations/seed_pickup_beats.sql`. When a number arrives, move that entry into `PICKUP_RIDERS` with its `phone` and `hub_id` and re-run the seeder — see [pickup-riders.md](./pickup-riders.md) §6 |
+| Andheri's far edge — Bhayandar, Mira Road, Vasai | Beats | Aditya → Bombino | **Outstanding.** The email says pickups "OUT OF THANE NEW MUBAI AND MIRA ROAD VASA[I]" happen "IF POSSIBLE", but the attached sheet stops at Mandapeshwar (400103) and names no 401xxx pincode. We followed the sheet, so those addresses read as not serviceable today. Ask whether they are a real beat, an out-of-city surcharge, or genuinely out |
+| Kolkata cut-off time, and a Kolkata rider | Beats | Aditya → Bombino | **Outstanding.** Kolkata is the only hub still holding the conservative 3 PM default — every other hub named an hour on 8 Sep — and the only one whose roster has never arrived at all. Its 101 pincodes still fan out to every agent. Two asks in one: the cut-off, and who runs it |
+| ~~Chennai cut-off and scope~~ | Beats | — | **Closed 8 Sep.** Ops named Deva Kumar, "All Chennai" and a 5 PM cut-off, which both confirms the derived 120-pincode scope and lifts the hub off the conservative default it had been holding since it was written |
 
 ---
 
@@ -92,6 +97,9 @@ Carried from §8 of the module spec. A-lane items only.
 | `create_agent_availability.sql` | Applied, then **superseded**. Table deprecated and unread — see [4.6] |
 | `create_agent_weekly_availability.sql` | **Applied 3 Aug** |
 | `payments_gateway_reference.sql` | **Applied 10 Aug.** A4 idempotency — partial unique index on `reference WHERE method = 'pay_now'`, so the verify call and a simultaneous webhook cannot both insert and double-credit an order |
+| `drop_pickup_slots.sql` | Applied. **Left `scripts/seed-dummy-agents.mjs` broken** — it kept writing to the `agent_weekly_availability` it had dropped, so the insert failed, `die()` fired, and the run aborted before creating a single order. `--reset` failed the same way. Both paths fixed; the script no longer seeds rosters, because nothing narrows a pickup by time any more |
+| `create_pickup_beats.sql` | **Applied 8 Sep**, verified live. Three tables — `pickup_beats`, `pickup_beat_pincodes`, `pickup_beat_agents` — giving ops' four-line rider hand-over somewhere to live. `pickup_beat_agents` adds a FK to `itd_users(id)` |
+| `seed_pickup_beats.sql` | **Applied 8 Sep**, then **re-applied the same day** after the rider roster. Now 20 beats / 713 rows: Fort splits into its three real rounds (their union is byte-identical to the 18 it replaces, so no customer-facing coverage change) and Chennai moves 3 PM → 5 PM. Also retires the superseded `mumbai-fort` slug with `is_active = false` rather than deleting it, so its rows and any ops assignment survive. Unique pincodes stay 674 either way. The first revision applied was 18 beats / 712 rows, and `GET /api/pickup/coverage` reports `source: "db"` over 674 pincodes — identical to what the static table resolves to. Generated by `scripts/generate-beat-seed.ts` from `PICKUP_BEATS`; idempotent (beats upsert on slug, pincodes replaced wholesale, agent membership never touched). **Re-generate and commit both together whenever the static table changes** — they are meant to hold the same rows, and coverage silently depends on which one answers |
 | `pickup_slots_two_hour_windows.sql` | **Applied 4 Aug.** Verified: roster holds only 2-hour values; `orders` accepts both, so pre-change bookings keep their 3-hour windows |
 
 ---
