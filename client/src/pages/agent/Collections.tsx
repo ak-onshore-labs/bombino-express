@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils';
 import { AgentShell } from '@/components/agent/AgentShell';
 import { BandHeader } from '@/components/agent/BandHeader';
 import { JobCard, money } from '@/components/agent/PickupCard';
+import { StaggerItem } from '@/components/motion/Stagger';
 import { useCollections } from '@/hooks/useAgentPickups';
 
 /**
@@ -53,7 +54,10 @@ export default function Collections() {
 
       {data && (
         <>
-          <div className="bg-[#F2A123] p-5" data-testid="field-cash-with-you">
+          {/* Two blocks, not the rows inside them: the collections are
+              hairlined into one panel, and lifting each row separately reads as
+              the panel coming apart rather than arriving. */}
+          <StaggerItem index={0} className="bg-[#F2A123] p-5" data-testid="field-cash-with-you">
             <span className="flex items-center gap-2.5">
               <Wallet className="w-[21px] h-[21px] text-[#1B2A41]" strokeWidth={1.5} />
               <span className="text-[13px] font-bold uppercase tracking-[0.1em] text-[#1B2A41]">
@@ -66,50 +70,52 @@ export default function Collections() {
             <p className="text-sm font-bold uppercase tracking-[0.06em] text-[#1B2A41] mt-[18px] pt-4 border-t border-[#1B2A41]/[0.28]!">
               Give to hub today
             </p>
-          </div>
+          </StaggerItem>
 
-          <section>
-            <BandHeader label="Taken today" testId="band-taken-today" />
-            <JobCard>
-              {data.collections.length === 0 ? (
-                <p className="px-4 py-6 text-[17px] font-medium text-[#334155]">No money yet.</p>
-              ) : (
-                data.collections.map((c, i) => {
-                  const Icon = c.collection_mode === 'cash' ? CreditCard : Smartphone;
+          <StaggerItem index={1}>
+            <section>
+              <BandHeader label="Taken today" testId="band-taken-today" />
+              <JobCard>
+                {data.collections.length === 0 ? (
+                  <p className="px-4 py-6 text-[17px] font-medium text-[#334155]">No money yet.</p>
+                ) : (
+                  data.collections.map((c, i) => {
+                    const Icon = c.collection_mode === 'cash' ? CreditCard : Smartphone;
 
-                  return (
-                    <div
-                      key={c.id}
-                      className={cn(
-                        'flex items-center gap-3 p-4',
-                        i < data.collections.length - 1 && 'border-b border-[#E8EDF2]!',
-                      )}
-                      data-testid={`collection-${c.order_no ?? c.id}`}
-                    >
-                      <span className="flex-1 min-w-0">
-                        <span className="block text-[19px] font-bold tracking-[0.02em] text-[#1B2A41] truncate">
-                          {c.order_no ?? '—'}
-                        </span>
-                        <span className="flex items-center gap-2 mt-[7px]">
-                          <Icon
-                            className="w-[17px] h-[17px] shrink-0 text-[#94A3B8]"
-                            strokeWidth={1.5}
-                          />
-                          <span className="text-[15px] font-medium text-[#64748B] truncate">
-                            {c.collection_mode === 'cash' ? 'Cash' : 'UPI'} ·{' '}
-                            {formatTime(c.collected_at)}
+                    return (
+                      <div
+                        key={c.id}
+                        className={cn(
+                          'flex items-center gap-3 p-4',
+                          i < data.collections.length - 1 && 'border-b border-[#E8EDF2]!',
+                        )}
+                        data-testid={`collection-${c.order_no ?? c.id}`}
+                      >
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-[19px] font-bold tracking-[0.02em] text-[#1B2A41] truncate">
+                            {c.order_no ?? '—'}
+                          </span>
+                          <span className="flex items-center gap-2 mt-[7px]">
+                            <Icon
+                              className="w-[17px] h-[17px] shrink-0 text-[#94A3B8]"
+                              strokeWidth={1.5}
+                            />
+                            <span className="text-[15px] font-medium text-[#64748B] truncate">
+                              {c.collection_mode === 'cash' ? 'Cash' : 'UPI'} ·{' '}
+                              {formatTime(c.collected_at)}
+                            </span>
                           </span>
                         </span>
-                      </span>
-                      <span className="shrink-0 text-[21px] font-bold text-[#1B2A41]">
-                        ₹{money(c.amount)}
-                      </span>
-                    </div>
-                  );
-                })
-              )}
-            </JobCard>
-          </section>
+                        <span className="shrink-0 text-[21px] font-bold text-[#1B2A41]">
+                          ₹{money(c.amount)}
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
+              </JobCard>
+            </section>
+          </StaggerItem>
         </>
       )}
     </AgentShell>

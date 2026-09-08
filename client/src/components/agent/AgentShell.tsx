@@ -1,11 +1,12 @@
 import type * as React from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { UserRound, ChevronLeft } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
+import { POP } from '@/lib/motion';
 import bombinoLogo from '@/assets/bombino-logo.png';
 import { DAY_NAMES_SHORT, dayOfWeekForDate, todayInIst } from '@shared/istTime';
-import { AgentNav } from './AgentNav';
 
 /**
  * Chrome for every agent screen.
@@ -170,7 +171,11 @@ export function AgentShell({
         </div>
       </main>
 
-      <AgentNav />
+      {/* The nav is mounted once in `routes.agent.tsx`, above the page
+          transition, so it neither remounts on navigation nor gets caught by
+          the transform that animates the screen. `pb-agent-nav` still reserves
+          its height here — the bar occupies this space, it just is not this
+          component's child any more. */}
     </div>
   );
 }
@@ -183,12 +188,16 @@ export function AgentShell({
  * leads a card; here there is only one job, so it leads the screen — and the
  * back label it replaced told the agent something they already knew.
  *
- * Height is the whole viewport: this screen renders no bottom nav — one job is
- * a place you are in, not a tab you are on — so the action bar sits on the
- * bottom edge of the phone. The sheet scrolls inside itself and the bar stays
- * put. The alternative — a `fixed` bar over a normally scrolling page — needs
- * the page to reserve the bar's height, which changes with how many actions the
- * server sends.
+ * Height is the whole viewport: this screen gets no bottom nav — one job is a
+ * place you are in, not a tab you are on — so the action bar sits on the bottom
+ * edge of the phone. The sheet scrolls inside itself and the bar stays put. The
+ * alternative — a `fixed` bar over a normally scrolling page — needs the page to
+ * reserve the bar's height, which changes with how many actions the server
+ * sends.
+ *
+ * The rule survives, its mechanism moved: neither shell renders the nav now.
+ * `routes.agent.tsx` mounts it once for the whole surface and hides it on this
+ * route (`navVisible`).
  */
 export function AgentJobSheet({
   backHref,
@@ -207,6 +216,8 @@ export function AgentJobSheet({
   actionBar?: React.ReactNode;
   children: React.ReactNode;
 }) {
+  const quiet = useReducedMotion();
+
   return (
     <div
       className="agent-surface h-[100dvh] flex flex-col bg-white"
@@ -221,14 +232,29 @@ export function AgentJobSheet({
           {orderNo && (
             <span className="text-[22px] font-bold tracking-[0.02em] text-white">{orderNo}</span>
           )}
-          {statusWord && (
-            <span
-              className="ml-auto text-xs font-bold uppercase tracking-[0.1em] text-[#F2A123] shrink-0"
-              data-testid="text-status-word"
-            >
-              {statusWord}
-            </span>
-          )}
+          {/*
+            Keyed on the word, so Free → Mine → Going → Done crosses over rather
+            than being rewritten in place. This is the receipt for an action on
+            a surface that carries no toasts: the agent presses a button in the
+            bar below and the one word naming where the job now stands moves.
+          */}
+          <span className="ml-auto shrink-0">
+            <AnimatePresence mode="wait" initial={false}>
+              {statusWord && (
+                <motion.span
+                  key={statusWord}
+                  initial={quiet ? { opacity: 0 } : { opacity: 0, y: -6 }}
+                  animate={quiet ? { opacity: 1 } : { opacity: 1, y: 0 }}
+                  exit={quiet ? { opacity: 0 } : { opacity: 0, y: 6 }}
+                  transition={POP}
+                  className="block text-xs font-bold uppercase tracking-[0.1em] text-[#F2A123]"
+                  data-testid="text-status-word"
+                >
+                  {statusWord}
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </span>
         </div>
       </header>
 
@@ -236,14 +262,22 @@ export function AgentJobSheet({
         <div className="max-w-md mx-auto">{children}</div>
       </div>
 
+      {/*
+        `layout` on the bar, because the server decides how many actions it
+        sends: taking a payment removes the amber row and the bar gets shorter.
+        Without it the sheet's scroll area snaps to the new height and whatever
+        the agent was reading jumps under their eyes.
+      */}
       {actionBar && (
-        <div
+        <motion.div
+          layout={quiet ? false : 'position'}
+          transition={POP}
           className={cn('flex-none bg-white border-t border-[#D8DFE7]!', 'px-5 pt-3.5')}
           style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
           data-testid="agent-action-bar"
         >
           <div className="max-w-md mx-auto flex flex-col gap-2.5">{actionBar}</div>
-        </div>
+        </motion.div>
       )}
     </div>
   );

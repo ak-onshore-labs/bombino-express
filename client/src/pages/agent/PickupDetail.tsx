@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useLocation, useRoute } from 'wouter';
 import { Loader2, Phone, Navigation, MapPin, Clock, Package, Globe, CreditCard } from 'lucide-react';
 import { AgentJobSheet } from '@/components/agent/AgentShell';
 import { ActionBar } from '@/components/agent/ActionButtons';
+import { PressableButton } from '@/components/motion/Pressable';
+import { ITEM_IN } from '@/lib/motion';
 import { CollectPaymentSheet } from '@/components/agent/CollectPaymentSheet';
 import {
   FactRow,
@@ -229,22 +232,40 @@ export default function PickupDetail() {
                 {actionError}
               </p>
             )}
-            <ActionBar
-              actions={entry.availableActions}
-              owed={owed}
-              pendingAction={action.isPending ? action.variables?.action ?? null : null}
-              disabled={action.isPending}
-              onAction={handleAction}
-              trailing={
-                <a
-                  href={`tel:${OFFICE_PHONE}`}
-                  className="w-full h-full flex items-center justify-center border border-[#CBD5E1]! bg-white text-[19px] font-semibold text-[#1B2A41]"
-                  data-testid="button-problem"
-                >
-                  Problem
-                </a>
-              }
-            />
+            {/*
+              Keyed on the set of actions the server sent, so a lifecycle step
+              swaps the bar's buttons over rather than relabelling them where
+              they stand. `mode="wait"` because two bars of different heights
+              alive at once would push the sheet's scroll area around, and the
+              old set is no longer pressable the moment the new one exists.
+            */}
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={entry.availableActions.map((a) => a.action).join('|')}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4, transition: { duration: 0.1 } }}
+                transition={ITEM_IN}
+                className="flex flex-col gap-2.5"
+              >
+                <ActionBar
+                  actions={entry.availableActions}
+                  owed={owed}
+                  pendingAction={action.isPending ? action.variables?.action ?? null : null}
+                  disabled={action.isPending}
+                  onAction={handleAction}
+                  trailing={
+                    <a
+                      href={`tel:${OFFICE_PHONE}`}
+                      className="w-full h-full flex items-center justify-center border border-[#CBD5E1]! bg-white text-[19px] font-semibold text-[#1B2A41]"
+                      data-testid="button-problem"
+                    >
+                      Problem
+                    </a>
+                  }
+                />
+              </motion.div>
+            </AnimatePresence>
           </>
         ) : undefined
       }
@@ -265,14 +286,14 @@ export default function PickupDetail() {
               Off your list.
             </p>
           </div>
-          <button
+          <PressableButton
             type="button"
             onClick={() => setLocation('/agent/mine', { replace: true })}
             className="mt-5 h-[60px] w-full bg-[#1B2A41] text-xl font-bold text-white"
             data-testid="button-back-to-jobs"
           >
             My jobs
-          </button>
+          </PressableButton>
         </div>
       )}
 

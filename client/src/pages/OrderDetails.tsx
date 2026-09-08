@@ -51,6 +51,7 @@ import { getOrderStatusTone } from '@/lib/orderStatus';
 import { apiRequest } from '@/lib/queryClient';
 import { payForOrder } from '@/lib/razorpay';
 import { PaymentTestModeSwitch } from '@/components/PaymentTestModeSwitch';
+import { DropoffBranches } from '@/components/DropoffBranches';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -690,6 +691,16 @@ export default function OrderDetails() {
                 {originAddress}
               </p>
             </div>
+          )}
+          {/* The booking is made and the parcel is still at home: this is the
+              moment the counter's address actually gets used. */}
+          {!isPickup && (
+            <DropoffBranches
+              pincode={origin?.pincode}
+              city={origin?.city}
+              state={origin?.state}
+              title="Take it to"
+            />
           )}
         </Section>
 

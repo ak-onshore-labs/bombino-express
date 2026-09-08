@@ -14,6 +14,8 @@ import {
   weightLabel,
   windowLabel,
 } from '@/components/agent/PickupCard';
+import { PressableBox } from '@/components/motion/Pressable';
+import { StaggerItem } from '@/components/motion/Stagger';
 import { BAND_LABEL, bandForEntry, bandForDate } from '@/lib/agentGrouping';
 import { useMyPickups, type PickupEntry } from '@/hooks/useAgentPickups';
 import { todayInIst } from '@shared/istTime';
@@ -46,55 +48,57 @@ function TodayCard({ entry, today }: { entry: PickupEntry; today: string }) {
 
   return (
     <JobCard late={late}>
-      <Link
-        href={`/agent/pickup/${pickup.id}`}
-        className="block"
-        data-testid={`link-job-${pickup.order_no}`}
-      >
-        <NumberStrip orderNo={pickup.order_no} word={statusWord(pickup, today)} late={late} />
+      <PressableBox>
+        <Link
+          href={`/agent/pickup/${pickup.id}`}
+          className="block"
+          data-testid={`link-job-${pickup.order_no}`}
+        >
+          <NumberStrip orderNo={pickup.order_no} word={statusWord(pickup, today)} late={late} />
 
-        <p className="px-4 pt-[15px] pb-[13px] text-[22px] font-bold leading-[1.2] text-[#1B2A41]">
-          {pickup.origin_address?.full_name ?? 'No name'}
-        </p>
+          <p className="px-4 pt-[15px] pb-[13px] text-[22px] font-bold leading-[1.2] text-[#1B2A41]">
+            {pickup.origin_address?.full_name ?? 'No name'}
+          </p>
 
-        <span className={cn('flex items-center gap-3 px-4 py-3.5 border-t', edge)}>
-          <MapPin className={cn('w-[21px] h-[21px] shrink-0', icon)} strokeWidth={1.5} />
-          <span className="min-w-0 truncate text-[17px] font-semibold text-[#1B2A41]">
-            {streetLine(pickup)}
+          <span className={cn('flex items-center gap-3 px-4 py-3.5 border-t', edge)}>
+            <MapPin className={cn('w-[21px] h-[21px] shrink-0', icon)} strokeWidth={1.5} />
+            <span className="min-w-0 truncate text-[17px] font-semibold text-[#1B2A41]">
+              {streetLine(pickup)}
+            </span>
           </span>
-        </span>
 
-        <span className={cn('flex items-center gap-3 px-4 py-3.5 border-t', edge)}>
-          <Clock className={cn('w-[21px] h-[21px] shrink-0', icon)} strokeWidth={1.5} />
-          <span
-            className={cn(
-              'text-[19px] font-bold shrink-0',
-              late ? 'text-[#B91C1C]' : 'text-[#1B2A41]',
+          <span className={cn('flex items-center gap-3 px-4 py-3.5 border-t', edge)}>
+            <Clock className={cn('w-[21px] h-[21px] shrink-0', icon)} strokeWidth={1.5} />
+            <span
+              className={cn(
+                'text-[19px] font-bold shrink-0',
+                late ? 'text-[#B91C1C]' : 'text-[#1B2A41]',
+              )}
+            >
+              {windowLabel(pickup)}
+            </span>
+            <span className="text-[17px] font-semibold text-[#475569] shrink-0">
+              {weightLabel(pickup)}
+            </span>
+
+            {owed !== null ? (
+              <span
+                className="ml-auto shrink-0 bg-[#F2A123] px-[9px] py-[5px] text-[17px] font-bold text-[#1B2A41]"
+                data-testid="badge-money"
+              >
+                ₹{money(owed)}
+              </span>
+            ) : (
+              <span
+                className="ml-auto shrink-0 text-base font-semibold text-[#64748B]"
+                data-testid="badge-no-money"
+              >
+                No money
+              </span>
             )}
-          >
-            {windowLabel(pickup)}
           </span>
-          <span className="text-[17px] font-semibold text-[#475569] shrink-0">
-            {weightLabel(pickup)}
-          </span>
-
-          {owed !== null ? (
-            <span
-              className="ml-auto shrink-0 bg-[#F2A123] px-[9px] py-[5px] text-[17px] font-bold text-[#1B2A41]"
-              data-testid="badge-money"
-            >
-              ₹{money(owed)}
-            </span>
-          ) : (
-            <span
-              className="ml-auto shrink-0 text-base font-semibold text-[#64748B]"
-              data-testid="badge-no-money"
-            >
-              No money
-            </span>
-          )}
-        </span>
-      </Link>
+        </Link>
+      </PressableBox>
     </JobCard>
   );
 }
@@ -113,6 +117,10 @@ export default function MyPickups() {
     else now.push(entry);
   }
   const count = (pickups ?? []).length;
+
+  // Entrance order, counted across both bands so today's work and what is
+  // scheduled read as one ladder down the screen rather than two lists racing.
+  let arrival = 0;
 
   return (
     <AgentShell
@@ -153,7 +161,9 @@ export default function MyPickups() {
           <BandHeader label={BAND_LABEL.today} testId="band-today" />
           <div className="flex flex-col gap-3.5">
             {now.map((entry) => (
-              <TodayCard key={entry.order.id} entry={entry} today={today} />
+              <StaggerItem key={entry.order.id} index={arrival++}>
+                <TodayCard entry={entry} today={today} />
+              </StaggerItem>
             ))}
           </div>
         </section>
@@ -164,9 +174,11 @@ export default function MyPickups() {
           <BandHeader label={BAND_LABEL.scheduled} band="scheduled" testId="band-later" />
           <div className="flex flex-col gap-3.5">
             {later.map((entry) => (
-              <JobCard key={entry.order.id}>
-                <JobRow pickup={entry.order} today={today} />
-              </JobCard>
+              <StaggerItem key={entry.order.id} index={arrival++}>
+                <JobCard>
+                  <JobRow pickup={entry.order} today={today} />
+                </JobCard>
+              </StaggerItem>
             ))}
           </div>
         </section>

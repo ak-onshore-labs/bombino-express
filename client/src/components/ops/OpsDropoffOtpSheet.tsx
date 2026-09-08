@@ -3,9 +3,8 @@ import { Loader2 } from 'lucide-react';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
 
-/** New codes are four digits; leftover six-digit codes must still be typeable. */
+/** Codes are four digits, and the field takes exactly four. */
 const OTP_LENGTH = 4;
-const OTP_MAX_LENGTH = 6;
 
 /**
  * Drop-off receipt OTP — the customer reads their code, ops types it.
@@ -33,7 +32,7 @@ export function OpsDropoffOtpSheet({
     }
   }, [open]);
 
-  const complete = otp.length >= OTP_LENGTH;
+  const complete = otp.length === OTP_LENGTH;
 
   const submit = (): void => {
     if (!complete || isPending) return;
@@ -64,7 +63,7 @@ export function OpsDropoffOtpSheet({
         <input
           id="ops-dropoff-otp"
           value={otp}
-          onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, OTP_MAX_LENGTH))}
+          onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, OTP_LENGTH))}
           onKeyDown={(e) => {
             if (e.key === 'Enter') submit();
           }}

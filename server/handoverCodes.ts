@@ -18,13 +18,16 @@
  * attempt counter: five wrong guesses locks the code until whoever owns it
  * regenerates, which is a deliberate act by the person holding the parcel.
  *
- * THE COUNTER IS THE CONTROL, NOT THE LENGTH. Four digits is 10,000 codes and
- * five guesses buys a 1-in-2,000 chance of hitting one before the code locks —
- * against a parcel, read out loud, in front of the person who owns it. Six
- * digits made that 1-in-200,000 and cost two extra characters typed on a
- * doorstep with gloves on, which is the failure mode that actually happens.
- * Never raise `HANDOVER_MAX_ATTEMPTS` to compensate for anything: at four
- * digits it is the only thing between this and a brute force.
+ * THE COUNTER IS THE CONTROL, NOT THE LENGTH. Every code here is four digits:
+ * 10,000 of them, and five guesses buys a 1-in-2,000 chance of hitting one
+ * before the code locks — against a single parcel, read out loud, in front of
+ * the person who owns it. Six digits made that 1-in-200,000 and cost two extra
+ * characters typed on a doorstep with gloves on, which is the failure mode that
+ * actually happens.
+ *
+ * Never raise `HANDOVER_MAX_ATTEMPTS` to compensate for anything. At four
+ * digits it is the only thing between this and a brute force, and every digit
+ * dropped makes it matter more, not less.
  */
 
 import crypto from "crypto";
@@ -35,20 +38,22 @@ export type HandoverKind = "pickup" | "hub" | "dropoff";
 /** Wrong guesses tolerated before the code must be regenerated. */
 export const HANDOVER_MAX_ATTEMPTS = 5;
 
-/** What a verifier may type. Exported so the API validates the same range. */
-export const HANDOVER_CODE_PATTERN = /^\d{4,6}$/;
+/** What a verifier may type. Exported so the API validates the same length. */
+export const HANDOVER_CODE_PATTERN = /^\d{4}$/;
 
 /**
- * Digits in a newly issued code.
+ * Digits in a code, minted and typed. One number, not a range.
  *
- * `MIN_CODE_LENGTH` is what verification still accepts, because codes already
- * sitting in the table were issued at six and their owners are reading them off
- * a screen right now. Anything longer than an issued code cannot match, so this
- * only widens what may be typed, never what may be minted.
+ * This briefly accepted four to six, to let codes minted before the change stay
+ * typeable while their owners read them off a screen. That window is closed: a
+ * handover code is four digits and a field that takes a fifth is only telling
+ * the agent something false about what will be accepted.
+ *
+ * A six-digit code still sitting unverified in the table can no longer be
+ * entered. Its owner regenerates — one tap, on the screen already showing it —
+ * or ops override, which is audited. Neither strands a parcel.
  */
 const CODE_LENGTH = 4;
-const MIN_CODE_LENGTH = 4;
-const MAX_CODE_LENGTH = 6;
 
 export type HandoverCode = {
   id: string;
@@ -221,13 +226,13 @@ export async function verifyCode(input: {
   //
   // `timingSafeEqual` throws on a length mismatch, so the lengths are compared
   // first and a wrong-length guess is simply a mismatch — it still costs an
-  // attempt, which is what stops length probing being free.
+  // attempt, which is what stops length probing being free. A stored code of
+  // any other length is one minted before four digits became the rule, and it
+  // can no longer be matched by anything the route will accept.
   const submitted = input.submitted.trim();
   const expected = String(data.code);
-  const plausible =
-    submitted.length >= MIN_CODE_LENGTH && submitted.length <= MAX_CODE_LENGTH;
   const matches =
-    plausible &&
+    submitted.length === CODE_LENGTH &&
     submitted.length === expected.length &&
     crypto.timingSafeEqual(Buffer.from(submitted), Buffer.from(expected));
 

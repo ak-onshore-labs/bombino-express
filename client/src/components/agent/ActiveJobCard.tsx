@@ -9,6 +9,7 @@ import {
   amountOwedAtDoor,
   notDueYetReason,
 } from '@/components/agent/PickupCard';
+import { PressableBox } from '@/components/motion/Pressable';
 import { useOrderAction, type PickupEntry } from '@/hooks/useAgentPickups';
 import { bandForDate } from '@/lib/agentGrouping';
 import { todayInIst } from '@shared/istTime';
@@ -87,9 +88,13 @@ export function ActiveJobCard({ entry }: { entry: PickupEntry }) {
     <>
       {/* The body is a link, the action row is not — a button inside an anchor
           is invalid markup and, on a phone, an ambiguous tap. */}
-      <Link href={href} className="block" data-testid={`link-job-${order.order_no}`}>
-        <JobEntry pickup={order} facts="split" />
-      </Link>
+      {/* The press sits on a wrapper: wouter's `Link` is the `<a>` itself, so
+          there is no element here for `motion` to be. */}
+      <PressableBox>
+        <Link href={href} className="block" data-testid={`link-job-${order.order_no}`}>
+          <JobEntry pickup={order} facts="split" />
+        </Link>
+      </PressableBox>
 
       {owed !== null && <CollectStrip amount={owed} />}
 

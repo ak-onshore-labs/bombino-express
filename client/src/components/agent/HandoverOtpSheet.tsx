@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Loader2, ShieldCheck } from 'lucide-react';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
+import { AGENT_SHEET_MOTION } from '@/lib/motion';
+import { PressableButton } from '@/components/motion/Pressable';
 import { type AgentPickup } from '@/hooks/useAgentPickups';
 
 /**
@@ -27,15 +29,13 @@ import { type AgentPickup } from '@/hooks/useAgentPickups';
  */
 
 /**
- * What a fresh code is, and the most the field will take.
+ * A code is four digits, and the field takes exactly four.
  *
- * Codes are four digits now. The field still accepts six because a code issued
- * before that change is unchanged on its owner's screen, and an agent typing
- * one out at a counter must not be stopped at the fourth character. Confirm
- * enables at four — see `complete`.
+ * It briefly took six as well, for codes minted before the change. The server
+ * no longer accepts those, so a field that kept swallowing a fifth digit would
+ * only be inviting the agent to type something that will be refused.
  */
 const OTP_LENGTH = 4;
-const OTP_MAX_LENGTH = 6;
 
 export type HandoverOtpKind = 'pickup' | 'hub';
 
@@ -100,7 +100,7 @@ export function HandoverOtpSheet({
     }
   }, [open]);
 
-  const complete = otp.length >= OTP_LENGTH;
+  const complete = otp.length === OTP_LENGTH;
 
   const submit = (): void => {
     if (!complete || isPending) return;
@@ -114,6 +114,10 @@ export function HandoverOtpSheet({
         className={cn(
           'agent-surface rounded-none border-t-2 border-[#1B2A41] p-0 [&>button]:hidden',
           'max-h-[92dvh] overflow-y-auto',
+          // The shared primitive's 500ms open is a desktop drawer's timing. An
+          // agent opens this one standing at a door with a code being read out
+          // to them; it has to be there when they look down.
+          AGENT_SHEET_MOTION,
         )}
         data-testid="sheet-handover-otp"
       >
@@ -133,7 +137,7 @@ export function HandoverOtpSheet({
           <input
             ref={inputRef}
             value={otp}
-            onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, OTP_MAX_LENGTH))}
+            onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, OTP_LENGTH))}
             onKeyDown={(e) => {
               if (e.key === 'Enter') submit();
             }}
@@ -165,7 +169,7 @@ export function HandoverOtpSheet({
         </div>
 
         <div className="flex gap-2.5 px-5 pb-6">
-          <button
+          <PressableButton
             type="button"
             onClick={() => onOpenChange(false)}
             disabled={isPending}
@@ -173,8 +177,8 @@ export function HandoverOtpSheet({
             data-testid="button-otp-cancel"
           >
             Back
-          </button>
-          <button
+          </PressableButton>
+          <PressableButton
             type="button"
             onClick={submit}
             disabled={!complete || isPending}
@@ -182,7 +186,7 @@ export function HandoverOtpSheet({
             data-testid="button-otp-confirm"
           >
             {isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : copy.confirm}
-          </button>
+          </PressableButton>
         </div>
       </SheetContent>
     </Sheet>

@@ -1,6 +1,7 @@
 import { Loader2, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { money } from '@/components/agent/PickupCard';
+import { PressableButton } from '@/components/motion/Pressable';
 import type { AvailableAction } from '@shared/orderContract';
 
 /**
@@ -26,9 +27,16 @@ import type { AvailableAction } from '@shared/orderContract';
 
 const MONEY_ACTION = 'collect_payment';
 
-/** Square corners, no radius: buttons on this surface are stamped, not soft. */
+/**
+ * Square corners, no radius: buttons on this surface are stamped, not soft.
+ *
+ * The press itself is no longer a CSS `active:` scale — `PressableButton`
+ * springs it, which releases rather than snapping back and holds up better when
+ * a gloved finger slides off the target mid-press. Only the colour transition
+ * stays here.
+ */
 const BUTTON_BASE =
-  'flex items-center justify-center gap-2.5 transition-colors duration-150 active:scale-[0.98] disabled:opacity-60';
+  'flex items-center justify-center gap-2.5 transition-colors duration-150 disabled:opacity-60';
 
 /** The fixed bar's buttons. Cards use 64 — see `PanelAction`. */
 const BAR_HEIGHT = 'h-[60px]';
@@ -73,7 +81,7 @@ export function ActionBar({
   return (
     <>
       {moneyAction && (
-        <button
+        <PressableButton
           type="button"
           onClick={() => onAction(moneyAction.action)}
           disabled={disabled || pendingAction === moneyAction.action}
@@ -87,13 +95,13 @@ export function ActionBar({
           ) : (
             moneyAction.label
           )}
-        </button>
+        </PressableButton>
       )}
 
       {(primary || trailing) && (
         <div className="flex gap-2">
           {primary && (
-            <button
+            <PressableButton
               type="button"
               onClick={() => onAction(primary.action)}
               disabled={disabled || pendingAction === primary.action}
@@ -105,11 +113,11 @@ export function ActionBar({
               ) : (
                 primary.label
               )}
-            </button>
+            </PressableButton>
           )}
 
           {secondary.map(({ action, label }) => (
-            <button
+            <PressableButton
               key={action}
               type="button"
               onClick={() => onAction(action)}
@@ -126,7 +134,7 @@ export function ActionBar({
               ) : (
                 label
               )}
-            </button>
+            </PressableButton>
           ))}
 
           {/* 112px beside a primary, as the design has it. On its own it fills
@@ -171,7 +179,7 @@ export function PanelAction({
   testId?: string;
 }) {
   return (
-    <button
+    <PressableButton
       type="button"
       onClick={onClick}
       disabled={disabled || pending}
@@ -191,6 +199,6 @@ export function PanelAction({
           {arrow && <ArrowRight className="w-[18px] h-[18px] text-[#F2A123]" strokeWidth={2.5} />}
         </>
       )}
-    </button>
+    </PressableButton>
   );
 }

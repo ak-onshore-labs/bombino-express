@@ -15,6 +15,7 @@ import {
   timeValue,
   weightLabel,
 } from '@/components/agent/PickupCard';
+import { StaggerItem } from '@/components/motion/Stagger';
 import { bandForDate, isTodaysWork } from '@/lib/agentGrouping';
 import {
   useAvailablePickups,
@@ -347,20 +348,28 @@ export default function Dashboard() {
             disabled={action.isPending}
           />
 
-          <section>
-            <BandHeader label="Doing now" testId="band-doing-now" />
-            {liveJobs.length > 0 ? (
-              <ActiveJobPanel entry={liveJobs[0]} />
-            ) : (
-              <JobCard>
-                <p className="px-4 py-6 text-[17px] font-medium text-[#334155]">
-                  {freeJobs.length > 0 ? 'Take a job above to start.' : 'No jobs yet.'}
-                </p>
-              </JobCard>
-            )}
-          </section>
+          {/* The rail above is deliberately not staggered: it drives its own
+              imperative `scrollTo` against `snap-x mandatory`, and the two
+              Chromium traps documented on it are not worth reopening for an
+              entrance. It is the top block, so it simply arrives. What follows
+              it ladders in. */}
+          <StaggerItem index={0}>
+            <section>
+              <BandHeader label="Doing now" testId="band-doing-now" />
+              {liveJobs.length > 0 ? (
+                <ActiveJobPanel entry={liveJobs[0]} />
+              ) : (
+                <JobCard>
+                  <p className="px-4 py-6 text-[17px] font-medium text-[#334155]">
+                    {freeJobs.length > 0 ? 'Take a job above to start.' : 'No jobs yet.'}
+                  </p>
+                </JobCard>
+              )}
+            </section>
+          </StaggerItem>
 
-          <div
+          <StaggerItem
+            index={1}
             className="flex items-center justify-between gap-3 bg-[#F2A123] p-4"
             data-testid="bar-cash-with-you"
           >
@@ -373,7 +382,7 @@ export default function Dashboard() {
             <span className="text-[25px] font-bold leading-none text-[#1B2A41]">
               ₹{money(collections?.totals.cash ?? 0)}
             </span>
-          </div>
+          </StaggerItem>
         </>
       )}
     </AgentShell>

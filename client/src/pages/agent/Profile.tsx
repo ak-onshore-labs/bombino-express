@@ -5,6 +5,8 @@ import { cn } from '@/lib/utils';
 import { AgentShell, useLogout } from '@/components/agent/AgentShell';
 import { BandHeader } from '@/components/agent/BandHeader';
 import { JobCard, money } from '@/components/agent/PickupCard';
+import { PressableButton } from '@/components/motion/Pressable';
+import { StaggerItem } from '@/components/motion/Stagger';
 import { useCollections } from '@/hooks/useAgentPickups';
 import { useAppStore } from '@/lib/store';
 
@@ -105,79 +107,87 @@ export default function Profile() {
         </div>
       ) : (
         <div className="flex flex-col gap-5">
-          <section>
-            <BandHeader label="Your details" testId="band-your-details" />
-            <JobCard>
-              <DetailRow label="Name" value={name} />
-              <DetailRow label="Phone" value={profile?.phone ?? '—'} />
-              <DetailRow label="Email" value={profile?.email ?? user?.email ?? '—'} />
-              <DetailRow label="Agent code" value={code ?? '—'} />
-              <DetailRow label="Role" value={(profile?.role ?? user?.role ?? '—').toUpperCase()} last />
-            </JobCard>
-          </section>
+          <StaggerItem index={0}>
+            <section>
+              <BandHeader label="Your details" testId="band-your-details" />
+              <JobCard>
+                <DetailRow label="Name" value={name} />
+                <DetailRow label="Phone" value={profile?.phone ?? '—'} />
+                <DetailRow label="Email" value={profile?.email ?? user?.email ?? '—'} />
+                <DetailRow label="Agent code" value={code ?? '—'} />
+                <DetailRow label="Role" value={(profile?.role ?? user?.role ?? '—').toUpperCase()} last />
+              </JobCard>
+            </section>
+          </StaggerItem>
 
-          <section>
-            <BandHeader label="Your shift" testId="band-your-shift" />
-            <JobCard>
-              <Link
-                href="/agent/collections"
-                className="flex items-baseline justify-between gap-4 px-4 py-[15px] border-b border-[#E8EDF2]!"
-                data-testid="link-profile-collections"
-              >
-                <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#94A3B8]">
-                  Cash in your bag
-                </span>
-                <span className="text-xl font-bold text-[#1B2A41]">
-                  ₹{money(collections?.totals.cash ?? 0)}
-                </span>
-              </Link>
-              <Link
-                href="/agent/collections"
-                className="flex items-baseline justify-between gap-4 px-4 py-[15px]"
-                data-testid="link-profile-count"
-              >
-                <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#94A3B8]">
-                  Money taken today
-                </span>
-                <span className="text-xl font-bold text-[#1B2A41]">
-                  {collections?.totals.count ?? 0}
-                </span>
-              </Link>
-            </JobCard>
-          </section>
+          <StaggerItem index={1}>
+            <section>
+              <BandHeader label="Your shift" testId="band-your-shift" />
+              <JobCard>
+                <Link
+                  href="/agent/collections"
+                  className="flex items-baseline justify-between gap-4 px-4 py-[15px] border-b border-[#E8EDF2]!"
+                  data-testid="link-profile-collections"
+                >
+                  <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#94A3B8]">
+                    Cash in your bag
+                  </span>
+                  <span className="text-xl font-bold text-[#1B2A41]">
+                    ₹{money(collections?.totals.cash ?? 0)}
+                  </span>
+                </Link>
+                <Link
+                  href="/agent/collections"
+                  className="flex items-baseline justify-between gap-4 px-4 py-[15px]"
+                  data-testid="link-profile-count"
+                >
+                  <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#94A3B8]">
+                    Money taken today
+                  </span>
+                  <span className="text-xl font-bold text-[#1B2A41]">
+                    {collections?.totals.count ?? 0}
+                  </span>
+                </Link>
+              </JobCard>
+            </section>
+          </StaggerItem>
 
-          <section>
-            <BandHeader label="If something is wrong" testId="band-help" />
-            <JobCard>
-              <a
-                href="tel:+912266400000"
-                className="flex items-center justify-between gap-4 h-[64px] px-4 border-b border-[#E8EDF2]!"
-                data-testid="link-profile-call-office"
-              >
-                <span className="text-[17px] font-semibold text-[#1B2A41]">Call the office</span>
-                <span className="text-[15px] font-medium text-[#64748B]">022 6640 0000</span>
-              </a>
-              <a
-                href="https://api.whatsapp.com/send?phone=917045999553"
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center justify-between gap-4 h-[64px] px-4"
-                data-testid="link-profile-whatsapp"
-              >
-                <span className="text-[17px] font-semibold text-[#1B2A41]">WhatsApp support</span>
-                <span className="text-[15px] font-medium text-[#64748B]">+91 70459 99553</span>
-              </a>
-            </JobCard>
-          </section>
+          <StaggerItem index={2}>
+            <section>
+              <BandHeader label="If something is wrong" testId="band-help" />
+              <JobCard>
+                <a
+                  href="tel:+912266400000"
+                  className="flex items-center justify-between gap-4 h-[64px] px-4 border-b border-[#E8EDF2]!"
+                  data-testid="link-profile-call-office"
+                >
+                  <span className="text-[17px] font-semibold text-[#1B2A41]">Call the office</span>
+                  <span className="text-[15px] font-medium text-[#64748B]">022 6640 0000</span>
+                </a>
+                <a
+                  href="https://api.whatsapp.com/send?phone=917045999553"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center justify-between gap-4 h-[64px] px-4"
+                  data-testid="link-profile-whatsapp"
+                >
+                  <span className="text-[17px] font-semibold text-[#1B2A41]">WhatsApp support</span>
+                  <span className="text-[15px] font-medium text-[#64748B]">+91 70459 99553</span>
+                </a>
+              </JobCard>
+            </section>
+          </StaggerItem>
 
-          <button
-            type="button"
-            onClick={() => void logout()}
-            className="h-[60px] w-full bg-[#1B2A41] text-xl font-bold text-white active:scale-[0.98] transition-transform"
-            data-testid="button-agent-logout"
-          >
-            Sign out
-          </button>
+          <StaggerItem index={3}>
+            <PressableButton
+              type="button"
+              onClick={() => void logout()}
+              className="h-[60px] w-full bg-[#1B2A41] text-xl font-bold text-white"
+              data-testid="button-agent-logout"
+            >
+              Sign out
+            </PressableButton>
+          </StaggerItem>
 
           <p className="border-t border-[#D8DFE7]! pt-4 text-[13px] font-bold uppercase tracking-[0.1em] text-[#94A3B8]">
             Bombino Express · Agent

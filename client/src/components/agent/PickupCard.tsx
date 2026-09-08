@@ -10,6 +10,7 @@ import {
   CalendarDays,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { PressableBox } from '@/components/motion/Pressable';
 import { todayInIst } from '@shared/istTime';
 import { bandForDate } from '@/lib/agentGrouping';
 import type { AgentPickup } from '@/hooks/useAgentPickups';
@@ -492,33 +493,37 @@ export function JobRow({ pickup, today = todayInIst() }: { pickup: AgentPickup; 
   const starts = notDueYetReason(pickup);
 
   return (
-    <Link
-      href={`/agent/pickup/${pickup.id}`}
-      className="flex items-center gap-3 p-4"
-      data-testid={`job-row-${pickup.order_no}`}
-    >
-      <span className="flex-1 min-w-0">
-        <span className="block text-[19px] font-bold tracking-[0.02em] text-[#1B2A41]">
-          {pickup.order_no}
-        </span>
+    // The press lives on a wrapper rather than the anchor: wouter's `Link`
+    // renders the `<a>` itself, so there is nothing here for `motion` to be.
+    <PressableBox>
+      <Link
+        href={`/agent/pickup/${pickup.id}`}
+        className="flex items-center gap-3 p-4"
+        data-testid={`job-row-${pickup.order_no}`}
+      >
+        <span className="flex-1 min-w-0">
+          <span className="block text-[19px] font-bold tracking-[0.02em] text-[#1B2A41]">
+            {pickup.order_no}
+          </span>
 
-        <span className="flex items-center gap-[9px] mt-2.5">
-          <MapPin className="w-[18px] h-[18px] shrink-0 text-[#94A3B8]" strokeWidth={1.5} />
-          <span className="min-w-0 truncate text-base font-semibold text-[#1B2A41]">
-            {streetLine(pickup)}
+          <span className="flex items-center gap-[9px] mt-2.5">
+            <MapPin className="w-[18px] h-[18px] shrink-0 text-[#94A3B8]" strokeWidth={1.5} />
+            <span className="min-w-0 truncate text-base font-semibold text-[#1B2A41]">
+              {streetLine(pickup)}
+            </span>
+          </span>
+
+          <span className="flex items-center gap-[9px] mt-1.5">
+            <CalendarDays className="w-[18px] h-[18px] shrink-0 text-[#94A3B8]" strokeWidth={1.5} />
+            <span className="min-w-0 truncate text-base font-semibold text-[#475569]">
+              {starts ?? dateValue(pickup)}
+            </span>
           </span>
         </span>
 
-        <span className="flex items-center gap-[9px] mt-1.5">
-          <CalendarDays className="w-[18px] h-[18px] shrink-0 text-[#94A3B8]" strokeWidth={1.5} />
-          <span className="min-w-0 truncate text-base font-semibold text-[#475569]">
-            {starts ?? dateValue(pickup)}
-          </span>
-        </span>
-      </span>
-
-      <ChevronRight className="w-5 h-5 shrink-0 text-[#94A3B8]" strokeWidth={1.5} />
-    </Link>
+        <ChevronRight className="w-5 h-5 shrink-0 text-[#94A3B8]" strokeWidth={1.5} />
+      </Link>
+    </PressableBox>
   );
 }
 

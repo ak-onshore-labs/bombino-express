@@ -76,7 +76,7 @@ export const DAY_NAMES_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
  *
  * This is the floor, not the rule: each hub runs its own cutoff (Fort's riders
  * are out until 7 PM, Delhi's until 5) and callers pass that hour in. It stays
- * the default for a pincode no hub claims — see `PICKUP_CUTOFF_HOUR_BY_HUB` in
+ * the default for a pincode no hub claims — see `pickupCutoffHour()` in
  * shared/pickupPincodes.ts.
  */
 export const PICKUP_CUTOFF_HOUR = 15;

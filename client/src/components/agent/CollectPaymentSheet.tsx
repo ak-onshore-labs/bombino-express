@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Smartphone, CreditCard, Loader2 } from 'lucide-react';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
+import { AGENT_SHEET_MOTION, ITEM_IN } from '@/lib/motion';
+import { PressableButton } from '@/components/motion/Pressable';
 import { money } from '@/components/agent/PickupCard';
 import { type AgentPickup } from '@/hooks/useAgentPickups';
 
@@ -50,6 +53,7 @@ export function CollectPaymentSheet({
   /** Set by the parent once the server issues one; flips the sheet to the total. */
   receipt: { txnId: string | null; amount: number } | null;
 }) {
+  const quiet = useReducedMotion();
   const due = pickup.quoted_amount ?? 0;
   const [mode, setMode] = useState<Mode | null>(null);
   const [amount, setAmount] = useState(String(due || ''));
@@ -86,6 +90,10 @@ export function CollectPaymentSheet({
         className={cn(
           'agent-surface rounded-none border-t-0 bg-white px-5 pt-5 pb-[26px] max-h-[92dvh] overflow-y-auto',
           'shadow-[0_-12px_40px_rgba(15,22,32,0.28)]',
+          // Faster than the shared primitive's desktop-drawer timing. Overridden
+          // here rather than in `components/ui/sheet.tsx`, so the customer app's
+          // sheets keep theirs.
+          AGENT_SHEET_MOTION,
           // The shared Sheet primitive stamps a close X at top-right, where the
           // header sits on this design. Hidden here rather than changed there —
           // the customer app's sheets still want it — and the sheet still
@@ -103,25 +111,39 @@ export function CollectPaymentSheet({
           </span>
         </div>
 
+        {/*
+          The two states cross over rather than cutting: the money went from
+          being asked for to being taken, and that is the one moment in this
+          sheet worth marking. `mode="wait"` so the form is gone before the
+          receipt arrives — an amount must never appear over a live input.
+        */}
+        <AnimatePresence mode="wait" initial={false}>
         {receipt ? (
           // ── Taken ────────────────────────────────────────────────────────
-          <div data-testid="payment-receipt">
+          <motion.div
+            key="receipt"
+            initial={quiet ? { opacity: 0 } : { opacity: 0, scale: 0.96 }}
+            animate={quiet ? { opacity: 1 } : { opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, transition: { duration: 0.1 } }}
+            transition={ITEM_IN}
+            data-testid="payment-receipt"
+          >
             <p className="text-[50px] font-bold leading-none tracking-[-0.02em] text-[#1B2A41] mt-6">
               ₹{money(receipt.amount)}
             </p>
 
-            <button
+            <PressableButton
               type="button"
               onClick={() => onOpenChange(false)}
-              className="mt-6 w-full h-[60px] bg-[#1B2A41] text-xl font-bold text-white active:scale-[0.98] transition-transform"
+              className="mt-6 w-full h-[60px] bg-[#1B2A41] text-xl font-bold text-white"
               data-testid="button-receipt-done"
             >
               Done
-            </button>
-          </div>
+            </PressableButton>
+          </motion.div>
         ) : (
           // ── Take ─────────────────────────────────────────────────────────
-          <>
+          <motion.div key="take" exit={{ opacity: 0, transition: { duration: 0.1 } }}>
             <p className={SECTION_LABEL}>Cash or UPI?</p>
             <div className="flex gap-2.5">
               {(
@@ -132,7 +154,7 @@ export function CollectPaymentSheet({
               ).map(({ key, icon: Icon, label }) => {
                 const selected = mode === key;
                 return (
-                  <button
+                  <PressableButton
                     key={key}
                     type="button"
                     onClick={() => {
@@ -141,7 +163,7 @@ export function CollectPaymentSheet({
                     }}
                     aria-pressed={selected}
                     className={cn(
-                      'flex-1 h-[70px] flex items-center justify-center gap-[11px] transition-colors duration-150 active:scale-[0.98]',
+                      'flex-1 h-[70px] flex items-center justify-center gap-[11px] transition-colors duration-150',
                       selected ? 'bg-[#1B2A41]' : 'bg-white border border-[#CBD5E1]!',
                     )}
                     data-testid={`button-mode-${key}`}
@@ -161,7 +183,7 @@ export function CollectPaymentSheet({
                     >
                       {label}
                     </span>
-                  </button>
+                  </PressableButton>
                 );
               })}
             </div>
@@ -201,17 +223,18 @@ export function CollectPaymentSheet({
               </p>
             )}
 
-            <button
+            <PressableButton
               type="button"
               onClick={submit}
               disabled={isPending}
-              className="mt-5 w-full h-[60px] bg-[#F2A123] text-xl font-bold text-[#1B2A41] grid place-items-center active:scale-[0.98] transition-transform disabled:opacity-60"
+              className="mt-5 w-full h-[60px] bg-[#F2A123] text-xl font-bold text-[#1B2A41] grid place-items-center disabled:opacity-60"
               data-testid="button-confirm-collect"
             >
               {isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Money taken'}
-            </button>
-          </>
+            </PressableButton>
+          </motion.div>
         )}
+        </AnimatePresence>
       </SheetContent>
     </Sheet>
   );

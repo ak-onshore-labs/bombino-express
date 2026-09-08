@@ -31,6 +31,7 @@ import GuestAccountSetup from "@/pages/GuestAccountSetup";
 import { useGuestProfile } from "@/hooks/useGuestProfile";
 import { useAppStore } from "@/lib/store";
 import Support from "@/pages/Support";
+import Locations from "@/pages/Locations";
 import NotFound from "@/pages/not-found";
 
 /**
@@ -86,6 +87,9 @@ function CustomerRouter() {
           correcting one and wrong for finishing the set. */}
       <Route path="/guest-profile/setup" component={GuestAccountSetup} />
       <Route path="/help" component={Support} />
+      {/* Every drop-off counter. Reached from the booking form and the order
+          screen with `?near=<state>`, which floats that state to the top. */}
+      <Route path="/locations" component={Locations} />
       <Route component={NotFound} />
     </Switch>
   );

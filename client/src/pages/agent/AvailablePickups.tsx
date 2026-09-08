@@ -5,6 +5,8 @@ import { AgentShell } from '@/components/agent/AgentShell';
 import { BandHeader } from '@/components/agent/BandHeader';
 import { PanelAction } from '@/components/agent/ActionButtons';
 import { JobCard, JobEntry } from '@/components/agent/PickupCard';
+import { PressableBox } from '@/components/motion/Pressable';
+import { StaggerItem } from '@/components/motion/Stagger';
 import { BAND_LABEL, bandForEntry } from '@/lib/agentGrouping';
 import {
   useAvailablePickups,
@@ -86,6 +88,12 @@ export default function AvailablePickups() {
     { key: 'scheduled' as const, entries: later },
   ].filter((b) => b.entries.length > 0);
 
+  // Position in the screen's entrance order, counted across bands rather than
+  // restarted in each one, so Late, Today and Later arrive as a single ladder
+  // instead of three lists racing each other. Recomputed every render, which is
+  // correct — it is derived from the list, not remembered between renders.
+  let arrival = 0;
+
   return (
     <AgentShell title="New jobs" meta={shown === 0 ? 'None free' : `${shown} free`}>
       {failure && (
@@ -141,28 +149,35 @@ export default function AvailablePickups() {
                   const take = entry.availableActions.find((a) => a.action === 'claim');
 
                   return (
-                    <JobCard key={entry.order.id} late={isLate}>
-                      {/* The body is a link, the button is not — a button inside
-                          an anchor is invalid markup and an ambiguous tap. */}
-                      <Link
-                        href={`/agent/pickup/${entry.order.id}`}
-                        className="block"
-                        data-testid={`link-job-${entry.order.order_no}`}
-                      >
-                        <JobEntry pickup={entry.order} today={today} />
-                      </Link>
+                    <StaggerItem key={entry.order.id} index={arrival++}>
+                      <JobCard late={isLate}>
+                        {/* The body is a link, the button is not — a button
+                            inside an anchor is invalid markup and an ambiguous
+                            tap. */}
+                        <PressableBox>
+                          <Link
+                            href={`/agent/pickup/${entry.order.id}`}
+                            className="block"
+                            data-testid={`link-job-${entry.order.order_no}`}
+                          >
+                            <JobEntry pickup={entry.order} today={today} />
+                          </Link>
+                        </PressableBox>
 
-                      {take && (
-                        <PanelAction
-                          label="Take job"
-                          onClick={() => handleAccept(entry.order.id, take.action)}
-                          pending={action.isPending && action.variables?.orderId === entry.order.id}
-                          disabled={action.isPending}
-                          className={cn('border-t', edge)}
-                          testId={`button-take-${entry.order.order_no}`}
-                        />
-                      )}
-                    </JobCard>
+                        {take && (
+                          <PanelAction
+                            label="Take job"
+                            onClick={() => handleAccept(entry.order.id, take.action)}
+                            pending={
+                              action.isPending && action.variables?.orderId === entry.order.id
+                            }
+                            disabled={action.isPending}
+                            className={cn('border-t', edge)}
+                            testId={`button-take-${entry.order.order_no}`}
+                          />
+                        )}
+                      </JobCard>
+                    </StaggerItem>
                   );
                 })}
               </div>
