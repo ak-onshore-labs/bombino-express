@@ -50,6 +50,17 @@ export interface DisplayRow {
    * a guard.
    */
   isLive: boolean;
+  /**
+   * The AWB, when this parcel has one.
+   *
+   * On a shipment row it is always `displayId`. On an ORDER row it is usually
+   * null — but not always: an ITD-credentialled customer's order is docketed
+   * at booking, so it carries a real AWB from its first minute while still
+   * being an order in every other respect. Kept separate from `displayId`
+   * because such an order is still addressed by its BOM number, and separate
+   * from `isOrder` because an AWB no longer answers "is this an order".
+   */
+  awb: string | null;
 }
 
 export function formatShipmentAmount(amount: string | number | null, currency: string | null): string | null {
@@ -82,6 +93,7 @@ export function shipmentToRow(item: ShipmentHistoryItem): DisplayRow {
     // sorting these to the epoch and burying them.
     updatedAt: item.updated_at ?? item.created_at,
     isLive: !isAwbStatusFinal(item.current_status),
+    awb: item.awb_number,
   };
 }
 
@@ -109,6 +121,7 @@ export function orderToRow(order: OrderApiRow): DisplayRow {
     createdAt: order.created_at,
     updatedAt: order.updated_at ?? order.created_at,
     isLive: !isTerminalOrderStatus(order.status),
+    awb: order.awb_no,
   };
 }
 
@@ -132,11 +145,30 @@ export async function fetchMergedShipmentRows(): Promise<DisplayRow[]> {
         )
       : [];
 
+  // One parcel, one row.
+  //
+  // The two feeds overlap now. A docket filed at booking writes a `shipments`
+  // row immediately (server/persistShipment.ts), so an ITD-credentialled
+  // customer's parcel comes back from BOTH endpoints — once as `BOM-100042`
+  // and once as its AWB — with different keys, so nothing deduped them.
+  //
+  // The order row wins while the order is still running: it is the surface
+  // that knows about pickup, weighing and payment, and it is what its links
+  // point at. Once the order is terminal the shipment row is the live one and
+  // the order has nothing left to say.
+  const ordersByAwb = new Map(
+    orderRows.filter((r) => r.awb && r.isLive).map((r) => [r.awb as string, r])
+  );
+  const merged = [
+    ...shipmentRows.filter((r) => !ordersByAwb.has(r.displayId)),
+    ...orderRows,
+  ];
+
   // Most recently moved first, not most recently booked. An order an agent
   // just advanced is the one the customer is asking about, even if they booked
   // it days before something else. Ties fall back to booking time so the order
   // stays stable for rows that have never moved.
-  return [...shipmentRows, ...orderRows].sort((a, b) => {
+  return merged.sort((a, b) => {
     const delta = new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
     return delta !== 0 ? delta : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });

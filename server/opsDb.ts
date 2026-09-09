@@ -25,7 +25,7 @@ import { getUserContactsByIds, toOrder, type OrderRow } from "./ordersDb.js";
 const EXPORT_PAGE_SIZE = 1000;
 
 const BOARD_COLUMNS =
-  "id, order_no, user_id, status, created_at, pickup_request, pickup_date, payment_method, payment_status, is_cod, quoted_amount, final_amount, consignee, agent_id, awb_no";
+  "id, order_no, user_id, status, created_at, pickup_request, pickup_date, payment_method, payment_status, is_cod, quoted_amount, final_amount, consignee, agent_id, awb_no, metadata";
 
 const DETAIL_COLUMNS =
   "id, order_no, user_id, status, pickup_request, pickup_date, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, itd_docket_response, metadata, created_at, updated_at";
@@ -72,6 +72,13 @@ export type OpsBoardOrder = {
   agent_id: string | null;
   agent_name: string | null;
   awb_no: string | null;
+  /**
+   * Why this order has no AWB despite having been expected to get one at
+   * booking. Null on every ordinary order — including every guest and
+   * local-account order, which are never docketed at booking in the first
+   * place and are simply waiting for ops.
+   */
+  docket_error: string | null;
 };
 
 export type OpsOrderDetail = {
@@ -98,6 +105,7 @@ export type OpsOrderDetail = {
   awb_no: string | null;
   itd_docket_response: unknown;
   metadata: unknown;
+  docket_error: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -110,6 +118,22 @@ export type OpsOrderEvent = {
   metadata: unknown;
   created_at: string;
 };
+
+/**
+ * The message left by a docket that was attempted at booking and refused.
+ *
+ * Derived here rather than handing the client `metadata` wholesale: the blob
+ * also carries the cancellation request and the guest's signed contract, none
+ * of which the board has any business seeing. See `recordBookingDocketError`
+ * in server/ordersDb.ts for who writes it.
+ */
+function docketErrorMessage(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
+  const err = (metadata as Record<string, unknown>).docket_error;
+  if (!err || typeof err !== "object" || Array.isArray(err)) return null;
+  const message = (err as Record<string, unknown>).message;
+  return typeof message === "string" && message.trim() !== "" ? message : null;
+}
 
 function toNum(value: unknown): number | null {
   if (value == null || value === "") return null;
@@ -143,6 +167,7 @@ function mapBoardRow(row: Record<string, unknown>): OpsBoardOrder {
     agent_id: (row.agent_id as string | null) ?? null,
     agent_name: null,
     awb_no: (row.awb_no as string | null) ?? null,
+    docket_error: docketErrorMessage(row.metadata),
   };
 }
 
@@ -171,6 +196,7 @@ function mapDetailRow(row: Record<string, unknown>): OpsOrderDetail {
     awb_no: (row.awb_no as string | null) ?? null,
     itd_docket_response: row.itd_docket_response ?? null,
     metadata: row.metadata ?? null,
+    docket_error: docketErrorMessage(row.metadata),
     created_at: String(row.created_at),
     updated_at: String(row.updated_at),
   };
@@ -473,6 +499,46 @@ export async function applyGenerateDocket(input: {
 
   if (error) {
     logSupabaseError("applyGenerateDocket", error);
+    return null;
+  }
+  if (!data) return null;
+
+  return toOrder(data as unknown as OrderRow & { metadata?: unknown });
+}
+
+/**
+ * settled → dispatched for an order that already carries an AWB.
+ *
+ * The mirror of `applyGenerateDocket`: same doorway, opposite precondition.
+ * That one refuses anything holding an AWB; this one refuses anything without.
+ * Between them every settled order has exactly one way out, and neither can be
+ * used to file a second docket for a parcel ITD already has.
+ *
+ * `not("awb_no", "is", null)` is the whole double-fire guard, and it lives in
+ * the WHERE rather than in a prior read for the reason the rest of this file
+ * does it: a zero-row result is "someone else got there first", answered as a
+ * 409, not a silent overwrite.
+ */
+export async function applyMarkDispatched(input: {
+  orderId: string;
+}): Promise<Order | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("orders")
+    .update({
+      status: "dispatched",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.orderId)
+    .eq("status", "settled")
+    .not("awb_no", "is", null)
+    .select(DETAIL_COLUMNS)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("applyMarkDispatched", error);
     return null;
   }
   if (!data) return null;

@@ -680,6 +680,38 @@ export async function updateItdUserUsernameById(
 }
 
 /**
+ * Set (or clear) the account's email.
+ *
+ * Optional everywhere it is offered. Riders are created with an empty email —
+ * ITD needs one for customers, nothing needs one for staff — so this exists to
+ * let an agent add their own for the office to reach them, and to take it off
+ * again. An empty string, not null: the column is what ITD-created rows use and
+ * `toSessionUser` already reads `email ?? ""`.
+ *
+ * Safe on an ITD-backed account too: `mintItdSession` only replays a password
+ * it has on file, and an agent has none, so changing this cannot alter how any
+ * session authenticates.
+ */
+export async function updateItdUserEmailById(
+  userId: string,
+  email: string
+): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  const { error } = await client
+    .from("itd_users")
+    .update({ email, updated_at: new Date().toISOString() })
+    .eq("id", userId);
+
+  if (error) {
+    logSupabaseError("updateItdUserEmailById", error);
+    return false;
+  }
+  return true;
+}
+
+/**
  * Whether this account has an ITD password on file.
  *
  * Returns a boolean, never the ciphertext — callers only ever need to know

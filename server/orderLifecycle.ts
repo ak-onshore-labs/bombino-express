@@ -259,6 +259,32 @@ export const TRANSITIONS: readonly Transition[] = [
     // still be undone.
     guard: (order) => order.awb_no === null && !isKycHeld(order),
   },
+  {
+    from: "settled",
+    action: "mark_dispatched",
+    role: "admin",
+    to: "dispatched",
+    label: "Mark dispatched",
+    // The same doorway as `generate_docket`, for the order that walked through
+    // it already.
+    //
+    // An ITD-credentialled customer's order is docketed at booking, on their
+    // own ITD token — see the docket block in POST /api/orders. By the time it
+    // reaches `settled` the AWB exists, so `generate_docket` is guarded off it
+    // (`awb_no === null`) and, without this row, `settled` would have no exit
+    // at all: the order would sit on the ops board forever, finished in every
+    // respect but the one the board reads.
+    //
+    // The two guards are exact complements, so ops is never offered both. This
+    // one makes no ITD call — there is nothing left to file, and firing
+    // create_docket a second time would put the same parcel into ITD twice.
+    //
+    // No KYC backstop here, deliberately. `generate_docket` carries one because
+    // it is the last moment before the customer's identity number goes to
+    // customs; for this order that moment passed at booking, and holding it now
+    // would strand a shipment ITD has already accepted.
+    guard: (order) => order.awb_no !== null,
+  },
 
   // ── Cancellation ───────────────────────────────────────────────────────
   //

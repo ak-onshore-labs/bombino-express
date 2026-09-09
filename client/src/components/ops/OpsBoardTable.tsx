@@ -122,7 +122,21 @@ export function OpsBoardTable({
                 <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
                   {formatIst(order.created_at)}
                 </td>
-                <td className="px-4 py-3">{order.awb_no ?? '—'}</td>
+                <td className="px-4 py-3">
+                  {order.awb_no ?? (
+                    order.docket_error ? (
+                      <span
+                        className="font-bold text-destructive"
+                        title={order.docket_error}
+                        data-testid={`ops-docket-failed-row-${order.order_no}`}
+                      >
+                        AWB failed
+                      </span>
+                    ) : (
+                      '—'
+                    )
+                  )}
+                </td>
                 <td className="px-4 py-3">
                   <Link
                     href={href}

@@ -1,5 +1,5 @@
 import { Link } from 'wouter';
-import { MapPin, Package } from 'lucide-react';
+import { AlertTriangle, MapPin, Package } from 'lucide-react';
 import { getOrderStatusLabel } from '@/lib/orderStatus';
 import {
   formatInr,
@@ -64,6 +64,18 @@ export function OpsOrderCard({ order }: { order: OpsBoardOrder }) {
             data-testid={`ops-agent-badge-${order.order_no}`}
           >
             {order.agent_id ? order.agent_name || 'Assigned' : 'Unassigned'}
+          </span>
+        )}
+        {/* This order was meant to carry an AWB from the moment it was booked
+            and does not. Without saying so it looks exactly like an ordinary
+            pre-docket booking, and nobody goes looking. */}
+        {order.docket_error && (
+          <span
+            className="inline-flex items-center gap-1 rounded-md bg-destructive/10 px-1.5 py-0.5 text-[11px] font-bold text-destructive"
+            data-testid={`ops-docket-failed-${order.order_no}`}
+          >
+            <AlertTriangle className="w-3 h-3" aria-hidden />
+            AWB failed
           </span>
         )}
       </div>

@@ -11,6 +11,7 @@ import { itdClient, type RateParams } from "./itd.js";
 import { withTimeout } from "./itdTokenRefresh.js";
 import {
   applyGenerateDocket,
+  applyMarkDispatched,
   applyWeighResult,
   getAddressCityPincode,
 } from "./opsDb.js";
@@ -368,6 +369,40 @@ export async function handleGenerateDocket(input: {
     eventMeta: {
       action: "generate_docket",
       awb_no: awbNo,
+    },
+  };
+}
+
+/**
+ * Close out an order whose docket was filed at booking.
+ *
+ * No ITD call: the shipment is already in ITD, filed on the customer's own
+ * token when they booked. All that is left is to say the parcel has left us,
+ * which is what `dispatched` means and what releases the customer's dispatch
+ * message in `notify.ts`.
+ */
+export async function handleMarkDispatched(input: {
+  order: Order;
+  callerId: string;
+}): Promise<OpsActionResult> {
+  const updated = await applyMarkDispatched({ orderId: input.order.id });
+  if (!updated) {
+    return {
+      error: {
+        status: 409,
+        message: "This order has already moved on. Refresh and try again.",
+        code: "ORDER_STATE_CHANGED",
+      },
+    };
+  }
+
+  return {
+    order: updated,
+    eventNote: `Dispatched · AWB ${updated.awb_no} (docketed at booking)`,
+    eventMeta: {
+      action: "mark_dispatched",
+      awb_no: updated.awb_no,
+      docketed_at_booking: true,
     },
   };
 }

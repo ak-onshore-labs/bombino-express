@@ -16,6 +16,7 @@
  */
 
 import type { Express, Request, Response } from "express";
+import { beatsForAgent } from "../beatsDb.js";
 import {
   getAvailablePickups,
   getCollectionsToday,
@@ -90,6 +91,37 @@ export function registerAgentRoutes(app: Express): void {
        * their own console now.
        */
       res.json({ pickups: withActions(pickups, agentId) });
+    }
+  );
+
+  // GET /api/agent/beats — the rounds this agent runs, and their pincodes
+  //
+  // Their own only. An agent has no reason to read another rider's ground, and
+  // `agentId` here comes from the session rather than the request, so there is
+  // no id to tamper with.
+  //
+  // An empty list is a real answer and not an error: a rider ops have not put
+  // on a beat yet still works, still sees every unclaimed job, and is still
+  // notified about all of them. The profile screen says so in as many words.
+  app.get(
+    "/api/agent/beats",
+    requireUser,
+    requireRole("agent"),
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      const agentId = req.session.dbUserId;
+      if (!agentId) {
+        res.status(401).json({ message: "Login required" });
+        return;
+      }
+
+      const beats = await beatsForAgent(agentId);
+      if (beats === null) {
+        res.status(502).json({ message: "Could not load your pickup area" });
+        return;
+      }
+
+      res.json({ beats });
     }
   );
 

@@ -32,6 +32,7 @@ import { warnIfPaymentsTestModeEnabled } from "./paymentsTestMode.js";
 import { warnIfFixedOtpEnabled } from "./otp.js";
 import { warnIfOcrBypassEnabled } from "./cashfreeOcr.js";
 import { warnIfIdentityBypassEnabled } from "./cashfreeIdentity.js";
+import { warnIfDocketAtBookingEnabled } from "./docketAtBooking.js";
 import { assertFieldCryptoConfigured } from "./fieldCrypto.js";
 import { createServer, type Server } from "http";
 
@@ -365,6 +366,7 @@ export async function createApp(): Promise<{ app: Express; httpServer: Server }>
   warnIfOcrBypassEnabled();
   warnIfIdentityBypassEnabled();
   warnIfFixedOtpEnabled();
+  warnIfDocketAtBookingEnabled();
 
   await registerRoutes(httpServer, app);
 

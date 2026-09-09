@@ -84,12 +84,16 @@ export async function insertOrderAndReturnRow(input: OrderInsert): Promise<Order
   const client = getSupabaseClient();
   if (!client) return null;
 
+  // ORDER_COLUMNS rather than a hand-copied list, which is what this was and
+  // which had silently drifted: it omitted `metadata`, so the row handed back
+  // from a booking always looked as though it had none. `isKycHeld` reads
+  // exactly that key, and an absent blob reads as "verified" by design — so a
+  // caller asking the freshly-inserted row whether its KYC was held got `false`
+  // however the order had just been stamped.
   const { data, error } = await client
     .from("orders")
     .insert(input)
-    .select(
-      "id, order_no, user_id, guest_ref, guest_name, guest_email, guest_phone, status, pickup_request, pickup_date, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, created_at, updated_at"
-    )
+    .select(ORDER_COLUMNS)
     .single();
 
   if (error) {
@@ -405,6 +409,110 @@ export async function listCancellationOrdersByUserId(
   return (data ?? []) as OrderRow[];
 }
 
+/**
+ * Record the AWB an order was docketed with **at booking**.
+ *
+ * Deliberately not `opsDb.applyGenerateDocket`, which is the other half of the
+ * same idea and cannot serve this one: it hardcodes `status = 'settled'` in its
+ * WHERE and moves the order to `dispatched`. Neither is right here. A docket
+ * issued at booking says only that ITD now holds this shipment — the parcel is
+ * still in the customer's house, has not been collected, weighed or paid for,
+ * and must walk the ordinary lifecycle exactly as it would have.
+ *
+ * So this writes `awb_no` and `itd_docket_response` and **touches nothing
+ * else**. What it keeps from the ops version is the guard that matters:
+ * `awb_no IS NULL`, in the UPDATE rather than in a prior read, so two requests
+ * racing on the same order cannot both file a docket. A zero-row result means
+ * one already exists, which the caller treats as "somebody got there first"
+ * rather than an error — the ITD call has happened either way and its AWB is
+ * already on the row.
+ */
+export async function applyBookingDocket(input: {
+  orderId: string;
+  awbNo: string;
+  docketResponse: unknown;
+}): Promise<OrderRow | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("orders")
+    .update({
+      awb_no: input.awbNo,
+      itd_docket_response: input.docketResponse,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.orderId)
+    .is("awb_no", null)
+    .select(ORDER_COLUMNS)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("applyBookingDocket", error);
+    return null;
+  }
+  return (data as unknown as OrderRow | null) ?? null;
+}
+
+/**
+ * Stamp why an at-booking docket did not happen, so ops can see it.
+ *
+ * The order itself is already committed and perfectly valid — it simply has no
+ * AWB yet, which is the state every guest and local-account order is in anyway.
+ * The difference is that this one was *expected* to have one, and without a
+ * record of the attempt that expectation is invisible: the order would sit on
+ * the board looking exactly like an ordinary pre-docket booking, and nobody
+ * would know ITD had refused it.
+ *
+ * Read-then-write for the same reason `refreshKycVerifiedOnOpenOrders` below
+ * does it — `metadata` is one whole jsonb value to PostgREST, so the other keys
+ * on it have to be carried across by hand.
+ *
+ * Best-effort by contract: returns a boolean and throws nothing. A booking must
+ * never fail because the note about a failed docket could not be written.
+ */
+export async function recordBookingDocketError(
+  orderId: string,
+  detail: { stage: string; message: string }
+): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  const { data: row, error: readError } = await client
+    .from("orders")
+    .select("metadata")
+    .eq("id", orderId)
+    .maybeSingle();
+
+  if (readError) {
+    logSupabaseError("recordBookingDocketError:read", readError);
+    return false;
+  }
+
+  const metadata = ((row?.metadata as Record<string, unknown> | null) ?? {});
+
+  const { error } = await client
+    .from("orders")
+    .update({
+      metadata: {
+        ...metadata,
+        docket_error: {
+          at: new Date().toISOString(),
+          stage: detail.stage,
+          message: detail.message,
+        },
+      },
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", orderId);
+
+  if (error) {
+    logSupabaseError("recordBookingDocketError:update", error);
+    return false;
+  }
+  return true;
+}
+
 export type OrderEventRow = {
   id: string;
   order_id: string;
@@ -525,8 +633,15 @@ export async function listOrdersByUserId(userId: string): Promise<OrderRow[] | n
  * stale `false` and stays held after the customer has done everything asked of
  * them, which reads to ops as a system that ignores its own queue.
  *
- * Scoped to orders that have not been docketed (`awb_no IS NULL`): once an AWB
- * exists the flag has already done its job and rewriting history buys nothing.
+ * Scoped to orders that have not finished (`status NOT IN (dispatched,
+ * cancelled)`): past those two nothing reads the flag and rewriting history
+ * buys nothing.
+ *
+ * This used to be scoped on `awb_no IS NULL` instead, which meant the same
+ * thing while an AWB could only be issued at the very end. It cannot any more —
+ * an ITD-credentialled account is docketed at booking (see
+ * `applyBookingDocket`), so such an order carries an AWB from its first minute
+ * and would otherwise keep a stale `kyc_verified: false` for its whole life.
  *
  * Read-then-write per row for the same reason `recordCancellationRequest`
  * does it — `metadata` is one whole jsonb value to PostgREST. Same caveat, and
@@ -544,11 +659,13 @@ export async function refreshKycVerifiedOnOpenOrders(
   const client = getSupabaseClient();
   if (!client) return 0;
 
+  const OPEN_STATUSES = ["dispatched", "cancelled"];
+
   const { data: rows, error: readError } = await client
     .from("orders")
     .select("id, metadata")
     .eq("user_id", userId)
-    .is("awb_no", null);
+    .not("status", "in", `(${OPEN_STATUSES.join(",")})`);
 
   if (readError) {
     logSupabaseError("refreshKycVerifiedOnOpenOrders:read", readError);
@@ -567,7 +684,7 @@ export async function refreshKycVerifiedOnOpenOrders(
         updated_at: new Date().toISOString(),
       })
       .eq("id", row.id)
-      .is("awb_no", null);
+      .not("status", "in", `(${OPEN_STATUSES.join(",")})`);
 
     if (error) {
       logSupabaseError("refreshKycVerifiedOnOpenOrders:update", error);

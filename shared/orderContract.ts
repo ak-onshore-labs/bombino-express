@@ -163,6 +163,12 @@ export type Action =
   | 'weigh'
   | 'settle'
   | 'generate_docket'
+  // ops — the other way out of `settled`, for an order whose docket was filed
+  // at booking on the customer's own ITD credential. Same destination as
+  // `generate_docket`, no ITD call: there is nothing left to file. The two are
+  // guarded on `awb_no` being null and not-null respectively, so exactly one
+  // is ever offered.
+  | 'mark_dispatched'
   // customer — asks; does not decide. See `cancel` below.
   | 'request_cancellation'
   // ops — the other half of the decision. `cancel` approves a request;

@@ -75,6 +75,20 @@ POST /api/auth/phone/continue  { "phone": "<phone>", "code": "000000" }
 Each role lands on its own surface: agents at `/agent`, admins at `/ops`,
 customers at `/home` (see `client/src/lib/surface.ts`).
 
+## No ITD-credentialled account here
+
+Every account in this file signs in by phone, which means every one of them is a
+`local-<uuid>` row with no ITD password stored. **None of them can exercise
+docket-at-booking** (`ITD_DOCKET_AT_BOOKING`, see `.env.example`): that path is
+gated on `itdUserHasStoredPassword`, and these accounts have none.
+
+To test it you need real ITD credentials and must link them to a phone through
+`POST /api/auth/link/itd` — the only endpoint that accepts an ITD email and
+password, and the only way one is ever stored. It refuses to link at all unless
+`ENCRYPTION_KEY` is set (503), because the encrypted password *is* the link.
+
+Add the number to the table above when you take one.
+
 ## Free numbers
 
 `9000000002`–`9000000004`, `9000000006`–`9000000009`, `9000000015` onward.

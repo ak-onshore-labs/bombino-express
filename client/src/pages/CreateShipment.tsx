@@ -185,6 +185,19 @@ interface OrderCreateResponse {
     id: string;
     order_no: string;
   };
+  /**
+   * Whether an airway bill was filed with ITD as part of this booking.
+   *
+   * `skipped` for everybody who cannot be docketed at booking — guests, and
+   * accounts opened here rather than linked to an existing ITD login. Those
+   * orders are docketed later by ops and there is nothing to say about it.
+   * `failed` means the booking is fine and only the AWB is missing.
+   */
+  docket?: {
+    status: 'issued' | 'failed' | 'skipped';
+    awb_no: string | null;
+    message: string | null;
+  };
   message?: string;
 }
 
@@ -554,6 +567,8 @@ export default function CreateShipment() {
   const queryClient = useQueryClient();
   const [currentStep, setCurrentStep] = useState(1);
   const [newOrderNo, setNewOrderNo] = useState('');
+  const [newAwbNo, setNewAwbNo] = useState('');
+  const [docketMessage, setDocketMessage] = useState('');
   const [newOrderId, setNewOrderId] = useState('');
   const [submitError, setSubmitError] = useState('');
 
@@ -1092,6 +1107,8 @@ export default function CreateShipment() {
       setShowConfirmModal(false);
       setNewOrderNo(data.order.order_no);
       setNewOrderId(data.order.id);
+      setNewAwbNo(data.docket?.status === 'issued' ? data.docket.awb_no ?? '' : '');
+      setDocketMessage(data.docket?.status === 'failed' ? data.docket.message ?? '' : '');
 
       // POST /api/orders wrote the profile row and the order against this
       // guest's ref, so there is nothing to save here — only a stale cache to
@@ -1386,6 +1403,39 @@ export default function CreateShipment() {
                 <Copy className="w-5 h-5 shrink-0 text-muted-foreground" aria-hidden />
               </div>
             </button>
+
+            {/* The airway bill, when this booking filed one. Shown beside the
+                order number rather than instead of it: the AWB is what the
+                carrier knows the parcel by, the order number is what we do, and
+                the customer needs both until the parcel is collected. */}
+            {newAwbNo && (
+              <div className="mt-3 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
+                <p className="text-xs text-muted-foreground mb-0.5">Airway bill</p>
+                <p className="text-sm font-bold font-mono text-foreground break-all">
+                  {newAwbNo}
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+                  Carrier tracking opens once we collect your parcel.
+                </p>
+              </div>
+            )}
+
+            {/* The booking is safe; only the airway bill is missing. Said
+                plainly rather than hidden, because the customer would
+                otherwise find no AWB where they expected one and assume the
+                booking itself had gone wrong. */}
+            {docketMessage && (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+                <p className="text-xs font-semibold text-amber-900">
+                  Airway bill still to be issued
+                </p>
+                <p className="text-[11px] text-amber-800/90 mt-1 leading-relaxed">
+                  Your booking is confirmed. We could not raise the airway bill just
+                  now — our team has been notified and will issue it before your
+                  parcel ships.
+                </p>
+              </div>
+            )}
 
             <div className="mt-4 pt-4 border-t border-border space-y-3 text-sm">
               <div className="flex justify-between gap-3">

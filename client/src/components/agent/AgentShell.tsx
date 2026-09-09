@@ -76,6 +76,9 @@ function todayLine(): string {
  * it is the shift's own marker, and the tag it replaced was amber.
  */
 function AgentTopBar() {
+  const [location] = useLocation();
+  const onProfile = location === '/agent/profile';
+
   return (
     <header
       className="sticky top-0 z-40 bg-white border-b border-[#E2E8F0]! safe-top"
@@ -104,14 +107,32 @@ function AgentTopBar() {
 
         {/* Sign-out moved inside the profile page. Signing out is a once-a-day
             act and it sat one mis-tap from the logo; the profile is the thing
-            an agent actually reaches for mid-shift. */}
+            an agent actually reaches for mid-shift.
+
+            Given a target of its own rather than a bare glyph. At 22px on a
+            phone held at arm's length the icon was easy to miss and easier to
+            mis-tap, and it is the only control in this bar — the ring gives it
+            an edge to aim at and lifts it to a 40px hit area without making it
+            louder than the logo. It fills in on `/agent/profile`, so the bar
+            says where you are the way `AgentNav` does for every other
+            surface. */}
         <Link
           href="/agent/profile"
           aria-label="Your profile"
-          className="w-[22px] h-[22px] grid place-items-center justify-self-end"
+          aria-current={onProfile ? 'page' : undefined}
+          className={cn(
+            'w-10 h-10 rounded-full grid place-items-center justify-self-end -mr-1.5',
+            'border transition-colors',
+            onProfile
+              ? 'bg-[#1B2A41] border-[#1B2A41]'
+              : 'bg-white border-[#E2E8F0]! hover:bg-[#F8FAFC]',
+          )}
           data-testid="link-agent-profile"
         >
-          <UserRound className="w-[22px] h-[22px] text-[#64748B]" strokeWidth={1.5} />
+          <UserRound
+            className={cn('w-[22px] h-[22px]', onProfile ? 'text-white' : 'text-[#1B2A41]')}
+            strokeWidth={1.75}
+          />
         </Link>
       </div>
     </header>

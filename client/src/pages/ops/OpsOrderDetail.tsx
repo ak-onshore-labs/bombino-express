@@ -331,6 +331,27 @@ export default function OpsOrderDetail() {
         </div>
       )}
 
+      {/* An AWB this order was supposed to have and does not. The order itself
+          is fine — it simply falls back to being docketed here, at Settled,
+          like a guest's. What ops needs is the reason, because a refusal ITD
+          gave once it will give again. */}
+      {!order.awb_no && order.docket_error && (
+        <div
+          className="rounded-2xl border border-destructive bg-destructive/10 px-4 py-3 mb-4"
+          data-testid="ops-order-docket-error"
+        >
+          <p className="text-[11px] uppercase tracking-[0.14em] font-bold text-destructive">
+            Airway bill not issued at booking
+          </p>
+          <p className="text-sm font-semibold text-foreground mt-1 leading-snug">
+            {order.docket_error}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+            The order is unaffected — generate the docket here once it is settled.
+          </p>
+        </div>
+      )}
+
       <section
         className="rounded-2xl border border-border bg-white px-4 mb-6"
         data-testid="ops-order-facts"

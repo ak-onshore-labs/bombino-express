@@ -62,6 +62,7 @@ const ORDER_CSV_HEADERS = [
   'created_at',
   'pickup_date',
   'awb_no',
+  'docket_error',
 ] as const;
 
 function orderToCsvRow(order: OpsBoardOrder): (string | number)[] {
@@ -81,6 +82,7 @@ function orderToCsvRow(order: OpsBoardOrder): (string | number)[] {
     formatIst(order.created_at),
     order.pickup_date ?? '',
     order.awb_no ?? '',
+    order.docket_error ?? '',
   ];
 }
 

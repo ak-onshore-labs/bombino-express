@@ -25,6 +25,7 @@ import {
   clearItdUserPhoneById,
   itdUserHasStoredPassword,
   updateItdUserPhoneById,
+  updateItdUserEmailById,
   updateItdUserUsernameById,
   upsertItdUserAndReturnId,
   upsertTrackingEvents,
@@ -46,6 +47,8 @@ import {
   listPaymentsByOrderId,
   markCancellationRequestDecided,
   recordCancellationRequest,
+  applyBookingDocket,
+  recordBookingDocketError,
   toOrder,
 } from "./ordersDb.js";
 import {
@@ -85,12 +88,18 @@ import { getLatestGuestRefForPhone, upsertGuestProfile } from "./guestProfileDb.
 import { registerWhatsappRoutes } from "./routes/whatsapp.js";
 import { registerWhatsappScheduleRoutes } from "./routes/whatsappSchedule.js";
 import { registerOpsRoutes } from "./routes/ops.js";
-import { handleGenerateDocket, handleSettle, handleWeigh } from "./opsActions.js";
+import {
+  handleGenerateDocket,
+  handleMarkDispatched,
+  handleSettle,
+  handleWeigh,
+} from "./opsActions.js";
 import { isIndiaHubId } from "../shared/hubs.js";
 import {
   cancellationState,
   deriveCustomerStatus,
   isInternalOnlyStatus,
+  isKycHeld,
   isRole,
   readCancellationRequest,
 } from "../shared/orderContract.js";
@@ -140,6 +149,7 @@ import { handleChat } from "./supportAgent.js";
 import { supportChatRateLimit } from "./supportRateLimit.js";
 import type { ChatMessage } from "./supportTypes.js";
 import { persistShipmentAfterCreate } from "./persistShipment.js";
+import { isDocketAtBookingEnabled } from "./docketAtBooking.js";
 import { lookupPostal } from "./postalLookup.js";
 import {
   getKycByCapabilityId,
@@ -1444,16 +1454,196 @@ export async function registerRoutes(
    * compelled to produce the same documents — the difference is only where the
    * row hangs.
    *
-   * This is what the docket path should use. It does not yet: that path reads
-   * the *caller's* KYC, which is a documented bug predating guest booking (see
-   * docs/final-phase/markdowns/open-items.md §4.0). When M5 wires the real
-   * createShipment() through ops, this is the function to call — reaching for
-   * `order.user_id` directly would refuse every guest docket.
+   * This is what a docket path must use, and `docketAtBooking` below does.
+   * POST /api/shipments still does not: that path reads the *caller's* KYC,
+   * which is a documented bug predating guest booking (see
+   * docs/final-phase/markdowns/open-items.md §4.0) and is still waiting on M5.
+   * Reaching for `order.user_id` directly would refuse every guest docket.
    */
   async function kycForOrder(order: Pick<Order, "user_id" | "guest_ref">) {
     if (order.user_id) return getKycByUserId(order.user_id);
     if (order.guest_ref) return getKycByGuestRef(order.guest_ref);
     return null;
+  }
+
+  /**
+   * File an ITD docket for an order the moment it is booked.
+   *
+   * ── Why only some orders ──────────────────────────────────────────────────
+   *
+   * `create_docket` has no customer field: ITD attributes a shipment to
+   * whoever's session token makes the call (server/itd.ts §createShipment).
+   * That is the open question M5 is blocked on — ops cannot docket on a
+   * customer's behalf because ops holds no customer token, and `add_customer`
+   * issues no credentials to get one.
+   *
+   * But the question does not arise for a customer who already HAS an ITD
+   * login. They linked it themselves through POST /api/auth/link/itd, which
+   * stored their password encrypted precisely so `mintItdSession` can replay it
+   * — ITD has no refresh token, so replaying the password is the only way to
+   * mint one. For those accounts the right token is available at booking, on
+   * the customer's own credential, and the docket lands on their own ITD
+   * account with no attribution to guess at.
+   *
+   * Everyone else — guests, and accounts opened by OTP signup, which are
+   * `local-<uuid>` rows with no ITD credential anywhere — is untouched here and
+   * still dockets the ordinary way, by ops at `settled`.
+   *
+   * The test is capability, not provenance: `itdUserHasStoredPassword`, the
+   * same gate `mintItdSession` applies internally. NOT the `local-` prefix,
+   * which is a superset — a genuine ITD row loses its credential on phone
+   * unlink, and POST /api/auth/login silently stores none when ENCRYPTION_KEY
+   * is unset.
+   *
+   * ── Why the payload is not built here ─────────────────────────────────────
+   *
+   * `order.items` already IS a complete CreateShipmentPayload — the booking
+   * form builds one and posts it verbatim (client CreateShipment.tsx). Only the
+   * three KYC fields are missing, for the same reason they are missing on
+   * POST /api/shipments: they are derived server-side from the stored document
+   * and must never be taken from the client.
+   *
+   * ── Failure ───────────────────────────────────────────────────────────────
+   *
+   * Never throws, never fails the booking. The order is already committed when
+   * this runs; a docket is something added on top of it. A failure leaves
+   * `awb_no` null, which is the state every guest order is in anyway, so the
+   * order simply falls back to being docketed by ops at `settled` — and stamps
+   * `metadata.docket_error` so the ops board can say so out loud rather than
+   * leaving it to look like an ordinary pre-docket booking.
+   */
+  type BookingDocketOutcome = {
+    status: "issued" | "failed" | "skipped";
+    awb_no: string | null;
+    message: string | null;
+  };
+
+  const SKIPPED: BookingDocketOutcome = { status: "skipped", awb_no: null, message: null };
+
+  const BOOKING_DOCKET_TIMEOUT_MS = 15_000;
+
+  async function docketAtBooking(
+    req: Request,
+    order: Order
+  ): Promise<BookingDocketOutcome> {
+    if (!isDocketAtBookingEnabled()) return SKIPPED;
+
+    // A guest order has no account and therefore no ITD credential. It is also
+    // the cohort this whole split exists to keep OUT of ITD at booking.
+    const dbUserId = order.user_id;
+    if (!dbUserId) return SKIPPED;
+
+    // The same hold `generate_docket` carries, applied at the moment that is
+    // now the last reversible one. A docket puts the customer's identity number
+    // in front of Indian customs; an order whose KYC was explicitly rejected
+    // must not get there, and after this call there is nothing left to undo.
+    if (isKycHeld(order)) return SKIPPED;
+
+    if (!(await itdUserHasStoredPassword(dbUserId))) return SKIPPED;
+
+    // POST /api/orders does not sit behind refreshItdTokenIfNeeded, so a
+    // session older than the token is entirely ordinary here. mintItdSession
+    // replays the stored password and returns null rather than throwing.
+    let token = req.session.itdToken;
+    if (!token) {
+      const email = req.session.user?.email;
+      if (email) await mintItdSession(req, dbUserId, email);
+      token = req.session.itdToken;
+    }
+    if (!token) {
+      const message = "Could not sign in to ITD to issue an airway bill.";
+      await recordBookingDocketError(order.id, { stage: "token", message });
+      return { status: "failed", awb_no: null, message };
+    }
+
+    const kyc = await kycForOrder(order);
+    if (!kyc) {
+      const message = "No identity document on file to file with the airway bill.";
+      await recordBookingDocketError(order.id, { stage: "kyc", message });
+      return { status: "failed", awb_no: null, message };
+    }
+
+    // `order.items` is the payload the form built, read back from the row we
+    // just wrote rather than from req.body — so what ITD is sent is exactly
+    // what was persisted, and the two can never drift.
+    const payload = {
+      ...(order.items as Record<string, unknown>),
+    } as unknown as CreateShipmentPayload;
+
+    const publicUrl =
+      process.env.PUBLIC_URL ?? `http://localhost:${process.env.PORT ?? 5000}`;
+    const kycPayload = buildItdKycPayload(
+      {
+        document_type: kyc.document_type,
+        document_no: kyc.document_no,
+        capability_id: kyc.capability_id,
+      },
+      publicUrl
+    );
+    payload.kyc_details = kycPayload.kyc_details;
+    payload.shipper_gstin_type = kycPayload.shipper_gstin_type;
+    payload.shipper_gstin_no = kycPayload.shipper_gstin_no;
+
+    let itdResponse: Awaited<ReturnType<typeof itdClient.createShipment>>;
+    try {
+      console.log(
+        `[docketAtBooking] filing ITD docket for order ${order.order_no} (user ${dbUserId})`
+      );
+      itdResponse = await withTimeout(
+        itdClient.createShipment(payload, token),
+        BOOKING_DOCKET_TIMEOUT_MS,
+        "ITD create_docket (booking)"
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "ITD refused the docket.";
+      console.error(`[docketAtBooking] ${order.order_no} failed:`, message);
+      await recordBookingDocketError(order.id, { stage: "create_docket", message });
+      return { status: "failed", awb_no: null, message };
+    }
+
+    if (!itdResponse.success || !itdResponse.data?.awb_no) {
+      const message = itdResponse.errors?.join("; ") || "ITD returned no airway bill number.";
+      console.error(`[docketAtBooking] ${order.order_no} rejected:`, message);
+      await recordBookingDocketError(order.id, { stage: "create_docket", message });
+      return { status: "failed", awb_no: null, message };
+    }
+
+    const awb = itdResponse.data.awb_no;
+
+    // Status is deliberately untouched: ITD holds the shipment, but the parcel
+    // is still in the customer's house and has to be collected, weighed and
+    // paid for exactly as before.
+    const docketed = await applyBookingDocket({
+      orderId: order.id,
+      awbNo: awb,
+      docketResponse: itdResponse,
+    });
+    if (!docketed) {
+      // The AWB exists at ITD but the row would not take it — a concurrent
+      // write, or a DB blip. Say so loudly: this is the one failure mode that
+      // leaves the two sides disagreeing, and it needs a human.
+      const message = `ITD issued AWB ${awb} but it could not be saved against this order.`;
+      console.error(`[docketAtBooking] ${order.order_no}: ${message}`);
+      await recordBookingDocketError(order.id, { stage: "persist", message });
+      return { status: "failed", awb_no: null, message };
+    }
+
+    void insertOrderEvent({
+      order_id: order.id,
+      status: order.status,
+      note: `Docket filed at booking · AWB ${awb}`,
+      actor_user_id: dbUserId,
+      metadata: { action: "docket_at_booking", awb_no: awb },
+    });
+
+    // The `shipments` row and its addresses, so tracking and the documents
+    // endpoint have something to read. `notifyDispatch: false` because the
+    // parcel has not shipped — see the note on persistShipmentAfterCreate.
+    void persistShipmentAfterCreate(dbUserId, payload, itdResponse, req.ip, {
+      notifyDispatch: false,
+    });
+
+    return { status: "issued", awb_no: awb, message: null };
   }
 
   /**
@@ -2814,34 +3004,65 @@ export async function registerRoutes(
     requireUser,
     ensureDbUser,
     async (req: Request, res: Response) => {
-      const parsed = z.object({ username: usernameSchema }).safeParse(req.body);
+      /**
+       * Both fields optional, at least one required.
+       *
+       * `email` is genuinely optional data, not merely an optional field: staff
+       * accounts are created without one, and an agent adding theirs so the
+       * office can reach them must equally be able to take it off again. An
+       * empty string is therefore a valid value meaning "clear it", which is why
+       * this is not `.email()` alone.
+       */
+      const parsed = z
+        .object({
+          username: usernameSchema.optional(),
+          email: z.union([z.literal(""), z.string().trim().email("Enter a valid email")]).optional(),
+        })
+        .refine((body) => body.username !== undefined || body.email !== undefined, {
+          message: "Nothing to change",
+        })
+        .safeParse(req.body);
       if (!parsed.success) {
         res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid request" });
         return;
       }
-      const { username } = parsed.data;
+      const { username, email } = parsed.data;
 
       if (!req.session.dbUserId) {
         res.status(404).json({ message: "Profile not found" });
         return;
       }
 
-      const ok = await updateItdUserUsernameById(req.session.dbUserId, username);
-      if (!ok) {
-        res.status(502).json({ message: "Could not save your username. Please try again." });
-        return;
+      if (username !== undefined) {
+        const ok = await updateItdUserUsernameById(req.session.dbUserId, username);
+        if (!ok) {
+          res.status(502).json({ message: "Could not save your username. Please try again." });
+          return;
+        }
+      }
+
+      if (email !== undefined) {
+        const ok = await updateItdUserEmailById(req.session.dbUserId, email);
+        if (!ok) {
+          res.status(502).json({ message: "Could not save your email. Please try again." });
+          return;
+        }
       }
 
       // Keep the session copy in step, or /api/auth/me and anything reading
       // req.session.user would serve the old value until the next sign-in.
       if (req.session.user) {
-        req.session.user = { ...req.session.user, username };
+        req.session.user = {
+          ...req.session.user,
+          ...(username !== undefined ? { username } : {}),
+          ...(email !== undefined ? { email } : {}),
+        };
       }
       req.session.save((err) => {
         if (err) {
           console.error("[PATCH /api/user/profile] session save error:", err);
         }
-        res.json({ username });
+        res.json({ username, email });
       });
     }
   );
@@ -4072,7 +4293,20 @@ export async function registerRoutes(
       address: { city: body.origin_address.city, pincode: body.origin_address.pincode },
     });
 
-    res.json({ order });
+    // The airway bill, for the accounts that can have one now.
+    //
+    // Awaited, unlike the two messages above: the AWB is part of what the
+    // customer is being told about this booking, and a success screen that
+    // showed the order number and then quietly grew an AWB a second later
+    // would be worse than waiting. Bounded by its own 15s timeout, and it
+    // cannot fail the booking — the order row is already committed, and a
+    // refusal comes back as `docket.status === "failed"` alongside it.
+    const docket = await docketAtBooking(req, bookedOrder);
+
+    res.json({
+      order: docket.status === "issued" ? { ...order, awb_no: docket.awb_no } : order,
+      docket,
+    });
   });
 
   // The customer-facing copy that used to sit here moved to
@@ -4761,6 +4995,16 @@ export async function registerRoutes(
               return;
             }
             const ok = mapOpsResult(await handleGenerateDocket({ order, callerId }));
+            if (!ok) return;
+            break;
+          }
+
+          if (action === "mark_dispatched") {
+            if (!transition.to) {
+              res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
+              return;
+            }
+            const ok = mapOpsResult(await handleMarkDispatched({ order, callerId }));
             if (!ok) return;
             break;
           }

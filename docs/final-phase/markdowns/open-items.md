@@ -128,6 +128,12 @@ is a mock AWB that makes no ITD call at all. It stops being harmless the moment
 moment. It is deliberately not wired in here: there is no way to test this path,
 and a blind edit to the customs payload is worse than a documented bug.
 
+`kycForOrder()` is no longer uncalled: `docketAtBooking()` (same file) uses it
+for the real ITD docket it files at booking, so the correct shape is now
+demonstrated a few lines above the broken one. Copying it into
+`POST /api/shipments` is a small edit — but that endpoint still has no caller
+and no way to exercise it, so it stays documented rather than guessed at.
+
 Note for guest bookings: an order's KYC is no longer reachable by `user_id`
 alone. A guest order has none — its document is owned by `guest_ref`
 (`getKycByGuestRef`). `kycForOrder()` handles both; a fix that reaches for

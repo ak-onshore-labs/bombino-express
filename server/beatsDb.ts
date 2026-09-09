@@ -371,6 +371,92 @@ export async function replaceBeatAgents(
   return agentIds.length;
 }
 
+/** A round as its own rider sees it: where they collect, and by when. */
+export interface AgentBeat {
+  slug: string;
+  name: string;
+  hub: string;
+  cutoff_hour: number;
+  pincodes: string[];
+}
+
+/**
+ * The rounds one agent runs, with the pincodes on each.
+ *
+ * For the agent's own profile screen — "where am I supposed to be, and how late
+ * do I work?" — which is a question the app could not answer before beats
+ * existed. Retired beats are excluded: a round that has stopped running is not
+ * this rider's area any more, whatever the membership row still says.
+ *
+ * Only the pincode is returned, not city or area. The rider knows their own
+ * ground; what they cannot know is exactly where ops drew the line, and a bare
+ * list of codes reads faster on a phone than a list of localities.
+ */
+export async function beatsForAgent(agentId: string): Promise<AgentBeat[] | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data: memberships, error: memberError } = await client
+    .from("pickup_beat_agents")
+    .select("beat_id, pickup_beats!inner(slug, name, hub, cutoff_hour, is_active)")
+    .eq("agent_id", agentId)
+    .eq("pickup_beats.is_active", true);
+
+  if (memberError) {
+    logSupabaseError("beatsForAgent/memberships", memberError);
+    return null;
+  }
+
+  type Row = {
+    beat_id: string;
+    pickup_beats:
+      | { slug: string; name: string; hub: string; cutoff_hour: number }
+      | { slug: string; name: string; hub: string; cutoff_hour: number }[]
+      | null;
+  };
+
+  const rows = (memberships ?? []) as unknown as Row[];
+  if (rows.length === 0) return [];
+
+  const { data: pins, error: pinsError } = await client
+    .from("pickup_beat_pincodes")
+    .select("beat_id, pincode")
+    .in(
+      "beat_id",
+      rows.map((r) => r.beat_id)
+    )
+    .order("pincode", { ascending: true });
+
+  if (pinsError) {
+    logSupabaseError("beatsForAgent/pincodes", pinsError);
+    return null;
+  }
+
+  const byBeat = new Map<string, string[]>();
+  for (const row of (pins ?? []) as { beat_id: string; pincode: string }[]) {
+    const at = byBeat.get(row.beat_id);
+    if (at) at.push(row.pincode);
+    else byBeat.set(row.beat_id, [row.pincode]);
+  }
+
+  const beats: AgentBeat[] = [];
+  for (const row of rows) {
+    const beat = firstOf(row.pickup_beats);
+    if (!beat) continue;
+    beats.push({
+      slug: beat.slug,
+      name: beat.name,
+      hub: beat.hub,
+      cutoff_hour: beat.cutoff_hour,
+      pincodes: byBeat.get(row.beat_id) ?? [],
+    });
+  }
+  // Longest round first: the one with the most ground is the one they most
+  // need to see.
+  beats.sort((a, b) => b.pincodes.length - a.pincodes.length || a.name.localeCompare(b.name));
+  return beats;
+}
+
 /**
  * Which beats each of these agents runs, for the staff list.
  *

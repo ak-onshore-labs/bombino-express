@@ -586,12 +586,30 @@ export default function OrderDetails() {
           </p>
         )}
 
-        {/* The handover. An AWB means this record has stopped being the live
-            one — the carrier scans live at /shipment/:awb, and this screen
-            keeps only the booking history. Previously the number appeared as
-            one more read-only field two thirds of the way down the page, with
-            nothing to say it was now the thing to follow. */}
-        {order.awb_no && (
+        {/* An AWB, but the parcel has not left us.
+            An ITD-linked customer's order is docketed the moment they book, so
+            the airway bill exists while the parcel is still in their house.
+            Saying "shipped" here would be a lie they can act on, and the link
+            would land them on a tracking page ITD has no scans for. So the
+            number is shown, plainly, and the handover below waits for the
+            parcel to actually go. */}
+        {order.awb_no && order.status !== 'dispatched' && (
+          <p className="mt-3 text-xs text-muted-foreground leading-relaxed bg-muted/50 border border-border rounded-lg px-3 py-2.5">
+            Airway bill{' '}
+            <span className="font-mono font-semibold text-foreground">
+              {order.awb_no}
+            </span>{' '}
+            is issued. Carrier scans begin once we collect your parcel — until
+            then, the updates below are the full picture.
+          </p>
+        )}
+
+        {/* The handover. A dispatched order has stopped being the live record —
+            the carrier scans live at /shipment/:awb, and this screen keeps only
+            the booking history. Previously the number appeared as one more
+            read-only field two thirds of the way down the page, with nothing to
+            say it was now the thing to follow. */}
+        {order.awb_no && order.status === 'dispatched' && (
           <Link
             href={`/shipment/${encodeURIComponent(order.awb_no)}`}
             className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-green-200 bg-green-50 px-3 py-2.5 transition-colors hover:bg-green-100"

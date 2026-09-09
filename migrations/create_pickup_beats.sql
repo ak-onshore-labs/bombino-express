@@ -8,7 +8,7 @@
 --     Pickup Cut-off Time
 --
 -- Until now only two of those four survived contact with the code. Name and
--- number became an `itd_users` row with `role = 'agent'`; the pincodes and the
+-- number became an `itd_users` row with `role = 'agent'`;  the pincodes and the
 -- cutoff became a static table in `shared/pickupPincodes.ts`, keyed by hub, with
 -- no way back to the rider. Nothing joined them. The consequence was small and
 -- constant: `notifyAgentsOfNewJob` WhatsApps every agent in the country about

@@ -27,6 +27,12 @@ export type OpsBoardOrder = {
   agent_id: string | null;
   agent_name: string | null;
   awb_no: string | null;
+  /**
+   * Why this order has no AWB when one was expected at booking. Null on every
+   * ordinary order, including every guest and local-account order — those are
+   * never docketed at booking and are simply waiting their turn with ops.
+   */
+  docket_error: string | null;
 };
 
 export type OpsOrderEvent = {

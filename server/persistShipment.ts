@@ -39,12 +39,21 @@ function parseDeclaredValue(payload: CreateShipmentPayload): number | null {
 /**
  * Fire-and-forget DB persistence after successful ITD create_docket.
  * Uses only safeQuery/safeQueryOne; logs and returns on any failure.
+ *
+ * `options.notifyDispatch` controls the "your parcel has shipped" WhatsApp
+ * below. It defaults to true because the direct-docket path this was written
+ * for dockets a parcel that is already with us. The booking path passes false:
+ * there the docket is issued the moment the customer taps Confirm, with the
+ * parcel still in their house, and telling them it has shipped would be a lie
+ * they can act on. Their dispatch message comes later from `notify.ts`, keyed
+ * on the order reaching `dispatched`.
  */
 export async function persistShipmentAfterCreate(
   dbUserId: string,
   payload: CreateShipmentPayload,
   itdResponse: CreateShipmentResponse,
-  ipAddress: string | undefined
+  ipAddress: string | undefined,
+  options?: { notifyDispatch?: boolean }
 ): Promise<void> {
   if (!itdResponse.success || !itdResponse.data?.awb_no) {
     return;
@@ -155,12 +164,14 @@ export async function persistShipmentAfterCreate(
   // no order number to quote — the AWB is the only reference the customer has,
   // and it is passed as both. The ops `generate_docket` path quotes both
   // properly, through the status fan-out in `notify.ts`.
-  void notifyDispatched({
-    userId: dbUserId,
-    orderNo: awb,
-    awb,
-    orderId: null,
-  });
+  if (options?.notifyDispatch !== false) {
+    void notifyDispatched({
+      userId: dbUserId,
+      orderNo: awb,
+      awb,
+      orderId: null,
+    });
+  }
 
   await insertShipmentCreatedAuditLog({
     user_id: dbUserId,
