@@ -513,26 +513,24 @@ export default function OrderDetails() {
             anyone they forward the shipment to. It used to appear only as a
             sentence further down, or as a read-only field two thirds of the
             way to the bottom, which reads as trivia rather than as the second
-            identity of the order. */}
+            identity of the order.
+
+            Built exactly like the Order heading above it, one step down in
+            size: the same eyebrow, the same navy, the same tabular figures.
+            Two identifiers of the same kind should not be told apart by their
+            decoration. */}
         {order.awb_no && (
-          <div
-            className="mt-2 inline-flex items-baseline gap-2 rounded-lg border bg-muted/40 px-2.5 py-1.5"
-            style={{ borderColor: BRAND_NAVY }}
-            data-testid="chip-awb-no"
-          >
-            <span
-              className="text-[10px] font-bold tracking-[0.12em] uppercase"
-              style={{ color: BRAND_NAVY }}
-            >
-              AWB
-            </span>
-            <span
-              className="font-mono text-[15px] font-bold tracking-tight tabular-nums"
+          <div className="mt-3">
+            <p className="text-[11px] font-bold tracking-[0.12em] uppercase text-muted-foreground">
+              Airway bill
+            </p>
+            <h2
+              className="mt-1 font-mono text-[21px] font-bold tracking-tight tabular-nums"
               style={{ color: BRAND_NAVY }}
               data-testid="text-awb-no"
             >
               {order.awb_no}
-            </span>
+            </h2>
           </div>
         )}
 
