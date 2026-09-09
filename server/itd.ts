@@ -433,4 +433,24 @@ class ITDClient {
   }
 }
 
+/**
+ * Is this failure ITD telling us the token is dead?
+ *
+ * It does not answer 401 for an expired customer token on create_docket. It
+ * answers **500** with `{"success":false,"errors":"AUTH TOKEN EXPIRED. PLEASE
+ * GENERATE NEW AUTH TOKEN","Response Code":500}`, which reaches callers as an
+ * ordinary thrown Error and is indistinguishable from ITD being broken unless
+ * something reads the body. Callers that hold a mintable credential can re-mint
+ * and retry; everything else can at least say what actually happened.
+ *
+ * The 401 wording is matched too, for the paths where ITD does use it.
+ */
+export function isItdAuthExpired(message: string): boolean {
+  return (
+    /auth\s+token\s+expired/i.test(message) ||
+    /generate\s+new\s+auth\s+token/i.test(message) ||
+    /session expired/i.test(message)
+  );
+}
+
 export const itdClient = new ITDClient();

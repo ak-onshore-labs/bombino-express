@@ -33,6 +33,7 @@ import { warnIfFixedOtpEnabled } from "./otp.js";
 import { warnIfOcrBypassEnabled } from "./cashfreeOcr.js";
 import { warnIfIdentityBypassEnabled } from "./cashfreeIdentity.js";
 import { warnIfDocketAtBookingEnabled } from "./docketAtBooking.js";
+import { warnIfKycVerificationBypassEnabled } from "./kycVerificationBypass.js";
 import { assertFieldCryptoConfigured } from "./fieldCrypto.js";
 import { createServer, type Server } from "http";
 
@@ -367,10 +368,30 @@ export async function createApp(): Promise<{ app: Express; httpServer: Server }>
   warnIfIdentityBypassEnabled();
   warnIfFixedOtpEnabled();
   warnIfDocketAtBookingEnabled();
+  warnIfKycVerificationBypassEnabled();
 
   await registerRoutes(httpServer, app);
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  // Anything under /api that no route matched. Without this the request falls
+  // through to whatever sits behind the API, and none of those answer in JSON:
+  // standalone dev hands it to the Vite catch-all, which returns the SPA shell
+  // at status 200; production hands it to Express's own finalhandler, which
+  // returns an HTML error page. Either way the client calls res.json() on
+  // "<!DOCTYPE html>" and reports a JSON syntax error instead of the 404 that
+  // actually happened.
+  app.use("/api", (req: Request, res: Response) => {
+    res
+      .status(404)
+      .json({ message: `No such endpoint: ${req.method} ${req.originalUrl}` });
+  });
+
+  app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
+    // A thrown body-parser error arrives here with the response already
+    // started. Writing a second time throws, so hand it back to Express.
+    if (res.headersSent) {
+      next(err);
+      return;
+    }
     if (err?.code === "LIMIT_FILE_SIZE") {
       res.status(413).json({ message: "File too large. Maximum size is 4MB." });
       return;
@@ -382,8 +403,12 @@ export async function createApp(): Promise<{ app: Express; httpServer: Server }>
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
+    // Logged, not rethrown. Throwing from an error middleware after responding
+    // sends the error on to finalhandler with the headers already gone, which
+    // destroys the socket mid-body — the client sees a truncated response and
+    // fails to parse it, hiding the real error behind a parse error.
+    console.error("[error]", status, message, err);
     res.status(status).json({ message });
-    throw err;
   });
 
   return { app, httpServer };

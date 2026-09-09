@@ -29,6 +29,7 @@ import {
   roleSatisfies,
 } from "../shared/orderContract.js";
 import { todayInIst } from "../shared/istTime.js";
+import { shouldHoldForKyc } from "./kycVerificationBypass.js";
 
 /**
  * Context the guards need beyond the order itself — chiefly "who is asking",
@@ -257,7 +258,12 @@ export const TRANSITIONS: readonly Transition[] = [
     // identity number to Indian customs as `shipper_gstin_no`, derived from
     // that document, so the hold sits here, at the last moment anything can
     // still be undone.
-    guard: (order) => order.awb_no === null && !isKycHeld(order),
+    //
+    // KYC_VERIFICATION_BYPASS stands the KYC half down while Cashfree is
+    // unprovisioned and no document can reach a verdict. The docket call still
+    // requires a document on file — see server/kycVerificationBypass.ts.
+    guard: (order) =>
+      order.awb_no === null && !shouldHoldForKyc(isKycHeld(order)),
   },
   {
     from: "settled",

@@ -143,13 +143,14 @@ import path from "path";
 import crypto from "crypto";
 import multer from "multer";
 import { z } from "zod";
-import { itdClient } from "./itd.js";
+import { itdClient, isItdAuthExpired } from "./itd.js";
 import type { CreateShipmentPayload, RateParams } from "./itd.js";
 import { handleChat } from "./supportAgent.js";
 import { supportChatRateLimit } from "./supportRateLimit.js";
 import type { ChatMessage } from "./supportTypes.js";
 import { persistShipmentAfterCreate } from "./persistShipment.js";
 import { isDocketAtBookingEnabled } from "./docketAtBooking.js";
+import { shouldHoldForKyc } from "./kycVerificationBypass.js";
 import { lookupPostal } from "./postalLookup.js";
 import {
   getKycByCapabilityId,
@@ -1537,7 +1538,12 @@ export async function registerRoutes(
     // now the last reversible one. A docket puts the customer's identity number
     // in front of Indian customs; an order whose KYC was explicitly rejected
     // must not get there, and after this call there is nothing left to undo.
-    if (isKycHeld(order)) return SKIPPED;
+    //
+    // KYC_VERIFICATION_BYPASS stands this down while Cashfree is unprovisioned
+    // and no document can reach a verdict — see server/kycVerificationBypass.ts.
+    // The document itself is still required: `kycForOrder` below refuses a
+    // docket with nothing on file, and says so in `docket_error`.
+    if (shouldHoldForKyc(isKycHeld(order))) return SKIPPED;
 
     if (!(await itdUserHasStoredPassword(dbUserId))) return SKIPPED;
 
@@ -1584,18 +1590,59 @@ export async function registerRoutes(
     payload.shipper_gstin_type = kycPayload.shipper_gstin_type;
     payload.shipper_gstin_no = kycPayload.shipper_gstin_no;
 
-    let itdResponse: Awaited<ReturnType<typeof itdClient.createShipment>>;
-    try {
-      console.log(
-        `[docketAtBooking] filing ITD docket for order ${order.order_no} (user ${dbUserId})`
-      );
-      itdResponse = await withTimeout(
-        itdClient.createShipment(payload, token),
-        BOOKING_DOCKET_TIMEOUT_MS,
-        "ITD create_docket (booking)"
-      );
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "ITD refused the docket.";
+    // One retry, and only on an expired token.
+    //
+    // The block above mints only when the session carries NO token. A session
+    // carrying a stale one skips minting, sends it, and ITD answers 500 with
+    // AUTH TOKEN EXPIRED — not 401, so `createShipment` throws it as an
+    // ordinary error and nothing upstream recognises it as an auth problem.
+    //
+    // Expiry cannot be predicted into. ITD's auth response carries no expiry
+    // field, so `itdTokenExpiryIso` writes a guessed 24 hours for an endpoint
+    // the company token in itd.ts treats as 4 — a token is routinely dead long
+    // before anything thinks it is due for refresh. Reacting to the refusal is
+    // the only reliable signal there is.
+    //
+    // Strictly once: a second expiry on a token minted seconds earlier means
+    // the credential itself is wrong, and retrying that files nothing but load.
+    let itdResponse: Awaited<ReturnType<typeof itdClient.createShipment>> | null = null;
+    let failure: string | null = null;
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (attempt === 1) {
+        const email = req.session.user?.email;
+        const minted = email ? await mintItdSession(req, dbUserId, email) : null;
+        if (!minted || !req.session.itdToken) {
+          // Keep the ITD refusal as the reason. "Could not re-mint" is the
+          // symptom of it, and the first message is the one that names ITD.
+          break;
+        }
+        token = req.session.itdToken;
+        console.log(
+          `[docketAtBooking] ${order.order_no}: ITD token had expired, minted a new one and retrying`
+        );
+      }
+
+      try {
+        console.log(
+          `[docketAtBooking] filing ITD docket for order ${order.order_no} (user ${dbUserId})`
+        );
+        itdResponse = await withTimeout(
+          itdClient.createShipment(payload, token),
+          BOOKING_DOCKET_TIMEOUT_MS,
+          "ITD create_docket (booking)"
+        );
+        failure = null;
+        break;
+      } catch (err) {
+        failure = err instanceof Error ? err.message : "ITD refused the docket.";
+        itdResponse = null;
+        if (!isItdAuthExpired(failure)) break;
+      }
+    }
+
+    if (!itdResponse) {
+      const message = failure ?? "ITD refused the docket.";
       console.error(`[docketAtBooking] ${order.order_no} failed:`, message);
       await recordBookingDocketError(order.id, { stage: "create_docket", message });
       return { status: "failed", awb_no: null, message };

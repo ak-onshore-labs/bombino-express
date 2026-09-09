@@ -507,6 +507,35 @@ export default function OrderDetails() {
           />
         </div>
 
+        {/* ─── Airway bill ──────────────────────────────────────────────
+            Directly under the order number, because once one exists it is the
+            number the customer is asked for — by the carrier, by customs, by
+            anyone they forward the shipment to. It used to appear only as a
+            sentence further down, or as a read-only field two thirds of the
+            way to the bottom, which reads as trivia rather than as the second
+            identity of the order. */}
+        {order.awb_no && (
+          <div
+            className="mt-2 inline-flex items-baseline gap-2 rounded-lg border bg-muted/40 px-2.5 py-1.5"
+            style={{ borderColor: BRAND_NAVY }}
+            data-testid="chip-awb-no"
+          >
+            <span
+              className="text-[10px] font-bold tracking-[0.12em] uppercase"
+              style={{ color: BRAND_NAVY }}
+            >
+              AWB
+            </span>
+            <span
+              className="font-mono text-[15px] font-bold tracking-tight tabular-nums"
+              style={{ color: BRAND_NAVY }}
+              data-testid="text-awb-no"
+            >
+              {order.awb_no}
+            </span>
+          </div>
+        )}
+
         <p className="mt-2 text-sm text-muted-foreground">
           Booked {niceDate(order.created_at)}
           {originLine && destLine && (
@@ -595,12 +624,8 @@ export default function OrderDetails() {
             parcel to actually go. */}
         {order.awb_no && order.status !== 'dispatched' && (
           <p className="mt-3 text-xs text-muted-foreground leading-relaxed bg-muted/50 border border-border rounded-lg px-3 py-2.5">
-            Airway bill{' '}
-            <span className="font-mono font-semibold text-foreground">
-              {order.awb_no}
-            </span>{' '}
-            is issued. Carrier scans begin once we collect your parcel — until
-            then, the updates below are the full picture.
+            The airway bill above is issued. Carrier scans begin once we collect
+            your parcel — until then, the updates below are the full picture.
           </p>
         )}
 
@@ -620,7 +645,7 @@ export default function OrderDetails() {
                 Shipped — live tracking is open
               </span>
               <span className="block text-[11px] text-green-800/80 mt-0.5">
-                AWB <span className="font-mono font-semibold">{order.awb_no}</span>
+                Follow live carrier scans for the airway bill above
               </span>
             </span>
             <ArrowRight className="w-4 h-4 text-green-800 shrink-0" aria-hidden />
