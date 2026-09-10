@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useLocation } from 'wouter';
 import { Package, Copy, Send, Search, ArrowRight, Download } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
@@ -12,7 +12,7 @@ import { useAppStore } from '@/lib/store';
 import { useGuestProfile } from '@/hooks/useGuestProfile';
 import { cn } from '@/lib/utils';
 import { getStatusLabel, getStatusColor } from '@/lib/awbStatus';
-import { type DisplayRow } from '@/lib/shipmentRows';
+import { guestOrderToRow, type DisplayRow } from '@/lib/shipmentRows';
 import { useCancellations, useOrderHistory } from '@/hooks/useCustomerOrders';
 import { CancellationsPanel } from '@/components/CancellationsPanel';
 import { useToast } from '@/hooks/use-toast';
@@ -256,10 +256,13 @@ export default function Orders() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [, setLocation] = useLocation();
   const { isLoggedIn } = useAppStore();
-  // A guest's bookings are not in this list — /api/orders answers to an
-  // account — but they do exist, on their own profile. The Orders tab is
-  // exactly where someone goes looking for them.
-  const { data: guestProfile } = useGuestProfile({ enabled: !isLoggedIn });
+  // A guest's bookings do not come from /api/orders — that answers to an
+  // account — but from their own profile. The Orders tab is exactly where
+  // someone goes looking for them, so they are listed here, drawn the same way.
+  const { data: guestProfile, isLoading: guestLoading } = useGuestProfile({
+    enabled: !isLoggedIn,
+  });
+  const isGuest = !isLoggedIn && !!guestProfile;
   const { toast } = useToast();
   const [tab, setTab] = useState<OrdersTab>('shipments');
 
@@ -270,8 +273,12 @@ export default function Orders() {
   // Polls while anything here can still move (see useCustomerOrders). A parcel
   // that reaches the hub while this screen is open now says so on its own.
   const { data, isLoading } = useOrderHistory(isLoggedIn);
-  const rows: DisplayRow[] = data ?? [];
-  const loading = isLoggedIn && isLoading;
+  const guestRows = useMemo(
+    () => (isGuest && guestProfile ? guestProfile.orders.map(guestOrderToRow) : []),
+    [isGuest, guestProfile],
+  );
+  const rows: DisplayRow[] = isLoggedIn ? (data ?? []) : guestRows;
+  const loading = isLoggedIn ? isLoading : guestLoading;
 
   // Fetched on both tabs, because the count in the tab label is the only hint
   // a customer gets that their request is being looked at. Cheap: one short
@@ -298,6 +305,20 @@ export default function Orders() {
   // are keyed differently — an order has only its BOM number until ops issues
   // an AWB — so each gets its own detail screen.
   const openRow = (row: DisplayRow) => {
+    // A guest has no order-detail screen — /api/orders/:orderNo answers only
+    // to an account. Once the parcel has an AWB, public tracking is theirs as
+    // much as anyone's; before that, the order number is what support needs.
+    if (isGuest) {
+      if (row.awb) {
+        setLocation(`/shipment/${encodeURIComponent(row.awb)}`);
+      } else {
+        toast({
+          title: row.statusLabel,
+          description: `Tracking opens once this parcel has an AWB. Quote ${row.displayId} to support in the meantime.`,
+        });
+      }
+      return;
+    }
     const path = row.isOrder ? '/order' : '/shipment';
     setLocation(`${path}/${encodeURIComponent(row.displayId)}`);
   };
@@ -371,7 +392,7 @@ export default function Orders() {
           <div>
             <h1 className="text-lg md:text-[22px] font-bold tracking-tight text-foreground">
               My shipments
-              {tab === 'shipments' && isLoggedIn && !loading && rows.length > 0 && (
+              {tab === 'shipments' && (isLoggedIn || isGuest) && !loading && rows.length > 0 && (
                 <span className="ml-2 text-sm font-medium text-muted-foreground tabular-nums">
                   · {rows.length}
                 </span>
@@ -442,41 +463,12 @@ export default function Orders() {
         {/* Body */}
         {isLoggedIn && tab === 'cancellations' ? (
           <CancellationsPanel enabled={isLoggedIn} />
-        ) : !isLoggedIn ? (
+        ) : !isLoggedIn && !isGuest && !loading ? (
           <div className="text-center py-16">
-            {guestProfile ? (
-              <>
-                <p className="text-sm text-muted-foreground mb-1">
-                  {guestProfile.orders.length > 0
-                    ? 'You booked as a guest.'
-                    : 'Nothing booked yet.'}
-                </p>
-                <p className="text-xs text-muted-foreground mb-4">
-                  {/* A guest with no bookings still has a profile worth
-                      pointing at — their verified number and their document
-                      live there, and that is what the next booking reuses. */}
-                  {guestProfile.orders.length === 0
-                    ? 'Your verified number and documents are on your profile.'
-                    : guestProfile.orders.length === 1
-                      ? 'Your booking is on your profile.'
-                      : `Your ${guestProfile.orders.length} bookings are on your profile.`}
-                </p>
-                <Button
-                  className="bg-[lab(34.0831_-9.57756_-27.7093)] hover:bg-[#2F4468] rounded-lg"
-                  onClick={() => setLocation('/guest-profile')}
-                  data-testid="button-orders-guest-profile"
-                >
-                  View my profile
-                </Button>
-              </>
-            ) : (
-              <>
-                <p className="text-sm text-muted-foreground mb-4">Sign in to view your shipments.</p>
-                <Button className="bg-[lab(34.0831_-9.57756_-27.7093)] hover:bg-[#2F4468] rounded-lg" onClick={() => setLocation('/login')}>
-                  Login
-                </Button>
-              </>
-            )}
+            <p className="text-sm text-muted-foreground mb-4">Sign in to view your shipments.</p>
+            <Button className="bg-[lab(34.0831_-9.57756_-27.7093)] hover:bg-[#2F4468] rounded-lg" onClick={() => setLocation('/login')}>
+              Login
+            </Button>
           </div>
         ) : loading ? (
           <>
@@ -555,7 +547,10 @@ export default function Orders() {
         {/* Helper footnote */}
         {tab === 'shipments' && !loading && rows.length > 0 && (
           <p className="text-[11px] text-muted-foreground text-center">
-            Showing {rows.length} {rows.length === 1 ? 'shipment' : 'shipments'} · Tap any row for details
+            Showing {rows.length} {rows.length === 1 ? 'shipment' : 'shipments'} ·{' '}
+            {isGuest
+              ? 'Booked as a guest, filed against your verified number'
+              : 'Tap any row for details'}
           </p>
         )}
       </main>

@@ -113,6 +113,14 @@ export interface GuestOrderSummary {
   destination: string | null;
   guest_name: string | null;
   guest_email: string | null;
+  /** For drawing the row the way the Orders list draws an account's order. */
+  recipient: string | null;
+  city: string | null;
+  country: string | null;
+  service: string | null;
+  quoted_amount: number | null;
+  final_amount: number | null;
+  updated_at: string;
 }
 
 /** The server's answer for the guest this session is. */

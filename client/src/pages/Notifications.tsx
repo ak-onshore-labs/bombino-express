@@ -2,6 +2,7 @@
 import { ArrowLeft, Bell, AlertTriangle, Info, LogIn } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
 import { useAppStore } from '@/lib/store';
+import { useGuestProfile } from '@/hooks/useGuestProfile';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
@@ -20,12 +21,19 @@ function parseNotifData(raw: unknown): { awb?: string } {
 export default function Notifications() {
   const [, setLocation] = useLocation();
   const { isLoggedIn } = useAppStore();
+  // A guest who booked gets their order updates here too, read from the
+  // guest_ref their session holds. Only a visitor with neither is asked to
+  // sign in.
+  const { data: guestProfile, isLoading: guestLoading } = useGuestProfile({
+    enabled: !isLoggedIn,
+  });
+  const hasBell = isLoggedIn || !!guestProfile;
 
-  const { data, isLoading } = useNotifications(isLoggedIn);
+  const { data, isLoading } = useNotifications(hasBell);
   const markRead = useMarkNotificationRead();
 
   const items: ApiNotification[] = data ?? [];
-  const loading = isLoggedIn && isLoading;
+  const loading = (!isLoggedIn && guestLoading) || (hasBell && isLoading);
 
   /**
    * Navigate first, then mark read.
@@ -71,7 +79,9 @@ export default function Notifications() {
       </div>
 
       <main className="max-w-4xl mx-auto w-full px-4 md:px-8 py-6">
-        {!isLoggedIn ? (
+        {loading ? (
+          <div className="text-center py-8 text-sm text-muted-foreground">Loading…</div>
+        ) : !hasBell ? (
           <div className="text-center py-12 max-w-sm mx-auto">
             <div className="w-16 h-16 bg-[lab(34.0831_-9.57756_-27.7093)]/8 rounded-full flex items-center justify-center mx-auto mb-4">
               <Bell className="w-8 h-8 text-[lab(34.0831_-9.57756_-27.7093)]" />
@@ -89,8 +99,6 @@ export default function Notifications() {
               Login
             </Button>
           </div>
-        ) : loading ? (
-          <div className="text-center py-8 text-sm text-muted-foreground">Loading…</div>
         ) : items.length === 0 ? (
           <div className="text-center py-12 max-w-sm mx-auto">
             <div className="w-16 h-16 bg-[#F3F4F6] rounded-full flex items-center justify-center mx-auto mb-4">

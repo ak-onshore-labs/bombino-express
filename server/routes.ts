@@ -17,6 +17,7 @@ import {
   getShipmentDocument,
   listShipmentDocumentKinds,
   listNotificationsByUserId,
+  listNotificationsForOwner,
   listShipmentsByUserId,
   insertNotification,
   markNotificationRead,
@@ -3464,8 +3465,27 @@ export async function registerRoutes(
     }
   );
 
+  /**
+   * A guest's own bell, answered ahead of `requireUser`.
+   *
+   * Only for a session with no account on it; an account session falls through
+   * to the account handlers exactly as before, so its 401 still means expiry.
+   * The ref is the session's own — minted only after an OTP on the number, the
+   * same trust /api/guest/profile answers from — never one named in the request.
+   */
+  function sessionGuestRef(req: Request): string | null {
+    if (req.session.user) return null;
+    return req.session.guestRef ?? req.session.signupRef ?? null;
+  }
+
   app.get(
     "/api/notifications",
+    async (req: Request, res: Response, next: NextFunction) => {
+      const guestRef = sessionGuestRef(req);
+      if (!guestRef) return next();
+      const rows = await listNotificationsForOwner({ guestRef });
+      return res.json(rows ?? []);
+    },
     requireUser,
     ensureDbUser,
     async (req: Request, res: Response) => {
@@ -3479,13 +3499,21 @@ export async function registerRoutes(
 
   app.patch(
     "/api/notifications/:id/read",
+    async (req: Request, res: Response, next: NextFunction) => {
+      const guestRef = sessionGuestRef(req);
+      if (!guestRef) return next();
+      const rows = await markNotificationRead(req.params.id, { guestRef });
+      if (rows === null) return res.status(500).json({ message: "Database error" });
+      if (rows.length === 0) return res.status(404).json({ message: "Not found" });
+      return res.json({ ok: true });
+    },
     requireUser,
     ensureDbUser,
     async (req: Request, res: Response) => {
       if (!req.session.dbUserId) {
         return res.status(404).json({ message: "Not found" });
       }
-      const rows = await markNotificationRead(req.params.id, req.session.dbUserId);
+      const rows = await markNotificationRead(req.params.id, { userId: req.session.dbUserId });
       if (rows === null) {
         return res.status(500).json({ message: "Database error" });
       }

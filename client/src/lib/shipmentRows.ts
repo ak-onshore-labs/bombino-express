@@ -1,4 +1,5 @@
 import type { ShipmentHistoryItem } from '@/lib/shipmentApiTypes';
+import type { GuestOrderSummary } from '@/lib/shadowProfile';
 import {
   getStatusLabel,
   getStatusColor,
@@ -116,6 +117,33 @@ export function orderToRow(order: OrderApiRow): DisplayRow {
     // Customer vocabulary, not the internal one. This list is a customer
     // surface, so `weighed`/`settled`/`ready_for_docket` must all read
     // "Arrived at Bombino hub" — same phrase the detail screen shows.
+    statusLabel: getCustomerStatusLabel(order.status),
+    statusTone: getOrderStatusTone(order.status),
+    createdAt: order.created_at,
+    updatedAt: order.updated_at ?? order.created_at,
+    isLive: !isTerminalOrderStatus(order.status),
+    awb: order.awb_no,
+  };
+}
+
+/**
+ * A guest's booking, as a row in the same list an account's orders use.
+ *
+ * Guests have no /api/orders — their bookings come off /api/guest/profile —
+ * but on the Orders screen they should read exactly like an account's: same
+ * card, same status vocabulary, same amount rule (INR, final over quoted).
+ */
+export function guestOrderToRow(order: GuestOrderSummary): DisplayRow {
+  return {
+    key: `guest-order-${order.order_id}`,
+    displayId: order.order_no,
+    isOrder: true,
+    recipient: order.recipient?.trim() || 'Unnamed recipient',
+    city: order.city?.trim() || '',
+    country: order.country?.trim() || '',
+    service: order.service?.trim() || '',
+    bookingDate: order.created_at,
+    amountStr: formatShipmentAmount(order.final_amount ?? order.quoted_amount ?? null, 'INR'),
     statusLabel: getCustomerStatusLabel(order.status),
     statusTone: getOrderStatusTone(order.status),
     createdAt: order.created_at,

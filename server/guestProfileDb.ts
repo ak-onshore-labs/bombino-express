@@ -58,6 +58,18 @@ export type GuestOrderSummary = {
    */
   guest_name: string | null;
   guest_email: string | null;
+  /**
+   * What the Orders list shows for an account's order, so a guest's row can
+   * be drawn the same way: who it is for, the service, what it costs, and
+   * when it last moved.
+   */
+  recipient: string | null;
+  city: string | null;
+  country: string | null;
+  service: string | null;
+  quoted_amount: number | null;
+  final_amount: number | null;
+  updated_at: string;
 };
 
 function getClient() {
@@ -221,7 +233,7 @@ export async function listGuestOrders(guestRef: string): Promise<GuestOrderSumma
   const { data, error } = await client
     .from("orders")
     .select(
-      "id, order_no, status, payment_status, payment_method, awb_no, consignee, guest_name, guest_email, created_at"
+      "id, order_no, status, payment_status, payment_method, awb_no, consignee, items, quoted_amount, final_amount, guest_name, guest_email, created_at, updated_at"
     )
     .eq("guest_ref", guestRef)
     .order("created_at", { ascending: false })
@@ -243,10 +255,17 @@ export async function listGuestOrders(guestRef: string): Promise<GuestOrderSumma
       payment_method: string;
       awb_no: string | null;
       consignee: unknown;
+      items: unknown;
+      quoted_amount: number | string | null;
+      final_amount: number | string | null;
       guest_name: string | null;
       guest_email: string | null;
       created_at: string;
+      updated_at: string | null;
     };
+    const consignee =
+      r.consignee && typeof r.consignee === "object" ? (r.consignee as Record<string, unknown>) : {};
+    const items = r.items && typeof r.items === "object" ? (r.items as Record<string, unknown>) : {};
     return {
       order_no: r.order_no,
       order_id: r.id,
@@ -258,6 +277,13 @@ export async function listGuestOrders(guestRef: string): Promise<GuestOrderSumma
       destination: destinationOf(r.consignee),
       guest_name: r.guest_name,
       guest_email: r.guest_email,
+      recipient: textOrNull(consignee.name),
+      city: textOrNull(consignee.city),
+      country: textOrNull(consignee.country_name),
+      service: textOrNull(items.api_service_code),
+      quoted_amount: numberOrNull(r.quoted_amount),
+      final_amount: numberOrNull(r.final_amount),
+      updated_at: r.updated_at ?? r.created_at,
     };
   });
 }
@@ -269,6 +295,18 @@ export async function listGuestOrders(guestRef: string): Promise<GuestOrderSumma
  * defensively: an older row, or one from a future form, must not throw here
  * and take the whole profile screen down with it.
  */
+/** A trimmed string off a jsonb blob, or null — the blob is read defensively. */
+function textOrNull(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/** numeric columns arrive as strings from PostgREST; either shape is accepted. */
+function numberOrNull(value: number | string | null): number | null {
+  if (value === null || value === undefined) return null;
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 function destinationOf(consignee: unknown): string | null {
   if (!consignee || typeof consignee !== "object") return null;
   const c = consignee as Record<string, unknown>;

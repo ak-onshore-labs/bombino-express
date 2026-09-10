@@ -99,9 +99,8 @@ function HomeMobile() {
   const [trackingNumber, setTrackingNumber] = useState('');
   const [, setLocation] = useLocation();
   const { isLoggedIn, user } = useAppStore();
-  // A guest's bookings live nowhere they can reach — /orders is an account
-  // screen. Home is where someone looks for "where is my parcel", so the
-  // orders they placed belong here rather than only behind the profile link.
+  // Home is where someone looks for "where is my parcel", so a guest's orders
+  // belong here as well as on /orders, rather than only behind the profile link.
   const { data: guestProfile } = useGuestProfile({ enabled: !isLoggedIn });
 
   // Both poll while the tab is in front — home is the screen a customer leaves

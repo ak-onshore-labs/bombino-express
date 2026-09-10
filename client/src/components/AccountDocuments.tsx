@@ -19,7 +19,8 @@ import {
   type CompanyCategory,
   type DocSlot,
 } from '@shared/accountSpec';
-import { validateAadhaar } from '@shared/aadhaar';
+import { formatAadhaar, validateAadhaar } from '@shared/aadhaar';
+import { AADHAAR_DISPLAY_MAX_LENGTH, readAadhaarInput } from '@/lib/aadhaarInput';
 import { cn } from '@/lib/utils';
 
 const ALLOWED_MIME_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png']);
@@ -672,11 +673,21 @@ export function AccountDocuments({
                 <Label className="text-xs text-muted-foreground">
                   {spec.numberField.label} <span className="text-red-400">*</span>
                 </Label>
+                {/* Aadhaar is shown in the card's own groups of four; the
+                    slot still holds the bare twelve digits, which is what is
+                    validated and sent. */}
                 <Input
-                  value={s.documentNo}
-                  onChange={(e) => handleNumberChange(slot, e.target.value)}
+                  value={slot === 'aadhaar_card' ? formatAadhaar(s.documentNo) : s.documentNo}
+                  onChange={(e) =>
+                    handleNumberChange(
+                      slot,
+                      slot === 'aadhaar_card' ? readAadhaarInput(e.target).digits : e.target.value,
+                    )
+                  }
                   placeholder={spec.numberField.placeholder}
-                  maxLength={spec.numberField.maxLength}
+                  maxLength={
+                    slot === 'aadhaar_card' ? AADHAAR_DISPLAY_MAX_LENGTH : spec.numberField.maxLength
+                  }
                   inputMode={spec.numberField.uppercase ? 'text' : 'numeric'}
                   readOnly={locked || s.recording}
                   aria-readonly={locked || s.recording}

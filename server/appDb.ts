@@ -1241,6 +1241,20 @@ export async function createNewSupportSession(
   return { id: String(inserted.id) };
 }
 
+/**
+ * Whose bell a notification rings: an account, or a guest's verified number.
+ *
+ * A guest has no user row, so their rows are keyed on `guest_ref` — the same
+ * uuid their orders, addresses and payments carry (migrations/
+ * add_guest_notifications.sql). Claiming an account moves them across with the
+ * orders; see claimGuestOrdersForUser.
+ */
+export type NotificationOwner = { userId: string } | { guestRef: string };
+
+function ownerColumn(owner: NotificationOwner): ["user_id" | "guest_ref", string] {
+  return "userId" in owner ? ["user_id", owner.userId] : ["guest_ref", owner.guestRef];
+}
+
 export async function countUnreadNotifications(userId: string): Promise<number | null> {
   const client = getSupabaseClient();
   if (!client) return null;
@@ -1259,17 +1273,29 @@ export async function countUnreadNotifications(userId: string): Promise<number |
 }
 
 export async function listNotificationsByUserId(userId: string): Promise<any[] | null> {
+  return listNotificationsForOwner({ userId });
+}
+
+/**
+ * Every notification for one owner, newest first.
+ *
+ * For a guest this fails soft before the migration has run — the column is
+ * missing, the error is logged and the route answers an empty list — so the
+ * code can ship ahead of the schema.
+ */
+export async function listNotificationsForOwner(owner: NotificationOwner): Promise<any[] | null> {
   const client = getSupabaseClient();
   if (!client) return null;
 
+  const [column, value] = ownerColumn(owner);
   const { data, error } = await client
     .from("notifications")
     .select("*")
-    .eq("user_id", userId)
+    .eq(column, value)
     .order("created_at", { ascending: false });
 
   if (error) {
-    logSupabaseError("listNotificationsByUserId", error);
+    logSupabaseError("listNotificationsForOwner", error);
     return null;
   }
   return data ?? [];
@@ -1358,11 +1384,14 @@ export async function listAddressesByGuestRefAndType(
 
 export async function markNotificationRead(
   notificationId: string,
-  userId: string
+  owner: NotificationOwner
 ): Promise<{ id: string }[] | null> {
   const client = getSupabaseClient();
   if (!client) return null;
 
+  // Scoped to the owner as well as the id, so nobody can mark another
+  // customer's row by guessing its id.
+  const [column, value] = ownerColumn(owner);
   const { data, error } = await client
     .from("notifications")
     .update({
@@ -1370,7 +1399,7 @@ export async function markNotificationRead(
       read_at: new Date().toISOString(),
     })
     .eq("id", notificationId)
-    .eq("user_id", userId)
+    .eq(column, value)
     .select("id");
 
   if (error) {
@@ -1497,12 +1526,15 @@ export async function insertShipmentAndReturnId(
  * action that triggered it.
  */
 export async function insertOrderStatusNotification(input: {
-  user_id: string;
+  owner: NotificationOwner;
   title: string;
   body: string;
   data: Json;
 }): Promise<boolean> {
-  return insertNotification({ ...input, type: "order_status" });
+  const { owner, ...rest } = input;
+  return "userId" in owner
+    ? insertNotification({ ...rest, user_id: owner.userId, type: "order_status" })
+    : insertNotification({ ...rest, guest_ref: owner.guestRef, type: "order_status" });
 }
 
 /**
@@ -1517,18 +1549,24 @@ export async function insertOrderStatusNotification(input: {
  * Non-fatal by contract — a missed notification must never fail the action
  * that triggered it.
  */
-export async function insertNotification(input: {
-  user_id: string;
-  title: string;
-  body: string;
-  data: Json;
-  type?: string;
-}): Promise<boolean> {
+export async function insertNotification(
+  input: (
+    | { user_id: string; guest_ref?: never }
+    | { guest_ref: string; user_id?: never }
+  ) & {
+    title: string;
+    body: string;
+    data: Json;
+    type?: string;
+  }
+): Promise<boolean> {
   const client = getSupabaseClient();
   if (!client) return false;
 
   const { error } = await client.from("notifications").insert({
-    user_id: input.user_id,
+    // Exactly one owner. `guest_ref` is only sent when set, so an account row
+    // is written the same way it was before the column existed.
+    ...(input.user_id ? { user_id: input.user_id } : { guest_ref: input.guest_ref }),
     type: input.type ?? "order_status",
     title: input.title,
     body: input.body,

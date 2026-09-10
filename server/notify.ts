@@ -28,7 +28,7 @@
 
 import type { Order } from "../shared/orderContract.js";
 import { deriveCustomerStatus, isInternalOnlyStatus } from "../shared/orderContract.js";
-import { insertOrderStatusNotification } from "./appDb.js";
+import { insertOrderStatusNotification, type NotificationOwner } from "./appDb.js";
 import { customerStatusDetail } from "./notificationCopy.js";
 import { getCodeForOwner } from "./handoverCodes.js";
 import { getUserContactsByIds } from "./ordersDb.js";
@@ -118,6 +118,18 @@ async function orderCustomerPhone(order: Order): Promise<string | null> {
   return order.guest_phone ?? null;
 }
 
+/**
+ * Whose in-app list an order's notifications land in.
+ *
+ * The account once there is one — a claimed guest order has both, and the
+ * account is who reads it now — otherwise the guest_ref that booked it.
+ */
+function orderNotificationOwner(order: Order): NotificationOwner | null {
+  if (order.user_id) return { userId: order.user_id };
+  if (order.guest_ref) return { guestRef: order.guest_ref };
+  return null;
+}
+
 async function agentName(agentId: string | null): Promise<string | null> {
   if (!agentId) return null;
   const contacts = await getUserContactsByIds([agentId]);
@@ -159,16 +171,17 @@ export async function notifyOrderTransition(notice: OrderTransitionNotice): Prom
  */
 async function notifyCustomerInApp(order: Order, actorUserId: string | null): Promise<void> {
   if (isInternalOnlyStatus(order.status)) return;
-  // Nobody needs telling about something they just did themselves.
-  if (order.user_id === actorUserId) return;
-  // A guest has no account, so there is no notifications list to write to and
-  // no screen to read one. WhatsApp is their whole channel — see
-  // notifyCustomerWhatsapp, which runs for them exactly as it does for an
-  // account.
-  if (!order.user_id) return;
+  // Nobody needs telling about something they just did themselves. Same gate
+  // as notifyCustomerWhatsapp: a guest order has no user_id to match an actor.
+  if (order.user_id !== null && order.user_id === actorUserId) return;
+
+  // A guest's bell is keyed on the order's guest_ref, the same uuid their
+  // session holds — they have a notifications screen like anyone else now.
+  const owner = orderNotificationOwner(order);
+  if (!owner) return;
 
   await insertOrderStatusNotification({
-    user_id: order.user_id,
+    owner,
     title: deriveCustomerStatus(order),
     body: `${order.order_no} — ${customerStatusDetail(order.status)}`,
     data: { order_id: order.id, order_no: order.order_no, status: order.status },
@@ -334,12 +347,12 @@ export async function notifyCancellationDeclined(input: {
 }): Promise<void> {
   const { order, note } = input;
 
+  const owner = orderNotificationOwner(order);
+
   await Promise.all([
-    // Skipped for a guest, who has no account to hold a notifications list.
-    // The WhatsApp half below still runs, and is their whole channel.
-    order.user_id
+    owner
       ? insertOrderStatusNotification({
-          user_id: order.user_id,
+          owner,
           title: "Cancellation declined",
           body: note
             ? `${order.order_no} — ${note}`

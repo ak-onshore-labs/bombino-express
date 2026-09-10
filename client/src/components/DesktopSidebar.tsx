@@ -1,4 +1,4 @@
-﻿import { useMemo, type ComponentType } from 'react';
+﻿import { useMemo, useState, type ComponentType } from 'react';
 import {
   Home,
   BadgeDollarSign,
@@ -16,8 +16,10 @@ import bombinoLogo from '@/assets/bombino-logo.png';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
 import { useGuestProfile } from '@/hooks/useGuestProfile';
-import { apiRequest } from '@/lib/queryClient';
 import { useUnreadNotificationCount } from '@/hooks/useCustomerOrders';
+import { GuestSignOutDialog } from '@/components/GuestSignOutDialog';
+import { AccountSignOutDialog } from '@/components/AccountSignOutDialog';
+import { formatGuestPhone } from '@/lib/shadowProfile';
 
 const MAIN_NAV = [
   { label: 'Home', icon: Home, path: '/home' },
@@ -29,6 +31,10 @@ const MAIN_NAV = [
   { label: 'My Orders', icon: PackageSearch, path: '/orders' },
   { label: 'Track', icon: MapPin, path: '/track' },
 ] as const;
+
+/** Red at rest, not only on hover — the one destructive action in the rail. */
+const SIGN_OUT_BUTTON =
+  'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-red-400 hover:bg-red-500/[0.12] hover:text-red-300 transition-all duration-150 text-left';
 
 const ACCOUNT_NAV = [
   { label: 'My Profile', icon: User, path: '/profile', authRequired: true as const },
@@ -71,13 +77,15 @@ function NavItem({
 
 export function DesktopSidebar() {
   const [location] = useLocation();
-  const { isLoggedIn, user, logout } = useAppStore();
+  const { isLoggedIn, user } = useAppStore();
   // A verified guest has a profile screen of their own — see SideMenu for why
   // hiding it left their details unreachable once the banner cleared.
   const { data: guestProfile } = useGuestProfile({ enabled: !isLoggedIn });
+  const [signOutOpen, setSignOutOpen] = useState(false);
   // Shares the polled notification list with the mobile header — see the note
   // on `useUnreadNotificationCount`. One query, two badges, always in step.
-  const unreadCount = useUnreadNotificationCount(isLoggedIn);
+  // A verified guest's bell counts too — see Header.
+  const unreadCount = useUnreadNotificationCount(isLoggedIn || !!guestProfile);
 
   const initials = useMemo(() => {
     if (user?.fullName?.trim()) {
@@ -152,13 +160,31 @@ export function DesktopSidebar() {
           )}
         </div>
         <div className="min-w-0">
-          <p className="text-[15px] font-semibold text-white truncate max-w-[160px]">
-            {isLoggedIn
-              ? user?.fullName || user?.email || 'User'
-              : 'Guest User'}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="min-w-0 text-[15px] font-semibold text-white truncate">
+              {isLoggedIn
+                ? user?.fullName || user?.email || 'User'
+                : guestProfile
+                  ? guestProfile.full_name?.trim() || 'Guest'
+                  : 'Guest User'}
+            </p>
+            {/* Same badge as the mobile menu — a verified number, not an
+                account. */}
+            {!isLoggedIn && guestProfile && (
+              <span
+                className="shrink-0 rounded-full border border-[#F2A123]/30 bg-[#F2A123]/15 px-2 py-0.5 text-[11px] font-semibold text-[#F2A123]"
+                data-testid="badge-desktop-guest"
+              >
+                Guest
+              </span>
+            )}
+          </div>
           <p className="text-xs text-white/40 truncate max-w-[160px] mt-0.5">
-            {isLoggedIn ? user?.email : 'Sign in to manage shipments'}
+            {isLoggedIn
+              ? user?.email
+              : guestProfile
+                ? formatGuestPhone(guestProfile.phone)
+                : 'Sign in to manage shipments'}
           </p>
         </div>
       </div>
@@ -197,25 +223,54 @@ export function DesktopSidebar() {
         {isLoggedIn ? (
           <button
             type="button"
-            onClick={() => {
-              apiRequest('POST', '/api/auth/logout').catch(() => {});
-              logout();
-            }}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-white/40 hover:bg-red-500/[0.12] hover:text-red-400 transition-all duration-150 text-left"
+            onClick={() => setSignOutOpen(true)}
+            className={SIGN_OUT_BUTTON}
+            data-testid="button-desktop-logout"
           >
             <LogOut className="w-[18px] h-[18px]" />
             <span className="text-sm font-medium">Sign out</span>
           </button>
         ) : (
-          <Link
-            href="/login"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-[#F2A123]/70 hover:bg-[#F2A123]/[0.08] hover:text-[#F2A123] transition-all duration-150"
-          >
-            <LogIn className="w-[18px] h-[18px]" />
-            <span className="text-sm font-medium">Sign in</span>
-          </Link>
+          <>
+            {/* Sign in is for a visitor nobody knows yet; a verified guest
+                gets Sign out instead — see SideMenu. */}
+            {!guestProfile && (
+              <Link
+                href="/login"
+                className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-[#F2A123]/70 hover:bg-[#F2A123]/[0.08] hover:text-[#F2A123] transition-all duration-150"
+              >
+                <LogIn className="w-[18px] h-[18px]" />
+                <span className="text-sm font-medium">Sign in</span>
+              </Link>
+            )}
+            {/* A verified guest can leave — behind the same warning as the
+                mobile menu, see GuestSignOutDialog. */}
+            {guestProfile && (
+              <button
+                type="button"
+                onClick={() => setSignOutOpen(true)}
+                className={SIGN_OUT_BUTTON}
+                data-testid="button-desktop-guest-logout"
+              >
+                <LogOut className="w-[18px] h-[18px]" />
+                <span className="text-sm font-medium">Sign out</span>
+              </button>
+            )}
+          </>
         )}
       </div>
+
+      {isLoggedIn ? (
+        <AccountSignOutDialog open={signOutOpen} onOpenChange={setSignOutOpen} />
+      ) : (
+        guestProfile && (
+          <GuestSignOutDialog
+            open={signOutOpen}
+            onOpenChange={setSignOutOpen}
+            profile={guestProfile}
+          />
+        )
+      )}
     </div>
   );
 }

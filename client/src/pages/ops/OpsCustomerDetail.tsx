@@ -26,6 +26,7 @@ import {
   isCompanyCategory,
   isDocSlot,
 } from '@shared/accountSpec';
+import { formatAadhaar } from '@shared/aadhaar';
 import { cn } from '@/lib/utils';
 
 function DesktopOnlyNotice() {
@@ -319,7 +320,9 @@ export default function OpsCustomerDetail() {
                               className="text-sm font-mono font-semibold mt-1 break-all"
                               data-testid={`ops-kyc-revealed-${row.kind}`}
                             >
-                              {revealed[row.kind]}
+                              {row.kind === 'aadhaar'
+                                ? formatAadhaar(revealed[row.kind] ?? '')
+                                : revealed[row.kind]}
                             </p>
                           )}
                         </div>

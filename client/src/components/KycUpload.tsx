@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { AADHAAR_DISPLAY_MAX_LENGTH, readAadhaarInput } from '@/lib/aadhaarInput';
 
 export const KYC_DOCUMENT_TYPE = 'Aadhaar Number';
 
@@ -236,16 +237,12 @@ export function KycUpload({
     }
   }
 
-  function handleDocNoChange(raw: string): void {
+  function handleDocNoChange(input: HTMLInputElement): void {
+    const raw = input.value;
     if (selectedDocType === 'Aadhaar Number') {
-      const digits = raw.replace(/\D/g, '').slice(0, 12);
+      const { digits, display } = readAadhaarInput(input);
       setDocNoRaw(digits);
-      let formatted = '';
-      for (let i = 0; i < digits.length; i++) {
-        if (i > 0 && i % 4 === 0) formatted += '-';
-        formatted += digits[i];
-      }
-      setDocNoDisplay(formatted);
+      setDocNoDisplay(display);
 
       if (!/^\d{12}$/.test(digits)) {
         setUploadResult(null);
@@ -372,7 +369,7 @@ export function KycUpload({
     showFileError && uploadStatus === 'idle';
 
   const inputMaxLength =
-    selectedDocType === 'Aadhaar Number' ? 14 : docConfig.maxLength;
+    selectedDocType === 'Aadhaar Number' ? AADHAAR_DISPLAY_MAX_LENGTH : docConfig.maxLength;
 
   return (
     <div className="bg-card rounded-xl border border-border p-4 shadow-sm space-y-4">
@@ -410,7 +407,7 @@ export function KycUpload({
         </Label>
         <Input
           value={docNoDisplay}
-          onChange={(e) => handleDocNoChange(e.target.value)}
+          onChange={(e) => handleDocNoChange(e.target)}
           placeholder={docConfig.placeholder}
           maxLength={inputMaxLength}
           inputMode={selectedDocType === 'Aadhaar Number' ? 'numeric' : 'text'}

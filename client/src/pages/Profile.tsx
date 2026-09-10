@@ -23,6 +23,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { AccountSignOutDialog } from '@/components/AccountSignOutDialog';
 import {
   Dialog,
   DialogContent,
@@ -62,9 +63,10 @@ function formatMemberSince(iso: string | undefined | null): string | null {
 
 export default function Profile() {
   const [, setLocation] = useLocation();
-  const { isLoggedIn, user, login, logout } = useAppStore();
+  const { isLoggedIn, user, login } = useAppStore();
   const { toast } = useToast();
   const [profile, setProfile] = useState<any>(null);
+  const [signOutOpen, setSignOutOpen] = useState(false);
   const [unlinkOpen, setUnlinkOpen] = useState(false);
   const [isUnlinking, setIsUnlinking] = useState(false);
 
@@ -285,16 +287,6 @@ export default function Profile() {
     } finally {
       setIsSavingUsername(false);
     }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
-    } catch {
-      // ignore network errors; still clear client session
-    }
-    logout();
-    setLocation('/login');
   };
 
   return (
@@ -520,7 +512,7 @@ export default function Profile() {
 
             {/* Sign out */}
             <Button
-              onClick={handleLogout}
+              onClick={() => setSignOutOpen(true)}
               variant="outline"
               className="w-full h-10 text-red-600 border-red-200 hover:bg-red-50 text-sm rounded-xl"
               data-testid="button-profile-logout"
@@ -706,6 +698,8 @@ export default function Profile() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AccountSignOutDialog open={signOutOpen} onOpenChange={setSignOutOpen} />
 
       <AlertDialog open={unlinkOpen} onOpenChange={setUnlinkOpen}>
         <AlertDialogContent data-testid="dialog-unlink-phone">

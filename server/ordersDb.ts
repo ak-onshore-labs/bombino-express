@@ -738,10 +738,12 @@ export async function claimGuestOrdersForUser(
 
   // The rows that hang off those orders. Each is independent — one failing
   // does not undo the claim, and the next signup attempt would pick it up.
-  // Many rows per account, so a plain update is enough.
+  // Many rows per account, so a plain update is enough. Notifications go too:
+  // the bell a guest had is the bell the account opens with.
   for (const [table, label] of [
     ["addresses", "addresses"],
     ["payments", "payments"],
+    ["notifications", "notifications"],
   ] as const) {
     const { error: err } = await client
       .from(table)

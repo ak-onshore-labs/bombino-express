@@ -8,29 +8,16 @@ import {
   UserCircle,
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
-import { useQueryClient } from '@tanstack/react-query';
-import { GUEST_PROFILE_QUERY_KEY, useGuestProfile } from '@/hooks/useGuestProfile';
-import { apiRequest } from '@/lib/queryClient';
-import { useToast } from '@/hooks/use-toast';
+import { useGuestProfile } from '@/hooks/useGuestProfile';
 import { parseApiErrorMessage } from '@/lib/apiError';
 import { Button } from '@/components/ui/button';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
+import { GuestSignOutDialog } from '@/components/GuestSignOutDialog';
 import { BottomNav } from '@/components/BottomNav';
 import { StateBlock } from '@/components/StateBlock';
 import { ProfileProgressTracker } from '@/components/ProfileProgressTracker';
 import { GuestOrders } from '@/components/GuestOrders';
 import {
   ACCOUNT_TYPE_LABEL,
-  formatGuestPhone,
   shadowProfileProgress,
   type GuestAccountType,
 } from '@/lib/shadowProfile';
@@ -52,13 +39,10 @@ import {
  */
 export default function GuestProfileDashboard(): React.JSX.Element {
   const [, setLocation] = useLocation();
-  const { toast } = useToast();
   const isLoggedIn = useAppStore((s) => s.isLoggedIn);
   const { data: guestProfile, isLoading } = useGuestProfile({ enabled: !isLoggedIn });
 
   const [signOutOpen, setSignOutOpen] = useState(false);
-  const [isSigningOut, setIsSigningOut] = useState(false);
-  const queryClient = useQueryClient();
 
   // A real account outranks a shadow of one. Someone who signed in since this
   // screen was linked belongs on the account profile, which can actually
@@ -121,39 +105,6 @@ export default function GuestProfileDashboard(): React.JSX.Element {
   );
   const detailsDone = typedPending.length === 0;
   const orders = guestProfile.orders;
-
-  /**
-   * Forget this device.
-   *
-   * A guest is recognised by the session cookie alone — no password, no
-   * sign-in screen — so without this there is no way to stop being them. On a
-   * shared or borrowed phone that matters: the next person would get this
-   * one's name, number, order list and, since the session authorises reading
-   * it, a preview of their identity document.
-   *
-   * `/api/auth/logout` destroys the whole session, which is exactly right:
-   * `guestRef`, `guestPhone`, `signupRef` and `signupPhone` all go with it.
-   * Nothing is deleted server-side — their profile, documents and orders stay
-   * filed against the number, and verifying it again brings all of it back.
-   */
-  const handleSignOut = async (): Promise<void> => {
-    setIsSigningOut(true);
-    try {
-      await apiRequest('POST', '/api/auth/logout', {});
-    } catch {
-      // The session may already be gone server-side. Either way this device
-      // must stop showing someone's details, so the local clear happens
-      // regardless — the whole point of the button is that it always works.
-    }
-    queryClient.setQueryData(GUEST_PROFILE_QUERY_KEY, null);
-    setIsSigningOut(false);
-    setSignOutOpen(false);
-    setLocation('/home');
-    toast({
-      title: 'Signed out',
-      description: 'Verify your number again any time to get your orders back.',
-    });
-  };
 
   /**
    * Into the real signup, with what we already know.
@@ -252,7 +203,7 @@ export default function GuestProfileDashboard(): React.JSX.Element {
         <button
           type="button"
           onClick={() => setSignOutOpen(true)}
-          className="mx-auto flex items-center justify-center gap-2 rounded-xl border border-border bg-card px-5 py-3 text-sm font-semibold text-muted-foreground hover:bg-muted"
+          className="mx-auto flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-card px-5 py-3 text-sm font-semibold text-red-600 hover:bg-red-50"
           data-testid="button-guest-sign-out"
         >
           <LogOut className="h-4 w-4" aria-hidden />
@@ -260,36 +211,12 @@ export default function GuestProfileDashboard(): React.JSX.Element {
         </button>
       </div>
 
-      <AlertDialog open={signOutOpen} onOpenChange={setSignOutOpen}>
-        <AlertDialogContent data-testid="dialog-guest-sign-out">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Sign out of this device?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This phone will stop showing your details. Nothing is deleted —
-              your orders and documents stay filed against{' '}
-              {formatGuestPhone(guestProfile.phone)}, and verifying that number
-              again brings them all back.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-guest-sign-out-cancel">
-              Stay signed in
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                // Hold the dialog open until the request lands; closing first
-                // leaves the screen looking idle mid-sign-out.
-                e.preventDefault();
-                void handleSignOut();
-              }}
-              disabled={isSigningOut}
-              data-testid="button-guest-sign-out-confirm"
-            >
-              {isSigningOut ? 'Signing out…' : 'Sign out'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Forget this device — see GuestSignOutDialog. */}
+      <GuestSignOutDialog
+        open={signOutOpen}
+        onOpenChange={setSignOutOpen}
+        profile={guestProfile}
+      />
 
     </GuestShell>
   );

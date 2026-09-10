@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { X, User, LogOut, LogIn, Bot, Phone, ShieldCheck } from 'lucide-react';
 import { Link } from 'wouter';
 import { useAppStore } from '@/lib/store';
 import { useGuestProfile } from '@/hooks/useGuestProfile';
 import { formatGuestPhone } from '@/lib/shadowProfile';
-import { apiRequest } from '@/lib/queryClient';
+import { GuestSignOutDialog } from '@/components/GuestSignOutDialog';
+import { AccountSignOutDialog } from '@/components/AccountSignOutDialog';
 import bombinoLogo from '@/assets/bombino-logo.png';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 
@@ -12,8 +14,13 @@ interface SideMenuProps {
   onClose: () => void;
 }
 
+/** Sign out reads as the one destructive row in the menu, account or guest. */
+const SIGN_OUT_ROW =
+  'flex items-center gap-3 px-4 py-3 rounded-xl text-red-600 hover:bg-red-50 active:scale-[0.98] transition-all w-full text-left';
+const SIGN_OUT_ICON_BOX = 'w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center';
+
 export function SideMenu({ isOpen, onClose }: SideMenuProps) {
-  const { isLoggedIn, user, logout } = useAppStore();
+  const { isLoggedIn, user } = useAppStore();
   /**
    * A guest is not a stranger.
    *
@@ -25,6 +32,9 @@ export function SideMenu({ isOpen, onClose }: SideMenuProps) {
    * is most likely to come looking for what they filled in.
    */
   const { data: guestProfile } = useGuestProfile({ enabled: !isLoggedIn });
+  // The menu stays open behind the confirmation, so "Stay signed in" lands
+  // back where they were rather than on a closed menu.
+  const [signOutOpen, setSignOutOpen] = useState(false);
   if (!isOpen) return null;
 
   return (
@@ -54,12 +64,24 @@ export function SideMenu({ isOpen, onClose }: SideMenuProps) {
               <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center">
                 <User className="w-6 h-6 text-primary" />
               </div>
-              <div>
-                <p className="font-semibold text-foreground">
-                  {isLoggedIn
-                    ? user?.fullName || user?.email
-                    : guestProfile?.full_name?.trim() || 'Guest'}
-                </p>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="min-w-0 font-semibold text-foreground truncate">
+                    {isLoggedIn
+                      ? user?.fullName || user?.email
+                      : guestProfile?.full_name?.trim() || 'Guest'}
+                  </p>
+                  {/* Says which kind of session this is: a verified number,
+                      not an account — no password, and a different profile. */}
+                  {!isLoggedIn && guestProfile && (
+                    <span
+                      className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700"
+                      data-testid="badge-guest"
+                    >
+                      Guest
+                    </span>
+                  )}
+                </div>
                 {/* One size whoever is looking: this line holds the account
                     email and the guest's number, and scaling only one branch
                     made the menu header change size with the session. */}
@@ -103,16 +125,13 @@ export function SideMenu({ isOpen, onClose }: SideMenuProps) {
                       and pointing at the screen that clears it. */}
                 </Link>
                 <button
-                  onClick={() => {
-                    apiRequest('POST', '/api/auth/logout').catch(() => {});
-                    logout();
-                    onClose();
-                  }}
-                  className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted active:scale-[0.98] transition-all w-full text-left"
+                  type="button"
+                  onClick={() => setSignOutOpen(true)}
+                  className={SIGN_OUT_ROW}
                   data-testid="button-logout"
                 >
-                  <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center">
-                    <LogOut className="w-5 h-5 text-muted-foreground" />
+                  <div className={SIGN_OUT_ICON_BOX}>
+                    <LogOut className="w-5 h-5 text-red-600" />
                   </div>
                   <span className="font-medium">Sign Out</span>
                 </button>
@@ -135,17 +154,39 @@ export function SideMenu({ isOpen, onClose }: SideMenuProps) {
                     <span className="font-medium">My Profile</span>
                   </Link>
                 )}
-                <Link
-                  href="/login"
-                  onClick={onClose}
-                  className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted active:scale-[0.98] transition-all"
-                  data-testid="link-login"
-                >
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center">
-                    <LogIn className="w-5 h-5 text-primary" />
-                  </div>
-                  <span className="font-medium">Sign In</span>
-                </Link>
+                {/* Only for a visitor nobody knows yet. A verified guest is
+                    already somebody on this device; their way to an account is
+                    the offer on their profile, which carries their details. */}
+                {!guestProfile && (
+                  <Link
+                    href="/login"
+                    onClick={onClose}
+                    className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted active:scale-[0.98] transition-all"
+                    data-testid="link-login"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center">
+                      <LogIn className="w-5 h-5 text-primary" />
+                    </div>
+                    <span className="font-medium">Sign In</span>
+                  </Link>
+                )}
+                {/* A verified guest — and everyone who has booked is one — is
+                    somebody on this device until the session goes. Offered
+                    here as well as on their profile, but always behind the
+                    warning: there is no password to come back with. */}
+                {guestProfile && (
+                  <button
+                    type="button"
+                    onClick={() => setSignOutOpen(true)}
+                    className={SIGN_OUT_ROW}
+                    data-testid="button-guest-logout"
+                  >
+                    <div className={SIGN_OUT_ICON_BOX}>
+                      <LogOut className="w-5 h-5 text-red-600" />
+                    </div>
+                    <span className="font-medium">Sign Out</span>
+                  </button>
+                )}
               </>
             )}
 
@@ -195,6 +236,23 @@ export function SideMenu({ isOpen, onClose }: SideMenuProps) {
           </div>
         </div>
       </div>
+
+      {isLoggedIn ? (
+        <AccountSignOutDialog
+          open={signOutOpen}
+          onOpenChange={setSignOutOpen}
+          onSignedOut={onClose}
+        />
+      ) : (
+        guestProfile && (
+          <GuestSignOutDialog
+            open={signOutOpen}
+            onOpenChange={setSignOutOpen}
+            profile={guestProfile}
+            onSignedOut={onClose}
+          />
+        )
+      )}
 
       <style>{`
         @keyframes slide-in-left {
