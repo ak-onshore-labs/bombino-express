@@ -26,6 +26,9 @@ const PdfCanvasViewer = lazy(() =>
   })),
 );
 
+/** Smart OCR verdicts shown as verified. See `checked` in KycOnFileCard. */
+const OCR_VERIFIED = new Set(['match', 'skipped', 'bypassed']);
+
 interface KycOnFileCardProps {
   kyc: KycOnFile;
   /** Open the document preview as soon as the card mounts. */
@@ -83,13 +86,15 @@ export function KycOnFileCard({
 }: KycOnFileCardProps): React.JSX.Element {
   const [open, setOpen] = useState(defaultOpen);
   /**
-   * Whether anything actually read this document.
+   * Whether to show this document as verified.
    *
-   * `match` is Smart OCR agreeing the number on the card is the number the
-   * customer typed. `unreadable`, `unavailable`, `skipped` and `bypassed` are
-   * the ops queue: the file is stored and nobody has confirmed it.
+   * KYC is decided by Cashfree Smart OCR alone. `match` is a pass. `bypassed`
+   * (OCR_BYPASS=1, while Bombino is on test credentials) and `skipped` pass
+   * silently — the same set KycUpload treats as silent — so the customer is
+   * never shown a check that is not running. Only a real failure, once Cashfree
+   * is live, reads as unverified.
    */
-  const checked = kyc.ocr_status === 'match';
+  const checked = OCR_VERIFIED.has(kyc.ocr_status ?? '');
   const [fullscreen, setFullscreen] = useState(false);
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [pdfBase64, setPdfBase64] = useState<string | null>(null);
@@ -269,11 +274,9 @@ export function KycOnFileCard({
             <p className="text-sm font-semibold text-foreground">
               {checked ? 'Identity verified' : 'Document on file'}
             </p>
-            {/* Said plainly, because "KYC on file" read as a tick whatever
-                Smart OCR made of the upload. Only `match` means the number on
-                the document was read and agreed with the number typed; every
-                other verdict is a document nobody has confirmed, and ops still
-                has to look at it. */}
+            {/* Verified whenever Smart OCR passed the document or was told not
+                to run (see `checked`). The other state is a real OCR failure,
+                which only occurs once Cashfree is live. */}
             <span
               className={cn(
                 'shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold',

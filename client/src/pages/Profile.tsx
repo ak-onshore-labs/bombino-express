@@ -431,7 +431,6 @@ export default function Profile() {
                   </h3>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     Indian customs requires these before we can dispatch a parcel.
-                    Your orders are held until they are verified.
                   </p>
                 </div>
 

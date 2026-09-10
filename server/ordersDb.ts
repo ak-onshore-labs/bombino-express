@@ -46,8 +46,8 @@ export type OrderInsert = {
   payment_method: PaymentMethod;
   is_cod: boolean;
   /**
-   * Booking stamps `kyc_verified` here. See shared/orderContract.ts §isKycHeld
-   * for why the fact is denormalised onto the order rather than joined.
+   * Booking stamps `kyc_verified` here — informational only. KYC never holds
+   * an order or a docket; it is Cashfree Smart OCR's verdict, kept for display.
    */
   metadata?: Json;
 };
@@ -86,10 +86,8 @@ export async function insertOrderAndReturnRow(input: OrderInsert): Promise<Order
 
   // ORDER_COLUMNS rather than a hand-copied list, which is what this was and
   // which had silently drifted: it omitted `metadata`, so the row handed back
-  // from a booking always looked as though it had none. `isKycHeld` reads
-  // exactly that key, and an absent blob reads as "verified" by design — so a
-  // caller asking the freshly-inserted row whether its KYC was held got `false`
-  // however the order had just been stamped.
+  // from a booking always looked as though it had none, whatever the order had
+  // just been stamped with.
   const { data, error } = await client
     .from("orders")
     .insert(input)

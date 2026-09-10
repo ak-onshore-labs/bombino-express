@@ -289,31 +289,6 @@ export function hasOpenCancellationRequest(order: Pick<Order, 'metadata' | 'stat
   return cancellationState(order) === 'pending';
 }
 
-// ── KYC hold ──────────────────────────────────────────────────────────────
-
-/**
- * Is the account behind this order verified?
- *
- * Read from `orders.metadata.kyc_verified` — the same escape hatch the
- * cancellation request uses, and for the same reason: this is neither a
- * booking fact nor a fulfilment fact, and `orders` is column-partitioned
- * between those two lanes.
- *
- * It is denormalised onto the order rather than joined at read time because
- * every consumer is a lifecycle guard, and guards are pure and synchronous with
- * no DB reads (server/orderLifecycle.ts). It is refreshed whenever a document
- * lands, so a stale `false` costs a refresh and never a wrong docket.
- *
- * **Absent reads as verified.** An account cannot be created without a
- * complete, verified document set, so an order carrying no stamp at all is one
- * booked by an account that already satisfied the gate. Defaulting those to
- * unverified would strand the entire existing book at `settled`. Only an order
- * explicitly stamped `false` is held.
- */
-export function isKycHeld(order: Pick<Order, 'metadata'>): boolean {
-  return order.metadata?.kyc_verified === false;
-}
-
 // ── Customer-facing derivation (M6 owns the fan-out; this is the mapping) ──
 
 /**

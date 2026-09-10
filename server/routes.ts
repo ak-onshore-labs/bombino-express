@@ -99,7 +99,6 @@ import {
   cancellationState,
   deriveCustomerStatus,
   isInternalOnlyStatus,
-  isKycHeld,
   isRole,
   readCancellationRequest,
 } from "../shared/orderContract.js";
@@ -150,7 +149,6 @@ import { supportChatRateLimit } from "./supportRateLimit.js";
 import type { ChatMessage } from "./supportTypes.js";
 import { persistShipmentAfterCreate } from "./persistShipment.js";
 import { isDocketAtBookingEnabled } from "./docketAtBooking.js";
-import { shouldHoldForKyc } from "./kycVerificationBypass.js";
 import { lookupPostal } from "./postalLookup.js";
 import {
   getKycByCapabilityId,
@@ -1534,17 +1532,9 @@ export async function registerRoutes(
     const dbUserId = order.user_id;
     if (!dbUserId) return SKIPPED;
 
-    // The same hold `generate_docket` carries, applied at the moment that is
-    // now the last reversible one. A docket puts the customer's identity number
-    // in front of Indian customs; an order whose KYC was explicitly rejected
-    // must not get there, and after this call there is nothing left to undo.
-    //
-    // KYC_VERIFICATION_BYPASS stands this down while Cashfree is unprovisioned
-    // and no document can reach a verdict — see server/kycVerificationBypass.ts.
-    // The document itself is still required: `kycForOrder` below refuses a
-    // docket with nothing on file, and says so in `docket_error`.
-    if (shouldHoldForKyc(isKycHeld(order))) return SKIPPED;
-
+    // No KYC hold: KYC is decided by Cashfree Smart OCR alone and never stops
+    // an AWB. The document itself is still required — `kycForOrder` below
+    // refuses a docket with nothing on file, and says so in `docket_error`.
     if (!(await itdUserHasStoredPassword(dbUserId))) return SKIPPED;
 
     // POST /api/orders does not sit behind refreshItdTokenIfNeeded, so a

@@ -24,12 +24,10 @@ import type {
 } from "../shared/orderContract.js";
 import {
   hasOpenCancellationRequest,
-  isKycHeld,
   isPaymentSatisfied,
   roleSatisfies,
 } from "../shared/orderContract.js";
 import { todayInIst } from "../shared/istTime.js";
-import { shouldHoldForKyc } from "./kycVerificationBypass.js";
 
 /**
  * Context the guards need beyond the order itself — chiefly "who is asking",
@@ -251,19 +249,12 @@ export const TRANSITIONS: readonly Transition[] = [
     // Irreversible in ITD. The double-fire guard is a DB-level precondition
     // (`awb_no IS NULL` in the UPDATE), not this check — M5 owns it.
     //
-    // The KYC half is the backstop behind the signup gate. Signup refuses to
-    // open an account without a complete, verified document set, so in the
-    // ordinary case this never fires — it catches the account whose document
-    // was later replaced or rejected. A real docket carries the customer's
-    // identity number to Indian customs as `shipper_gstin_no`, derived from
-    // that document, so the hold sits here, at the last moment anything can
-    // still be undone.
-    //
-    // KYC_VERIFICATION_BYPASS stands the KYC half down while Cashfree is
-    // unprovisioned and no document can reach a verdict. The docket call still
-    // requires a document on file — see server/kycVerificationBypass.ts.
-    guard: (order) =>
-      order.awb_no === null && !shouldHoldForKyc(isKycHeld(order)),
+    // No KYC condition, deliberately. KYC is decided by Cashfree Smart OCR
+    // alone and never holds a shipment: a failed check is shown to the
+    // customer and to ops, and the docket goes ahead regardless. The docket
+    // call still needs an identity document on file to send ITD — kycForOrder
+    // in server/routes.ts refuses without one and records docket_error.
+    guard: (order) => order.awb_no === null,
   },
   {
     from: "settled",
