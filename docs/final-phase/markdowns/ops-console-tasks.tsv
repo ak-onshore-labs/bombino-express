@@ -1,0 +1,32 @@
+ID	Section	Feature	What it does	Priority	Phase	Status
+R1	Riders	Edit a rider's details	Change a rider's name, phone number and email.	Must	Phase 1	To do
+R2	Riders	Switch a rider on or off	An inactive rider can't log in and gets no job alerts. Their past jobs and cash records are kept.	Must	Phase 1	To do
+R3	Riders	Choose a rider's pickup areas from their profile	When creating or editing a rider, tick the rounds they cover. This decides which new jobs they're alerted about.	Must	Phase 1	To do
+R4	Riders	Rider profile page	One page per rider: their details, rounds and cut-off times, the jobs they're on right now, and the cash they've collected today.	Should	Phase 3	To do
+R5	Riders	Riders waiting for a phone number	Add a rider with just a name and round, marked "waiting for number". Adding the number later turns them into a working rider.	Should	Phase 3	To do
+R6	Riders	Clear label on the "Hub" field	Rename it "ITD hub", with a hint that it doesn't set the rider's area.	Nice	Phase 3	To do
+C1	Pincodes and cities	Pincode lookup	Type any pincode and see: whether Bombino picks up from it; the city and area name the customer sees; its round(s); the cut-off time; which riders get the alert; whether an out-of-city charge applies; and, if not covered, the nearest drop-off counter.	Must	Phase 2	To do
+C2	Pincodes and cities	Edit each pincode's details	Show a round's pincodes as a table where each row's city, area name and out-of-city charge can be edited.	Must	Phase 2	To do
+C3	Pincodes and cities	"No rider" warning	A dashboard alert listing the pincodes whose round has no working rider, linked to where it can be fixed.	Should	Phase 3	To do
+C4	Pincodes and cities	Who gets alerted when a round has no rider	A setting with three choices: every rider, only riders in the same city, or only the office.	Nice	Phase 3	To do
+C5	Pincodes and cities	Upload pincodes from a spreadsheet	Upload a CSV (pincode, city, area) into a round instead of pasting.	Nice	Phase 3	To do
+C6	Pincodes and cities	"Live within 5 minutes" note	After saving coverage changes, tell staff how soon customers will see them.	Nice	Phase 3	To do
+D1	Drop-off counters	Manage the counters list	Add, edit and hide counters: name, address, pincode, state, and other names the city goes by. This is the list customers see on the booking page and the Locations page.	Must	Phase 2	To do
+D2	Drop-off counters	Suggested counter on drop-off orders	Show which counter each drop-off customer was sent to, and let each counter filter to its own parcels.	Should	Phase 3	To do
+G1	Guests	Guest details on orders	Show the guest's name, phone and email on the board, the order page and the export, with a "Guest" label.	Must	Phase 1	To do
+G2	Guests	Guests section, separate from account holders	A Guests tab next to Customers, searchable by phone and name. Each guest page shows their details, their personal or company information (GST, company name, address), and all their orders.	Must	Phase 2	To do
+G3	Guests	View a guest's ID documents	A document viewer on the guest page. Super-admin only, and every view logged.	Must	Phase 2	To do
+G4	Guests	Search orders by the sender's phone or name	Works for both guests and account holders.	Must	Phase 1	To do
+G5	Guests	Filter orders by guest or account holder	A "Guest / Account" filter on the order board.	Should	Phase 3	To do
+G6	Guests	Edit a guest's contact details	Fix a guest's name and email when the guest asks.	Should	Phase 3	To do
+G7	Guests	Guest account-setup progress	Show what a guest has filled in, and what's missing, while turning their guest profile into an account.	Should	Phase 3	To do
+G8	Guests	"Started as a guest" note	On accounts, and orders, that began as guest bookings.	Nice	Phase 3	To do
+G9	Guests	Block a phone number from guest booking	A staff-managed list of numbers that can't book as a guest.	Nice	Phase 3	To do
+K1	KYC	Show Cashfree's result and reason on each document	Once Cashfree is live: next to each document, show "Verified", or "Could not be verified" with the reason Cashfree gave, matching the popup the customer sees. Checks are done only by Cashfree Smart OCR; staff never approve documents.	Should	Phase 3	To do
+K2	KYC	List of customers whose KYC failed	Once Cashfree is live: one list of customers and guests whose document Cashfree couldn't verify, with the reason, so the team can follow up. For information only; a failed check never stops an order or the AWB.	Should	Phase 3	To do
+S1	Settings	Support contact numbers	One place to set the office phone and support WhatsApp number shown across the customer app and the rider app.	Must	Phase 1	To do
+S2	Settings	On/off switches	Switches for guest booking, the Cashfree ID check (Test = skipped silently while on test credentials; Live = Cashfree checks every document), labels at booking, and payments test mode. Each shows its state, a plain explanation, and who last changed it and when. Orders and AWBs never stop because of KYC.	Must	Phase 2	To do
+S3	Settings	Default pickup cut-off	The same-day booking time used wherever a round has no time of its own.	Should	Phase 3	To do
+S4	Settings	Change history	One list of who changed what, and when, across riders, rounds, pincodes, counters, settings and KYC.	Should	Phase 2	To do
+S5	Settings	Signup data retention	The number of days before unfinished signups, and guest profiles with no orders, are deleted.	Nice	Phase 3	To do
+S6	Settings	Hub list	ITD's hub list, shown read-only for reference.	Nice	Phase 3	To do
