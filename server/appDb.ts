@@ -1060,7 +1060,24 @@ export function generateSessionTitle(firstUserMessage: string): string {
   return slice.trimEnd();
 }
 
-export async function getOrCreateSupportSession(userId: string): Promise<{
+/**
+ * Whose BIA conversation it is: an account, or a guest's verified number.
+ * A guest's rows are keyed on guest_ref (migrations/
+ * support_sessions_guest_ref.sql); until that has run, every guest call
+ * below fails soft and returns nothing, and the chat keeps a guest's
+ * history in the browser tab as before.
+ */
+export type SupportSessionOwner = { userId: string } | { guestRef: string };
+
+function sessionOwnerColumn(owner: SupportSessionOwner): ["user_id" | "guest_ref", string] {
+  return "userId" in owner ? ["user_id", owner.userId] : ["guest_ref", owner.guestRef];
+}
+
+function sessionOwnerInsert(owner: SupportSessionOwner): { user_id: string } | { guest_ref: string } {
+  return "userId" in owner ? { user_id: owner.userId } : { guest_ref: owner.guestRef };
+}
+
+export async function getOrCreateSupportSession(owner: SupportSessionOwner): Promise<{
   id: string;
   messages: ChatMessage[];
   title: string | null;
@@ -1068,10 +1085,11 @@ export async function getOrCreateSupportSession(userId: string): Promise<{
   const client = getSupabaseClient();
   if (!client) return null;
 
+  const [ownerColumn, ownerValue] = sessionOwnerColumn(owner);
   const { data: existing, error: findError } = await client
     .from("support_sessions")
     .select("id, messages, title")
-    .eq("user_id", userId)
+    .eq(ownerColumn, ownerValue)
     .eq("resolved", false)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -1094,7 +1112,7 @@ export async function getOrCreateSupportSession(userId: string): Promise<{
   const { data: inserted, error: insertError } = await client
     .from("support_sessions")
     .insert({
-      user_id: userId,
+      ...sessionOwnerInsert(owner),
       messages: [],
       resolved: false,
       escalated: false,
@@ -1117,7 +1135,7 @@ export async function getOrCreateSupportSession(userId: string): Promise<{
 }
 
 /**
- * Whether `sessionId` is one of `userId`'s support sessions.
+ * Whether `sessionId` is one of this owner's support sessions.
  *
  * The chat endpoint takes a session id from the client so a conversation can
  * continue across turns. Without this check, any signed-in user could name
@@ -1126,7 +1144,7 @@ export async function getOrCreateSupportSession(userId: string): Promise<{
  */
 export async function isSupportSessionOwnedBy(
   sessionId: string,
-  userId: string
+  owner: SupportSessionOwner
 ): Promise<boolean> {
   const client = getSupabaseClient();
   if (!client) return false;
@@ -1135,7 +1153,7 @@ export async function isSupportSessionOwnedBy(
     .from("support_sessions")
     .select("id")
     .eq("id", sessionId)
-    .eq("user_id", userId)
+    .eq(...sessionOwnerColumn(owner))
     .maybeSingle();
 
   if (error) {
@@ -1213,7 +1231,7 @@ export async function resolveSupportSession(sessionId: string): Promise<boolean>
 }
 
 export async function createNewSupportSession(
-  userId: string
+  owner: SupportSessionOwner
 ): Promise<{ id: string } | null> {
   const client = getSupabaseClient();
   if (!client) return null;
@@ -1227,7 +1245,7 @@ export async function createNewSupportSession(
       session_ended_at: now,
       updated_at: now,
     })
-    .eq("user_id", userId)
+    .eq(...sessionOwnerColumn(owner))
     .eq("resolved", false);
 
   if (resolveErr) {
@@ -1238,7 +1256,7 @@ export async function createNewSupportSession(
   const { data: inserted, error: insertError } = await client
     .from("support_sessions")
     .insert({
-      user_id: userId,
+      ...sessionOwnerInsert(owner),
       messages: [],
       resolved: false,
       escalated: false,

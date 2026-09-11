@@ -20,9 +20,10 @@ import {
   isSupportSessionOwnedBy,
   resolveSupportSession,
   updateSupportSessionMessages,
+  type SupportSessionOwner,
 } from "../appDb.js";
 import { refreshItdTokenIfNeeded } from "../itdTokenRefresh.js";
-import { ensureDbUser, requireUser } from "../routeGuards.js";
+import { ensureDbUser } from "../routeGuards.js";
 import { parseBiaScreen, type BiaScreen } from "../../shared/biaScreen.js";
 import { handleChat } from "../supportAgent.js";
 import { maskSensitive } from "../supportPrivacy.js";
@@ -58,6 +59,19 @@ export function registerSupportRoutes(app: Express): void {
       guestPhone: isLoggedIn ? null : (req.session.guestPhone ?? null),
       screen,
     };
+  }
+
+  /**
+   * Whose saved conversation this request may read and write: the signed-in
+   * account, else the guest whose phone this session verified, else nobody.
+   * A guest's is kept once migrations/support_sessions_guest_ref.sql has run;
+   * before that the guest calls fail soft and the chat keeps it in the tab.
+   */
+  function sessionOwnerFor(req: Request): SupportSessionOwner | null {
+    const dbUserId = req.session.dbUserId ?? null;
+    if (req.session.user && dbUserId) return { userId: dbUserId };
+    if (req.session.guestRef) return { guestRef: req.session.guestRef };
+    return null;
   }
 
   // POST /api/support/chat — guest and logged-in. Body: { messages, sessionId?, screen? };
@@ -118,14 +132,15 @@ export function registerSupportRoutes(app: Express): void {
     const dbUserId = req.session.dbUserId ?? null;
     const isLoggedIn = !!req.session.user && !!dbUserId;
 
+    const owner = sessionOwnerFor(req);
     let activeSessionId: string | null = null;
-    if (isLoggedIn && dbUserId) {
-      // The client's session id is only a hint. Unchecked, any signed-in user
-      // could name someone else's session and overwrite that transcript.
-      if (bodySessionId && (await isSupportSessionOwnedBy(bodySessionId, dbUserId))) {
+    if (owner) {
+      // The client's session id is only a hint. Unchecked, anyone could name
+      // someone else's session and overwrite that transcript.
+      if (bodySessionId && (await isSupportSessionOwnedBy(bodySessionId, owner))) {
         activeSessionId = bodySessionId;
       } else {
-        const row = await getOrCreateSupportSession(dbUserId);
+        const row = await getOrCreateSupportSession(owner);
         activeSessionId = row?.id ?? null;
       }
     }
@@ -143,7 +158,7 @@ export function registerSupportRoutes(app: Express): void {
         { role: "assistant" as const, content: message },
       ];
 
-      if (isLoggedIn && activeSessionId) {
+      if (activeSessionId) {
         const firstUser = chatMessages.find((m) => m.role === "user");
         const titleCandidate =
           firstUser !== undefined
@@ -178,7 +193,7 @@ export function registerSupportRoutes(app: Express): void {
 
       res.json({
         message,
-        sessionId: isLoggedIn ? activeSessionId : null,
+        sessionId: activeSessionId,
         suggestions,
         cards,
         turnId,
@@ -249,23 +264,19 @@ export function registerSupportRoutes(app: Express): void {
     }
   );
 
-  // GET /api/support/session — logged-in: active session + messages
+  // GET /api/support/session — the caller's open conversation: an account's,
+  // or a verified guest's. Anyone else has none to read.
   app.get(
     "/api/support/session",
-    requireUser,
     ensureDbUser,
     async (req: Request, res: Response) => {
-      const dbUserId = req.session.dbUserId ?? null;
-      if (!dbUserId) {
-        res.json({
-          sessionId: null,
-          messages: [] as ChatMessage[],
-          title: null as string | null,
-        });
+      const owner = sessionOwnerFor(req);
+      if (!owner) {
+        res.status(401).json({ message: "Not authenticated" });
         return;
       }
 
-      const row = await getOrCreateSupportSession(dbUserId);
+      const row = await getOrCreateSupportSession(owner);
       if (!row) {
         res.json({
           sessionId: null,
@@ -283,19 +294,19 @@ export function registerSupportRoutes(app: Express): void {
     }
   );
 
-  // POST /api/support/new-session — start fresh conversation
+  // POST /api/support/new-session — start a fresh conversation, for an account
+  // or a verified guest.
   app.post(
     "/api/support/new-session",
-    requireUser,
     ensureDbUser,
     async (req: Request, res: Response) => {
-      const dbUserId = req.session.dbUserId ?? null;
-      if (!dbUserId) {
-        res.status(400).json({ message: "Profile not synced yet" });
+      const owner = sessionOwnerFor(req);
+      if (!owner) {
+        res.status(401).json({ message: "Not authenticated" });
         return;
       }
 
-      const created = await createNewSupportSession(dbUserId);
+      const created = await createNewSupportSession(owner);
       if (!created) {
         res.status(503).json({ message: "Could not create a new session" });
         return;

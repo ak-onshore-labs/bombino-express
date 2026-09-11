@@ -791,6 +791,9 @@ export async function claimGuestOrdersForUser(
     ["addresses", "addresses"],
     ["payments", "payments"],
     ["notifications", "notifications"],
+    // BIA conversations (support_sessions_guest_ref.sql): the chat a guest had
+    // is the chat the account opens with.
+    ["support_sessions", "support_sessions"],
   ] as const) {
     const { error: err } = await client
       .from(table)

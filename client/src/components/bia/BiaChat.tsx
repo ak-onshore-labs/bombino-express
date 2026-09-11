@@ -139,8 +139,14 @@ export function BiaChat({
   const isSheet = variant === "sheet";
   const isLoggedIn = useAppStore((s) => s.isLoggedIn);
   const logout = useAppStore((s) => s.logout);
-  const { data: guestProfile } = useGuestProfile({ enabled: !isLoggedIn });
+  const { data: guestProfile, isFetched: guestChecked } = useGuestProfile({ enabled: !isLoggedIn });
   const isGuest = !isLoggedIn && !!guestProfile;
+  /**
+   * An account or a verified guest keeps the conversation on the server; a
+   * guest's only once migrations/support_sessions_guest_ref.sql has run, and
+   * until then the server answers with no session and the tab keeps it.
+   */
+  const serverBacked = isLoggedIn || isGuest;
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -182,16 +188,23 @@ export function BiaChat({
     };
   }, []);
 
-  // Without an account the transcript lives in this tab only.
+  // Without a conversation on the server, the transcript lives in this tab.
   useEffect(() => {
-    if (isLoggedIn || !restoreDone) return;
+    if (sessionId || !restoreDone) return;
     writeLocalHistory(messages);
-  }, [messages, isLoggedIn, restoreDone]);
+  }, [messages, sessionId, restoreDone]);
 
   useEffect(() => {
-    if (!isLoggedIn) {
+    // Whether they are a guest is only known once the guest profile has
+    // answered. Restoring before then could send an "Ask BIA" question from
+    // the tab's copy and overwrite the guest's saved conversation with it.
+    if (!isLoggedIn && !guestChecked) return;
+
+    // What this tab already had: the whole history for someone signed out, and
+    // for a guest whatever predates their conversation being saved.
+    const local = isLoggedIn ? [] : readLocalHistory();
+    if (!serverBacked) {
       setSessionId(null);
-      const local = readLocalHistory();
       if (local.length > 0) setMessages(local);
       setRestoreDone(true);
       return;
@@ -219,11 +232,14 @@ export function BiaChat({
           window.setTimeout(() => {
             if (!cancelled) setRestoredNotice(false);
           }, 3000);
-        } else if (typeof data.sessionId === "string") {
-          setSessionId(data.sessionId);
+        } else {
+          if (typeof data.sessionId === "string") setSessionId(data.sessionId);
+          // Nothing saved yet: keep what the tab had. The next turn sends it,
+          // and the server stores it as this conversation.
+          if (local.length > 0) setMessages(local);
         }
       } catch {
-        /* ignore restore errors */
+        if (!cancelled && local.length > 0) setMessages(local);
       } finally {
         if (!cancelled) setRestoreDone(true);
       }
@@ -232,7 +248,7 @@ export function BiaChat({
     return () => {
       cancelled = true;
     };
-  }, [isLoggedIn]);
+  }, [isLoggedIn, isGuest, guestChecked]);
 
   // Starter chips, led by the caller's own live orders.
   useEffect(() => {
@@ -267,7 +283,7 @@ export function BiaChat({
       const res = await apiRequest("POST", "/api/support/chat", {
         // Cards are ours to draw, not the model's to read: only text goes back.
         messages: nextMessages.map(({ role, content }) => ({ role, content })),
-        sessionId: isLoggedIn ? sessionId : null,
+        sessionId: serverBacked ? sessionId : null,
         screen: screenRef.current,
       });
       const data = (await res.json()) as {
@@ -349,7 +365,9 @@ export function BiaChat({
     if (loading) return;
     setError(null);
     setQuickReplies([]);
-    if (!isLoggedIn) {
+    // No saved conversation (signed out, or a guest before theirs can be
+    // saved): starting over is just clearing this tab.
+    if (!sessionId) {
       setMessages([]);
       setInput("");
       return;
