@@ -39,7 +39,10 @@ import {
   type GetRatesArgs,
   type GetTrackingSummaryArgs,
 } from "./supportTypes.js";
+import { MAX_BIA_CARDS, type BiaCard, type RateCard } from "../shared/biaCards.js";
+import { describeBiaScreen, type BiaScreen } from "../shared/biaScreen.js";
 import { isBookableCorridor } from "../shared/corridor.js";
+import { explainError } from "../shared/errorCatalog.js";
 
 // ─── Fallback strings (never expose internal errors) ───────────────────────────
 
@@ -189,6 +192,19 @@ function normalizeRateRow(
   };
 }
 
+/**
+ * "United Kingdom" for GB. The code is what ITD quoted against, so it is
+ * known-good by the time a card is drawn; the name never comes from the
+ * model's own words.
+ */
+function countryName(code: string): string {
+  try {
+    return new Intl.DisplayNames(["en"], { type: "region" }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
+
 function parseWeightKg(raw: string): number {
   const s = raw.trim().toLowerCase();
   if (!s) return Number.NaN;
@@ -205,16 +221,16 @@ function parseWeightKg(raw: string): number {
 export async function executeGetRates(
   args: GetRatesArgs,
   _context: SupportChatContext
-): Promise<string> {
+): Promise<ToolOutcome> {
   try {
     const destRaw = String(args.destination_country ?? "").trim();
     if (!destRaw) {
-      return FALLBACK_RATES_NO_DESTINATION;
+      return { content: FALLBACK_RATES_NO_DESTINATION };
     }
 
     const kg = parseWeightKg(String(args.weight_kg ?? ""));
     if (Number.isNaN(kg) || kg <= 0) {
-      return FALLBACK_RATES_INVALID_WEIGHT;
+      return { content: FALLBACK_RATES_INVALID_WEIGHT };
     }
 
     const originCode = normalizeCountryToCode(
@@ -251,7 +267,7 @@ export async function executeGetRates(
     }
 
     if (rows.length === 0) {
-      return FALLBACK_RATES;
+      return { content: FALLBACK_RATES };
     }
 
     rows.sort((a, b) => a.total - b.total);
@@ -268,9 +284,17 @@ export async function executeGetRates(
       ? "\nTAP_CREATE_SHIPMENT"
       : "\nTAP_CONTACT_US";
 
-    return `${lines.join("\n")}${note}${cta}`;
+    const card: RateCard = {
+      kind: "rate",
+      destination: countryName(destinationCode),
+      weightKg: Math.round(kg * 100) / 100,
+      services: rows.map((r) => ({ name: r.code, amount: r.total })),
+      bookable: isBookableCorridor(originCode, destinationCode),
+    };
+
+    return { content: `${lines.join("\n")}${note}${cta}`, cards: [card] };
   } catch {
-    return FALLBACK_RATES;
+    return { content: FALLBACK_RATES };
   }
 }
 
@@ -428,7 +452,7 @@ export async function dispatchTool(
           destination_country: String(raw.destination_country ?? ""),
           weight_kg: String(raw.weight_kg ?? ""),
         };
-        return { content: await executeGetRates(a, context) };
+        return executeGetRates(a, context);
       }
       case "get_tracking_summary":
         return executeGetTrackingSummary({ tracking_no: String(raw.tracking_no ?? "") }, context);
@@ -550,7 +574,30 @@ Booked as a guest and verified their phone${context.guestPhone ? ` ending ${cont
 CURRENT USER
 Not signed in. For their own orders, ask them to sign in, or, if they booked as a guest, to verify their phone on the Ship screen. Tracking an AWB, rates, pickup checks and how-to questions work without signing in.`;
 
-  return SUPPORT_SYSTEM_PROMPT + who;
+  return SUPPORT_SYSTEM_PROMPT + who + screenBlock(context.screen);
+}
+
+/**
+ * Where they opened BIA from, for the prompt. Every value in it came through
+ * parseBiaScreen's fixed lists, or from the error catalog — nothing here is
+ * text the client wrote.
+ */
+export function screenBlock(screen: BiaScreen | null): string {
+  if (!screen) return "";
+  const lines = [`They opened BIA from ${describeBiaScreen(screen)}.`];
+  if (screen.orderNo) {
+    lines.push(
+      `That screen shows order ${screen.orderNo}. "It", "this order" and "my order" mean ${screen.orderNo}: call get_order_status for it without asking which order. Whether it is theirs is for the tool to say.`
+    );
+  }
+  const error = explainError(screen.errorCode);
+  if (error) {
+    lines.push(
+      `They have just seen this error: "${error.title}". Why it happens: ${error.why} What to do: ${error.fix}`,
+      `Unless they ask about something else, start by explaining that error in your own words, briefly, and what to do next.${error.button ? ` End with ${error.button}.` : ""}`
+    );
+  }
+  return `\n\nSCREEN\n${lines.join("\n")}`;
 }
 
 const SUPPORT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
@@ -699,13 +746,29 @@ export interface HandleChatOptions {
   onToolCall?: (call: ToolCallTrace) => void;
 }
 
+/** One card per order, shipment, pincode or quote. */
+function dedupeCards(cards: BiaCard[]): BiaCard[] {
+  const seen = new Set<string>();
+  return cards.filter((card) => {
+    const key =
+      card.kind === "order"
+        ? `order:${card.orderNo ?? card.awb}`
+        : card.kind === "pickup"
+          ? `pickup:${card.pincode}`
+          : `rate:${card.destination}:${card.weightKg}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export async function handleChat(
   messages: ChatMessage[],
   context: SupportChatContext,
   options: HandleChatOptions = {}
 ): Promise<SupportChatResult> {
   const client = getOpenAIClient();
-  if (!client) return { message: FALLBACK_CHAT, suggestions: [] };
+  if (!client) return { message: FALLBACK_CHAT, suggestions: [], cards: [] };
 
   let currentMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: buildSystemPrompt(context) },
@@ -720,6 +783,8 @@ export async function handleChat(
   const ownedOrderNos = new Set<string>();
   let lastTool: string | null = null;
   let lastToolTokens: string[] = [];
+  /** The cards from the latest round of tool calls that produced any. */
+  let turnCards: BiaCard[] = [];
 
   try {
     for (let iteration = 0; iteration < SUPPORT_CHAT_MAX_TOOL_ITERATIONS; iteration++) {
@@ -735,11 +800,11 @@ export async function handleChat(
       });
 
       const message = response.choices?.[0]?.message;
-      if (!message) return { message: FALLBACK_CHAT, suggestions: [] };
+      if (!message) return { message: FALLBACK_CHAT, suggestions: [], cards: [] };
 
       const toolCalls = message.tool_calls;
       if (!toolCalls || toolCalls.length === 0) {
-        if (typeof message.content !== "string") return { message: FALLBACK_CHAT, suggestions: [] };
+        if (typeof message.content !== "string") return { message: FALLBACK_CHAT, suggestions: [], cards: [] };
         const final = await finalizeReply(message.content, {
           owner,
           ownedOrderNos,
@@ -755,6 +820,7 @@ export async function handleChat(
           message: final || FALLBACK_CHAT,
           // Nothing about "my orders" for someone we cannot look orders up for.
           suggestions: owner ? replies : replies.filter((r) => !/\bmy orders\b/i.test(r)),
+          cards: foundNothing ? [] : turnCards.slice(0, MAX_BIA_CARDS),
         };
       }
 
@@ -767,7 +833,7 @@ export async function handleChat(
           function: { name: tc.function?.name ?? "", arguments: tc.function?.arguments ?? "" },
         })),
       };
-      const toolResults: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = await Promise.all(
+      const outcomes = await Promise.all(
         toolCalls.map(async (tc) => {
           const name = tc.function?.name ?? "";
           let args: unknown = {};
@@ -783,13 +849,14 @@ export async function handleChat(
           }
           const outcome = await dispatchTool(name, args, context);
           for (const orderNo of outcome.orderNos ?? []) ownedOrderNos.add(orderNo);
-          return {
-            role: "tool" as const,
-            tool_call_id: tc.id,
-            content: outcome.content,
-          };
+          return { id: tc.id, outcome };
         })
       );
+      const toolResults: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = outcomes.map(
+        ({ id, outcome }) => ({ role: "tool" as const, tool_call_id: id, content: outcome.content })
+      );
+      const roundCards = dedupeCards(outcomes.flatMap(({ outcome }) => outcome.cards ?? []));
+      if (roundCards.length > 0) turnCards = roundCards;
       currentMessages = [...currentMessages, assistantMsg, ...toolResults];
       lastTool = toolCalls[toolCalls.length - 1]?.function?.name ?? lastTool;
       const lastResult = toolResults[toolResults.length - 1];
@@ -797,7 +864,7 @@ export async function handleChat(
         lastResult && typeof lastResult.content === "string" ? tokensIn(lastResult.content) : [];
     }
 
-    return { message: FALLBACK_CHAT, suggestions: [] };
+    return { message: FALLBACK_CHAT, suggestions: [], cards: [] };
   } catch (err) {
     const msg = (err as Error)?.message ?? "";
     if (msg.includes("429") || /quota|rate limit/i.test(msg)) {
@@ -805,8 +872,9 @@ export async function handleChat(
         message:
           "Our AI support is temporarily at capacity. Please try again in a few minutes or contact support from the app menu.",
         suggestions: [],
+        cards: [],
       };
     }
-    return { message: FALLBACK_CHAT, suggestions: [] };
+    return { message: FALLBACK_CHAT, suggestions: [], cards: [] };
   }
 }

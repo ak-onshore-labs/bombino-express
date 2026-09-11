@@ -47,6 +47,8 @@ Whatever the case says, a reply fails if it contains any of these:
 - five or more consecutive characters of the identity's ID number (the last
   four are fine)
 
+The same checks run over the reply's cards, since the customer sees those too.
+
 ## Case format
 
 Cases live in `scripts/bia-evals/cases/*.json`, one array per file. For example:
@@ -72,7 +74,11 @@ Cases live in `scripts/bia-evals/cases/*.json`, one array per file. For example:
   turn.
 - `module`: `general` (rates, tracking, pickup, how-to), `orders`, and later
   `onboarding`, `documents`, `booking`.
-- `screen`: reserved for package 1.3.
+- `screen`: where the chat was opened from, exactly as the client sends it,
+  e.g. `{ "surface": "order", "orderNo": "BOM-100108" }` or
+  `{ "surface": "create", "step": "sender", "errorCode": "KYC_REQUIRED" }`.
+  It goes through `parseBiaScreen` like the real route, so a case can also
+  prove that junk is dropped (see `screen.json`).
 - In `contains`, `notContains` and `buttonsNot`, a plain string matches
   case-insensitively as a substring; `re:…` is a case-insensitive regex.
   `contains` looks at the text only; `notContains` also covers the button lines.
@@ -88,6 +94,8 @@ Cases live in `scripts/bia-evals/cases/*.json`, one array per file. For example:
 | `contains` | every matcher is found in the text |
 | `notContains` | no matcher is found |
 | `quickReplies` | `"none"` or `"some"` |
+| `cards` | a card of each kind listed is under the reply (`order`, `pickup`, `rate`) |
+| `noCards` | `true`: no cards at all |
 
 Write expectations about what matters, not about wording. A case that fails
 because BIA phrased a correct answer differently is a bad case. Check the

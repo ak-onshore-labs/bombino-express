@@ -22,6 +22,7 @@ import {
 } from "../appDb.js";
 import { refreshItdTokenIfNeeded } from "../itdTokenRefresh.js";
 import { ensureDbUser, requireUser } from "../routeGuards.js";
+import { parseBiaScreen, type BiaScreen } from "../../shared/biaScreen.js";
 import { handleChat } from "../supportAgent.js";
 import { suggestionsFor } from "../supportOrders.js";
 import { supportChatRateLimit } from "../supportRateLimit.js";
@@ -38,7 +39,11 @@ export function registerSupportRoutes(app: Express): void {
    * otherwise a guest ref, which only an OTP on `guestPhone` can have minted.
    * BIA's order tools read ownership from here and nowhere else.
    */
-  function supportContextFor(req: Request, sessionId: string | null): SupportChatContext {
+  function supportContextFor(
+    req: Request,
+    sessionId: string | null,
+    screen: BiaScreen | null = null
+  ): SupportChatContext {
     const dbUserId = req.session.dbUserId ?? null;
     const isLoggedIn = !!req.session.user && !!dbUserId;
     return {
@@ -48,17 +53,19 @@ export function registerSupportRoutes(app: Express): void {
       sessionId,
       guestRef: isLoggedIn ? null : (req.session.guestRef ?? null),
       guestPhone: isLoggedIn ? null : (req.session.guestPhone ?? null),
+      screen,
     };
   }
 
-  // POST /api/support/chat — guest and logged-in; validates body and returns { message }
+  // POST /api/support/chat — guest and logged-in. Body: { messages, sessionId?, screen? };
+  // returns { message, sessionId, suggestions, cards }.
   app.post(
     "/api/support/chat",
     ensureDbUser,
     refreshItdTokenIfNeeded,
     supportChatRateLimit,
     async (req: Request, res: Response) => {
-    const body = req.body as { messages?: unknown; sessionId?: unknown };
+    const body = req.body as { messages?: unknown; sessionId?: unknown; screen?: unknown };
     const messages = body?.messages;
     const bodySessionId =
       typeof body?.sessionId === "string" && body.sessionId.trim() !== ""
@@ -118,10 +125,12 @@ export function registerSupportRoutes(app: Express): void {
       }
     }
 
-    const context = supportContextFor(req, activeSessionId);
+    // Only known surfaces, steps, order-number shapes and catalogued error codes
+    // survive; anything else the client sent is dropped here, before the model.
+    const context = supportContextFor(req, activeSessionId, parseBiaScreen(body?.screen));
 
     try {
-      const { message, suggestions } = await handleChat(chatMessages, context);
+      const { message, suggestions, cards } = await handleChat(chatMessages, context);
       const stored: ChatMessage[] = [
         ...chatMessages,
         { role: "assistant" as const, content: message },
@@ -164,6 +173,7 @@ export function registerSupportRoutes(app: Express): void {
         message,
         sessionId: isLoggedIn ? activeSessionId : null,
         suggestions,
+        cards,
       });
     } catch {
       res.status(500).json({

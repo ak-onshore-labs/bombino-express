@@ -30,6 +30,8 @@ import { supabase } from "../server/supabaseClient.js";
 import { findItdUserIdByPhone } from "../server/appDb.js";
 import { getLatestGuestRefForPhone } from "../server/guestProfileDb.js";
 import { getKycByGuestRef, getKycByUserId } from "../server/kycDb.js";
+import type { BiaCard } from "../shared/biaCards.js";
+import { parseBiaScreen } from "../shared/biaScreen.js";
 
 // ─── Case format ─────────────────────────────────────────────────────────────
 
@@ -44,7 +46,11 @@ interface EvalCase {
   identity: Identity;
   /** From the bia-evals.md table, for cross-reference. */
   ref?: string;
-  /** Reserved for package 1.3 (screen context). Ignored until then. */
+  /**
+   * Where the chat was opened from, as the client would send it. It goes
+   * through parseBiaScreen exactly as in the chat route, so an invalid value
+   * is dropped here too.
+   */
   screen?: unknown;
   /** User messages, sent in order. Expectations apply to the last reply. */
   turns: string[];
@@ -58,6 +64,10 @@ interface EvalCase {
     contains?: Matcher[];
     notContains?: Matcher[];
     quickReplies?: "none" | "some";
+    /** Card kinds that must be under the reply. */
+    cards?: string[];
+    /** No cards at all. */
+    noCards?: boolean;
   };
 }
 
@@ -79,6 +89,7 @@ function baseContext(): SupportChatContext {
     sessionId: null,
     guestRef: null,
     guestPhone: null,
+    screen: null,
   };
 }
 
@@ -169,6 +180,7 @@ interface Turn {
   reply: string;
   tools: string[];
   suggestions: string[];
+  cards: BiaCard[];
 }
 
 function check(c: EvalCase, last: Turn, secrets: string[]): string[] {
@@ -196,8 +208,19 @@ function check(c: EvalCase, last: Turn, secrets: string[]): string[] {
   if (e.quickReplies === "none" && last.suggestions.length > 0) fails.push("expected no quick replies");
   if (e.quickReplies === "some" && last.suggestions.length === 0) fails.push("expected quick replies");
 
-  for (const f of GLOBAL_FORBIDDEN) if (f.re.test(last.reply)) fails.push(`forbidden: ${f.why}`);
-  const scrubbed = last.reply.replace(/BOM-\d+/g, "");
+  const kinds: string[] = last.cards.map((card) => card.kind);
+  for (const k of e.cards ?? []) {
+    if (!kinds.includes(k)) fails.push(`expected a ${k} card (got: ${kinds.join(", ") || "none"})`);
+  }
+  if (e.noCards && kinds.length > 0) fails.push(`expected no cards (got: ${kinds.join(", ")})`);
+
+  // Cards reach the customer too, so they are held to the same rules as text.
+  const cardText = JSON.stringify(last.cards);
+  for (const f of GLOBAL_FORBIDDEN) {
+    if (f.re.test(last.reply)) fails.push(`forbidden: ${f.why}`);
+    if (f.re.test(cardText)) fails.push(`forbidden in a card: ${f.why}`);
+  }
+  const scrubbed = `${last.reply}\n${cardText}`.replace(/BOM-\d+/g, "");
   for (const s of secrets) if (scrubbed.includes(s)) fails.push("forbidden: a handover code or ID number");
 
   return fails;
@@ -207,15 +230,16 @@ function check(c: EvalCase, last: Turn, secrets: string[]): string[] {
 
 async function runCase(c: EvalCase, who: ResolvedIdentity): Promise<Turn> {
   const history: ChatMessage[] = [];
-  let last: Turn = { reply: "", tools: [], suggestions: [] };
+  const context: SupportChatContext = { ...who.context, screen: parseBiaScreen(c.screen) };
+  let last: Turn = { reply: "", tools: [], suggestions: [], cards: [] };
   for (const text of c.turns) {
     history.push({ role: "user", content: text });
     const tools: string[] = [];
-    const result = await handleChat(history, who.context, {
+    const result = await handleChat(history, context, {
       onToolCall: (call: ToolCallTrace) => tools.push(call.name),
     });
     history.push({ role: "assistant", content: result.message });
-    last = { reply: result.message, tools, suggestions: result.suggestions };
+    last = { reply: result.message, tools, suggestions: result.suggestions, cards: result.cards };
   }
   return last;
 }
@@ -280,7 +304,7 @@ async function main(): Promise<void> {
         last = await runCase(c, identities[c.identity]);
         fails = check(c, last, identities[c.identity].secrets);
       } catch (err) {
-        last = { reply: "", tools: [], suggestions: [] };
+        last = { reply: "", tools: [], suggestions: [], cards: [] };
         fails = [`threw: ${(err as Error).message}`];
       }
       const secs = ((Date.now() - t0) / 1000).toFixed(1);

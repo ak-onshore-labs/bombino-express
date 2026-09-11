@@ -21,10 +21,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import { parseAssistantMessage, type SupportCta } from "@/lib/supportMessage";
+import { BiaCards } from "@/components/bia/BiaCards";
+import { parseBiaCards, type BiaCard } from "@shared/biaCards";
+import type { BiaScreen } from "@shared/biaScreen";
 import { useAppStore } from "@/lib/store";
 import { useGuestProfile } from "@/hooks/useGuestProfile";
 
-type ChatMessage = { role: "user" | "assistant"; content: string };
+/**
+ * One turn. `cards` ride along on BIA's replies for this conversation only;
+ * the server stores text, so a transcript restored from an account keeps its
+ * buttons (they are in the text) but not its cards.
+ */
+type ChatMessage = { role: "user" | "assistant"; content: string; cards?: BiaCard[] };
 
 /** Shown until the server's own chips arrive, and if they never do. */
 const DEFAULT_SUGGESTIONS = [
@@ -51,7 +59,8 @@ function parseSessionMessages(raw: unknown): ChatMessage[] {
     const m = item as Record<string, unknown>;
     if (m.role !== "user" && m.role !== "assistant") continue;
     if (typeof m.content !== "string") continue;
-    out.push({ role: m.role, content: m.content });
+    const cards = m.role === "assistant" ? parseBiaCards(m.cards) : [];
+    out.push(cards.length > 0 ? { role: m.role, content: m.content, cards } : { role: m.role, content: m.content });
   }
   return out;
 }
@@ -110,6 +119,15 @@ export default function Support() {
     const raw = new URLSearchParams(search).get("order")?.trim().toUpperCase() ?? "";
     return /^BOM-\d{6,9}$/.test(raw) ? raw : null;
   })();
+
+  /**
+   * Where this conversation was opened from, kept for all of it: an order
+   * page when we arrive with ?order=, otherwise the help screen. Sent with
+   * every turn; the server keeps only known values (shared/biaScreen.ts).
+   */
+  const openedFromRef = useRef<BiaScreen>(
+    orderParam ? { surface: "order", orderNo: orderParam } : { surface: "help" }
+  );
 
   const scrollToBottom = () => {
     scrollRef.current?.scrollTo({
@@ -214,13 +232,16 @@ export default function Support() {
     setQuickReplies([]);
     try {
       const res = await apiRequest("POST", "/api/support/chat", {
-        messages: nextMessages,
+        // Cards are ours to draw, not the model's to read: only text goes back.
+        messages: nextMessages.map(({ role, content }) => ({ role, content })),
         sessionId: isLoggedIn ? sessionId : null,
+        screen: openedFromRef.current,
       });
       const data = (await res.json()) as {
         message?: string;
         sessionId?: string | null;
         suggestions?: unknown;
+        cards?: unknown;
       };
       const text =
         typeof data?.message === "string"
@@ -229,9 +250,10 @@ export default function Support() {
       if (typeof data.sessionId === "string") {
         setSessionId(data.sessionId);
       }
+      const cards = parseBiaCards(data.cards);
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: text },
+        cards.length > 0 ? { role: "assistant", content: text, cards } : { role: "assistant", content: text },
       ]);
       setQuickReplies(isStringArray(data.suggestions) ? data.suggestions.slice(0, 3) : []);
     } catch (err) {
@@ -466,6 +488,16 @@ export default function Support() {
                 }
 
                 const parsed = parseAssistantMessage(msg.content);
+                const cards = msg.cards ?? [];
+                // A card already opens its order or shipment; no second button for it.
+                const carded = new Set(
+                  cards.flatMap((c) => (c.kind === "order" ? [c.orderNo, c.awb] : [])).filter(Boolean)
+                );
+                const ctas = parsed.ctas.filter(
+                  (c) =>
+                    !(c.kind === "view_order" && carded.has(c.orderNo)) &&
+                    !(c.kind === "track" && carded.has(c.awb))
+                );
                 return (
                   <div
                     key={i}
@@ -486,8 +518,9 @@ export default function Support() {
                           {parsed.text}
                         </p>
                       </div>
-                      {parsed.ctas.length > 0 && (
-                        <CtaButtons ctas={parsed.ctas} onNavigate={setLocation} />
+                      <BiaCards cards={cards} onNavigate={setLocation} />
+                      {ctas.length > 0 && (
+                        <CtaButtons ctas={ctas} onNavigate={setLocation} />
                       )}
                       {i === lastIndex && !loading && quickReplies.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 pt-1">

@@ -14,7 +14,8 @@
  *   - staff ids, phone numbers, cost breakdowns
  *
  * Output is plain text for the model plus `TAP_*` button tokens, which the
- * model is told to pass through and the route re-validates (`supportCta.ts`).
+ * model is told to pass through and the route re-validates (`supportCta.ts`),
+ * and cards for the client (`shared/biaCards.ts`), which the model never sees.
  */
 
 import { listRecentShipmentsByUserId } from "./appDb.js";
@@ -32,6 +33,12 @@ import {
 import { getCoverage } from "./pickupCoverageDb.js";
 import { lookupPostal } from "./postalLookup.js";
 import type { SupportChatContext, ToolOutcome } from "./supportTypes.js";
+import {
+  toneForCarrierStatus,
+  toneForOrderStatus,
+  type OrderCard,
+  type PickupCard,
+} from "../shared/biaCards.js";
 import { dropoffBranchesFor } from "../shared/branches.js";
 import { earliestPickupDate, todayInIst } from "../shared/istTime.js";
 import {
@@ -116,6 +123,17 @@ function formatCalendarDay(day: string | null | undefined): string {
   return d.toLocaleDateString("en-IN", { timeZone: "UTC", weekday: "short", day: "numeric", month: "short" });
 }
 
+/** A card's date: "3 Sep", or null rather than a dash. */
+function dayOrNull(iso: string | null | undefined): string | null {
+  const day = formatIstDay(iso);
+  return day === "—" ? null : day;
+}
+
+/** Where an order card goes: the order screen for an account, My shipments for a guest. */
+function orderHref(orderNo: string, owner: OrderOwner): string {
+  return owner.kind === "account" ? `/order/${orderNo}` : "/orders";
+}
+
 function text(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
@@ -163,6 +181,7 @@ interface ListItem {
   at: number;
   button: string | null;
   orderNo: string | null;
+  card: OrderCard;
 }
 
 export async function executeListMyOrders(context: SupportChatContext): Promise<ToolOutcome> {
@@ -189,6 +208,16 @@ export async function executeListMyOrders(context: SupportChatContext): Promise<
           at: new Date(o.updated_at ?? o.created_at).getTime() || 0,
           button: `TAP_VIEW_ORDER:${o.order_no}`,
           orderNo: o.order_no,
+          card: {
+            kind: "order",
+            orderNo: o.order_no,
+            awb: o.awb_no ?? null,
+            destination: destinationOf(o.consignee),
+            status: customerStatusForStatus(o.status),
+            tone: toneForOrderStatus(o.status, { overdue: pickupOverdue(o) }),
+            bookedOn: dayOrNull(o.created_at),
+            href: orderHref(o.order_no, owner),
+          },
         });
       }
       // Shipments booked before orders existed, or whose order is not theirs to
@@ -201,6 +230,16 @@ export async function executeListMyOrders(context: SupportChatContext): Promise<
           at: new Date(s.created_at).getTime() || 0,
           button: `TAP_TRACK:${s.awb_number}`,
           orderNo: null,
+          card: {
+            kind: "order",
+            orderNo: null,
+            awb: s.awb_number,
+            destination: to,
+            status: text(s.current_status) || "Booked",
+            tone: toneForCarrierStatus(text(s.current_status)),
+            bookedOn: dayOrNull(s.booking_date ?? s.created_at),
+            href: `/shipment/${s.awb_number}`,
+          },
         });
       }
     } else {
@@ -212,6 +251,16 @@ export async function executeListMyOrders(context: SupportChatContext): Promise<
           // A guest has no order screen; once there is an AWB, public tracking is theirs.
           button: o.awb_no ? `TAP_TRACK:${o.awb_no}` : null,
           orderNo: o.order_no,
+          card: {
+            kind: "order",
+            orderNo: o.order_no,
+            awb: o.awb_no,
+            destination: [o.city, o.country].filter(Boolean).join(", ") || o.destination || "—",
+            status: customerStatusForStatus(o.status),
+            tone: toneForOrderStatus(o.status),
+            bookedOn: dayOrNull(o.created_at),
+            href: orderHref(o.order_no, owner),
+          },
         });
       }
     }
@@ -237,6 +286,7 @@ export async function executeListMyOrders(context: SupportChatContext): Promise<
     return {
       content: `Most recently updated first:\n${lines.join("\n")}${more}${buttonsLine(buttons)}`,
       orderNos: shown.map((item) => item.orderNo).filter((n): n is string => !!n),
+      cards: shown.map((item) => item.card),
     };
   } catch {
     return { content: "Orders could not be loaded right now. Ask the user to try again in a moment." };
@@ -423,12 +473,12 @@ const AWAITING_COLLECTION: readonly OrderStatus[] = ["pickup_requested", "agent_
  * been collected. Seeded and slipped orders both do this; saying "pickup on
  * 18 Aug" in September would read as a promise.
  */
-function pickupOverdue(order: OrderWithAddress): boolean {
+function pickupOverdue(order: { pickup_request: number; pickup_date: string | null; status: string }): boolean {
   return (
     order.pickup_request === 1 &&
     !!order.pickup_date &&
     order.pickup_date < todayInIst() &&
-    AWAITING_COLLECTION.includes(order.status)
+    (AWAITING_COLLECTION as readonly string[]).includes(order.status)
   );
 }
 
@@ -506,7 +556,18 @@ async function describeOrder(order: OrderWithAddress, owner: OrderOwner): Promis
   if (isGuest) buttons.push("TAP_MY_ORDERS");
   if (!isGuest && cancellationState(order) !== "none") buttons.push("TAP_CANCELLATIONS");
 
-  return { content: `${lines.join("\n")}${buttonsLine(buttons)}`, orderNos: [order.order_no] };
+  const card: OrderCard = {
+    kind: "order",
+    orderNo: order.order_no,
+    awb: order.awb_no ?? null,
+    destination: destinationOf(order.consignee),
+    status: deriveCustomerStatus(order),
+    tone: toneForOrderStatus(order.status, { overdue }),
+    bookedOn: dayOrNull(order.created_at),
+    href: orderHref(order.order_no, owner),
+  };
+
+  return { content: `${lines.join("\n")}${buttonsLine(buttons)}`, orderNos: [order.order_no], cards: [card] };
 }
 
 export async function executeGetOrderStatus(
@@ -612,7 +673,18 @@ export async function executeCheckPickup(args: { pincode?: string }): Promise<To
       if (area.remark === "out_of_city") {
         lines.push("This pincode is outside the rider's normal round, so an extra charge may apply. It is settled when the parcel is weighed.");
       }
-      return { content: `${lines.join("\n")}${buttonsLine(["TAP_CREATE_SHIPMENT"])}` };
+      const card: PickupCard = {
+      kind: "pickup",
+        pincode,
+        place: [area.area, area.city].filter(Boolean).join(", ") || null,
+        available: true,
+        cutoff: formatCutoffHour(area.cutoffHour),
+        earliest: formatCalendarDay(earliest),
+        outOfCity: area.remark === "out_of_city",
+        counters: [],
+        state: null,
+      };
+      return { content: `${lines.join("\n")}${buttonsLine(["TAP_CREATE_SHIPMENT"])}`, cards: [card] };
     }
 
     const place = await lookupPostal("IN", pincode);
@@ -625,11 +697,23 @@ export async function executeCheckPickup(args: { pincode?: string }): Promise<To
             .map((b, i) => `${i + 1}. ${b.city}: ${b.address}`)
             .join("\n")}`
         : "They can drop the parcel at any Bombino counter; the Locations page lists them all.";
+    const card: PickupCard = {
+      kind: "pickup",
+      pincode,
+      place: place.found ? [place.city, place.state].filter(Boolean).join(", ") : null,
+      available: false,
+      cutoff: null,
+      earliest: null,
+      outOfCity: false,
+      counters: branches.slice(0, 3).map((b) => ({ city: b.city, address: b.address })),
+      state: place.found ? place.state : null,
+    };
     return {
       content: `Doorstep pickup is not available at ${pincode}${where} yet.\n${counters}${buttonsLine([
         locationsToken(place.found ? place.state : null),
         "TAP_CREATE_SHIPMENT",
       ])}`,
+      cards: [card],
     };
   } catch {
     return { content: "Pickup coverage could not be checked right now. The booking form checks it too, as soon as the pincode is entered." };

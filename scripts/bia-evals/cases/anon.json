@@ -4,11 +4,22 @@
     "ref": "#1",
     "module": "general",
     "identity": "anon",
-    "turns": ["Can you pick up from 400053?"],
+    "turns": [
+      "Can you pick up from 400053?"
+    ],
     "expect": {
-      "tools": ["check_pickup"],
-      "buttons": ["TAP_CREATE_SHIPMENT"],
-      "contains": ["7 PM"]
+      "tools": [
+        "check_pickup"
+      ],
+      "buttons": [
+        "TAP_CREATE_SHIPMENT"
+      ],
+      "contains": [
+        "7 PM"
+      ],
+      "cards": [
+        "pickup"
+      ]
     }
   },
   {
@@ -16,11 +27,22 @@
     "ref": "#2",
     "module": "general",
     "identity": "anon",
-    "turns": ["Is pickup available at 560001?"],
+    "turns": [
+      "Is pickup available at 560001?"
+    ],
     "expect": {
-      "tools": ["check_pickup"],
-      "buttons": ["TAP_LOCATIONS:Karnataka"],
-      "contains": ["re:not (yet )?available|isn.t available|don.t (yet )?(offer|cover)"]
+      "tools": [
+        "check_pickup"
+      ],
+      "buttons": [
+        "TAP_LOCATIONS:Karnataka"
+      ],
+      "contains": [
+        "re:not (yet )?available|isn.t available|don.t (yet )?(offer|cover)"
+      ],
+      "cards": [
+        "pickup"
+      ]
     }
   },
   {
@@ -28,11 +50,22 @@
     "ref": "#3",
     "module": "general",
     "identity": "anon",
-    "turns": ["Is pickup available at 401107?"],
+    "turns": [
+      "Is pickup available at 401107?"
+    ],
     "expect": {
-      "tools": ["check_pickup"],
-      "buttons": ["TAP_LOCATIONS:Maharashtra"],
-      "contains": ["re:not (yet )?available|isn.t available|don.t (yet )?(offer|cover)"]
+      "tools": [
+        "check_pickup"
+      ],
+      "buttons": [
+        "TAP_LOCATIONS:Maharashtra"
+      ],
+      "contains": [
+        "re:not (yet )?available|isn.t available|don.t (yet )?(offer|cover)"
+      ],
+      "cards": [
+        "pickup"
+      ]
     }
   },
   {
@@ -40,12 +73,26 @@
     "ref": "#4",
     "module": "general",
     "identity": "anon",
-    "turns": ["How much to send 2 kg to London?"],
+    "turns": [
+      "How much to send 2 kg to London?"
+    ],
     "expect": {
-      "tools": ["get_rates"],
-      "buttons": ["TAP_CREATE_SHIPMENT"],
-      "contains": ["₹", "re:estimate"],
-      "notContains": ["re:confirm the weight"]
+      "tools": [
+        "get_rates"
+      ],
+      "buttons": [
+        "TAP_CREATE_SHIPMENT"
+      ],
+      "contains": [
+        "₹",
+        "re:estimate"
+      ],
+      "notContains": [
+        "re:confirm the weight"
+      ],
+      "cards": [
+        "rate"
+      ]
     }
   },
   {
@@ -53,11 +100,19 @@
     "ref": "#5",
     "module": "general",
     "identity": "anon",
-    "turns": ["Why don't I have a tracking number yet?"],
+    "turns": [
+      "Why don't I have a tracking number yet?"
+    ],
     "expect": {
-      "toolsNot": ["get_order_status"],
-      "contains": ["re:weigh|hub"],
-      "notContains": ["re:please sign in|log in first"]
+      "toolsNot": [
+        "get_order_status"
+      ],
+      "contains": [
+        "re:weigh|hub"
+      ],
+      "notContains": [
+        "re:please sign in|log in first"
+      ]
     }
   },
   {
@@ -65,11 +120,20 @@
     "ref": "#6",
     "module": "orders",
     "identity": "anon",
-    "turns": ["Where is my order BOM-100001?"],
+    "turns": [
+      "Where is my order BOM-100001?"
+    ],
     "expect": {
-      "contains": ["re:sign(ed)? in|verify your phone"],
-      "buttonsNot": ["re:TAP_VIEW_ORDER"],
-      "notContains": ["re:arrived|picked up|awaiting drop-off|pickup confirmed"]
+      "contains": [
+        "re:sign(ed)? in|verify your phone"
+      ],
+      "buttonsNot": [
+        "re:TAP_VIEW_ORDER"
+      ],
+      "notContains": [
+        "re:arrived|picked up|awaiting drop-off|pickup confirmed"
+      ],
+      "noCards": true
     }
   },
   {
@@ -77,11 +141,18 @@
     "ref": "#7",
     "module": "general",
     "identity": "anon",
-    "turns": ["track 123456789012"],
+    "turns": [
+      "track 123456789012"
+    ],
     "expect": {
-      "tools": ["get_tracking_summary"],
-      "contains": ["re:couldn.t find|could not find|no (tracking|record)"],
-      "quickReplies": "none"
+      "tools": [
+        "get_tracking_summary"
+      ],
+      "contains": [
+        "re:couldn.t find|could not find|no (tracking|record)"
+      ],
+      "quickReplies": "none",
+      "noCards": true
     }
   },
   {
@@ -89,9 +160,16 @@
     "ref": "#8",
     "module": "general",
     "identity": "anon",
-    "turns": ["How do I pay?"],
+    "turns": [
+      "How do I pay?"
+    ],
     "expect": {
-      "contains": ["re:rider", "re:counter|drop.?off", "re:deliver", "re:estimate"]
+      "contains": [
+        "re:rider",
+        "re:counter|drop.?off",
+        "re:deliver",
+        "re:estimate"
+      ]
     }
   }
 ]
