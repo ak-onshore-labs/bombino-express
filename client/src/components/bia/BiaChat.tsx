@@ -13,6 +13,8 @@ import {
   Radar,
   XCircle,
   UserRound,
+  ThumbsUp,
+  ThumbsDown,
 } from "lucide-react";
 import { BiaBackground } from "@/components/ui/bia-background";
 import { BiaOrb } from "@/components/ui/bia-orb";
@@ -32,7 +34,14 @@ import { useGuestProfile } from "@/hooks/useGuestProfile";
  * the server stores text, so a transcript restored from an account keeps its
  * buttons (they are in the text) but not its cards.
  */
-type ChatMessage = { role: "user" | "assistant"; content: string; cards?: BiaCard[] };
+type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+  cards?: BiaCard[];
+  /** Names the reply for a thumbs up or down; absent on restored ones. */
+  turnId?: string;
+  rating?: 1 | -1;
+};
 
 /** Shown until the server's own chips arrive, and if they never do. */
 const DEFAULT_SUGGESTIONS = [
@@ -60,7 +69,13 @@ function parseSessionMessages(raw: unknown): ChatMessage[] {
     if (m.role !== "user" && m.role !== "assistant") continue;
     if (typeof m.content !== "string") continue;
     const cards = m.role === "assistant" ? parseBiaCards(m.cards) : [];
-    out.push(cards.length > 0 ? { role: m.role, content: m.content, cards } : { role: m.role, content: m.content });
+    const message: ChatMessage = { role: m.role, content: m.content };
+    if (cards.length > 0) message.cards = cards;
+    if (m.role === "assistant" && typeof m.turnId === "string" && /^[0-9a-f-]{36}$/i.test(m.turnId)) {
+      message.turnId = m.turnId;
+      if (m.rating === 1 || m.rating === -1) message.rating = m.rating;
+    }
+    out.push(message);
   }
   return out;
 }
@@ -260,6 +275,7 @@ export function BiaChat({
         sessionId?: string | null;
         suggestions?: unknown;
         cards?: unknown;
+        turnId?: unknown;
       };
       const text =
         typeof data?.message === "string"
@@ -271,7 +287,12 @@ export function BiaChat({
       const cards = parseBiaCards(data.cards);
       setMessages((prev) => [
         ...prev,
-        cards.length > 0 ? { role: "assistant", content: text, cards } : { role: "assistant", content: text },
+        {
+          role: "assistant",
+          content: text,
+          ...(cards.length > 0 ? { cards } : {}),
+          ...(typeof data.turnId === "string" ? { turnId: data.turnId } : {}),
+        },
       ]);
       setQuickReplies(isStringArray(data.suggestions) ? data.suggestions.slice(0, 3) : []);
     } catch (err) {
@@ -298,6 +319,13 @@ export function BiaChat({
     } finally {
       setLoading(false);
     }
+  };
+
+  // A thumb is kept on the message straight away; the server hears about it
+  // in the background, and a failure there changes nothing on screen.
+  const rate = (turnId: string, rating: 1 | -1) => {
+    setMessages((prev) => prev.map((m) => (m.turnId === turnId ? { ...m, rating } : m)));
+    void apiRequest("POST", "/api/support/feedback", { turnId, rating }).catch(() => undefined);
   };
 
   const sendUserText = (text: string) => {
@@ -561,6 +589,12 @@ export function BiaChat({
                       {ctas.length > 0 && (
                         <CtaButtons ctas={ctas} onNavigate={onNavigate} />
                       )}
+                      {msg.turnId && (
+                        <Thumbs
+                          rating={msg.rating}
+                          onRate={(rating) => msg.turnId && rate(msg.turnId, rating)}
+                        />
+                      )}
                       {i === lastIndex && !loading && quickReplies.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 pt-1">
                           {quickReplies.map((q) => (
@@ -811,6 +845,42 @@ function CtaButtons({
           </a>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Was this helpful? ──────────────────────────────────────────────────────
+
+function Thumbs({
+  rating,
+  onRate,
+}: {
+  rating?: 1 | -1;
+  onRate: (rating: 1 | -1) => void;
+}): React.JSX.Element {
+  const button = (value: 1 | -1, label: string, Icon: typeof ThumbsUp) => {
+    const chosen = rating === value;
+    return (
+      <button
+        type="button"
+        onClick={() => onRate(value)}
+        aria-label={label}
+        aria-pressed={chosen}
+        className={cn(
+          "rounded-md p-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FBAD1F]/60",
+          chosen ? "text-[#FBAD1F]" : "text-white/35 hover:text-white/70"
+        )}
+        data-testid={value === 1 ? "button-bia-helpful" : "button-bia-not-helpful"}
+      >
+        <Icon className="h-3.5 w-3.5" aria-hidden fill={chosen ? "currentColor" : "none"} />
+      </button>
+    );
+  };
+  return (
+    <div className="flex items-center gap-0.5 -ml-1">
+      {button(1, "Helpful", ThumbsUp)}
+      {button(-1, "Not helpful", ThumbsDown)}
+      {rating !== undefined && <span className="ml-1 text-[11px] text-white/40">Thanks for telling us</span>}
     </div>
   );
 }

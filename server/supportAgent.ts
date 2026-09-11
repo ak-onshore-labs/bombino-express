@@ -18,7 +18,7 @@ import { finalizeReply, tokensIn } from "./supportCta.js";
 import { ownerOf } from "./supportOrders.js";
 import { buildSystemPrompt } from "./supportPrompts.js";
 import { dispatchTool, enabledBiaModules, toolDefinitions, toolsForTurn } from "./supportTools.js";
-import type { ChatMessage, SupportChatContext, SupportChatResult } from "./supportTypes.js";
+import type { ChatMessage, SupportChatContext, SupportChatResult, SupportTurnMeta } from "./supportTypes.js";
 import { MAX_BIA_CARDS, type BiaCard } from "../shared/biaCards.js";
 import { explainError } from "../shared/errorCatalog.js";
 
@@ -78,12 +78,21 @@ export async function handleChat(
   context: SupportChatContext,
   options: HandleChatOptions = {}
 ): Promise<SupportChatResult> {
-  const client = getOpenAIClient();
-  if (!client) return { message: FALLBACK_CHAT, suggestions: [], cards: [] };
-
   // What this turn may use: the enabled modules that fit the screen, and the
   // order tools only for someone whose orders we can look up.
   const { modules, tools } = toolsForTurn(context.screen, enabledBiaModules(), !!ownerOf(context));
+
+  // What the turn log records. Filled in as the turn goes.
+  const meta: SupportTurnMeta = { modules: [...modules], tools: [], fallback: false, promptTokens: 0, completionTokens: 0 };
+  const fallback = (message: string = FALLBACK_CHAT): SupportChatResult => ({
+    message,
+    suggestions: [],
+    cards: [],
+    meta: { ...meta, fallback: true },
+  });
+
+  const client = getOpenAIClient();
+  if (!client) return fallback();
 
   let currentMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: buildSystemPrompt(context, modules) },
@@ -122,12 +131,14 @@ export async function handleChat(
         tool_choice: "auto",
       });
 
+      meta.promptTokens += response.usage?.prompt_tokens ?? 0;
+      meta.completionTokens += response.usage?.completion_tokens ?? 0;
       const message = response.choices?.[0]?.message;
-      if (!message) return { message: FALLBACK_CHAT, suggestions: [], cards: [] };
+      if (!message) return fallback();
 
       const toolCalls = message.tool_calls;
       if (!toolCalls || toolCalls.length === 0) {
-        if (typeof message.content !== "string") return { message: FALLBACK_CHAT, suggestions: [], cards: [] };
+        if (typeof message.content !== "string") return fallback();
         const final = await finalizeReply(message.content, {
           owner,
           ownedOrderNos,
@@ -144,6 +155,7 @@ export async function handleChat(
           // Nothing about "my orders" for someone we cannot look orders up for.
           suggestions: owner ? replies : replies.filter((r) => !/\bmy orders\b/i.test(r)),
           cards: foundNothing ? [] : turnCards.slice(0, MAX_BIA_CARDS),
+          meta: { ...meta, fallback: !final },
         };
       }
 
@@ -159,6 +171,7 @@ export async function handleChat(
       const outcomes = await Promise.all(
         toolCalls.map(async (tc) => {
           const name = tc.function?.name ?? "";
+          meta.tools.push(name);
           let args: unknown = {};
           try {
             args = JSON.parse(tc.function?.arguments ?? "{}");
@@ -188,17 +201,14 @@ export async function handleChat(
         lastResult && typeof lastResult.content === "string" ? tokensIn(lastResult.content) : [];
     }
 
-    return { message: FALLBACK_CHAT, suggestions: [], cards: [] };
+    return fallback();
   } catch (err) {
     const msg = (err as Error)?.message ?? "";
     if (msg.includes("429") || /quota|rate limit/i.test(msg)) {
-      return {
-        message:
-          "Our AI support is temporarily at capacity. Please try again in a few minutes or contact support from the app menu.",
-        suggestions: [],
-        cards: [],
-      };
+      return fallback(
+        "Our AI support is temporarily at capacity. Please try again in a few minutes or contact support from the app menu."
+      );
     }
-    return { message: FALLBACK_CHAT, suggestions: [], cards: [] };
+    return fallback();
   }
 }

@@ -11,6 +11,7 @@
  * ownership from that context.
  */
 
+import crypto from "node:crypto";
 import type { Express, Request, Response } from "express";
 import {
   createNewSupportSession,
@@ -24,6 +25,8 @@ import { refreshItdTokenIfNeeded } from "../itdTokenRefresh.js";
 import { ensureDbUser, requireUser } from "../routeGuards.js";
 import { parseBiaScreen, type BiaScreen } from "../../shared/biaScreen.js";
 import { handleChat } from "../supportAgent.js";
+import { maskSensitive } from "../supportPrivacy.js";
+import { rateTurn, recordTurn, type RatingOwner } from "../supportTelemetry.js";
 import { suggestionsFor } from "../supportOrders.js";
 import { supportChatRateLimit } from "../supportRateLimit.js";
 import {
@@ -105,9 +108,11 @@ export function registerSupportRoutes(app: Express): void {
       }
     }
 
+    // Identity numbers are masked to their last four before anything else sees
+    // them: the model, and the transcript we store (server/supportPrivacy.ts).
     const chatMessages: ChatMessage[] = messages.map((m: Record<string, unknown>) => ({
       role: m.role as "user" | "assistant",
-      content: String(m.content),
+      content: maskSensitive(String(m.content)),
     }));
 
     const dbUserId = req.session.dbUserId ?? null;
@@ -130,7 +135,9 @@ export function registerSupportRoutes(app: Express): void {
     const context = supportContextFor(req, activeSessionId, parseBiaScreen(body?.screen));
 
     try {
-      const { message, suggestions, cards } = await handleChat(chatMessages, context);
+      const startedAt = Date.now();
+      const { message, suggestions, cards, meta } = await handleChat(chatMessages, context);
+      const turnId = crypto.randomUUID();
       const stored: ChatMessage[] = [
         ...chatMessages,
         { role: "assistant" as const, content: message },
@@ -174,6 +181,26 @@ export function registerSupportRoutes(app: Express): void {
         sessionId: isLoggedIn ? activeSessionId : null,
         suggestions,
         cards,
+        turnId,
+      });
+
+      // After the reply is on its way: the customer never waits on the log.
+      void recordTurn({
+        id: turnId,
+        sessionId: activeSessionId,
+        ownerKind: isLoggedIn ? "account" : context.guestRef ? "guest" : "anon",
+        userId: isLoggedIn ? dbUserId : null,
+        guestRef: isLoggedIn ? null : context.guestRef,
+        surface: context.screen?.surface ?? null,
+        step: context.screen?.step ?? null,
+        errorCode: context.screen?.errorCode ?? null,
+        modules: meta.modules,
+        tools: meta.tools,
+        cardKinds: cards.map((c) => c.kind),
+        latencyMs: Date.now() - startedAt,
+        fallback: meta.fallback,
+        promptTokens: meta.promptTokens,
+        completionTokens: meta.completionTokens,
       });
     } catch {
       res.status(500).json({
@@ -182,6 +209,33 @@ export function registerSupportRoutes(app: Express): void {
       });
     }
   });
+
+  // POST /api/support/feedback — a thumbs up or down on one of the caller's own
+  // answers. Body: { turnId, rating: 1 | -1 }. 404 for a turn that isn't
+  // theirs, doesn't exist, or can't be recorded yet — alike, on purpose.
+  app.post(
+    "/api/support/feedback",
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      const body = req.body as { turnId?: unknown; rating?: unknown };
+      const turnId = typeof body?.turnId === "string" ? body.turnId.trim() : "";
+      const rating = body?.rating === 1 || body?.rating === -1 ? body.rating : null;
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(turnId) || rating === null) {
+        res.status(400).json({ message: "turnId and a rating of 1 or -1 are required" });
+        return;
+      }
+      const context = supportContextFor(req, null);
+      const owner: RatingOwner =
+        context.user && context.dbUserId
+          ? { kind: "account", userId: context.dbUserId }
+          : context.guestRef
+            ? { kind: "guest", guestRef: context.guestRef }
+            : { kind: "anon" };
+      const result = await rateTurn(turnId, rating, owner);
+      if (result === "ok") res.json({ ok: true });
+      else res.status(404).json({ message: "That answer could not be rated." });
+    }
+  );
 
   // GET /api/support/suggestions — starter chips for an empty chat, led by the
   // caller's own live orders. Anyone may call it; an anonymous caller gets the

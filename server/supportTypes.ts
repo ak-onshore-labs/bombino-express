@@ -26,6 +26,19 @@ export interface ChatResponse {
   suggestions?: string[];
   /** Structured cards for the turn just answered. Not stored with the transcript. */
   cards?: BiaCard[];
+  /** Names this answer for a thumbs up or down (POST /api/support/feedback). */
+  turnId?: string;
+}
+
+/** What a turn was, for the turn log (server/supportTelemetry.ts). No text. */
+export interface SupportTurnMeta {
+  modules: string[];
+  /** Tools called, in order, repeats included. */
+  tools: string[];
+  /** True when the reply is a canned one because BIA could not answer. */
+  fallback: boolean;
+  promptTokens: number;
+  completionTokens: number;
 }
 
 /** What handleChat hands back to the route. */
@@ -33,6 +46,7 @@ export interface SupportChatResult {
   message: string;
   suggestions: string[];
   cards: BiaCard[];
+  meta: SupportTurnMeta;
 }
 
 export interface SupportChatContext {
