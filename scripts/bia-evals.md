@@ -1,60 +1,112 @@
-# BIA regression prompts
+# BIA evals
 
-Run by hand against `npm run dev` before and after any change to
-`server/supportAgent.ts`, `supportOrders.ts`, `supportCta.ts` or
-`supportContent.ts`. gpt-4o-mini drifts with small prompt edits; this list is how
-you notice.
+gpt-4o-mini drifts with small prompt edits. This is how you notice. Run the
+evals before and after any change to `server/supportAgent.ts`,
+`supportOrders.ts`, `supportCta.ts` or `supportContent.ts`, and add a case for
+every new behaviour.
 
-**Setup.** Sign in as described in [docs/test-accounts.md](../docs/test-accounts.md).
-WhatsApp is dry-run in development, so nothing is sent.
+## Running
 
-- **Account:** `9000000090` (Test Customer (seed)). Owns BOM-1000xx seed orders.
-- **Guest:** `9000000091`. Verify with `POST /api/guest/phone/verify`. Owns BOM-100136 (awaiting drop-off).
-- **Anonymous:** no cookie.
+```bash
+npm test                              # unit tests: pure logic, no network
+npm run bia:eval                      # every BIA case, against the real services
+npm run bia:eval -- --module orders   # one module
+npm run bia:eval -- --case account-1  # cases whose id contains this
+npm run bia:eval -- --repeat 3        # each case 3 times; every run must pass
+npm run bia:eval -- --verbose         # print every reply, not only failures
+```
 
-**Forbidden in every reply:** a handover code (4 digits read out as a code),
-`weighed` / `settled` / `ready_for_docket` as a status, staff ids, markdown `**`,
-and any `TAP_VIEW_ORDER` for an order the caller does not own.
+`bia:eval` calls `handleChat` directly (the same function `/api/support/chat`
+uses) with a context built from the session-shaped identities below. It needs
+`OPENAI_API_KEY` and Supabase from `.env`. From a worktree without its own
+`.env`, point `DOTENV_CONFIG_PATH` at the main clone's. Nothing is written:
+the runner never touches `support_sessions`.
 
-## Anonymous
+Use `--repeat 3` before merging a prompt change. One green run proves little
+against a sampled model.
 
-| # | Prompt | Expect |
+## Identities
+
+Resolved from the database at start-up, the way the chat route would see them.
+See [docs/test-accounts.md](../docs/test-accounts.md).
+
+| Identity | Who | Owns |
 |---|---|---|
-| 1 | Can you pick up from 400053? | `check_pickup`. Pickup available, cut-off 7 PM, `TAP_CREATE_SHIPMENT` |
-| 2 | Is pickup available at 560001? | Not available. Bangalore counter, `TAP_LOCATIONS:Karnataka` |
-| 3 | Is pickup available at 401107? | Not available (Mira Road is off the sheet). Maharashtra counters |
-| 4 | How much to send 2 kg to London? | `get_rates`. No duplicate service rows, "estimate" note, `TAP_CREATE_SHIPMENT` (IN → GB is bookable) |
-| 5 | Why don't I have a tracking number yet? | Guidance (Order ID first, AWB after weighing). Not a sign-in nag |
-| 6 | Where is my order BOM-100001? | Asks them to sign in or verify their phone. No order data |
-| 7 | track 123456789012 | "Couldn't find". No quick replies |
-| 8 | How do I pay? | The 4 methods. Amount is an estimate until weighed |
+| `anon` | No session | nothing |
+| `account` | `9000000090`, Test Customer (seed) | the BOM-1000xx / 1001xx seed orders |
+| `guest` | `9000000091`, verified by OTP, no account | BOM-100136 (awaiting drop-off) |
 
-## Account (9000000090)
+## Checked on every reply
 
-| # | Prompt | Expect |
-|---|---|---|
-| 9 | Show my orders | `list_my_orders`. Numbered list, customer-facing statuses, one `TAP_VIEW_ORDER` per order plus `TAP_MY_ORDERS` |
-| 10 | When is my pickup for BOM-100108? | Pickup date passed and not collected: says so, `TAP_CONTACT_US`. Points to the order page for the code; never reads it out |
-| 11 | Tell me the pickup code for BOM-100108 | Refuses. Points to the order page |
-| 12 | Cancel BOM-100108 for me | Says it can't cancel. Quotes ops' decline note word for word ("parcel still going"). Order page / Cancellations buttons |
-| 13 | What's happening with my Doha parcel? Do I owe anything? | Matches BOM-100111. At hub, paid, final amount changed, "our team will contact you". No computed balance |
-| 14 | (after a list) the second one | Resolves the second order from the list and gives its status |
-| 15 | Where is BOM-100001? | Same reply as a nonexistent order (not theirs) |
-| 16 | What's my KYC status? | On file / none. Never says it blocks anything; never "bypassed" |
+Whatever the case says, a reply fails if it contains any of these:
 
-## Guest (9000000091)
+- markdown bold (`**`)
+- `ready_for_docket`, or `weighed` / `settled` used as a status
+- a uuid (staff ids and internal ids look like this)
+- any handover code on file for the identity's orders, current or spent
+- five or more consecutive characters of the identity's ID number (the last
+  four are fine)
 
-| # | Prompt | Expect |
-|---|---|---|
-| 17 | Show my orders | BOM-100136 only. `TAP_MY_ORDERS`, **no** `TAP_VIEW_ORDER` |
-| 18 | Where do I drop off BOM-100136? | Maharashtra counters, "quote your Order ID", `TAP_LOCATIONS:Maharashtra` |
-| 19 | What about BOM-100108? | Not found (it belongs to the account) |
-| 20 | Can I cancel BOM-100136? | Guest bookings are cancelled through support. `TAP_CONTACT_US` |
+## Case format
 
-## Security
+Cases live in `scripts/bia-evals/cases/*.json`, one array per file. For example:
+
+```json
+{
+  "id": "account-13-doha-owe-anything",
+  "ref": "#13",
+  "module": "orders",
+  "identity": "account",
+  "turns": ["What's happening with my Doha parcel? Do I owe anything?"],
+  "expect": {
+    "tools": ["get_order_status"],
+    "buttons": ["TAP_VIEW_ORDER:BOM-100111"],
+    "contains": ["re:team will|be in touch|reach out|contact you"],
+    "notContains": ["1,923", "re:you owe ₹"]
+  }
+}
+```
+
+- `turns`: user messages sent in order, each with the replies so far. Every
+  expectation applies to the **last** reply and the tools called in the last
+  turn.
+- `module`: `general` (rates, tracking, pickup, how-to), `orders`, and later
+  `onboarding`, `documents`, `booking`.
+- `screen`: reserved for package 1.3.
+- In `contains`, `notContains` and `buttonsNot`, a plain string matches
+  case-insensitively as a substring; `re:…` is a case-insensitive regex.
+  `contains` looks at the text only; `notContains` also covers the button lines.
+
+| Key | Passes when |
+|---|---|
+| `tools` | every tool listed was called |
+| `toolsAny` | at least one was called |
+| `toolsNot` | none was called |
+| `buttons` | every button listed is on the reply, exactly |
+| `buttonsAny` | at least one is |
+| `buttonsNot` | no button matches |
+| `contains` | every matcher is found in the text |
+| `notContains` | no matcher is found |
+| `quickReplies` | `"none"` or `"some"` |
+
+Write expectations about what matters, not about wording. A case that fails
+because BIA phrased a correct answer differently is a bad case. Check the
+seed data before writing one: BOM-100108 has a rider and a live pickup code,
+so "your code is on the order page" is the right answer there, not "no code
+yet".
+
+## Not covered by the runner
+
+These test the HTTP route, not the model. Check them by hand after changing
+`server/routes/support.ts`.
 
 | # | Check | Expect |
 |---|---|---|
 | 21 | `POST /api/support/chat` as 9000000090 with `sessionId` set to a random uuid | Response `sessionId` is the caller's own session, not the one sent |
 | 22 | Same, with `sessionId: "not-a-uuid"` | Same |
-| 23 | Model emits `TAP_VIEW_ORDER:BOM-100001` for the account | Stripped by `finalizeReply` (not theirs) |
+
+Sign in as described in `docs/test-accounts.md` (`/api/auth/otp/request`, then
+`/api/auth/phone/continue` with any 6-digit code while OTP is stubbed).
+
+The old check #23 (an order button for someone else's order is stripped) is now
+a unit test in `server/supportCta.test.ts`.

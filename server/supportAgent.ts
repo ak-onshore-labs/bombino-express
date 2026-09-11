@@ -684,9 +684,25 @@ const QUICK_REPLIES: Partial<Record<string, string[]>> = {
   get_shipment_guidance: ["Show my orders", "Get a rate"],
 };
 
+/** A tool call as the model made it, reported to `HandleChatOptions.onToolCall`. */
+export interface ToolCallTrace {
+  name: string;
+  args: unknown;
+}
+
+export interface HandleChatOptions {
+  /**
+   * Told about every tool call, in the order they run. The eval runner
+   * (scripts/bia-eval.ts) uses it to check which tools a prompt reached; the
+   * chat route passes nothing. It must not throw — an error here is swallowed.
+   */
+  onToolCall?: (call: ToolCallTrace) => void;
+}
+
 export async function handleChat(
   messages: ChatMessage[],
-  context: SupportChatContext
+  context: SupportChatContext,
+  options: HandleChatOptions = {}
 ): Promise<SupportChatResult> {
   const client = getOpenAIClient();
   if (!client) return { message: FALLBACK_CHAT, suggestions: [] };
@@ -755,6 +771,11 @@ export async function handleChat(
             args = JSON.parse(tc.function?.arguments ?? "{}");
           } catch {
             args = {};
+          }
+          try {
+            options.onToolCall?.({ name, args });
+          } catch {
+            /* a tracer never breaks a reply */
           }
           const outcome = await dispatchTool(name, args, context);
           for (const orderNo of outcome.orderNos ?? []) ownedOrderNos.add(orderNo);
