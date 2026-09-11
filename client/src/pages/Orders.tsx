@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useLocation } from 'wouter';
+import { useLocation, useSearch } from 'wouter';
 import { Package, Copy, Send, Search, ArrowRight, Download } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
 import { Header } from '@/components/Header';
@@ -264,7 +264,11 @@ export default function Orders() {
   });
   const isGuest = !isLoggedIn && !!guestProfile;
   const { toast } = useToast();
-  const [tab, setTab] = useState<OrdersTab>('shipments');
+  // `?tab=cancellations` opens straight onto that tab — BIA links here.
+  const search = useSearch();
+  const [tab, setTab] = useState<OrdersTab>(() =>
+    new URLSearchParams(search).get('tab') === 'cancellations' ? 'cancellations' : 'shipments',
+  );
 
   const [trackingInput, setTrackingInput] = useState('');
   const [csvOverlayData, setCsvOverlayData] = useState<string | null>(null);

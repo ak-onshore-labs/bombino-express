@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Link } from "wouter";
+import { Link, useRoute } from "wouter";
 import { Sparkles } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 
@@ -148,6 +148,13 @@ export function SupportFab() {
 
   const isMobile = useIsMobile();
 
+  // On an order screen, BIA opens already asking about that order.
+  const [onOrder, orderParams] = useRoute<{ orderNo: string }>("/order/:orderNo");
+  const helpHref =
+    onOrder && orderParams?.orderNo
+      ? `/help?order=${encodeURIComponent(orderParams.orderNo)}`
+      : "/help";
+
   const isPositioned = position !== null;
 
   // Default mode: only bottom, let .fab-wrapper provide left: 50%
@@ -187,7 +194,7 @@ export function SupportFab() {
     >
       <div className="fab-aura" aria-hidden />
       <Link
-        href="/help"
+        href={helpHref}
         className={`fab-button ${isDragging ? "fab-dragging" : ""}`}
         aria-label="Open Support Assistant"
         data-testid="fab-support"

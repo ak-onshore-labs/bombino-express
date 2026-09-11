@@ -27,6 +27,7 @@ import {
   Package,
   Phone,
   RefreshCw,
+  Sparkles,
   Truck,
   User,
   Wallet,
@@ -962,6 +963,26 @@ export default function OrderDetails() {
             </p>
           </div>
         )}
+
+        {/* ─── Ask BIA ─────────────────────────────────────────────────── */}
+        {/* Opens the assistant already asking about this order, so the
+            customer does not have to retype the number to get an answer. */}
+        <Link
+          href={`/help?order=${encodeURIComponent(order.order_no)}`}
+          className="mt-8 mb-16 md:mb-0 flex items-center gap-3 rounded-xl border border-border p-4 hover:bg-muted/50 transition-colors"
+          data-testid="link-ask-bia"
+        >
+          <Sparkles className="w-5 h-5 shrink-0 text-[#F2A123]" aria-hidden />
+          <span className="flex-1 min-w-0">
+            <span className="block text-sm font-semibold text-foreground">
+              Questions about this order?
+            </span>
+            <span className="block text-xs text-muted-foreground">
+              Ask BIA what happens next, about payment, or pickup.
+            </span>
+          </span>
+          <ArrowRight className="w-4 h-4 shrink-0 text-muted-foreground" aria-hidden />
+        </Link>
       </div>
 
       <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>

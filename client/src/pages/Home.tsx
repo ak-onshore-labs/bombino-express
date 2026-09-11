@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useLocation, Link } from 'wouter';
-import { Search, ArrowRight, BadgeDollarSign, Send, Phone, Bell, ChevronRight } from 'lucide-react';
+import { Search, ArrowRight, BadgeDollarSign, Send, Phone, Bell, ChevronRight, Sparkles } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { BottomNav } from '@/components/BottomNav';
 import { SideMenu } from '@/components/SideMenu';
@@ -277,6 +277,14 @@ function HomeMobile() {
                 <Phone className="w-4 h-4 text-muted-foreground" />
                 Call Us
               </a>
+              <Link
+                href="/help"
+                className="flex-1 flex items-center justify-center gap-2 h-11 rounded-xl bg-white border border-border text-foreground text-sm font-medium shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:border-primary/20 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] active:scale-[0.98] transition-all"
+                data-testid="button-bia-home"
+              >
+                <Sparkles className="w-4 h-4 text-[#F2A123]" />
+                Ask BIA
+              </Link>
             </div>
 
             <WhyBombinoSection />

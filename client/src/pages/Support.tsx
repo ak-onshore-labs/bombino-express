@@ -5,27 +5,43 @@ import {
   Loader2,
   Plus,
   Phone,
+  Package,
+  ChevronRight,
+  MapPin,
+  ListOrdered,
+  Radar,
+  XCircle,
+  UserRound,
 } from "lucide-react";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { BiaBackground } from "@/components/ui/bia-background";
 import { BiaOrb } from "@/components/ui/bia-orb";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
-import { parseAssistantMessage } from "@/lib/supportMessage";
+import { parseAssistantMessage, type SupportCta } from "@/lib/supportMessage";
 import { useAppStore } from "@/lib/store";
+import { useGuestProfile } from "@/hooks/useGuestProfile";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
-const SUGGESTIONS = [
-  "Track my shipment 📦",
-  "Get shipping rates ✈️",
-  "Help with my order 🙋",
+/** Shown until the server's own chips arrive, and if they never do. */
+const DEFAULT_SUGGESTIONS = [
+  "Show my orders",
+  "Get shipping rates",
+  "Is pickup available at my pincode?",
 ] as const;
 
 const GENERIC_ERROR =
   "Something went wrong. Please try again or contact support from the app menu.";
+
+/**
+ * Where a conversation survives a reload when there is no account to keep it
+ * on the server. Per tab, on purpose: a guest's chat is about their orders, and
+ * a shared device should not hand it to whoever opens the app next.
+ */
+const LOCAL_HISTORY_KEY = "bia-chat";
 
 function parseSessionMessages(raw: unknown): ChatMessage[] {
   if (!Array.isArray(raw)) return [];
@@ -40,21 +56,60 @@ function parseSessionMessages(raw: unknown): ChatMessage[] {
   return out;
 }
 
+function readLocalHistory(): ChatMessage[] {
+  try {
+    const raw = window.sessionStorage.getItem(LOCAL_HISTORY_KEY);
+    return raw ? parseSessionMessages(JSON.parse(raw)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalHistory(messages: ChatMessage[]): void {
+  try {
+    if (messages.length === 0) {
+      window.sessionStorage.removeItem(LOCAL_HISTORY_KEY);
+    } else {
+      window.sessionStorage.setItem(LOCAL_HISTORY_KEY, JSON.stringify(messages));
+    }
+  } catch {
+    /* storage blocked — the chat still works, it just won't survive a reload */
+  }
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((v) => typeof v === "string");
+}
+
 export default function Support() {
   const [, setLocation] = useLocation();
+  const search = useSearch();
   const isLoggedIn = useAppStore((s) => s.isLoggedIn);
   const logout = useAppStore((s) => s.logout);
+  const { data: guestProfile } = useGuestProfile({ enabled: !isLoggedIn });
+  const isGuest = !isLoggedIn && !!guestProfile;
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [restoredNotice, setRestoredNotice] = useState(false);
+  const [restoreDone, setRestoreDone] = useState(false);
+  const [starterChips, setStarterChips] = useState<string[]>([...DEFAULT_SUGGESTIONS]);
+  const [quickReplies, setQuickReplies] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastSentMessagesRef = useRef<ChatMessage[]>([]);
+  const orderPromptSentRef = useRef(false);
   const sessionRedirectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
+
+  /** `/help?order=BOM-…` — opened from an order screen, about that order. */
+  const orderParam = (() => {
+    const raw = new URLSearchParams(search).get("order")?.trim().toUpperCase() ?? "";
+    return /^BOM-\d{6,9}$/.test(raw) ? raw : null;
+  })();
 
   const scrollToBottom = () => {
     scrollRef.current?.scrollTo({
@@ -76,9 +131,18 @@ export default function Support() {
     };
   }, []);
 
+  // Without an account the transcript lives in this tab only.
+  useEffect(() => {
+    if (isLoggedIn || !restoreDone) return;
+    writeLocalHistory(messages);
+  }, [messages, isLoggedIn, restoreDone]);
+
   useEffect(() => {
     if (!isLoggedIn) {
       setSessionId(null);
+      const local = readLocalHistory();
+      if (local.length > 0) setMessages(local);
+      setRestoreDone(true);
       return;
     }
 
@@ -109,6 +173,8 @@ export default function Support() {
         }
       } catch {
         /* ignore restore errors */
+      } finally {
+        if (!cancelled) setRestoreDone(true);
       }
     })();
 
@@ -116,6 +182,26 @@ export default function Support() {
       cancelled = true;
     };
   }, [isLoggedIn]);
+
+  // Starter chips, led by the caller's own live orders.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/support/suggestions", { credentials: "include" });
+        if (!res.ok) return;
+        const data = (await res.json()) as { chips?: unknown };
+        if (!cancelled && isStringArray(data.chips) && data.chips.length > 0) {
+          setStarterChips(data.chips.slice(0, 4));
+        }
+      } catch {
+        /* keep the defaults */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoggedIn, isGuest]);
 
   const sendMessages = async (nextMessages: ChatMessage[]) => {
     lastSentMessagesRef.current = nextMessages;
@@ -125,6 +211,7 @@ export default function Support() {
     }
     setLoading(true);
     setError(null);
+    setQuickReplies([]);
     try {
       const res = await apiRequest("POST", "/api/support/chat", {
         messages: nextMessages,
@@ -133,6 +220,7 @@ export default function Support() {
       const data = (await res.json()) as {
         message?: string;
         sessionId?: string | null;
+        suggestions?: unknown;
       };
       const text =
         typeof data?.message === "string"
@@ -145,6 +233,7 @@ export default function Support() {
         ...prev,
         { role: "assistant", content: text },
       ]);
+      setQuickReplies(isStringArray(data.suggestions) ? data.suggestions.slice(0, 3) : []);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const lower = msg.toLowerCase();
@@ -179,9 +268,24 @@ export default function Support() {
     void sendMessages(nextMessages);
   };
 
+  // Opened from an order: ask about it once, after any history has loaded, and
+  // drop the parameter so a reload does not ask again.
+  useEffect(() => {
+    if (!restoreDone || !orderParam || orderPromptSentRef.current || loading) return;
+    orderPromptSentRef.current = true;
+    setLocation("/help", { replace: true });
+    sendUserText(`What's the latest on my order ${orderParam}?`);
+  }, [restoreDone, orderParam, loading]);
+
   const handleNewChat = async () => {
-    if (!isLoggedIn || loading) return;
+    if (loading) return;
     setError(null);
+    setQuickReplies([]);
+    if (!isLoggedIn) {
+      setMessages([]);
+      setInput("");
+      return;
+    }
     try {
       const res = await apiRequest("POST", "/api/support/new-session", {});
       const data = (await res.json()) as { sessionId?: string };
@@ -210,6 +314,7 @@ export default function Support() {
   };
 
   const isEmpty = messages.length === 0 && !loading;
+  const lastIndex = messages.length - 1;
 
   return (
     <div
@@ -247,10 +352,10 @@ export default function Support() {
               Bombino Intelligence Assistant
             </p>
             <p className="text-xs text-white/50">
-              Tracking, rates, and shipping help
+              Your orders, pickups, rates and tracking
             </p>
           </div>
-          {isLoggedIn && (
+          {messages.length > 0 && (
             <Button
               type="button"
               variant="ghost"
@@ -295,11 +400,11 @@ export default function Support() {
                   Bombino Intelligence Assistant
                 </p>
                 <p className="text-sm text-white/60 max-w-[260px] leading-relaxed mb-10">
-                  Track shipments, get rates, or resolve shipping questions faster.
+                  Where your order is, what happens next, pickup at your pincode, rates and tracking.
                 </p>
               </div>
               <div className="flex flex-wrap justify-center gap-2 mt-4 mb-6 px-2">
-                {SUGGESTIONS.map((s) => (
+                {starterChips.map((s) => (
                   <button
                     key={s}
                     type="button"
@@ -311,7 +416,7 @@ export default function Support() {
                   </button>
                 ))}
               </div>
-              {!isLoggedIn && (
+              {!isLoggedIn && !isGuest && (
                 <div
                   className="mx-4 mb-4 rounded-xl p-3 flex items-center justify-between gap-3"
                   style={{
@@ -320,7 +425,7 @@ export default function Support() {
                   }}
                 >
                   <p className="text-xs text-white/60">
-                    Log in for personalised support and shipment tracking
+                    Log in to ask about your own orders
                   </p>
                   <button
                     type="button"
@@ -342,7 +447,7 @@ export default function Support() {
                       key={i}
                       className={cn(
                         "flex justify-end",
-                        i === messages.length - 1 && "animate-bia-message-in"
+                        i === lastIndex && "animate-bia-message-in"
                       )}
                     >
                       <div
@@ -366,7 +471,7 @@ export default function Support() {
                     key={i}
                     className={cn(
                       "flex justify-start",
-                      i === messages.length - 1 && "animate-bia-message-in"
+                      i === lastIndex && "animate-bia-message-in"
                     )}
                   >
                     <div className="flex flex-col gap-2 max-w-[85%]">
@@ -381,43 +486,21 @@ export default function Support() {
                           {parsed.text}
                         </p>
                       </div>
-                      {parsed.cta === "create_shipment" &&
-                        (isLoggedIn ? (
-                          <button
-                            type="button"
-                            onClick={() => setLocation("/create")}
-                            className="w-full rounded-xl py-3 px-4 text-sm font-semibold text-white flex items-center justify-center gap-2"
-                            style={{ background: "#14567C" }}
-                          >
-                            🚀 Create Shipment Now
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => setLocation("/login")}
-                            className="w-full rounded-xl py-2 px-4 text-sm text-white/70 underline text-center"
-                          >
-                            Log in to create a shipment
-                          </button>
-                        ))}
-                      {parsed.cta === "contact_us" && (
-                        <div className="flex gap-2">
-                          <a
-                            href="https://api.whatsapp.com/send?phone=917045999553"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex-1 flex items-center justify-center gap-2 rounded-xl py-2 px-3 text-sm font-medium text-white"
-                            style={{ background: "#25D366" }}
-                          >
-                            WhatsApp Us
-                          </a>
-                          <a
-                            href="tel:+912266400000"
-                            className="flex-1 flex items-center justify-center gap-2 rounded-xl py-2 px-3 text-sm font-medium border border-amber-400/40 text-amber-100/90 bg-amber-500/10"
-                          >
-                            <Phone className="w-3.5 h-3.5 shrink-0" aria-hidden />
-                            Call Us
-                          </a>
+                      {parsed.ctas.length > 0 && (
+                        <CtaButtons ctas={parsed.ctas} onNavigate={setLocation} />
+                      )}
+                      {i === lastIndex && !loading && quickReplies.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {quickReplies.map((q) => (
+                            <button
+                              key={q}
+                              type="button"
+                              onClick={() => sendUserText(q)}
+                              className="rounded-full border border-white/15 px-3 py-1.5 text-xs text-white/70 bg-white/[0.03] hover:bg-white/[0.08] transition-colors"
+                            >
+                              {q}
+                            </button>
+                          ))}
                         </div>
                       )}
                     </div>
@@ -529,6 +612,133 @@ export default function Support() {
           BIA may make mistakes. Please verify important shipment details.
         </p>
       </div>
+    </div>
+  );
+}
+
+// ── Buttons under a reply ──────────────────────────────────────────────────
+
+const PILL =
+  "inline-flex items-center gap-1.5 rounded-xl py-2 px-3 text-xs font-medium border border-white/15 text-white/85 bg-white/[0.05] hover:bg-white/[0.1] transition-colors";
+
+function CtaButtons({
+  ctas,
+  onNavigate,
+}: {
+  ctas: SupportCta[];
+  onNavigate: (to: string) => void;
+}): React.JSX.Element {
+  const orders = ctas.filter((c): c is Extract<SupportCta, { kind: "view_order" }> => c.kind === "view_order");
+  const create = ctas.some((c) => c.kind === "create_shipment");
+  const contact = ctas.some((c) => c.kind === "contact_us");
+  const others = ctas.filter(
+    (c) => c.kind !== "view_order" && c.kind !== "create_shipment" && c.kind !== "contact_us"
+  );
+
+  return (
+    <div className="flex flex-col gap-2">
+      {orders.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          {orders.map((o) => (
+            <button
+              key={o.orderNo}
+              type="button"
+              onClick={() => onNavigate(`/order/${encodeURIComponent(o.orderNo)}`)}
+              className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left border border-[#FBAD1F]/25 bg-[#FBAD1F]/[0.06] hover:bg-[#FBAD1F]/[0.12] transition-colors"
+            >
+              <Package className="w-4 h-4 shrink-0 text-[#FBAD1F]" aria-hidden />
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm font-semibold text-white tabular-nums">{o.orderNo}</span>
+                <span className="block text-[11px] text-white/50">Open order</span>
+              </span>
+              <ChevronRight className="w-4 h-4 shrink-0 text-white/40" aria-hidden />
+            </button>
+          ))}
+        </div>
+      )}
+
+      {others.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {others.map((c) => {
+            switch (c.kind) {
+              case "track":
+                return (
+                  <button key={`track-${c.awb}`} type="button" className={PILL} onClick={() => onNavigate(`/shipment/${encodeURIComponent(c.awb)}`)}>
+                    <Radar className="w-3.5 h-3.5" aria-hidden />
+                    Track {c.awb}
+                  </button>
+                );
+              case "locations":
+                return (
+                  <button
+                    key={`loc-${c.state ?? ""}`}
+                    type="button"
+                    className={PILL}
+                    onClick={() => onNavigate(c.state ? `/locations?near=${encodeURIComponent(c.state)}` : "/locations")}
+                  >
+                    <MapPin className="w-3.5 h-3.5" aria-hidden />
+                    Drop-off counters
+                  </button>
+                );
+              case "my_orders":
+                return (
+                  <button key="my-orders" type="button" className={PILL} onClick={() => onNavigate("/orders")}>
+                    <ListOrdered className="w-3.5 h-3.5" aria-hidden />
+                    My shipments
+                  </button>
+                );
+              case "cancellations":
+                return (
+                  <button key="cancellations" type="button" className={PILL} onClick={() => onNavigate("/orders?tab=cancellations")}>
+                    <XCircle className="w-3.5 h-3.5" aria-hidden />
+                    Cancellations
+                  </button>
+                );
+              case "guest_profile":
+                return (
+                  <button key="guest-profile" type="button" className={PILL} onClick={() => onNavigate("/guest-profile")}>
+                    <UserRound className="w-3.5 h-3.5" aria-hidden />
+                    My profile
+                  </button>
+                );
+              default:
+                return null;
+            }
+          })}
+        </div>
+      )}
+
+      {create && (
+        <button
+          type="button"
+          onClick={() => onNavigate("/create")}
+          className="w-full rounded-xl py-3 px-4 text-sm font-semibold text-white flex items-center justify-center gap-2"
+          style={{ background: "#14567C" }}
+        >
+          🚀 Book a shipment
+        </button>
+      )}
+
+      {contact && (
+        <div className="flex gap-2">
+          <a
+            href="https://api.whatsapp.com/send?phone=917045999553"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex-1 flex items-center justify-center gap-2 rounded-xl py-2 px-3 text-sm font-medium text-white"
+            style={{ background: "#25D366" }}
+          >
+            WhatsApp Us
+          </a>
+          <a
+            href="tel:+912266400000"
+            className="flex-1 flex items-center justify-center gap-2 rounded-xl py-2 px-3 text-sm font-medium border border-amber-400/40 text-amber-100/90 bg-amber-500/10"
+          >
+            <Phone className="w-3.5 h-3.5 shrink-0" aria-hidden />
+            Call Us
+          </a>
+        </div>
+      )}
     </div>
   );
 }
