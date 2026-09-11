@@ -32,7 +32,7 @@ import {
 } from "./ordersDb.js";
 import { getCoverage } from "./pickupCoverageDb.js";
 import { lookupPostal } from "./postalLookup.js";
-import type { SupportChatContext, ToolOutcome } from "./supportTypes.js";
+import type { BiaTool, SupportChatContext, ToolOutcome } from "./supportTypes.js";
 import {
   toneForCarrierStatus,
   toneForOrderStatus,
@@ -511,6 +511,9 @@ async function describeOrder(order: OrderWithAddress, owner: OrderOwner): Promis
       : [];
 
   const lines: string[] = [
+    // The lines below are for follow-up questions. Read out whole, they made
+    // a wall of fields where the customer asked one thing.
+    "Important: answer in two to four sentences: the status and what happens next. Use the other lines only for what they asked, or for something that needs their attention. Never list the fields.",
     `Order ${order.order_no}`,
     `Status: ${deriveCustomerStatus(order)}`,
     `Last update: ${lastUpdate}`,
@@ -536,7 +539,7 @@ async function describeOrder(order: OrderWithAddress, owner: OrderOwner): Promis
   const guestCancelsViaSupport = isGuest && !isTerminalOrderStatus(order.status);
   if (guestCancelsViaSupport) {
     lines.push(
-      "Important: if the user wants to cancel, say our support team cancels guest bookings and include TAP_CONTACT_US."
+      "Important: only if the user asks to cancel, say our support team cancels guest bookings and include TAP_CONTACT_US. Otherwise don't bring up cancelling."
     );
   }
   if (riderName) lines.push(`Rider: ${riderName}`);
@@ -772,3 +775,42 @@ function chipFor(orderNo: string, status: string): string {
       return `Where is ${orderNo}?`;
   }
 }
+
+// ─── Registration ────────────────────────────────────────────────────────────
+
+export const ORDER_TOOLS: readonly BiaTool[] = [
+  {
+    module: "orders",
+    definition: {
+      type: "function",
+      function: {
+        name: "list_my_orders",
+        description:
+          "List the user's most recent orders and shipments with their current status. Use when they ask about their orders without giving an Order ID or AWB.",
+        parameters: { type: "object", properties: {} },
+      },
+    },
+    run: (_args, context) => executeListMyOrders(context),
+    // The 2.0 name, in case a model replays a transcript that used it.
+    aliases: ["get_user_shipments"],
+  },
+  {
+    module: "orders",
+    definition: {
+      type: "function",
+      function: {
+        name: "get_order_status",
+        description:
+          "Full status of one of the user's orders by Order ID (BOM-...): current status, last update, pickup or drop-off, payment, tracking number and what happens next.",
+        parameters: {
+          type: "object",
+          properties: {
+            order_no: { type: "string", description: "Order ID, e.g. BOM-100231" },
+          },
+          required: ["order_no"],
+        },
+      },
+    },
+    run: (args, context) => executeGetOrderStatus({ order_no: args.order_no == null ? "" : String(args.order_no) }, context),
+  },
+];

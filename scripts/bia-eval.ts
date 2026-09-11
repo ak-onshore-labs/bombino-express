@@ -15,12 +15,21 @@
  *   npm run bia:eval -- --case account-13 cases whose id contains this
  *   npm run bia:eval -- --repeat 3        each case 3 times; all runs must pass
  *   npm run bia:eval -- --verbose         print every reply, not just failures
+ *   npm run bia:eval -- --modules orders  only these modules on (default: all of
+ *                                         them, so dark modules are tested too;
+ *                                         `orders` is what customers get today)
  *
  * Exit code 1 when any case fails. The case format is documented in
  * scripts/bia-evals.md.
  */
 
 import "dotenv/config";
+
+// Which modules are on for this run. Set before anything reads it; the
+// default is every module, so work that ships dark is evaluated as well.
+const modulesArg = process.argv.indexOf("--modules");
+process.env.BIA_MODULES =
+  modulesArg > -1 ? (process.argv[modulesArg + 1] ?? "") : "orders,onboarding,documents,booking";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,6 +41,8 @@ import { getLatestGuestRefForPhone } from "../server/guestProfileDb.js";
 import { getKycByGuestRef, getKycByUserId } from "../server/kycDb.js";
 import type { BiaCard } from "../shared/biaCards.js";
 import { parseBiaScreen } from "../shared/biaScreen.js";
+import { buildSystemPrompt } from "../server/supportPrompts.js";
+import { enabledBiaModules, toolsForTurn } from "../server/supportTools.js";
 
 // ─── Case format ─────────────────────────────────────────────────────────────
 
@@ -64,6 +75,8 @@ interface EvalCase {
     contains?: Matcher[];
     notContains?: Matcher[];
     quickReplies?: "none" | "some";
+    /** The reply text (without buttons) is at most this long. */
+    maxChars?: number;
     /** Card kinds that must be under the reply. */
     cards?: string[];
     /** No cards at all. */
@@ -207,6 +220,9 @@ function check(c: EvalCase, last: Turn, secrets: string[]): string[] {
 
   if (e.quickReplies === "none" && last.suggestions.length > 0) fails.push("expected no quick replies");
   if (e.quickReplies === "some" && last.suggestions.length === 0) fails.push("expected quick replies");
+  if (e.maxChars !== undefined && body.trim().length > e.maxChars) {
+    fails.push(`reply is ${body.trim().length} characters; at most ${e.maxChars} expected`);
+  }
 
   const kinds: string[] = last.cards.map((card) => card.kind);
   for (const k of e.cards ?? []) {
@@ -288,7 +304,13 @@ async function main(): Promise<void> {
   }
 
   const identities = await resolveIdentities();
-  console.log(`BIA evals: ${cases.length} case(s) × ${repeat} run(s)\n`);
+  const modules = enabledBiaModules();
+  const helpTurn = toolsForTurn({ surface: "help" }, modules, false);
+  const promptChars = buildSystemPrompt(identities.anon.context, helpTurn.modules).length;
+  console.log(
+    `BIA evals: ${cases.length} case(s) × ${repeat} run(s) · modules: ${modules.join(", ") || "none"} · ` +
+      `prompt ${promptChars} chars, ${helpTurn.tools.length} tools (signed out, /help)\n`
+  );
 
   const results = new Map<string, { passed: number; lines: string[] }>();
   const started = Date.now();

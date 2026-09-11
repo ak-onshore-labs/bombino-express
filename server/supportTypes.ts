@@ -3,7 +3,9 @@
  * No runtime logic — interfaces and constants only.
  */
 
+import type OpenAI from "openai";
 import type { BiaCard } from "../shared/biaCards.js";
+import type { BiaModuleOrGeneral } from "../shared/biaModules.js";
 import type { BiaScreen } from "../shared/biaScreen.js";
 
 // ─── Chat API ───────────────────────────────────────────────────────────────
@@ -112,6 +114,27 @@ export interface ToolOutcome {
   orderNos?: string[];
   /** Cards for the reply, built from data this tool already checked. */
   cards?: BiaCard[];
+}
+
+// ─── Tools ───────────────────────────────────────────────────────────────────
+
+/**
+ * One tool BIA can call. Each module's file exports its own list
+ * (GENERAL_TOOLS in supportGeneral.ts, ORDER_TOOLS in supportOrders.ts) and
+ * supportTools.ts gathers them, so adding a tool never touches supportAgent.ts.
+ */
+export interface BiaTool {
+  /** Its module: a turn is only offered the tools of enabled modules. */
+  module: BiaModuleOrGeneral;
+  /** What the model is told about it; `function.name` is its name. */
+  definition: OpenAI.Chat.Completions.ChatCompletionTool;
+  /**
+   * Runs it with the model's arguments, JSON-parsed but unchecked — the tool
+   * coerces what it needs. Must not throw.
+   */
+  run: (args: Record<string, unknown>, context: SupportChatContext) => Promise<ToolOutcome>;
+  /** Old names a replayed transcript might still call it by. */
+  aliases?: readonly string[];
 }
 
 // ─── Validation constants ───────────────────────────────────────────────────
