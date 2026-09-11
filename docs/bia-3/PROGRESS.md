@@ -131,7 +131,7 @@ Done when
 - [x] The diff shows moved lines only (checked: the 207 moved lines are identical to the ones removed)
 - [x] `/help` chat works for an account, a guest and a signed-out visitor
 
-Notes: Smoke-tested on a second dev server from the worktree (port 5001): suggestions, chat, session and new-session for signed-out, account (9000000090) and guest (9000000091). 9/9 passed, including 401 on `/api/support/session` without a login and a 400 on a malformed body. `routes.ts` is now 5,171 lines. Merged by fast-forward locally; nothing pushed.
+Notes: Smoke-tested on a second dev server from the worktree (port 5001): suggestions, chat, session and new-session for signed-out, account (9000000090) and guest (9000000091). 9/9 passed, including 401 on `/api/support/session` without a login and a 400 on a malformed body. `routes.ts` is 222 lines shorter. Merged by fast-forward locally; nothing pushed.
 
 ### R1 · Foundations
 
