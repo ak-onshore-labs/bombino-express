@@ -50,8 +50,14 @@ const signedOut: SupportChatContext = {
   screen: null,
 };
 
-test("the default prompt is no longer than BIA 2.0's (6,257 characters signed out)", () => {
-  assert.ok(buildSystemPrompt(signedOut, ["orders"]).length <= 6257);
+// A budget, not a snapshot. BIA 2.0's prompt was 6,257 characters; the only
+// growth since is the code rule telling BIA to look the order up (1.6).
+// Raise it on purpose, never to make a failure go away.
+const PROMPT_BUDGET = 6270;
+
+test("the default prompt stays within its budget", () => {
+  const length = buildSystemPrompt(signedOut, ["orders"]).length;
+  assert.ok(length <= PROMPT_BUDGET, `${length} characters, budget ${PROMPT_BUDGET}`);
 });
 
 test("a module that is off leaves nothing in the prompt", () => {

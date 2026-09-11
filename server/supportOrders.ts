@@ -786,7 +786,7 @@ export const ORDER_TOOLS: readonly BiaTool[] = [
       function: {
         name: "list_my_orders",
         description:
-          "List the user's most recent orders and shipments with their current status. Use when they ask about their orders without giving an Order ID or AWB.",
+          "List the user's most recent orders and shipments with their current status. Use when they ask about their orders without giving an Order ID or AWB. Never use it when they gave an Order ID (BOM-...): call get_order_status for that order.",
         parameters: { type: "object", properties: {} },
       },
     },
