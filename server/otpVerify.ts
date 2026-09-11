@@ -4,8 +4,10 @@
  * Lives outside routes.ts because two endpoints consume a code now —
  * /api/auth/otp/verify (signup) and /api/auth/phone/continue (the unified
  * entry) — and a second copy of this logic is exactly where a check gets
- * dropped. Callers map the returned status/message straight onto the response.
+ * dropped. Callers map the returned status/message/code straight onto the response;
+ * the code is the catalogued one (shared/errorCatalog.ts).
  */
+import type { ErrorCode } from "../shared/errorCatalog.js";
 import { hashOtp, OTP_MAX_ATTEMPTS } from "./otp.js";
 import {
   getLatestOtpForVerify,
@@ -16,7 +18,7 @@ import {
 
 export type OtpConsumeResult =
   | { ok: true }
-  | { ok: false; status: number; message: string };
+  | { ok: false; status: number; message: string; code: ErrorCode };
 
 /**
  * Dev-only escape hatch for when no delivery channel is configured
@@ -58,16 +60,23 @@ export async function verifyOtp(
       ok: false,
       status: 400,
       message: "No pending OTP for this number. Request a new one.",
+      code: "OTP_NOT_REQUESTED",
     };
   }
   if (new Date(row.expires_at).getTime() < Date.now()) {
-    return { ok: false, status: 400, message: "This OTP has expired. Request a new one." };
+    return {
+      ok: false,
+      status: 400,
+      message: "This OTP has expired. Request a new one.",
+      code: "OTP_EXPIRED",
+    };
   }
   if (row.attempts >= OTP_MAX_ATTEMPTS) {
     return {
       ok: false,
       status: 429,
       message: "Too many incorrect attempts. Request a new OTP.",
+      code: "OTP_TOO_MANY_ATTEMPTS",
     };
   }
 
@@ -75,7 +84,7 @@ export async function verifyOtp(
     // Without this the ceiling checked above is unreachable — `attempts` stayed
     // at 0 for the life of every row, so the lockout never fired.
     await incrementAttempts(row.id, row.attempts);
-    return { ok: false, status: 400, message: "Incorrect code" };
+    return { ok: false, status: 400, message: "Incorrect code", code: "OTP_WRONG" };
   }
 
   if (options?.consume !== false) {

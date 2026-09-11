@@ -224,6 +224,7 @@ import {
   type VerifiedDocSlot,
 } from "../shared/accountSpec.js";
 import { validateGstin } from "../shared/gstin.js";
+import { identityFailureCode, isErrorCode, ocrErrorCode } from "../shared/errorCatalog.js";
 
 // Matches the refresh path's ceiling (itdTokenRefresh.ts). The legacy
 // POST /api/auth/login has no timeout and can hang on a stalled ITD.
@@ -398,7 +399,7 @@ export async function registerRoutes(
 
     const recentCount = await countRecentRequests(phone, 60);
     if (recentCount !== null && recentCount >= OTP_MAX_REQUESTS_PER_HOUR) {
-      res.status(429).json({ message: "Too many OTP requests. Please try again later." });
+      res.status(429).json({ message: "Too many OTP requests. Please try again later.", code: "OTP_RATE_LIMITED" });
       return;
     }
 
@@ -411,7 +412,7 @@ export async function registerRoutes(
       expires_at: expiresAt,
     });
     if (!inserted) {
-      res.status(502).json({ message: "Could not send OTP. Please try again." });
+      res.status(502).json({ message: "Could not send OTP. Please try again.", code: "OTP_SEND_FAILED" });
       return;
     }
 
@@ -436,7 +437,7 @@ export async function registerRoutes(
 
     const result = await consumeOtp(phone, purpose as OtpPurpose, code);
     if (!result.ok) {
-      res.status(result.status).json({ message: result.message });
+      res.status(result.status).json({ message: result.message, code: result.code });
       return;
     }
     res.json({ verified: true });
@@ -624,6 +625,7 @@ export async function registerRoutes(
       // itself is the problem.
       res.status(422).json({
         message: result.message,
+        code: ocrErrorCode(result.status) ?? undefined,
         ocr: { status: result.status, verification_id: result.verification_id },
       });
       return null;
@@ -704,7 +706,7 @@ export async function registerRoutes(
   ): void {
     if (err.detail) console.error("[signup/identity]", err.failure, "-", err.detail);
     const status = err.failure === "rejected" ? 422 : err.failure === "expired" ? 410 : 503;
-    res.status(status).json({ message: err.message, failure: err.failure });
+    res.status(status).json({ message: err.message, failure: err.failure, code: identityFailureCode(err.failure) });
   }
 
   /**
@@ -929,7 +931,7 @@ export async function registerRoutes(
         ? req.body.aadhaar_number.replace(/\s/g, "")
         : "";
     if (!isValidAadhaarNumber(aadhaar)) {
-      res.status(400).json({ message: "Enter a valid 12-digit Aadhaar number" });
+      res.status(400).json({ message: "Enter a valid 12-digit Aadhaar number", code: "AADHAAR_INVALID" });
       return;
     }
 
@@ -985,7 +987,7 @@ export async function registerRoutes(
 
     const pan = typeof req.body?.pan === "string" ? req.body.pan.trim().toUpperCase() : "";
     if (!isValidPanNumber(pan)) {
-      res.status(400).json({ message: "Enter a valid 10-character PAN" });
+      res.status(400).json({ message: "Enter a valid 10-character PAN", code: "PAN_INVALID" });
       return;
     }
 
@@ -1022,7 +1024,10 @@ export async function registerRoutes(
     // Shape and mod-36 checksum first, so a typo never costs a billed lookup.
     const shapeCheck = validateGstin(gstin);
     if (!shapeCheck.valid) {
-      res.status(400).json({ message: shapeCheck.message ?? "Enter a valid 15-character GST number" });
+      res.status(400).json({
+        message: shapeCheck.message ?? "Enter a valid 15-character GST number",
+        code: "GSTIN_INVALID",
+      });
       return;
     }
 
@@ -1031,7 +1036,7 @@ export async function registerRoutes(
     // another does not get through.
     const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
     if (!name) {
-      res.status(400).json({ message: "Enter the company name this account is for" });
+      res.status(400).json({ message: "Enter the company name this account is for", code: "COMPANY_NAME_REQUIRED" });
       return;
     }
 
@@ -1136,6 +1141,7 @@ export async function registerRoutes(
     const missing = required.filter((slot) => !byKind.has(IDENTITY_KIND_BY_SLOT[slot]));
     if (missing.length > 0) {
       res.status(422).json({
+        code: "IDENTITY_MISSING",
         message: `Please enter your ${missing
           .map((slot) => IDENTITY_CHECK_LABELS[slot])
           .join(" and ")} before ${
@@ -1164,6 +1170,7 @@ export async function registerRoutes(
       const row = byKind.get(kind);
       if (row?.name_submitted && !sameName(row.name_submitted, accountName)) {
         res.status(422).json({
+          code: "IDENTITY_NAME_MISMATCH",
           message: `Your ${kind === "pan" ? "PAN" : "GST number"} was verified for "${row.name_submitted}". Please verify it again for "${accountName}".`,
           unverified_identity: [kind],
         });
@@ -1209,7 +1216,11 @@ export async function registerRoutes(
     if (check.blocking) {
       // 422: the request was well-formed and we understood it — the document
       // itself is the problem.
-      res.status(422).json({ message: check.message, ocr: { status: check.status } });
+      res.status(422).json({
+        message: check.message,
+        code: ocrErrorCode(check.status) ?? undefined,
+        ocr: { status: check.status },
+      });
       return null;
     }
     return check;
@@ -1224,7 +1235,7 @@ export async function registerRoutes(
       if (!phone) return;
 
       if (!req.file) {
-        res.status(400).json({ message: "No file uploaded." });
+        res.status(400).json({ message: "No file uploaded.", code: "FILE_MISSING" });
         return;
       }
 
@@ -1255,6 +1266,7 @@ export async function registerRoutes(
         if (!proved) {
           res.status(422).json({
             message: `Please enter your ${IDENTITY_CHECK_LABELS[slot]} number before uploading the document.`,
+            code: "IDENTITY_NUMBER_FIRST",
             unverified_identity: [IDENTITY_KIND_BY_SLOT[slot]],
           });
           return;
@@ -1263,7 +1275,7 @@ export async function registerRoutes(
       } else {
         const parsed = normalizeDocumentNo(slot, req.body?.document_no);
         if (!parsed.ok) {
-          res.status(400).json({ message: parsed.message });
+          res.status(400).json({ message: parsed.message, code: "DOCUMENT_NUMBER_INVALID" });
           return;
         }
         documentNo = parsed.value;
@@ -1825,6 +1837,7 @@ export async function registerRoutes(
       res.status(400).json({
         message: `Please upload: ${missing.map((s) => DOC_SLOT_SPECS[s].label).join(", ")}`,
         missing_documents: missing,
+        code: "DOCUMENTS_MISSING",
       });
       return null;
     }
@@ -1849,6 +1862,7 @@ export async function registerRoutes(
             .map((slot) => DOC_SLOT_SPECS[slot].label)
             .join(" and ")}. Please upload a clear photo of the original and check the number you entered.`,
         unverified_documents: unverified,
+        code: "DOCUMENTS_UNVERIFIED",
       });
       return null;
     }
@@ -1882,6 +1896,7 @@ export async function registerRoutes(
           .map((slot) => DOC_SLOT_SPECS[slot].label)
           .join(" and ")} was uploaded for a different number. Please upload it again.`,
         outdated_documents: outdated,
+        code: "DOCUMENTS_OUTDATED",
       });
       return null;
     }
@@ -2140,7 +2155,7 @@ export async function registerRoutes(
         return;
       }
       if (!req.file) {
-        res.status(400).json({ message: "No file uploaded." });
+        res.status(400).json({ message: "No file uploaded.", code: "FILE_MISSING" });
         return;
       }
 
@@ -2161,7 +2176,7 @@ export async function registerRoutes(
 
       const docNo = normalizeDocumentNo(slot, req.body?.document_no);
       if (!docNo.ok) {
-        res.status(400).json({ message: docNo.message });
+        res.status(400).json({ message: docNo.message, code: "DOCUMENT_NUMBER_INVALID" });
         return;
       }
 
@@ -2182,6 +2197,7 @@ export async function registerRoutes(
           res.status(409).json({
             message:
               "This account has no GST number on file, so its certificate cannot be checked. Please contact support.",
+            code: "GSTIN_NOT_ON_FILE",
           });
           return;
         }
@@ -2294,7 +2310,10 @@ export async function registerRoutes(
 
     const existing = await findItdUserIdByPhone(phone);
     if (existing) {
-      res.status(409).json({ message: "This phone number is already registered. Please sign in instead." });
+      res.status(409).json({
+        message: "This phone number is already registered. Please sign in instead.",
+        code: "ACCOUNT_EXISTS",
+      });
       return;
     }
 
@@ -2460,13 +2479,16 @@ export async function registerRoutes(
 
     const extras = collectExtraFields(company_category, parsed.data);
     if (!extras.ok) {
-      res.status(400).json({ message: extras.message });
+      res.status(400).json({ message: extras.message, code: "EXTRA_FIELD_INVALID" });
       return;
     }
 
     const existing = await findItdUserIdByPhone(phone);
     if (existing) {
-      res.status(409).json({ message: "This phone number is already registered. Please sign in instead." });
+      res.status(409).json({
+        message: "This phone number is already registered. Please sign in instead.",
+        code: "ACCOUNT_EXISTS",
+      });
       return;
     }
 
@@ -2499,6 +2521,7 @@ export async function registerRoutes(
     if (recordedGstin && recordedGstin.toUpperCase() !== gstin) {
       res.status(422).json({
         message: `Your GST number was verified as ${recordedGstin}. Please verify ${gstin} before creating the account.`,
+        code: "GSTIN_CHANGED",
         unverified_identity: ["gstin"],
       });
       return;
@@ -2694,7 +2717,7 @@ export async function registerRoutes(
     // below, and a wrong code is rejected here either way.
     const otp = await verifyOtp(phone, "auth", code, { consume: false });
     if (!otp.ok) {
-      res.status(otp.status).json({ message: otp.message });
+      res.status(otp.status).json({ message: otp.message, code: otp.code });
       return;
     }
 
@@ -2715,7 +2738,7 @@ export async function registerRoutes(
     // and the booking that follow. No session is created.
     const spent = await consumeOtp(phone, "auth", code);
     if (!spent.ok) {
-      res.status(spent.status).json({ message: spent.message });
+      res.status(spent.status).json({ message: spent.message, code: spent.code });
       return;
     }
 
@@ -2792,7 +2815,7 @@ export async function registerRoutes(
 
     const otp = await consumeOtp(phone, "auth", code);
     if (!otp.ok) {
-      res.status(otp.status).json({ message: otp.message });
+      res.status(otp.status).json({ message: otp.message, code: otp.code });
       return;
     }
 
@@ -2931,6 +2954,7 @@ export async function registerRoutes(
         res.status(409).json({
           message:
             "This mobile number is already linked to a different account. Sign in with it, or contact support to move it.",
+          code: "PHONE_LINKED_ELSEWHERE",
         });
         return;
       }
@@ -3738,6 +3762,7 @@ export async function registerRoutes(
     if (!kyc) {
       res.status(422).json({
         message: "KYC required. Upload your identity document before creating a shipment.",
+        code: "KYC_REQUIRED",
       });
       return;
     }
@@ -3834,6 +3859,7 @@ export async function registerRoutes(
     })
     .refine((body) => body.pickup_request !== 1 || !!body.pickup_date, {
       message: "pickup_date is required when pickup_request is 1 (pickup)",
+      params: { code: "PICKUP_DATE_REQUIRED" },
     })
     // Two payment methods are tied to how the parcel reaches us, because each
     // names the person who physically takes the money. Pay-at-pickup is
@@ -3845,11 +3871,17 @@ export async function registerRoutes(
     // server/orderLifecycle.ts, so the order would stall before `settled`.
     .refine(
       (body) => !(body.pickup_request === 1 && body.payment_method === "pay_at_dropoff"),
-      { message: "Pay at drop-off is only available when you drop the parcel off yourself" }
+      {
+        message: "Pay at drop-off is only available when you drop the parcel off yourself",
+        params: { code: "PAY_AT_DROPOFF_NEEDS_DROPOFF" },
+      }
     )
     .refine(
       (body) => !(body.pickup_request === 2 && body.payment_method === "pay_at_pickup"),
-      { message: "Pay at pickup is only available when an agent collects the parcel" }
+      {
+        message: "Pay at pickup is only available when an agent collects the parcel",
+        params: { code: "PAY_AT_PICKUP_NEEDS_PICKUP" },
+      }
     );
 
   // POST /api/orders — requires login (session)
@@ -3871,7 +3903,14 @@ export async function registerRoutes(
   app.post("/api/orders", ensureDbUser, async (req: Request, res: Response) => {
     const parsed = orderCreateSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid order payload" });
+      // A refinement names its catalogued code in `params`; the message is
+      // still the one the form has always shown.
+      const issue = parsed.error.issues[0];
+      const code = issue?.code === "custom" ? issue.params?.code : undefined;
+      res.status(400).json({
+        message: issue?.message ?? "Invalid order payload",
+        code: isErrorCode(code) ? code : undefined,
+      });
       return;
     }
     const body = parsed.data;
@@ -4036,7 +4075,7 @@ export async function registerRoutes(
     });
 
     if (!originAddr?.id) {
-      res.status(502).json({ message: "Could not save pickup address" });
+      res.status(502).json({ message: "Could not save pickup address", code: "ORDER_CREATE_FAILED" });
       return;
     }
 
@@ -4103,7 +4142,7 @@ export async function registerRoutes(
     });
 
     if (!order) {
-      res.status(502).json({ message: "Order creation failed" });
+      res.status(502).json({ message: "Order creation failed", code: "ORDER_CREATE_FAILED" });
       return;
     }
 
@@ -5404,7 +5443,7 @@ export async function registerRoutes(
       }
 
       if (!req.file) {
-        res.status(400).json({ message: "No file uploaded." });
+        res.status(400).json({ message: "No file uploaded.", code: "FILE_MISSING" });
         return;
       }
 
@@ -5448,6 +5487,7 @@ export async function registerRoutes(
       if (!docNoValidation[documentType].test(documentNo)) {
         res.status(400).json({
           message: `Invalid document number for ${documentType}`,
+          code: "DOCUMENT_NUMBER_INVALID",
         });
         return;
       }
