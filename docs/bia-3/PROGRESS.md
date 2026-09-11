@@ -21,7 +21,7 @@ The single place to see where the BIA 3.0 build stands.
 | [0.1](#01-ship-bia-20) | Ship BIA 2.0 | R0 | W0 | S · ½ d | — | ✅ | `aditya/final-phase` (direct, not pushed) | 2026-09-11 |
 | [0.2](#02-move-the-support-routes-out-of-routests) | Move the support routes out of routes.ts | R0 | W1 | S · ½ d | 0.1 | ✅ | `bia-3/wp0-2` → merged locally (28cd36f) | 2026-09-11 |
 | [1.1](#11-test-runner-and-eval-harness) | Test runner and eval harness | R1 | W2 | M · 1 d | 0.2 | ✅ | `bia-3/wp1-1` → merged locally (9a5cbfb) | 2026-09-11 |
-| [1.2](#12-error-catalog) | Error catalog | R1 | W2 | M · 1 d | 0.2 | ⬜ | `bia-3/wp1-2` | |
+| [1.2](#12-error-catalog) | Error catalog | R1 | W2 | M · 1 d | 0.2 | ✅ | `bia-3/wp1-2` → merged locally (c869115) | 2026-09-11 |
 | [1.3](#13-screen-context-and-cards) | Screen context and cards | R1 | W3 | M · 1 d | 1.1 | ⬜ | `bia-3/wp1-3` | |
 | [1.4](#14-bia-sheet-and-ask-bia) | BIA sheet and "Ask BIA" | R1 | W4 | L · 1.5 d | 1.3 | ⬜ | `bia-3/wp1-4` | |
 | [1.5](#15-module-prompts-and-tool-registry) | Module prompts and tool registry | R1 | W4 | M · 1 d | 1.3 | ⬜ | `bia-3/wp1-5` | |
@@ -157,20 +157,20 @@ Notes: The harness caught a mistake of mine from 0.1. BOM-100108 has a rider and
 
 #### 1.2 Error catalog
 
-**Status:** ⬜ · **After:** 0.2 · **Owns:** `server/routes.ts`
+**Status:** ✅ · **After:** 0.2 · **Owns:** `server/routes.ts`
 
 Give every customer-facing signup, identity, KYC and booking error a stable code and one shared explanation, so screens and BIA say the same thing.
 
 Build
-- [ ] `shared/errorCatalog.ts`: code → { title, why, fix, button }. About 40 codes to start: phone and OTP; identity (`AADHAAR_INVALID`, `PAN_INVALID`, `GSTIN_CHANGED`, `IDENTITY_NUMBER_FIRST`); documents (`DOCUMENTS_MISSING`, `DOCUMENTS_OUTDATED`, `OCR_MISMATCH`, `OCR_WRONG_DOCUMENT`, `OCR_TAMPERED`, `OCR_UNREADABLE`, `OCR_UNAVAILABLE`); booking (`KYC_REQUIRED`, `CONTRACT_REQUIRED`, `PICKUP_DATE_REQUIRED`, `PAY_AT_PICKUP_NEEDS_PICKUP`, `PAY_AT_DROPOFF_NEEDS_DROPOFF`, `PICKUP_PINCODE_NOT_SERVICEABLE`, `PICKUP_DATE_TOO_EARLY`, `ACCOUNT_EXISTS`).
-- [ ] Add `code` to those responses in `routes.ts`. Every message stays word for word; codes that already exist are reused.
-- [ ] A test that scans the routes for `code:` values and fails if one is missing from the catalog.
+- [x] `shared/errorCatalog.ts`: code → { title, why, fix, button }. About 40 codes to start: phone and OTP; identity (`AADHAAR_INVALID`, `PAN_INVALID`, `GSTIN_CHANGED`, `IDENTITY_NUMBER_FIRST`); documents (`DOCUMENTS_MISSING`, `DOCUMENTS_OUTDATED`, `OCR_MISMATCH`, `OCR_WRONG_DOCUMENT`, `OCR_TAMPERED`, `OCR_UNREADABLE`, `OCR_UNAVAILABLE`); booking (`KYC_REQUIRED`, `CONTRACT_REQUIRED`, `PICKUP_DATE_REQUIRED`, `PAY_AT_PICKUP_NEEDS_PICKUP`, `PAY_AT_DROPOFF_NEEDS_DROPOFF`, `PICKUP_PINCODE_NOT_SERVICEABLE`, `PICKUP_DATE_TOO_EARLY`, `ACCOUNT_EXISTS`).
+- [x] Add `code` to those responses in `routes.ts`. Every message stays word for word; codes that already exist are reused.
+- [x] A test that scans the routes for `code:` values and fails if one is missing from the catalog.
 
 Done when
-- [ ] The catalog test passes; no customer-visible message changed
-- [ ] `parseApiErrorCode` returns the new codes on the client
+- [x] The catalog test passes; no customer-visible message changed (all 211 `message:` values in `routes.ts` compare equal)
+- [x] `parseApiErrorCode` returns the new codes on the client (`client/src/lib/apiError.test.ts`, plus 8 codes checked over HTTP)
 
-Notes: —
+Notes: 48 codes, not ~40. The scan test found ten payment codes (`server/routes/payments.ts`) the first inventory missed; the customer-facing ones joined the catalog under a new `payment` area (already paid, gateway down, declined, pending confirmation, cancelled order). Rider, ops and test-mode codes are listed in `UNCATALOGUED_CODES` so the test can tell "not for customers" from "forgotten". `phone_unverified` keeps its lowercase name because `Signup.tsx` matches on it. OTP failures get their code in `otpVerify.ts`; identity failures in `sendIdentityFailure`; refused documents via `ocrErrorCode()`; booking refinements via zod `params`. Not coded: developer-only errors (unknown document type, missing `document_type`) and the signup contract checkbox (zod `errorMap` carries no params). `npm test`: 34 passing.
 
 #### 1.3 Screen context and cards
 
@@ -536,6 +536,7 @@ Notes: —
 
 Newest first. One line per merge, decision or surprise.
 
+- 2026-09-11 · 1.2 merged: 48 catalogued error codes (incl. payments), every message unchanged. Wave W2 done; W3 (1.3 screen context and cards) is next.
 - 2026-09-11 · 1.1 merged: `npm test` (24 unit tests) and `npm run bia:eval` (20 cases, 20/20 × 3 runs). BIA chat now runs at temperature 0.2. Fixed a false "no pickup code yet" answer introduced in 0.1.
 - 2026-09-11 · 0.2 merged into `bia-3/main`: support routes live in `server/routes/support.ts`. Wave W2 (1.1, 1.2) can start.
 - 2026-09-11 · Integration branch renamed `bia-3` → `bia-3/main` (git won't allow `bia-3` next to `bia-3/wpX-Y`).
