@@ -6,20 +6,24 @@
  * reply is parsed, validated, deduplicated and moved to the end — or dropped.
  * An order button survives only if the caller owns that order.
  *
- * The client (`client/src/lib/supportMessage.ts`) renders exactly this
- * vocabulary. Add a token in both places or in neither.
+ * The vocabulary — which buttons exist, what each may carry and who may see
+ * it — is shared/biaCta.ts, which the client reads too. This file adds the one
+ * thing only the server can know: whether the caller owns the order a button
+ * names.
  */
 
+import {
+  BIA_BUTTON_TOKEN_RE,
+  biaButtonAllowedFor,
+  biaButtonNeedsOwnership,
+  biaButtonToken,
+  parseBiaButton,
+} from "../shared/biaCta.js";
 import { findOrderForOwner, type OrderOwner } from "./ordersDb.js";
-import { normalizeOrderNo } from "./supportOrders.js";
 
-const TOKEN_RE = /TAP_[A-Z_]+(?::[^\s]+)?/g;
 const MAX_BUTTONS = 6;
 /** Order-ownership lookups one reply may trigger. */
 const MAX_ORDER_LOOKUPS = 5;
-
-const AWB_RE = /^[A-Za-z0-9-]{4,32}$/;
-const STATE_RE = /^[A-Za-z .&-]{2,40}$/;
 
 export interface CtaContext {
   owner: OrderOwner | null;
@@ -35,7 +39,7 @@ export interface CtaContext {
 
 /** Every `TAP_*` token in a piece of text, in order. */
 export function tokensIn(text: string): string[] {
-  return text.match(TOKEN_RE) ?? [];
+  return text.match(BIA_BUTTON_TOKEN_RE) ?? [];
 }
 
 /**
@@ -46,7 +50,7 @@ export async function finalizeReply(message: string, ctx: CtaContext): Promise<s
   const own = tokensIn(message);
   const raw = own.length > 0 ? own : [...(ctx.fallbackTokens ?? [])];
   const body = message
-    .replace(TOKEN_RE, "")
+    .replace(BIA_BUTTON_TOKEN_RE, "")
     // The tool output labels its button block; the model sometimes echoes it.
     .split("\n")
     .filter((line) => !/^\s*buttons\b[^a-z]*$/i.test(line) && !/^\s*buttons \(copy/i.test(line))
@@ -76,45 +80,17 @@ async function validateToken(
   ctx: CtaContext,
   mayLookUp: () => boolean
 ): Promise<string | null> {
-  const colon = token.indexOf(":");
-  const name = colon === -1 ? token : token.slice(0, colon);
-  const arg = colon === -1 ? "" : token.slice(colon + 1);
-  const isAccount = ctx.owner?.kind === "account";
-  const isGuest = ctx.owner?.kind === "guest";
+  const button = parseBiaButton(token);
+  if (!button) return null;
+  if (!biaButtonAllowedFor(button.name, ctx.owner?.kind ?? null)) return null;
 
-  switch (name) {
-    case "TAP_CREATE_SHIPMENT":
-    case "TAP_CONTACT_US":
-    case "TAP_MY_ORDERS":
-      return name;
-    case "TAP_CANCELLATIONS":
-      return isAccount ? name : null;
-    case "TAP_GUEST_PROFILE":
-      return isGuest ? name : null;
-    case "TAP_LOCATIONS": {
-      if (!arg) return name;
-      let state = "";
-      try {
-        state = decodeURIComponent(arg);
-      } catch {
-        return name;
-      }
-      return STATE_RE.test(state) ? `${name}:${encodeURIComponent(state)}` : name;
-    }
-    case "TAP_TRACK":
-      // Public tracking — anyone may look up any AWB — so only the shape is checked.
-      return AWB_RE.test(arg) ? `${name}:${arg.toUpperCase()}` : null;
-    case "TAP_VIEW_ORDER": {
-      // The order screen answers to an account only; a guest has none.
-      if (!isAccount || !ctx.owner) return null;
-      const orderNo = normalizeOrderNo(arg);
-      if (!orderNo) return null;
-      if (ctx.ownedOrderNos.has(orderNo)) return `${name}:${orderNo}`;
+  if (biaButtonNeedsOwnership(button.name)) {
+    if (!ctx.owner) return null;
+    if (!ctx.ownedOrderNos.has(button.arg)) {
       if (!mayLookUp()) return null;
-      const order = await findOrderForOwner({ orderNo }, ctx.owner).catch(() => null);
-      return order ? `${name}:${orderNo}` : null;
+      const order = await findOrderForOwner({ orderNo: button.arg }, ctx.owner).catch(() => null);
+      if (!order) return null;
     }
-    default:
-      return null;
   }
+  return biaButtonToken(button);
 }
