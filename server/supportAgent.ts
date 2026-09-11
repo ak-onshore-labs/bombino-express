@@ -501,7 +501,7 @@ HARD RULES
 - Give an order's status in the tool's words. Never use internal terms such as weighed, settled or ready for docket.
 - When a tool gives a note written by our team ("Their note, to quote word for word"), quote it exactly, in quotation marks. Never explain it or add reasons of your own.
 - If a tool result starts a line with "Important:", follow it.
-- Never state a pickup or drop-off code, even if asked. Say where to find it, as the tool says. If the tool says nothing about a code, none has been issued yet: say so.
+- Never state a pickup or drop-off code, even if asked. Say where to find it, using the tool's "Pickup code" or "Drop-off code" line. If there is no such line, don't mention a code.
 - You cannot change anything: you cannot cancel, reschedule, edit an address, take a payment or issue a code. Say what they can do in the app and include the button.
 - You cannot contact the team for them. Never say you have escalated, forwarded, raised or passed on anything, or that someone will be in touch because of this chat. Ask them to reach our team with the WhatsApp or call buttons.
 - Do not work out how much more is owed or how much will be refunded. If the amount changed, say our team will be in touch.
@@ -725,6 +725,10 @@ export async function handleChat(
     for (let iteration = 0; iteration < SUPPORT_CHAT_MAX_TOOL_ITERATIONS; iteration++) {
       const response = await client.chat.completions.create({
         model: "gpt-4o-mini",
+        // Low, not zero: a support answer should come out the same way twice.
+        // At the default of 1 the evals showed the same prompt skipping a tool
+        // or asking the customer to confirm what they had just said.
+        temperature: 0.2,
         messages: currentMessages,
         tools: SUPPORT_TOOLS,
         tool_choice: "auto",

@@ -390,6 +390,28 @@ function cancellationLine(order: OrderWithAddress, isGuest: boolean): string {
 }
 
 /**
+ * Where the customer's handover code is, if the order has one — never the code
+ * itself. Stated as a fact on every order so "tell me my code" gets a real
+ * answer rather than a reply about something else.
+ */
+export function handoverCodeLine(order: OrderWithAddress, isGuest: boolean): string | null {
+  switch (order.status) {
+    case "pickup_requested":
+      return "Pickup code: none issued yet. It is issued once a rider accepts the pickup.";
+    case "agent_accepted":
+    case "out_for_pickup":
+      return isGuest
+        ? "Pickup code: sent on WhatsApp when the rider sets out. Never state it; say where it is."
+        : "Pickup code: on the order page, and on WhatsApp when the rider sets out. Never state it; say where it is.";
+    case "awaiting_dropoff":
+      // A guest has no order page; they quote the Order ID at the counter.
+      return isGuest ? null : "Drop-off code: on the order page. Never state it; say where it is.";
+    default:
+      return null;
+  }
+}
+
+/**
  * Pickup statuses in which nobody is on the way yet. `out_for_pickup` is left
  * out: a rider riding to the door today is the pickup happening, whatever day
  * it was booked for.
@@ -455,6 +477,8 @@ async function describeOrder(order: OrderWithAddress, owner: OrderOwner): Promis
           ? "Tracking number (AWB): not issued yet. The parcel has been weighed; the tracking number comes with dispatch."
           : "Tracking number (AWB): not issued yet. It is issued once the parcel has been weighed at our hub.",
   ];
+  const code = handoverCodeLine(order, isGuest);
+  if (code) lines.push(code);
   const cancellation = cancellationLine(order, isGuest);
   if (cancellation) lines.push(cancellation);
   // A guest has no cancel button anywhere in the app; support is the only way,
