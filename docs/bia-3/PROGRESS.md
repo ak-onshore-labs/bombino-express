@@ -25,7 +25,7 @@ The single place to see where the BIA 3.0 build stands.
 | [1.3](#13-screen-context-and-cards) | Screen context and cards | R1 | W3 | M · 1 d | 1.1 | ✅ | `bia-3/wp1-3` → merged locally (cbcc9af) | 2026-09-11 |
 | [1.4](#14-bia-sheet-and-ask-bia) | BIA sheet and "Ask BIA" | R1 | W4 | L · 1.5 d | 1.3 | ✅ | `bia-3/wp1-4` → merged locally (ee48623) | 2026-09-11 |
 | [1.5](#15-module-prompts-and-tool-registry) | Module prompts and tool registry | R1 | W4 | M · 1 d | 1.3 | ✅ | `bia-3/wp1-5` → merged locally (604f328) | 2026-09-11 |
-| [1.6](#16-privacy-filter-telemetry-and-feedback) | Privacy filter, telemetry and feedback | R1 | W4 | M · 1 d | 1.3 | ⬜ | `bia-3/wp1-6` | |
+| [1.6](#16-privacy-filter-telemetry-and-feedback) | Privacy filter, telemetry and feedback | R1 | W4 | M · 1 d | 1.3 | ✅ | `bia-3/wp1-6` → merged locally (ea55620); **migration not run** | 2026-09-11 |
 | [1.7](#17-guest-chat-history) | Guest chat history | R1 | W5 | S · ½ d | 1.4, 1.6 | ⬜ | `bia-3/wp1-7` | |
 | [2.1](#21-account-matchmaker) | Account Matchmaker | R2 | W5 | M · 1 d | 1.5 | ⬜ | `bia-3/wp2-1` | |
 | [2.2](#22-signup-progress-and-document-status) | Signup progress and document status | R2 | W5 | M · 1 d | 1.5 | ⬜ | `bia-3/wp2-2` | |
@@ -81,7 +81,7 @@ Sessions write them; Aditya runs each in Supabase before its package merges.
 
 | File | WP | Written | Run in Supabase |
 |---|---|---|---|
-| `migrations/create_bia_turns.sql` | 1.6 | ⬜ | ⬜ |
+| `migrations/create_bia_turns.sql` | 1.6 | ✅ | ⬜ **needs you** |
 | `migrations/support_sessions_guest_ref.sql` | 1.7 | ⬜ | ⬜ |
 | `migrations/create_bia_drafts.sql` | 3.3 | ⬜ | ⬜ |
 | `migrations/create_support_cases.sql` | 4.1 | ⬜ | ⬜ |
@@ -233,20 +233,20 @@ Notes: `supportAgent.ts` is 203 lines, down from 890. Four behaviour changes the
 
 #### 1.6 Privacy filter, telemetry and feedback
 
-**Status:** ⬜ · **After:** 1.3 · **Owns:** `server/routes/support.ts` · **Migration:** `create_bia_turns.sql`
+**Status:** ✅ · **After:** 1.3 · **Owns:** `server/routes/support.ts` · **Migration:** `create_bia_turns.sql`
 
 Know how BIA is doing, and keep ID numbers away from OpenAI and out of transcripts.
 
 Build
-- [ ] `server/supportPrivacy.ts`: masks Aadhaar-shaped (12 digits, with or without spaces) and PAN-shaped text, and long digit runs, in user messages before the model call and before storage. Unit tests.
-- [ ] `bia_turns`: owner kind, surface, tools, latency, fallback, prompt and completion tokens, rating. Written after each turn, never delaying the reply.
-- [ ] `POST /api/support/feedback { turnId, rating }`; chat responses include `turnId`.
+- [x] `server/supportPrivacy.ts`: masks Aadhaar and PAN, and named bank account numbers, before the model call and before storage. Unit tests. **Changed from the plan:** no blanket "long digit run" rule, because a 12-digit number is as often an AWB. An Aadhaar is recognised by the card's 4-4-4 grouping or the word "Aadhaar" nearby, then masked whatever its check digit says.
+- [x] `bia_turns`: owner kind, surface, tools, latency, fallback, prompt and completion tokens, rating. Written after each turn, never delaying the reply. No message text.
+- [x] `POST /api/support/feedback { turnId, rating }`; chat responses include `turnId`. Plus the thumbs UI moved here from 1.4.
 
 Done when
-- [ ] Test: "my aadhaar is 1234 5678 9012" reaches the model as "••••9012"
-- [ ] Turn rows appear for account, guest and signed-out chats; the chat still works before the migration runs
+- [x] Test: "my aadhaar is 1234 5678 9012" reaches the model as "••••9012" (unit test; and over HTTP, the stored transcript reads "••••9012")
+- [ ] Turn rows appear for account, guest and signed-out chats → **waiting on the migration**. The chat still works before the migration runs: verified, and the server logs one clear line (`[bia] could not record a turn: … has migrations/create_bia_turns.sql been run?`).
 
-Notes: —
+Notes: **For you:** run `migrations/create_bia_turns.sql` in Supabase, then one chat each as account, guest and signed-out should leave three rows, and a thumb sets `rating`. The repeated evals also caught two ~1-in-8 flakes, both fixed: a flat refusal with no lookup when asked for a pickup code (the rule now says look it up), and `list_my_orders` used for a named Order ID (its description now says not to). The prompt-size guard is now an explicit budget, 6,270; the default prompt is 6,264, 7 over 2.0. 84 unit tests; 31/31 evals ×3 with all modules, ×2 with the production default.
 
 #### 1.7 Guest chat history
 
@@ -536,6 +536,7 @@ Notes: —
 
 Newest first. One line per merge, decision or surprise.
 
+- 2026-09-11 · 1.6 merged: identity numbers masked, turn log + thumbs. `create_bia_turns.sql` written, **not yet run**. Two eval flakes fixed along the way.
 - 2026-09-11 · 1.5 merged: modules + tool registry + per-turn prompt; `BIA_MODULES` (default `orders`). Signed-out customers get no order tools. Error links stay ungated.
 - 2026-09-11 · 1.4 merged: BIA sheet over any screen, "Ask BIA" beside errors, support button opens the sheet. Thumbs moved to 1.6, module gating to 1.5.
 - 2026-09-11 · 1.3 merged: screen context (allow-listed), order/pickup/rate cards, one shared button registry. W4 (1.4, 1.5, 1.6) next.
