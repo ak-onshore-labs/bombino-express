@@ -24,7 +24,7 @@ The single place to see where the BIA 3.0 build stands.
 | [1.2](#12-error-catalog) | Error catalog | R1 | W2 | M · 1 d | 0.2 | ✅ | `bia-3/wp1-2` → merged locally (c869115) | 2026-09-11 |
 | [1.3](#13-screen-context-and-cards) | Screen context and cards | R1 | W3 | M · 1 d | 1.1 | ✅ | `bia-3/wp1-3` → merged locally (cbcc9af) | 2026-09-11 |
 | [1.4](#14-bia-sheet-and-ask-bia) | BIA sheet and "Ask BIA" | R1 | W4 | L · 1.5 d | 1.3 | ✅ | `bia-3/wp1-4` → merged locally (ee48623) | 2026-09-11 |
-| [1.5](#15-module-prompts-and-tool-registry) | Module prompts and tool registry | R1 | W4 | M · 1 d | 1.3 | ⬜ | `bia-3/wp1-5` | |
+| [1.5](#15-module-prompts-and-tool-registry) | Module prompts and tool registry | R1 | W4 | M · 1 d | 1.3 | ✅ | `bia-3/wp1-5` → merged locally (604f328) | 2026-09-11 |
 | [1.6](#16-privacy-filter-telemetry-and-feedback) | Privacy filter, telemetry and feedback | R1 | W4 | M · 1 d | 1.3 | ⬜ | `bia-3/wp1-6` | |
 | [1.7](#17-guest-chat-history) | Guest chat history | R1 | W5 | S · ½ d | 1.4, 1.6 | ⬜ | `bia-3/wp1-7` | |
 | [2.1](#21-account-matchmaker) | Account Matchmaker | R2 | W5 | M · 1 d | 1.5 | ⬜ | `bia-3/wp2-1` | |
@@ -215,21 +215,21 @@ Notes: The Order page's "Ask BIA" and the mobile Home pill also open the sheet; 
 
 #### 1.5 Module prompts and tool registry
 
-**Status:** ⬜ · **After:** 1.3 · **Owns:** `server/supportAgent.ts`
+**Status:** ✅ · **After:** 1.3 · **Owns:** `server/supportAgent.ts`
 
 Keep gpt-4o-mini accurate as BIA grows: a short base prompt plus one module per surface, each bringing only its own tools.
 
 Build
-- [ ] `server/supportPrompts.ts`: base rules (guardrails, style, language) plus modules for orders, onboarding, documents and booking.
-- [ ] A tool registry: each module file exports its tool definitions and executors, and `supportAgent.ts` assembles them per turn from the screen and identity. Later packages add tools without touching `supportAgent.ts`.
-- [ ] `BIA_MODULES` env switch; modules not listed are never offered.
-- [ ] The orders module is today's tools. Rates, tracking, pickup and guidance stay available everywhere.
+- [x] `server/supportPrompts.ts`: base rules (guardrails, style, language) plus modules for orders, onboarding, documents and booking.
+- [x] A tool registry: each module file exports its tool definitions and executors, and `supportAgent.ts` assembles them per turn from the screen and identity. Later packages add tools without touching `supportAgent.ts`. (`GENERAL_TOOLS` in the new `supportGeneral.ts`, `ORDER_TOOLS` in `supportOrders.ts`, gathered by `supportTools.ts`; the `BiaTool` type is in `supportTypes.ts`.)
+- [x] `BIA_MODULES` env switch; modules not listed are never offered, and never run even if the model names them. Documented in `.env.example`.
+- [x] The orders module is today's tools. Rates, tracking, pickup and guidance stay available everywhere.
 
 Done when
-- [ ] Every 2.0 eval still passes
-- [ ] The system prompt on `/help` is no longer than today's (the eval output logs its size)
+- [x] Every 2.0 eval still passes (31/31 × 3 with all modules; 31/31 × 2 with `--modules orders`, the production default)
+- [x] The system prompt on `/help` is no longer than today's (identical at 6,257 characters with the default modules; the eval header logs it)
 
-Notes: —
+Notes: `supportAgent.ts` is 203 lines, down from 890. Four behaviour changes the evals forced: signed-out customers aren't offered order tools (5,146-char prompt, 6 tools); the how-to rule leads WHICH TOOL again; one order is answered in two to four sentences (new `brevity.json` cases with `maxChars`); guests aren't told about cancelling unless they ask. Delivery estimates moved to the general part, since tracking an AWB works for anyone. **Decision (from 1.4):** "Ask BIA" error links are not gated by module. Explaining an error comes from the error catalog and works with any modules on, so gating it would only hide a finished R1 feature. **For you:** locally `BIA_MODULES` is unset, so only orders is on; add `BIA_MODULES=orders,onboarding,documents,booking` to `.env` to try the rest as it lands. Runner: `npm run bia:eval -- --modules orders` tests exactly what production runs.
 
 #### 1.6 Privacy filter, telemetry and feedback
 
@@ -536,6 +536,7 @@ Notes: —
 
 Newest first. One line per merge, decision or surprise.
 
+- 2026-09-11 · 1.5 merged: modules + tool registry + per-turn prompt; `BIA_MODULES` (default `orders`). Signed-out customers get no order tools. Error links stay ungated.
 - 2026-09-11 · 1.4 merged: BIA sheet over any screen, "Ask BIA" beside errors, support button opens the sheet. Thumbs moved to 1.6, module gating to 1.5.
 - 2026-09-11 · 1.3 merged: screen context (allow-listed), order/pickup/rate cards, one shared button registry. W4 (1.4, 1.5, 1.6) next.
 - 2026-09-11 · 1.2 merged: 48 catalogued error codes (incl. payments), every message unchanged. Wave W2 done; W3 (1.3 screen context and cards) is next.
