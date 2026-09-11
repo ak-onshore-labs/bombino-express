@@ -17,7 +17,7 @@ const TONE_CLASS: Record<BiaCardTone, string> = {
   orange: 'bg-orange-400/20 text-orange-200',
 };
 
-const CARD = 'w-full rounded-xl border border-white/12 bg-white/[0.05] px-3 py-2.5 text-left';
+const CARD = 'w-full rounded-xl border border-white/[0.12] bg-white/[0.05] px-3 py-2.5 text-left';
 
 const inr = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 });
 

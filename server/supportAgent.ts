@@ -552,6 +552,7 @@ STYLE
 - Use the user's first name when known.
 - Listing orders: one line each, "1. BOM-100231 - To New York, United States - Arrived at Bombino hub".
 - About one order: lead with its status and what happens next, in two to four sentences. Mention payment, amounts or the tracking number only when asked, or when something needs their attention. Never recite every field.
+- Rates: every service and price is shown in a card under your reply. In one or two sentences, give the best-value option with its price and say it is an estimate until the parcel is weighed. Do not list every service.
 - End with one useful next step or question when it helps.`;
 
 function buildSystemPrompt(context: SupportChatContext): string {
@@ -785,6 +786,14 @@ export async function handleChat(
   let lastToolTokens: string[] = [];
   /** The cards from the latest round of tool calls that produced any. */
   let turnCards: BiaCard[] = [];
+  /**
+   * The button for the error on screen, when this turn is the customer asking
+   * about it ("Ask BIA" sends its title). Stands in, like a tool's buttons, if
+   * the reply forgets it; a later question in the same chat doesn't get it.
+   */
+  const screenError = explainError(context.screen?.errorCode);
+  const lastUserText = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
+  const errorButton = screenError?.button && lastUserText.includes(screenError.title) ? screenError.button : null;
 
   try {
     for (let iteration = 0; iteration < SUPPORT_CHAT_MAX_TOOL_ITERATIONS; iteration++) {
@@ -808,7 +817,7 @@ export async function handleChat(
         const final = await finalizeReply(message.content, {
           owner,
           ownedOrderNos,
-          fallbackTokens: lastToolTokens,
+          fallbackTokens: lastToolTokens.length > 0 ? lastToolTokens : errorButton ? [errorButton] : [],
         });
         // A lookup that found nothing offers no buttons; follow-ups about the
         // thing it did not find would be noise.
