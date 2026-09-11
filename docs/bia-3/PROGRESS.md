@@ -81,8 +81,8 @@ Sessions write them; Aditya runs each in Supabase before its package merges.
 
 | File | WP | Written | Run in Supabase |
 |---|---|---|---|
-| `migrations/create_bia_turns.sql` | 1.6 | ✅ | ⬜ **needs you** |
-| `migrations/support_sessions_guest_ref.sql` | 1.7 | ✅ | ⬜ **needs you** |
+| `migrations/create_bia_turns.sql` | 1.6 | ✅ | ✅ 2026-09-11 |
+| `migrations/support_sessions_guest_ref.sql` | 1.7 | ✅ | ✅ 2026-09-11 |
 | `migrations/create_bia_drafts.sql` | 3.3 | ⬜ | ⬜ |
 | `migrations/create_support_cases.sql` | 4.1 | ⬜ | ⬜ |
 | `migrations/create_bia_nudges.sql` | 5.1 | ⬜ | ⬜ |
@@ -536,6 +536,7 @@ Notes: —
 
 Newest first. One line per merge, decision or surprise.
 
+- 2026-09-11 · Both R1 migrations run in Supabase (`create_bia_turns.sql`, `support_sessions_guest_ref.sql`). Left before merging into `aditya/final-phase`: check turn rows for 1.6 and guest history across tabs/devices for 1.7.
 - 2026-09-11 · 1.7 merged: guest conversations kept on the server (after `support_sessions_guest_ref.sql`). **R1 code-complete.** Waiting on two migrations before merging into `aditya/final-phase`.
 - 2026-09-11 · 1.6 merged: identity numbers masked, turn log + thumbs. `create_bia_turns.sql` written, **not yet run**. Two eval flakes fixed along the way.
 - 2026-09-11 · 1.5 merged: modules + tool registry + per-turn prompt; `BIA_MODULES` (default `orders`). Signed-out customers get no order tools. Error links stay ungated.
