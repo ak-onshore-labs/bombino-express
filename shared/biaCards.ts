@@ -7,9 +7,10 @@
  * the customer may see: customer status labels (never weighed / settled /
  * ready_for_docket), no ids, no codes.
  *
- * More kinds arrive with later packages: checklist (2.1), docStatus (2.2),
- * docUpload (2.5), hsn (3.2), draft (3.3), case (4.1). Add the kind here and
- * its renderer in client/src/components/bia/BiaCards.tsx together.
+ * More kinds arrive with later packages: docStatus (2.2), docUpload (2.5),
+ * hsn (3.2), draft (3.3), case (4.1). Add the kind here, in biaCardKey and
+ * isBiaCard, and its renderer in client/src/components/bia/BiaCards.tsx
+ * together.
  */
 
 /** Same names as the app's status badges (client/src/lib/awbStatus.ts). */
@@ -58,10 +59,36 @@ export interface RateCard {
   bookable: boolean;
 }
 
-export type BiaCard = OrderCard | PickupCard | RateCard;
+/** What signup will ask one kind of account for (shared/accountMatch.ts). */
+export interface ChecklistCard {
+  kind: "checklist";
+  /** personal, corporate, co_courier, ecommerce or fbb. */
+  choice: string;
+  /** "E-commerce account" */
+  title: string;
+  documents: { label: string; hint: string }[];
+  /** Business details typed at signup, e.g. "LUT Number". */
+  fields: string[];
+}
+
+export type BiaCard = OrderCard | PickupCard | RateCard | ChecklistCard;
 
 /** At most this many cards under one reply. */
 export const MAX_BIA_CARDS = 5;
+
+/** One card per order, shipment, pincode, quote or account choice. */
+export function biaCardKey(card: BiaCard): string {
+  switch (card.kind) {
+    case "order":
+      return `order:${card.orderNo ?? card.awb}`;
+    case "pickup":
+      return `pickup:${card.pincode}`;
+    case "rate":
+      return `rate:${card.destination}:${card.weightKg}`;
+    case "checklist":
+      return `checklist:${card.choice}`;
+  }
+}
 
 /**
  * An order status as a badge colour — the same mapping as the order list
@@ -101,6 +128,9 @@ export function toneForCarrierStatus(status: string): BiaCardTone {
 const HREF_RE = /^\/(order\/BOM-\d{6,9}|shipment\/[A-Za-z0-9-]{4,32}|orders)$/;
 
 const TONES: readonly string[] = ["gray", "blue", "amber", "green", "red", "orange"];
+
+/** The account choices a checklist can be for (shared/accountMatch.ts). */
+const CHOICES: readonly string[] = ["personal", "corporate", "co_courier", "ecommerce", "fbb"];
 
 const isStr = (v: unknown): v is string => typeof v === "string";
 const isStrOrNull = (v: unknown): v is string | null => v === null || typeof v === "string";
@@ -146,6 +176,18 @@ export function isBiaCard(value: unknown): value is BiaCard {
           (s) => !!s && typeof s === "object" && isStr((s as { name?: unknown }).name) && typeof (s as { amount?: unknown }).amount === "number"
         ) &&
         typeof c.bookable === "boolean"
+      );
+    case "checklist":
+      return (
+        isStr(c.choice) &&
+        CHOICES.includes(c.choice) &&
+        isStr(c.title) &&
+        Array.isArray(c.documents) &&
+        c.documents.every(
+          (d) => !!d && typeof d === "object" && isStr((d as { label?: unknown }).label) && isStr((d as { hint?: unknown }).hint)
+        ) &&
+        Array.isArray(c.fields) &&
+        c.fields.every(isStr)
       );
     default:
       return false;

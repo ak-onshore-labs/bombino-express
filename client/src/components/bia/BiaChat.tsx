@@ -15,7 +15,9 @@ import {
   UserRound,
   ThumbsUp,
   ThumbsDown,
+  UserPlus,
 } from "lucide-react";
+import { accountChoiceLabel, isAccountChoice, signupPathFor, type AccountChoice } from "@shared/accountMatch";
 import { BiaBackground } from "@/components/ui/bia-background";
 import { BiaOrb } from "@/components/ui/bia-orb";
 import { Button } from "@/components/ui/button";
@@ -825,6 +827,19 @@ function CtaButtons({
                     My profile
                   </button>
                 );
+              case "signup":
+                return isAccountChoice(c.choice) ? (
+                  <button
+                    key={`signup-${c.choice}`}
+                    type="button"
+                    className={PILL}
+                    onClick={() => onNavigate(signupPathFor(c.choice as AccountChoice))}
+                    data-testid={`button-bia-signup-${c.choice}`}
+                  >
+                    <UserPlus className="w-3.5 h-3.5" aria-hidden />
+                    Open a {accountChoiceLabel(c.choice as AccountChoice)} account
+                  </button>
+                ) : null;
               default:
                 return null;
             }

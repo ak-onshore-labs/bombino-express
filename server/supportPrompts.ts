@@ -104,7 +104,9 @@ export const MODULE_PROMPTS: Record<BiaModuleOrGeneral, ModulePrompt> = {
   },
   onboarding: {
     tools: [
-      "- Signing up: accounts are Personal, or a company account (Corporate, Co-Courier, E-commerce or FBB). For what signup asks for, use get_shipment_guidance (topics: guest, kyc, documents). Someone sending a one-off parcel can book as a guest instead.",
+      '- recommend_account: "which account do I need", "do I need an account", or someone describing what they ship. Call it before naming any account type; never pick one yourself. Pass what they said: selling online, being a courier or a company means for_business is true. Only if you can\'t tell whether it\'s for a business, ask that one question.',
+      "- explain_term: what GSTIN, IEC, LUT, AD code, IEC branch code, an authorization letter or PAN means.",
+      "- Account or guest in general: get_shipment_guidance (topic: account).",
     ],
   },
   documents: {

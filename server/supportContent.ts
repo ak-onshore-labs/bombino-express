@@ -36,6 +36,9 @@ export const guidance = {
   guestBooking:
     "You can book without an account: verify your phone with a one-time code, upload one identity document, and book. Your orders appear in My shipments and on your guest profile. If you later open an account with the same number, your orders move across with you.",
 
+  guestOrAccount:
+    "Sending a parcel now and then? You don't need an account: book as a guest with a one-time code on your phone. Shipping regularly, or for a business? An account keeps your orders, documents and cancellations in one place. It's Personal for yourself, or a company account (Corporate, Co-Courier, E-commerce or FBB) for a business. If you book as a guest first and open an account later with the same number, your orders move across.",
+
   kyc:
     "We need one identity document, given once: at signup, or with your first guest booking. It's checked automatically and you won't be asked for it again when you book. Your identity check never holds up your shipment.",
 

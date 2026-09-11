@@ -29,6 +29,7 @@ import {
   COMPANY_CATEGORY_SPECS,
   DOC_SLOT_SPECS,
   EXTRA_FIELD_SPECS,
+  isCompanyCategory,
   requiredExtraFields,
   type CompanyCategory,
   type DocSlot,
@@ -86,8 +87,17 @@ export default function Signup() {
    *
    * Still a toggle: the param sets the starting position, it does not lock it.
    */
+  /**
+   * `?category=` names the company category as well — BIA's "which account do
+   * I need?" answer lands here with it (shared/accountMatch.ts). An unknown
+   * value is ignored and the form starts on Corporate as usual.
+   */
+  const initialCategoryParam = new URLSearchParams(window.location.search).get('category');
+  const initialCategory: CompanyCategory | null = isCompanyCategory(initialCategoryParam)
+    ? initialCategoryParam
+    : null;
   const initialAccountType: AccountType =
-    new URLSearchParams(window.location.search).get('type') === 'company'
+    new URLSearchParams(window.location.search).get('type') === 'company' || initialCategory
       ? 'company'
       : 'personal';
   const [accountType, setAccountType] = useState<AccountType>(initialAccountType);
@@ -99,10 +109,8 @@ export default function Signup() {
    * again on the next screen would be asking twice. Everyone else starts on
    * the choice.
    */
-  const typePreselected = new URLSearchParams(window.location.search).has('type');
-  const [step, setStep] = useState<Step>(
-    new URLSearchParams(window.location.search).has('type') ? 'details' : 'account_type'
-  );
+  const typePreselected = new URLSearchParams(window.location.search).has('type') || initialCategory !== null;
+  const [step, setStep] = useState<Step>(typePreselected ? 'details' : 'account_type');
   const [isLoading, setIsLoading] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -111,7 +119,7 @@ export default function Signup() {
   const [fullName, setFullName] = useState('');
 
   // Company
-  const [category, setCategory] = useState<CompanyCategory>('corporate');
+  const [category, setCategory] = useState<CompanyCategory>(initialCategory ?? 'corporate');
   const [companyName, setCompanyName] = useState('');
   const [gstin, setGstin] = useState('');
   const [contactPerson, setContactPerson] = useState('');

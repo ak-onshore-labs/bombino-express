@@ -18,7 +18,8 @@ export type SupportCta =
   | { kind: 'guest_profile' }
   | { kind: 'locations'; state: string | null }
   | { kind: 'track'; awb: string }
-  | { kind: 'view_order'; orderNo: string };
+  | { kind: 'view_order'; orderNo: string }
+  | { kind: 'signup'; choice: string };
 
 export interface ParsedMessage {
   text: string;
@@ -44,6 +45,8 @@ function toCta(button: BiaButton): SupportCta {
       return { kind: 'track', awb: button.arg };
     case 'TAP_VIEW_ORDER':
       return { kind: 'view_order', orderNo: button.arg };
+    case 'TAP_SIGNUP':
+      return { kind: 'signup', choice: button.arg };
   }
 }
 
@@ -55,6 +58,8 @@ function ctaKey(cta: SupportCta): string {
       return `track:${cta.awb}`;
     case 'view_order':
       return `view_order:${cta.orderNo}`;
+    case 'signup':
+      return `signup:${cta.choice}`;
     default:
       return cta.kind;
   }

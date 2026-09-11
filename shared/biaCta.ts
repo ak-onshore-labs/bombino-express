@@ -11,8 +11,11 @@
  * gets its buttons back.
  */
 
-/** Who may see a button. Ownership of an order is checked separately. */
-export type BiaButtonAudience = "anyone" | "account" | "guest";
+/**
+ * Who may see a button. Ownership of an order is checked separately.
+ * `no_account` is anyone without an account yet: a guest or a visitor.
+ */
+export type BiaButtonAudience = "anyone" | "account" | "guest" | "no_account";
 
 interface ButtonSpec {
   audience: BiaButtonAudience;
@@ -48,6 +51,14 @@ function canonicalOrderNo(raw: string): string | null {
   return match ? `BOM-${match[1]}` : null;
 }
 
+/** The account kinds signup can open on (shared/accountMatch.ts). */
+const ACCOUNT_CHOICE_RE = /^(personal|corporate|co_courier|ecommerce|fbb)$/;
+
+function canonicalAccountChoice(raw: string): string | null {
+  const s = raw.trim().toLowerCase();
+  return ACCOUNT_CHOICE_RE.test(s) ? s : null;
+}
+
 export const BIA_BUTTONS = {
   TAP_CREATE_SHIPMENT: { audience: "anyone", arg: "none" },
   TAP_CONTACT_US: { audience: "anyone", arg: "none" },
@@ -59,6 +70,8 @@ export const BIA_BUTTONS = {
   TAP_TRACK: { audience: "anyone", arg: "required", canonical: canonicalAwb },
   // The order screen answers to an account only; a guest has none.
   TAP_VIEW_ORDER: { audience: "account", arg: "required", canonical: canonicalOrderNo, ownsOrder: true },
+  // Signup, opened on the account kind BIA recommended. Pointless once signed in.
+  TAP_SIGNUP: { audience: "no_account", arg: "required", canonical: canonicalAccountChoice },
 } as const satisfies Record<string, ButtonSpec>;
 
 export type BiaButtonName = keyof typeof BIA_BUTTONS;
@@ -102,6 +115,7 @@ export function biaButtonToken(button: BiaButton): string {
 /** Whether this kind of caller may see the button at all. */
 export function biaButtonAllowedFor(name: BiaButtonName, caller: "account" | "guest" | null): boolean {
   const { audience } = BIA_BUTTONS[name] as ButtonSpec;
+  if (audience === "no_account") return caller !== "account";
   return audience === "anyone" || audience === caller;
 }
 

@@ -31,6 +31,12 @@ test("a multi-word state decodes for the button", () => {
   ]);
 });
 
+test("a signup button carries the account kind it opens on", () => {
+  assert.deepEqual(parseAssistantMessage("x\nTAP_SIGNUP:ecommerce\nTAP_SIGNUP:root").ctas, [
+    { kind: "signup", choice: "ecommerce" },
+  ]);
+});
+
 test("unknown or malformed tokens are left out, and duplicates collapse", () => {
   const { ctas } = parseAssistantMessage("x\nTAP_BOGUS\nTAP_VIEW_ORDER:nope\nTAP_MY_ORDERS\nTAP_MY_ORDERS");
   assert.deepEqual(ctas, [{ kind: "my_orders" }]);

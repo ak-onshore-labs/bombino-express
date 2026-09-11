@@ -370,7 +370,9 @@ const TOPIC_MAP: Record<string, GuidanceKey> = {
   trackingnumber: "orderIdVsAwb",
   guest: "guestBooking",
   guestbooking: "guestBooking",
-  account: "guestBooking",
+  account: "guestOrAccount",
+  signup: "guestOrAccount",
+  guestoraccount: "guestOrAccount",
   kyc: "kyc",
   identity: "kyc",
   cancel: "cancellation",
@@ -515,7 +517,7 @@ export const GENERAL_TOOLS: readonly BiaTool[] = [
             topic: {
               type: "string",
               description:
-                "One of: booking, pickup, payment, awb, guest, kyc, cancel, refund, packaging, weight, documents, rates, tracking, general",
+                "One of: booking, pickup, payment, awb, guest, account, kyc, cancel, refund, packaging, weight, documents, rates, tracking, general",
             },
           },
         },

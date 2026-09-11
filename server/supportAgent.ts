@@ -19,7 +19,7 @@ import { ownerOf } from "./supportOrders.js";
 import { buildSystemPrompt } from "./supportPrompts.js";
 import { dispatchTool, enabledBiaModules, toolDefinitions, toolsForTurn } from "./supportTools.js";
 import type { ChatMessage, SupportChatContext, SupportChatResult, SupportTurnMeta } from "./supportTypes.js";
-import { MAX_BIA_CARDS, type BiaCard } from "../shared/biaCards.js";
+import { MAX_BIA_CARDS, biaCardKey, type BiaCard } from "../shared/biaCards.js";
 import { explainError } from "../shared/errorCatalog.js";
 
 const FALLBACK_CHAT =
@@ -40,6 +40,7 @@ const QUICK_REPLIES: Partial<Record<string, string[]>> = {
   check_pickup: ["Get a rate", "How do I book?"],
   get_my_kyc_status: ["Show my orders"],
   get_shipment_guidance: ["Show my orders", "Get a rate"],
+  recommend_account: ["Can I book as a guest instead?", "Get a rate"],
 };
 
 /** A tool call as the model made it, reported to `HandleChatOptions.onToolCall`. */
@@ -57,16 +58,11 @@ export interface HandleChatOptions {
   onToolCall?: (call: ToolCallTrace) => void;
 }
 
-/** One card per order, shipment, pincode or quote. */
+/** One card per thing it shows (shared/biaCards.ts §biaCardKey). */
 function dedupeCards(cards: BiaCard[]): BiaCard[] {
   const seen = new Set<string>();
   return cards.filter((card) => {
-    const key =
-      card.kind === "order"
-        ? `order:${card.orderNo ?? card.awb}`
-        : card.kind === "pickup"
-          ? `pickup:${card.pincode}`
-          : `rate:${card.destination}:${card.weightKg}`;
+    const key = biaCardKey(card);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;

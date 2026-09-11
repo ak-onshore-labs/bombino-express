@@ -68,7 +68,7 @@ test("a module that is off leaves nothing in the prompt", () => {
   const on = buildSystemPrompt(signedOut, ["orders", "booking"]);
   assert.match(on, /list_my_orders/);
   assert.match(on, /The booking form/);
-  assert.doesNotMatch(on, /Signing up:/);
+  assert.doesNotMatch(on, /recommend_account/);
 });
 
 test("every turn keeps the hard rules, the buttons rule and the user block", () => {

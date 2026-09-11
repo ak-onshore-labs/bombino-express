@@ -74,6 +74,13 @@ Cases live in `scripts/bia-evals/cases/*.json`, one array per file. For example:
   turn.
 - `module`: `general` (rates, tracking, pickup, how-to), `orders`, and later
   `onboarding`, `documents`, `booking`.
+- `requires` (optional): modules that must be on, e.g. `["onboarding"]`. With
+  `--modules orders` such a case is skipped rather than failed, since that
+  module's tools are withheld on purpose. Leave it out for anything that works
+  with the production default (explaining an error on screen, for one).
+- A turn that gets a canned reply (the rate limit's "at capacity", a timeout)
+  is retried up to four times after a pause, so back-to-back runs don't fail
+  on OpenAI's limits.
 - `screen`: where the chat was opened from, exactly as the client sends it,
   e.g. `{ "surface": "order", "orderNo": "BOM-100108" }` or
   `{ "surface": "create", "step": "sender", "errorCode": "KYC_REQUIRED" }`.

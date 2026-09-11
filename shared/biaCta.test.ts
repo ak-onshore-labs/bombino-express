@@ -50,3 +50,13 @@ test("who may see what", () => {
   assert.equal(biaButtonNeedsOwnership("TAP_VIEW_ORDER"), true);
   assert.equal(biaButtonNeedsOwnership("TAP_TRACK"), false);
 });
+
+test("signup opens on a known account kind, for anyone without an account", () => {
+  assert.deepEqual(parseBiaButton("TAP_SIGNUP:ecommerce"), { name: "TAP_SIGNUP", arg: "ecommerce" });
+  assert.deepEqual(parseBiaButton("TAP_SIGNUP:Personal"), { name: "TAP_SIGNUP", arg: "personal" });
+  assert.equal(parseBiaButton("TAP_SIGNUP:admin"), null);
+  assert.equal(parseBiaButton("TAP_SIGNUP"), null);
+  assert.equal(biaButtonAllowedFor("TAP_SIGNUP", null), true);
+  assert.equal(biaButtonAllowedFor("TAP_SIGNUP", "guest"), true);
+  assert.equal(biaButtonAllowedFor("TAP_SIGNUP", "account"), false);
+});

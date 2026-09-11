@@ -1,5 +1,5 @@
-import { ChevronRight, MapPin, Package, Radar, Truck } from 'lucide-react';
-import type { BiaCard, BiaCardTone, OrderCard, PickupCard, RateCard } from '@shared/biaCards';
+import { ChevronRight, FileText, MapPin, Package, Radar, Truck } from 'lucide-react';
+import type { BiaCard, BiaCardTone, ChecklistCard, OrderCard, PickupCard, RateCard } from '@shared/biaCards';
 import { cn } from '@/lib/utils';
 
 /**
@@ -39,6 +39,8 @@ export function BiaCards({
             return <PickupCardView key={`p-${card.pincode}`} card={card} />;
           case 'rate':
             return <RateCardView key={`r-${card.destination}-${card.weightKg}`} card={card} />;
+          case 'checklist':
+            return <ChecklistCardView key={`c-${card.choice}`} card={card} />;
           default:
             return null;
         }
@@ -122,6 +124,31 @@ function PickupCardView({ card }: { card: PickupCard }): React.JSX.Element {
         </ul>
       ) : (
         <p className="text-xs text-white/80">Drop the parcel at any Bombino counter.</p>
+      )}
+    </div>
+  );
+}
+
+function ChecklistCardView({ card }: { card: ChecklistCard }): React.JSX.Element {
+  return (
+    <div className={cn(CARD, 'flex flex-col gap-1.5')} data-testid={`bia-card-checklist-${card.choice}`}>
+      <div className="flex items-center gap-2">
+        <FileText className="h-4 w-4 shrink-0 text-[#FBAD1F]" aria-hidden />
+        <span className="flex-1 text-sm font-semibold text-white">{card.title}</span>
+      </div>
+      <p className="text-[11px] text-white/55">Signup asks for:</p>
+      <ul className="flex flex-col">
+        {card.documents.map((d) => (
+          <li key={d.label} className="border-t border-white/[0.07] py-1 first:border-t-0">
+            <span className="block text-xs font-medium text-white/90">{d.label}</span>
+            <span className="block text-[11px] text-white/50">{d.hint}</span>
+          </li>
+        ))}
+      </ul>
+      {card.fields.length > 0 && (
+        <p className="text-[11px] text-white/55">
+          And these details: <span className="text-white/80">{card.fields.join(', ')}</span>
+        </p>
       )}
     </div>
   );

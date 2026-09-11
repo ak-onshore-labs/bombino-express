@@ -63,6 +63,12 @@ interface EvalCase {
    * is dropped here too.
    */
   screen?: unknown;
+  /**
+   * Modules that must be on for the case to mean anything. With one of them
+   * off (e.g. `--modules orders`) the case is skipped, not failed: a dark
+   * module's tools are withheld on purpose.
+   */
+  requires?: string[];
   /** User messages, sent in order. Expectations apply to the last reply. */
   turns: string[];
   expect: {
@@ -244,16 +250,29 @@ function check(c: EvalCase, last: Turn, secrets: string[]): string[] {
 
 // ─── Running ─────────────────────────────────────────────────────────────────
 
+/**
+ * Back-to-back runs can hit OpenAI's rate limit, and BIA then gives its
+ * "at capacity" reply. That says nothing about the prompt, so the turn is
+ * tried again after a pause rather than counted as a failure.
+ */
+const CAPACITY_RETRIES = 4;
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function runCase(c: EvalCase, who: ResolvedIdentity): Promise<Turn> {
   const history: ChatMessage[] = [];
   const context: SupportChatContext = { ...who.context, screen: parseBiaScreen(c.screen) };
   let last: Turn = { reply: "", tools: [], suggestions: [], cards: [] };
   for (const text of c.turns) {
     history.push({ role: "user", content: text });
-    const tools: string[] = [];
-    const result = await handleChat(history, context, {
-      onToolCall: (call: ToolCallTrace) => tools.push(call.name),
-    });
+    let tools: string[] = [];
+    let result = await handleChat(history, context, { onToolCall: (call: ToolCallTrace) => tools.push(call.name) });
+    // Any canned reply: the rate limit shows as "at capacity", a timeout as
+    // "trouble responding". A real fault fails every retry and still shows.
+    for (let attempt = 1; attempt <= CAPACITY_RETRIES && result.meta.fallback; attempt++) {
+      await sleep(5000 * attempt);
+      tools = [];
+      result = await handleChat(history, context, { onToolCall: (call: ToolCallTrace) => tools.push(call.name) });
+    }
     history.push({ role: "assistant", content: result.message });
     last = { reply: result.message, tools, suggestions: result.suggestions, cards: result.cards };
   }
@@ -295,21 +314,24 @@ async function main(): Promise<void> {
   const repeat = Math.max(1, Number(arg("repeat") ?? 1) || 1);
   const verbose = process.argv.includes("--verbose");
 
-  const cases = loadCases(path.join(here, "bia-evals", "cases")).filter(
+  const modules = enabledBiaModules();
+  const matching = loadCases(path.join(here, "bia-evals", "cases")).filter(
     (c) => (!moduleFilter || c.module === moduleFilter) && (!caseFilter || c.id.includes(caseFilter))
   );
+  const cases = matching.filter((c) => (c.requires ?? []).every((m) => (modules as string[]).includes(m)));
+  const skipped = matching.length - cases.length;
   if (cases.length === 0) {
-    console.error("No cases match.");
+    console.error(skipped > 0 ? `No cases to run: ${skipped} need a module that is off.` : "No cases match.");
     process.exit(1);
   }
 
   const identities = await resolveIdentities();
-  const modules = enabledBiaModules();
   const helpTurn = toolsForTurn({ surface: "help" }, modules, false);
   const promptChars = buildSystemPrompt(identities.anon.context, helpTurn.modules).length;
   console.log(
     `BIA evals: ${cases.length} case(s) × ${repeat} run(s) · modules: ${modules.join(", ") || "none"} · ` +
-      `prompt ${promptChars} chars, ${helpTurn.tools.length} tools (signed out, /help)\n`
+      `prompt ${promptChars} chars, ${helpTurn.tools.length} tools (signed out, /help)` +
+      `${skipped > 0 ? ` · ${skipped} skipped (module off)` : ""}\n`
   );
 
   const results = new Map<string, { passed: number; lines: string[] }>();
