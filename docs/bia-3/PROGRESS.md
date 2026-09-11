@@ -26,7 +26,7 @@ The single place to see where the BIA 3.0 build stands.
 | [1.4](#14-bia-sheet-and-ask-bia) | BIA sheet and "Ask BIA" | R1 | W4 | L · 1.5 d | 1.3 | ✅ | `bia-3/wp1-4` → merged locally (ee48623) | 2026-09-11 |
 | [1.5](#15-module-prompts-and-tool-registry) | Module prompts and tool registry | R1 | W4 | M · 1 d | 1.3 | ✅ | `bia-3/wp1-5` → merged locally (604f328) | 2026-09-11 |
 | [1.6](#16-privacy-filter-telemetry-and-feedback) | Privacy filter, telemetry and feedback | R1 | W4 | M · 1 d | 1.3 | ✅ | `bia-3/wp1-6` → merged locally (ea55620); **migration not run** | 2026-09-11 |
-| [1.7](#17-guest-chat-history) | Guest chat history | R1 | W5 | S · ½ d | 1.4, 1.6 | ⬜ | `bia-3/wp1-7` | |
+| [1.7](#17-guest-chat-history) | Guest chat history | R1 | W5 | S · ½ d | 1.4, 1.6 | ✅ | `bia-3/wp1-7` → merged locally (4437aa4); **migration not run** | 2026-09-11 |
 | [2.1](#21-account-matchmaker) | Account Matchmaker | R2 | W5 | M · 1 d | 1.5 | ⬜ | `bia-3/wp2-1` | |
 | [2.2](#22-signup-progress-and-document-status) | Signup progress and document status | R2 | W5 | M · 1 d | 1.5 | ⬜ | `bia-3/wp2-2` | |
 | [2.3](#23-verdict-explainer-on-the-upload-screens) | Verdict explainer on the upload screens | R2 | W5 | S · ½ d | 1.2 | ⬜ | `bia-3/wp2-3` | |
@@ -69,7 +69,7 @@ Modules ship dark and go live by adding them to `BIA_MODULES` in production.
 | Release | Name | Exit | Live in prod |
 |---|---|---|---|
 | R0 | Ship BIA 2.0 | Evals pass; nothing leaks; support routes live in their own file. | ⬜ |
-| R1 | Foundations | Any catalogued error opens BIA already explaining it; evals and telemetry run on every change. | ⬜ |
+| R1 | Foundations | Any catalogued error opens BIA already explaining it; evals and telemetry run on every change. | 🔵 code complete on `bia-3/main`; needs the two R1 migrations, then a merge into `aditya/final-phase` |
 | R2 | Onboarding and documents | Every OCR verdict has a tested explanation; a document can be retaken from chat. | ⬜ |
 | R3 | Booking Copilot | A one-sentence request becomes a correct pre-filled draft across the eval set. | ⬜ |
 | R4 | Handoff | Every escalation is a case ops can see and answer; risky actions link to the order page. | ⬜ |
@@ -82,7 +82,7 @@ Sessions write them; Aditya runs each in Supabase before its package merges.
 | File | WP | Written | Run in Supabase |
 |---|---|---|---|
 | `migrations/create_bia_turns.sql` | 1.6 | ✅ | ⬜ **needs you** |
-| `migrations/support_sessions_guest_ref.sql` | 1.7 | ⬜ | ⬜ |
+| `migrations/support_sessions_guest_ref.sql` | 1.7 | ✅ | ⬜ **needs you** |
 | `migrations/create_bia_drafts.sql` | 3.3 | ⬜ | ⬜ |
 | `migrations/create_support_cases.sql` | 4.1 | ⬜ | ⬜ |
 | `migrations/create_bia_nudges.sql` | 5.1 | ⬜ | ⬜ |
@@ -250,21 +250,21 @@ Notes: **For you:** run `migrations/create_bia_turns.sql` in Supabase, then one 
 
 #### 1.7 Guest chat history
 
-**Status:** ⬜ · **After:** 1.4, 1.6 · **Owns:** `server/routes/support.ts`, `components/bia/BiaChat.tsx` · **Migration:** `support_sessions_guest_ref.sql`
+**Status:** ✅ · **After:** 1.4, 1.6 · **Owns:** `server/routes/support.ts`, `components/bia/BiaChat.tsx` · **Migration:** `support_sessions_guest_ref.sql`
 
 A guest's conversation follows their verified phone, the way an account's does.
 
 Build
-- [ ] Read the live `support_sessions` shape first; the repo has no migration for it. Add a nullable `guest_ref`, an owner check and an index.
-- [ ] Session helpers and the ownership check accept a guest owner; the chat route stores guest transcripts.
-- [ ] `BiaChat` loads guest history from the server, with `sessionStorage` only as a fallback.
-- [ ] When a guest opens an account, their sessions move over with the claim, as notifications do.
+- [x] Read the live `support_sessions` shape first; the repo has no migration for it. Add a nullable `guest_ref`, an owner check and an index. (Live columns recorded in the migration's header.)
+- [x] Session helpers and the ownership check accept a guest owner; the chat route stores guest transcripts. `/session` and `/new-session` serve verified guests too.
+- [x] `BiaChat` loads guest history from the server, with `sessionStorage` only as a fallback. It waits for the guest check to settle first, so an "Ask BIA" question can't overwrite a saved conversation from the tab's copy.
+- [x] When a guest opens an account, their sessions move over with the claim, as notifications do.
 
 Done when
-- [ ] Guest history survives a new tab and a second device after OTP
-- [ ] A guest can't load another guest's session
+- [ ] Guest history survives a new tab and a second device after OTP → **after the migration**; the code path mirrors the account one and is reviewed, but can't be exercised until the column exists.
+- [x] A guest can't load another guest's session (ownership check by `guest_ref`; over HTTP a guest sending an account's session id doesn't get it)
 
-Notes: —
+Notes: Before the migration it fails soft: guests chat as before with the tab's history, the server answers "no session", and each guest turn logs a `support_sessions.guest_ref does not exist` line until it runs. Account sessions unchanged (forged ids still ignored). A guest who chatted but never booked has no orders, so their conversation isn't claimed when they open an account. Harmless, but known.
 
 ### R2 · Onboarding and documents
 
@@ -536,6 +536,7 @@ Notes: —
 
 Newest first. One line per merge, decision or surprise.
 
+- 2026-09-11 · 1.7 merged: guest conversations kept on the server (after `support_sessions_guest_ref.sql`). **R1 code-complete.** Waiting on two migrations before merging into `aditya/final-phase`.
 - 2026-09-11 · 1.6 merged: identity numbers masked, turn log + thumbs. `create_bia_turns.sql` written, **not yet run**. Two eval flakes fixed along the way.
 - 2026-09-11 · 1.5 merged: modules + tool registry + per-turn prompt; `BIA_MODULES` (default `orders`). Signed-out customers get no order tools. Error links stay ungated.
 - 2026-09-11 · 1.4 merged: BIA sheet over any screen, "Ask BIA" beside errors, support button opens the sheet. Thumbs moved to 1.6, module gating to 1.5.
