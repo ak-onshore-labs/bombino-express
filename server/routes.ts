@@ -10,6 +10,7 @@ import {
   getItdUserProfileById,
   getItdUserTokenAndSecretsById,
   getOrCreateSupportSession,
+  isSupportSessionOwnedBy,
   insertLoginAuditLog,
   resolveSupportSession,
   listAddressesByUserIdAndType,
@@ -146,8 +147,9 @@ import { z } from "zod";
 import { itdClient, isItdAuthExpired } from "./itd.js";
 import type { CreateShipmentPayload, RateParams } from "./itd.js";
 import { handleChat } from "./supportAgent.js";
+import { suggestionsFor } from "./supportOrders.js";
 import { supportChatRateLimit } from "./supportRateLimit.js";
-import type { ChatMessage } from "./supportTypes.js";
+import type { ChatMessage, SupportChatContext } from "./supportTypes.js";
 import { persistShipmentAfterCreate } from "./persistShipment.js";
 import { isDocketAtBookingEnabled } from "./docketAtBooking.js";
 import { lookupPostal } from "./postalLookup.js";
@@ -3712,6 +3714,24 @@ export async function registerRoutes(
 
   // ── Support: AI chat ──────────────────────────────────────────────────────
 
+  /**
+   * Who BIA is talking to, from the session alone. A signed-in account wins;
+   * otherwise a guest ref, which only an OTP on `guestPhone` can have minted.
+   * BIA's order tools read ownership from here and nowhere else.
+   */
+  function supportContextFor(req: Request, sessionId: string | null): SupportChatContext {
+    const dbUserId = req.session.dbUserId ?? null;
+    const isLoggedIn = !!req.session.user && !!dbUserId;
+    return {
+      user: req.session.user ?? null,
+      itdToken: req.session.itdToken ?? null,
+      dbUserId,
+      sessionId,
+      guestRef: isLoggedIn ? null : (req.session.guestRef ?? null),
+      guestPhone: isLoggedIn ? null : (req.session.guestPhone ?? null),
+    };
+  }
+
   // POST /api/support/chat — guest and logged-in; validates body and returns { message }
   app.post(
     "/api/support/chat",
@@ -3769,7 +3789,9 @@ export async function registerRoutes(
 
     let activeSessionId: string | null = null;
     if (isLoggedIn && dbUserId) {
-      if (bodySessionId) {
+      // The client's session id is only a hint. Unchecked, any signed-in user
+      // could name someone else's session and overwrite that transcript.
+      if (bodySessionId && (await isSupportSessionOwnedBy(bodySessionId, dbUserId))) {
         activeSessionId = bodySessionId;
       } else {
         const row = await getOrCreateSupportSession(dbUserId);
@@ -3777,15 +3799,10 @@ export async function registerRoutes(
       }
     }
 
-    const context = {
-      user: req.session.user ?? null,
-      itdToken: req.session.itdToken ?? null,
-      dbUserId,
-      sessionId: activeSessionId,
-    };
+    const context = supportContextFor(req, activeSessionId);
 
     try {
-      const message = await handleChat(chatMessages, context);
+      const { message, suggestions } = await handleChat(chatMessages, context);
       const stored: ChatMessage[] = [
         ...chatMessages,
         { role: "assistant" as const, content: message },
@@ -3827,6 +3844,7 @@ export async function registerRoutes(
       res.json({
         message,
         sessionId: isLoggedIn ? activeSessionId : null,
+        suggestions,
       });
     } catch {
       res.status(500).json({
@@ -3835,6 +3853,18 @@ export async function registerRoutes(
       });
     }
   });
+
+  // GET /api/support/suggestions — starter chips for an empty chat, led by the
+  // caller's own live orders. Anyone may call it; an anonymous caller gets the
+  // generic set.
+  app.get(
+    "/api/support/suggestions",
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      const chips = await suggestionsFor(supportContextFor(req, null));
+      res.json({ chips });
+    }
+  );
 
   // GET /api/support/session — logged-in: active session + messages
   app.get(

@@ -240,8 +240,5 @@ export const COUNTRY_MAP: Record<string, string> = Object.fromEntries(
   COUNTRY_LIST.map(c => [c.code, c.name])
 );
 
-export const BOOKABLE_ORIGIN = "IN";
-
-export function isBookableCorridor(origin: string, destination: string): boolean {
-  return origin === BOOKABLE_ORIGIN && destination !== BOOKABLE_ORIGIN;
-}
+// One rule for the Rates page and BIA — see shared/corridor.ts.
+export { BOOKABLE_ORIGIN, isBookableCorridor } from "@shared/corridor";

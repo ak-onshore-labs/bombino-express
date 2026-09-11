@@ -897,56 +897,41 @@ export async function listShipmentsByUserId(userId: string): Promise<any[] | nul
   return data ?? [];
 }
 
-/** Last 5 shipments for BIA support; plain text for AI. null on DB error. */
-export async function getRecentShipmentsByUserId(
-  userId: string
-): Promise<string | null> {
+export type SupportShipmentRow = {
+  awb_number: string;
+  consignee_city: string | null;
+  consignee_country: string | null;
+  current_status: string | null;
+  booking_date: string | null;
+  created_at: string;
+};
+
+/**
+ * A customer's most recent ITD shipments, for BIA. Newest first. null on DB
+ * error.
+ *
+ * Only half the picture since the final phase: orders before their AWB live in
+ * `orders`, not here. BIA merges the two (see `supportOrders.ts`).
+ */
+export async function listRecentShipmentsByUserId(
+  userId: string,
+  limit: number
+): Promise<SupportShipmentRow[] | null> {
   const client = getSupabaseClient();
   if (!client) return null;
 
   const { data, error } = await client
     .from("shipments")
-    .select(
-      "awb_number, consignee_name, consignee_city, consignee_country, current_status, booking_date, service_name"
-    )
+    .select("awb_number, consignee_city, consignee_country, current_status, booking_date, created_at")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
-    .limit(5);
+    .limit(limit);
 
   if (error) {
-    logSupabaseError("getRecentShipmentsByUserId", error);
+    logSupabaseError("listRecentShipmentsByUserId", error);
     return null;
   }
-
-  const rows = data ?? [];
-  if (rows.length === 0) {
-    return "No shipments found.";
-  }
-
-  const formatBooked = (d: string | null | undefined): string => {
-    if (!d) return "—";
-    try {
-      return new Date(d).toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-      });
-    } catch {
-      return "—";
-    }
-  };
-
-  return rows
-    .map((row: Record<string, unknown>) => {
-      const awb = String(row.awb_number ?? "—");
-      const city = String(row.consignee_city ?? "").trim();
-      const country = String(row.consignee_country ?? "").trim();
-      const to = [city, country].filter(Boolean).join(", ") || "—";
-      const status = String(row.current_status ?? "—");
-      const booked = formatBooked(row.booking_date as string | undefined);
-      const svc = String(row.service_name ?? "—");
-      return `AWB: ${awb} | To: ${to} | Status: ${status} | Booked: ${booked} | Service: ${svc}`;
-    })
-    .join("\n");
+  return (data ?? []) as SupportShipmentRow[];
 }
 
 // ITD returns every printable as an entry in `labels`:
@@ -1129,6 +1114,36 @@ export async function getOrCreateSupportSession(userId: string): Promise<{
     messages: [],
     title: null,
   };
+}
+
+/**
+ * Whether `sessionId` is one of `userId`'s support sessions.
+ *
+ * The chat endpoint takes a session id from the client so a conversation can
+ * continue across turns. Without this check, any signed-in user could name
+ * someone else's session and have their own transcript written over it.
+ * False on a DB error — the caller then opens the user's own session instead.
+ */
+export async function isSupportSessionOwnedBy(
+  sessionId: string,
+  userId: string
+): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  const { data, error } = await client
+    .from("support_sessions")
+    .select("id")
+    .eq("id", sessionId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    // A malformed uuid lands here too (22P02) — treated as "not yours".
+    logSupabaseError("isSupportSessionOwnedBy", error);
+    return false;
+  }
+  return !!data;
 }
 
 export async function updateSupportSessionMessages(

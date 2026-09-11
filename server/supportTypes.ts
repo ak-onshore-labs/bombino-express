@@ -1,5 +1,5 @@
 /**
- * Types for Bombino AI Support Assistant (Phase 1).
+ * Types for BIA, the Bombino AI support assistant.
  * No runtime logic — interfaces and constants only.
  */
 
@@ -17,6 +17,14 @@ export interface ChatRequest {
 export interface ChatResponse {
   message: string;
   sessionId?: string | null;
+  /** Quick replies for the turn just answered. Not stored with the transcript. */
+  suggestions?: string[];
+}
+
+/** What handleChat hands back to the route. */
+export interface SupportChatResult {
+  message: string;
+  suggestions: string[];
 }
 
 export interface SupportChatContext {
@@ -29,6 +37,14 @@ export interface SupportChatContext {
   itdToken: string | null;
   dbUserId: string | null;
   sessionId: string | null;
+  /**
+   * The guest booking identity, minted only by verifying an OTP on
+   * `guestPhone` (see session.d.ts). Null for an account or an anonymous
+   * visitor. Every order tool resolves ownership from here or `dbUserId` —
+   * never from anything the model passes in.
+   */
+  guestRef: string | null;
+  guestPhone: string | null;
 }
 
 // ─── Tool arguments (LLM → executor) ─────────────────────────────────────────
@@ -42,6 +58,14 @@ export interface GetRatesArgs {
 
 export interface GetTrackingSummaryArgs {
   tracking_no: string;
+}
+
+export interface GetOrderStatusArgs {
+  order_no: string;
+}
+
+export interface CheckPickupArgs {
+  pincode: string;
 }
 
 // ─── Normalized tracking summary (internal; used to build string for LLM) ────
@@ -61,6 +85,18 @@ export interface TrackingSummary {
   last_event: TrackingSummaryLastEvent | null;
   events_count: number;
   chargeable_weight: string;
+}
+
+// ─── Tool outcome ────────────────────────────────────────────────────────────
+
+/**
+ * What a tool executor returns. `content` goes to the model; `orderNos` are the
+ * order numbers the tool proved the caller owns, so a `TAP_VIEW_ORDER` button
+ * naming one of them can be kept without a second lookup.
+ */
+export interface ToolOutcome {
+  content: string;
+  orderNos?: string[];
 }
 
 // ─── Validation constants ───────────────────────────────────────────────────

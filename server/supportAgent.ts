@@ -1,18 +1,35 @@
 /**
- * Bombino AI Support Agent — tool executors, dispatcher, and OpenAI orchestration (Phase 1).
- * All executors return safe strings; handleChat returns a final assistant message or fallback.
+ * BIA — the Bombino AI support agent: tool executors, dispatcher, and OpenAI
+ * orchestration.
+ *
+ * Read-only by design. BIA answers from live data and points at the screen
+ * where the customer can act; it never changes an order, takes a payment or
+ * issues a code. Order tools live in `supportOrders.ts` and resolve ownership
+ * from the session; replies pass through `supportCta.ts` before they leave.
+ *
+ * Executors never throw and never expose internal errors: each returns a safe
+ * string, and handleChat falls back to a canned reply.
  */
 
-import fs from "fs";
-import path from "path";
 import OpenAI from "openai";
-import { getRecentShipmentsByUserId } from "./appDb.js";
 import { itdClient } from "./itd.js";
 import type { ITDTrackingResult } from "./itd.js";
 import { guidance, escalation } from "./supportContent.js";
 import type { GuidanceKey } from "./supportContent.js";
+import { finalizeReply, tokensIn } from "./supportCta.js";
+import {
+  describeOwnedOrderByAwb,
+  executeCheckPickup,
+  executeGetMyKycStatus,
+  executeGetOrderStatus,
+  executeListMyOrders,
+  formatInr,
+  ownerOf,
+} from "./supportOrders.js";
 import type {
   SupportChatContext,
+  SupportChatResult,
+  ToolOutcome,
   TrackingSummary,
   TrackingSummaryLastEvent,
 } from "./supportTypes.js";
@@ -22,6 +39,7 @@ import {
   type GetRatesArgs,
   type GetTrackingSummaryArgs,
 } from "./supportTypes.js";
+import { isBookableCorridor } from "../shared/corridor.js";
 
 // ─── Fallback strings (never expose internal errors) ───────────────────────────
 
@@ -36,8 +54,7 @@ const FALLBACK_TRACKING =
 const FALLBACK_TRACKING_NO_INPUT = "Please provide an AWB or tracking number.";
 const FALLBACK_TRACKING_TOO_LONG =
   "Tracking number is too long; please check and try again.";
-const FALLBACK_GUIDANCE =
-  "I can help with rates, tracking, how to ship, and support. What do you need?";
+const FALLBACK_GUIDANCE = guidance.general;
 const FALLBACK_ESCALATION =
   "Please use the app menu to reach support (WhatsApp or Call).";
 const FALLBACK_DISPATCHER =
@@ -109,33 +126,20 @@ function formatTrackingSummary(summary: TrackingSummary): string {
   return parts.join(" ");
 }
 
-export function normalizeTrackingToSummaryString(
-  results: ITDTrackingResult[]
-): string {
-  if (!results || results.length === 0) return FALLBACK_TRACKING;
-  const first = results[0];
-  if (first.errors) return FALLBACK_TRACKING;
-  const summary = normalizeTrackingResult(first);
-  return formatTrackingSummary(summary);
+/** The first result as a summary, or null when ITD has nothing for it. */
+function trackingSummaryOf(results: ITDTrackingResult[]): TrackingSummary | null {
+  const first = results?.[0];
+  if (!first || first.errors) return null;
+  return normalizeTrackingResult(first);
 }
 
 // ─── Tool executors ──────────────────────────────────────────────────────────
-
-const BOOKABLE_ORIGIN = "IN";
-const BOOKABLE_DESTINATION = "US";
-
-function formatInr(n: number): string {
-  return `₹${n.toLocaleString("en-IN", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  })}`;
-}
 
 function num(v: unknown): number {
   return typeof v === "number" && !Number.isNaN(v) ? v : Number(v) || 0;
 }
 
-/** Normalize country names/codes to ITD-style 2-letter codes (aligned with BIA rates flow). */
+/** Normalize country names/codes to ITD-style 2-letter codes. */
 function normalizeCountryToCode(input: string): string {
   const raw = input.trim();
   if (!raw) return "IN";
@@ -233,10 +237,17 @@ export async function executeGetRates(
       ? (data.data as unknown[])
       : [];
 
+    // ITD can list the same service at the same price more than once; the
+    // customer should see it once.
     const rows: { id: string; code: string; total: number }[] = [];
+    const seen = new Set<string>();
     for (const item of rawList) {
       const row = normalizeRateRow(item);
-      if (row && row.total > 0) rows.push(row);
+      if (!row || row.total <= 0) continue;
+      const key = `${row.code}|${row.total}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rows.push(row);
     }
 
     if (rows.length === 0) {
@@ -250,35 +261,68 @@ export async function executeGetRates(
       return `• ${label}: ${formatInr(r.total)}`;
     });
 
-    const cta =
-      originCode === BOOKABLE_ORIGIN && destinationCode === BOOKABLE_DESTINATION
-        ? "\nTAP_CREATE_SHIPMENT"
-        : "\nTAP_CONTACT_US";
+    const note =
+      "\nThis is an estimate; the final price is set when the parcel is weighed at our hub.";
+    // Same rule as the Rates page: India to anywhere else books in the app.
+    const cta = isBookableCorridor(originCode, destinationCode)
+      ? "\nTAP_CREATE_SHIPMENT"
+      : "\nTAP_CONTACT_US";
 
-    return `${lines.join("\n")}${cta}`;
+    return `${lines.join("\n")}${note}${cta}`;
   } catch {
     return FALLBACK_RATES;
   }
 }
 
+/**
+ * Tracks an AWB — or, given a BOM number, answers from the order instead,
+ * since an order has no tracking until its AWB exists.
+ *
+ * When ITD has nothing and the AWB is on one of the caller's own orders, the
+ * order's own status is the answer rather than "not found": an AWB can be ours
+ * before ITD shows any movement on it.
+ */
 export async function executeGetTrackingSummary(
   args: GetTrackingSummaryArgs,
   context: SupportChatContext
-): Promise<string> {
+): Promise<ToolOutcome> {
   try {
     const trackingNo = String(args.tracking_no ?? "").trim();
-    if (!trackingNo) return FALLBACK_TRACKING_NO_INPUT;
+    if (!trackingNo) return { content: FALLBACK_TRACKING_NO_INPUT };
     if (trackingNo.length > SUPPORT_TRACKING_NO_MAX_LENGTH) {
-      return FALLBACK_TRACKING_TOO_LONG;
+      return { content: FALLBACK_TRACKING_TOO_LONG };
     }
 
-    const results = await itdClient.trackShipment(
-      trackingNo,
-      context.itdToken ?? undefined
-    );
-    return normalizeTrackingToSummaryString(results);
+    // Only an explicit BOM prefix — a bare number could just as well be an AWB.
+    if (/^#?\s*bom/i.test(trackingNo)) {
+      return executeGetOrderStatus({ order_no: trackingNo }, context);
+    }
+
+    let summary: TrackingSummary | null = null;
+    try {
+      const results = await itdClient.trackShipment(
+        trackingNo,
+        context.itdToken ?? undefined
+      );
+      summary = trackingSummaryOf(results);
+    } catch {
+      summary = null;
+    }
+
+    if (summary) {
+      return { content: `${formatTrackingSummary(summary)}\nTAP_TRACK:${trackingNo}` };
+    }
+
+    const owned = await describeOwnedOrderByAwb(trackingNo, context);
+    if (owned) {
+      return {
+        ...owned,
+        content: `The carrier shows no movement on this AWB yet. Here is the order it belongs to:\n${owned.content}`,
+      };
+    }
+    return { content: FALLBACK_TRACKING };
   } catch {
-    return FALLBACK_TRACKING;
+    return { content: FALLBACK_TRACKING };
   }
 }
 
@@ -286,6 +330,8 @@ const TOPIC_MAP: Record<string, GuidanceKey> = {
   howtogetrates: "howToGetRates",
   howtogetrate: "howToGetRates",
   rates: "howToGetRates",
+  rate: "howToGetRates",
+  price: "howToGetRates",
   howtotrack: "howToTrack",
   track: "howToTrack",
   tracking: "howToTrack",
@@ -293,11 +339,39 @@ const TOPIC_MAP: Record<string, GuidanceKey> = {
   ship: "howToShip",
   create: "howToShip",
   shipment: "howToShip",
+  book: "howToShip",
   requireddocuments: "requiredDocuments",
   documents: "requiredDocuments",
+  customs: "requiredDocuments",
   bookingsteps: "bookingSteps",
   steps: "bookingSteps",
   booking: "bookingSteps",
+  pickup: "pickupVsDropoff",
+  dropoff: "pickupVsDropoff",
+  pickupvsdropoff: "pickupVsDropoff",
+  counter: "pickupVsDropoff",
+  payment: "paymentMethods",
+  payments: "paymentMethods",
+  paymentmethods: "paymentMethods",
+  cod: "paymentMethods",
+  awb: "orderIdVsAwb",
+  orderid: "orderIdVsAwb",
+  orderidvsawb: "orderIdVsAwb",
+  trackingnumber: "orderIdVsAwb",
+  guest: "guestBooking",
+  guestbooking: "guestBooking",
+  account: "guestBooking",
+  kyc: "kyc",
+  identity: "kyc",
+  cancel: "cancellation",
+  cancellation: "cancellation",
+  refund: "refunds",
+  refunds: "refunds",
+  packaging: "packaging",
+  packing: "packaging",
+  weight: "weightChange",
+  weightchange: "weightChange",
+  reprice: "weightChange",
   general: "general",
 };
 
@@ -306,7 +380,7 @@ export function executeGetShipmentGuidance(
   _context: SupportChatContext
 ): string {
   try {
-    const raw = String(args?.topic ?? "").trim().toLowerCase().replace(/\s+/g, "");
+    const raw = String(args?.topic ?? "").trim().toLowerCase().replace(/[\s_-]+/g, "");
     const key = raw ? TOPIC_MAP[raw] : undefined;
     const guidanceKey = key && key in guidance ? key : "general";
     return guidance[guidanceKey as GuidanceKey] ?? FALLBACK_GUIDANCE;
@@ -326,23 +400,6 @@ export function executeEscalateSupport(
   }
 }
 
-export async function executeGetUserShipments(
-  context: SupportChatContext
-): Promise<string> {
-  try {
-    if (!context.dbUserId) {
-      return "You need to be logged in to view your shipments. Please log in to the app and try again.";
-    }
-    const text = await getRecentShipmentsByUserId(context.dbUserId);
-    if (text === null) {
-      return "I couldn't load your shipments right now. Please try again in a moment or check the Orders section in the app.";
-    }
-    return text;
-  } catch {
-    return "I couldn't load your shipments right now. Please try again in a moment.";
-  }
-}
-
 // ─── Tool dispatcher ─────────────────────────────────────────────────────────
 
 export type ToolName =
@@ -350,13 +407,16 @@ export type ToolName =
   | "get_tracking_summary"
   | "get_shipment_guidance"
   | "escalate_support"
-  | "get_user_shipments";
+  | "list_my_orders"
+  | "get_order_status"
+  | "get_my_kyc_status"
+  | "check_pickup";
 
 export async function dispatchTool(
   toolName: string,
   args: unknown,
   context: SupportChatContext
-): Promise<string> {
+): Promise<ToolOutcome> {
   try {
     const raw = args && typeof args === "object" ? (args as Record<string, unknown>) : {};
 
@@ -368,259 +428,191 @@ export async function dispatchTool(
           destination_country: String(raw.destination_country ?? ""),
           weight_kg: String(raw.weight_kg ?? ""),
         };
-        return executeGetRates(a, context);
+        return { content: await executeGetRates(a, context) };
       }
-      case "get_tracking_summary": {
-        const a: GetTrackingSummaryArgs = {
-          tracking_no: String(raw.tracking_no ?? ""),
+      case "get_tracking_summary":
+        return executeGetTrackingSummary({ tracking_no: String(raw.tracking_no ?? "") }, context);
+      case "get_shipment_guidance":
+        return {
+          content: executeGetShipmentGuidance(
+            { topic: raw.topic != null ? String(raw.topic) : undefined },
+            context
+          ),
         };
-        return executeGetTrackingSummary(a, context);
-      }
-      case "get_shipment_guidance": {
-        const a = {
-          topic: raw.topic != null ? String(raw.topic) : undefined,
+      case "escalate_support":
+        return {
+          content: executeEscalateSupport(
+            { reason: raw.reason != null ? String(raw.reason) : undefined },
+            context
+          ),
         };
-        return executeGetShipmentGuidance(a, context);
-      }
-      case "escalate_support": {
-        const a = {
-          reason: raw.reason != null ? String(raw.reason) : undefined,
-        };
-        return executeEscalateSupport(a, context);
-      }
+      case "list_my_orders":
+      // The old name, in case a model replays a transcript that used it.
       case "get_user_shipments":
-        return executeGetUserShipments(context);
+        return executeListMyOrders(context);
+      case "get_order_status":
+        return executeGetOrderStatus({ order_no: String(raw.order_no ?? "") }, context);
+      case "get_my_kyc_status":
+        return executeGetMyKycStatus(context);
+      case "check_pickup":
+        return executeCheckPickup({ pincode: String(raw.pincode ?? "") });
       default:
-        return FALLBACK_DISPATCHER;
+        return { content: FALLBACK_DISPATCHER };
     }
   } catch {
-    return FALLBACK_DISPATCHER;
+    return { content: FALLBACK_DISPATCHER };
   }
 }
 
 // ─── OpenAI orchestration ────────────────────────────────────────────────────
 
-// #region agent log
-const DEBUG_LOG = path.join(process.cwd(), ".cursor", "debug-643d35.log");
-function debugLog(payload: Record<string, unknown>) {
-  try {
-    fs.mkdirSync(path.dirname(DEBUG_LOG), { recursive: true });
-    fs.appendFileSync(DEBUG_LOG, JSON.stringify(payload) + "\n");
-  } catch (_) {}
-}
-// #endregion
-
 function getOpenAIClient(): OpenAI | null {
   const key = process.env.OPENAI_API_KEY;
-  if (!key || typeof key !== "string" || key.trim() === "") {
-    // #region agent log
-    debugLog({
-      sessionId: "643d35",
-      runId: "request",
-      hypothesisId: "H4_no_client",
-      location: "supportAgent.ts:getOpenAIClient",
-      message: "fallback path: no client created",
-      data: { keyFalsy: !key, keyType: typeof key, keyTrimEmpty: typeof key === "string" ? key.trim() === "" : "n/a" },
-      timestamp: Date.now(),
-    });
-    fetch("http://127.0.0.1:7701/ingest/99554fe6-af8f-4c6f-9a0a-628d3111f8a2", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "643d35" },
-      body: JSON.stringify({
-        sessionId: "643d35",
-        runId: "request",
-        hypothesisId: "H4_no_client",
-        location: "supportAgent.ts:getOpenAIClient",
-        message: "fallback path: no client created",
-        data: { keyFalsy: !key, keyType: typeof key, keyTrimEmpty: typeof key === "string" ? key.trim() === "" : "n/a" },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
-    return null;
-  }
-  // #region agent log
-  debugLog({
-    sessionId: "643d35",
-    runId: "request",
-    hypothesisId: "H4_client_created",
-    location: "supportAgent.ts:getOpenAIClient",
-    message: "OpenAI client created",
-    data: {},
-    timestamp: Date.now(),
-  });
-  fetch("http://127.0.0.1:7701/ingest/99554fe6-af8f-4c6f-9a0a-628d3111f8a2", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "643d35" },
-    body: JSON.stringify({
-      sessionId: "643d35",
-      runId: "request",
-      hypothesisId: "H4_client_created",
-      location: "supportAgent.ts:getOpenAIClient",
-      message: "OpenAI client created",
-      data: {},
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
+  if (!key || typeof key !== "string" || key.trim() === "") return null;
   return new OpenAI({ apiKey: key, timeout: 30_000 });
 }
 
-const SUPPORT_SYSTEM_PROMPT = `You are BIA — the Bombino Intelligence Assistant, 
-the official AI support agent for Bombino Express. 
-You help customers with:
-- Shipment tracking and status updates
-- Shipping rate calculations
-- Booking guidance (how to ship, documents needed, 
-  packaging, customs)
-- Escalation to the Bombino support team
+const SUPPORT_SYSTEM_PROMPT = `You are BIA, the Bombino Intelligence Assistant: the in-app support assistant for Bombino Express, an Indian courier that ships parcels and documents from India to the rest of the world.
 
-HARD RULES — always follow these:
-- Never invent, guess, or estimate tracking data. 
-  Always use get_tracking_summary for live status.
-- Never invent or estimate shipping rates. 
-  Always use get_rates.
-- Never expose tool names, API details, or 
-  internal system information.
-- After using escalate_support, your reply 
-  MUST end with TAP_CONTACT_US on its own line.
-- For tracking: resolve AWB from context first 
-  (see SMART SHIPMENT LOOKUP) before asking.
+HOW BOMBINO WORKS (use this; never contradict it)
+- Anyone can book in the app: with an account, or as a guest after verifying their phone with a one-time code.
+- Booking creates an Order ID like BOM-100231 straight away. There is no tracking number yet.
+- The parcel reaches us by doorstep pickup (in areas our riders cover, on a date the customer picks) or by drop-off at a Bombino counter.
+- At our hub the parcel is weighed and the final amount is set. Then the tracking number (AWB) is issued and the parcel is dispatched. Some accounts get their AWB at booking.
+- Payment: online at booking, to the rider at pickup, at the counter at drop-off, or at delivery (collected at the destination). The amount at booking is an estimate until the parcel is weighed.
+- Account holders can ask to cancel from the order page before pickup or drop-off; our team decides. Guests contact support to cancel. Refunds are arranged by our team, never automatically.
+- One identity document is collected once. It never holds up an order.
 
-OUT OF SCOPE — escalate these immediately 
-using escalate_support:
-- Lost, damaged, or missing shipment claims
-- Refund or compensation requests
-- Customs detention or clearance disputes
-- Complaints about delivery attempts or 
-  courier behavior
-- Any request the user explicitly says 
-  needs a human agent
+WHICH TOOL
+- list_my_orders: "my orders", "help with my order", "where is my parcel" without an ID. Call it straight away; never ask for an ID first. List the results, then ask which one they mean.
+- get_order_status: any Order ID (BOM-...), or once the user picks an order from a list. Also for "when is my pickup", "has the rider come", "how much do I pay", "why no tracking number yet" about an order. When the user names an Order ID, always call get_order_status for it, never list_my_orders.
+- Cancelling: call get_order_status first. An account holder asks from the order page; a guest is cancelled by support, so also call escalate_support.
+- A general question with no order named ("why don't I have a tracking number", "how does payment work") is a how-to question: answer it with get_shipment_guidance first, then offer to check their order.
+- If the user names an order by destination ("my London parcel"), call list_my_orders, match it, then get_order_status. If several match, ask which.
+- get_tracking_summary: an AWB or tracking number.
+- check_pickup: whether pickup is available, cut-off times, or any 6-digit Indian pincode.
+- get_rates: price questions. As soon as you know the destination and the weight, call get_rates. Never ask the user to confirm something they already told you. If one is missing, ask for it, one at a time. Origin defaults to India. Never ask about service type, pieces or dates.
+- get_my_kyc_status: their identity document or KYC.
+- get_shipment_guidance: how-to questions (topics: booking, pickup, payment, awb, guest, kyc, cancel, refund, packaging, weight, documents, rates, tracking).
+- escalate_support: lost or damaged parcels, refund or compensation disputes, customs holds, complaints about a rider or a delivery, cancelling a guest order, anything you cannot answer, or when they ask for a person.
 
-RATES:
-When user asks about shipping costs or rates:
-- Collect origin, destination, and weight 
-  (in kg) — ask one at a time, max 3 questions.
-- Never ask about product type, service, 
-  pieces, or booking date.
-- Call get_rates once all three are known.
-  Infer from natural language when possible.
-- Present results with service name and 
-  total cost. Include the token the tool 
-  returns (TAP_CREATE_SHIPMENT or 
-  TAP_CONTACT_US) on its own line at the end.
+HARD RULES
+- Never invent or guess an order status, tracking event, date, amount or rate. Only report what a tool returned.
+- Give an order's status in the tool's words. Never use internal terms such as weighed, settled or ready for docket.
+- When a tool gives a note written by our team ("Their note, to quote word for word"), quote it exactly, in quotation marks. Never explain it or add reasons of your own.
+- If a tool result starts a line with "Important:", follow it.
+- Never state a pickup or drop-off code, even if asked. Say where to find it, as the tool says. If the tool says nothing about a code, none has been issued yet: say so.
+- You cannot change anything: you cannot cancel, reschedule, edit an address, take a payment or issue a code. Say what they can do in the app and include the button.
+- You cannot contact the team for them. Never say you have escalated, forwarded, raised or passed on anything, or that someone will be in touch because of this chat. Ask them to reach our team with the WhatsApp or call buttons.
+- Do not work out how much more is owed or how much will be refunded. If the amount changed, say our team will be in touch.
+- Never mention tools, APIs or internal systems.
 
-TRACKING:
-When user provides or you have resolved an AWB:
-- Call get_tracking_summary immediately.
-- Report current status, last event location,
-  and last event time.
-- Do not ask for AWB if you can resolve it 
-  from context (see SMART SHIPMENT LOOKUP).
+BUTTONS
+- Tool results may list lines starting with TAP_ (for example TAP_VIEW_ORDER:BOM-100231). Copy the ones relevant to your answer exactly as written, each on its own line at the very end of your reply. Never invent one, never change one, never explain them, and never write the word "Buttons".
+- After escalate_support, end with TAP_CONTACT_US.
 
-SHIPMENT HISTORY:
-When user asks about their orders, deliveries,
-or says anything like "help me with my order",
-"track my shipment", or "where is my package"
-without specifying which shipment:
-- Immediately call get_user_shipments.
-  Do NOT ask for order details or AWB first.
-- Present results as a numbered list
-  (up to 5, already sorted latest first).
-- For help/support intents: after listing,
-  ask "Which of these do you need help with?"
-- For tracking intents: after listing,
-  ask "Which one would you like to track?"
-- Once user picks one, use that AWB with
-  get_tracking_summary automatically.
-- Never ask for order details or AWB as a
-  first response to these intents.
+DELIVERY ESTIMATES (only once an order is dispatched)
+- USA / UK / Europe: 3-5 business days. UAE / Middle East / Gulf: 2-4. Asia Pacific: 3-6. Rest of world: 5-10.
+- Business days are Monday to Friday. Always say "typically". Never promise a date.
+- Before dispatch, say the delivery estimate starts once it leaves our hub.
 
-SMART SHIPMENT LOOKUP:
-When user refers to a shipment by destination 
-(e.g. "my Dubai shipment", "the Doha package",
-"order to London"):
-1. Call get_user_shipments.
-2. Match the shipment by destination.
-3. Use that AWB with get_tracking_summary.
-4. Answer directly — do not ask for AWB.
-If multiple shipments match the same 
-destination, list them and ask which one.
-If no match is found, then ask for AWB.
-
-DELIVERY TIME ESTIMATES:
-When user asks about ETA or arrival time:
-1. Call get_tracking_summary for booking 
-   date, status, and last event.
-2. Use these typical delivery windows 
-   for express services from India:
-   USA / UK / Europe: 3-5 business days
-   UAE / Middle East / Gulf: 2-4 business days
-   Asia Pacific: 3-6 business days
-   Rest of world: 5-10 business days
-3. Business days are Monday to Friday only.
-4. Always say "typically" or "usually".
-   Never guarantee a date.
-5. If already delivered or near destination,
-   report that status instead.
-
-LANGUAGE:
-- Default language is English.
-- If the user sends 2 or more consecutive 
-  messages clearly written in Hinglish 
-  (Hindi words in Roman/English alphabets),
-  switch to Hinglish for your replies.
+LANGUAGE
+- Default to English.
+- If the user sends 2 or more consecutive messages clearly written in Hinglish (Hindi in Roman letters), reply in Hinglish.
 - Never use Devanagari or any non-Latin script.
-- If user switches back to English, 
-  switch back immediately.
+- If they switch back to English, switch back immediately.
 
-RESPONSE STYLE:
-- Short, warm, and direct. No filler phrases.
+STYLE
+- Short, warm, direct. A few short lines is ideal. No filler.
+- No markdown: no asterisks, bold, headers or tables. Plain numbered lists or hyphens.
 - Use the user's first name when known.
-- No markdown. No asterisks, bold, or headers.
-- Use plain numbered lists or plain hyphens.
-- When listing shipments:
-  1. AWB: [number] - To: [city], [country] - 
-     Status: [status] - Booked: [date] - 
-     Service: [service]`;
+- Listing orders: one line each, "1. BOM-100231 - To New York, United States - Arrived at Bombino hub".
+- About one order: lead with its status and what happens next, in two to four sentences. Mention payment, amounts or the tracking number only when asked, or when something needs their attention. Never recite every field.
+- End with one useful next step or question when it helps.`;
 
 function buildSystemPrompt(context: SupportChatContext): string {
-  const personalization = context.user
-    ? `
+  const firstName = context.user?.fullName?.trim().split(/\s+/)[0] ?? "";
+  const owner = ownerOf(context);
 
-CURRENT USER CONTEXT:
+  const who =
+    owner?.kind === "account"
+      ? `
 
-Name: ${context.user.fullName}
+CURRENT USER
+Signed in${firstName ? `. First name: ${firstName}` : ""}. You can look up their orders and identity document. Do not ask for their name, email or phone.`
+      : owner?.kind === "guest"
+        ? `
 
-Email: ${context.user.email}
+CURRENT USER
+Booked as a guest and verified their phone${context.guestPhone ? ` ending ${context.guestPhone.slice(-4)}` : ""}. You can look up their guest orders and identity document. Do not ask them to log in for order questions. They have no order page: point them to My shipments.`
+        : `
 
-Customer Code: ${context.user.code}
+CURRENT USER
+Not signed in. For their own orders, ask them to sign in, or, if they booked as a guest, to verify their phone on the Ship screen. Tracking an AWB, rates, pickup checks and how-to questions work without signing in.`;
 
-Address the user by their first name.
-
-You already know who they are.
-
-Do not ask for their name or email.`
-    : `
-
-GUEST USER:
-
-The user is not logged in.
-
-For shipment history or personalized help,
-
-encourage them to log in to the app.`;
-
-  return SUPPORT_SYSTEM_PROMPT + personalization;
+  return SUPPORT_SYSTEM_PROMPT + who;
 }
 
 const SUPPORT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "list_my_orders",
+      description:
+        "List the user's most recent orders and shipments with their current status. Use when they ask about their orders without giving an Order ID or AWB.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_order_status",
+      description:
+        "Full status of one of the user's orders by Order ID (BOM-...): current status, last update, pickup or drop-off, payment, tracking number and what happens next.",
+      parameters: {
+        type: "object",
+        properties: {
+          order_no: { type: "string", description: "Order ID, e.g. BOM-100231" },
+        },
+        required: ["order_no"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_tracking_summary",
+      description: "Live tracking for an AWB / tracking number.",
+      parameters: {
+        type: "object",
+        properties: {
+          tracking_no: { type: "string", description: "AWB or tracking number" },
+        },
+        required: ["tracking_no"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "check_pickup",
+      description:
+        "Check whether doorstep pickup is available at an Indian pincode, its same-day cut-off, and the nearest drop-off counters if not.",
+      parameters: {
+        type: "object",
+        properties: {
+          pincode: { type: "string", description: "6-digit Indian pincode" },
+        },
+        required: ["pincode"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_rates",
       description:
-        "Get shipping rates. Call this when user asks about rates or shipping costs. Ask the user: where shipping FROM, where shipping TO, and weight in kg. Nothing else.",
+        "Get shipping rates. Ask the user where they are shipping to and the weight in kg. Nothing else.",
       parameters: {
         type: "object",
         properties: {
@@ -644,29 +636,23 @@ const SUPPORT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
-      name: "get_tracking_summary",
-      description: "Get tracking summary for an AWB or tracking number. Use when the user asks about status of a shipment.",
-      parameters: {
-        type: "object",
-        properties: {
-          tracking_no: { type: "string", description: "AWB or tracking number" },
-        },
-        required: ["tracking_no"],
-      },
+      name: "get_my_kyc_status",
+      description: "Whether the user's identity document (KYC) is on file and verified.",
+      parameters: { type: "object", properties: {} },
     },
   },
   {
     type: "function",
     function: {
       name: "get_shipment_guidance",
-      description:
-        "Get pre-written guidance on how to get rates, track, ship, required documents, or booking steps. Use for how-to questions.",
+      description: "Pre-written answers to how-to questions about booking and shipping with Bombino.",
       parameters: {
         type: "object",
         properties: {
           topic: {
             type: "string",
-            description: "Topic: e.g. rates, tracking, how to ship, documents, booking steps, or general",
+            description:
+              "One of: booking, pickup, payment, awb, guest, kyc, cancel, refund, packaging, weight, documents, rates, tracking, general",
           },
         },
       },
@@ -676,7 +662,8 @@ const SUPPORT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "escalate_support",
-      description: "Direct the user to human support (WhatsApp or phone). Use when they ask to talk to someone or need help beyond what you can provide.",
+      description:
+        "Show the user the buttons to reach our support team on WhatsApp or by phone. It notifies nobody: the user has to contact them. Use when they ask for a person or need help beyond what you can provide.",
       parameters: {
         type: "object",
         properties: {
@@ -685,44 +672,27 @@ const SUPPORT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       },
     },
   },
-  {
-    type: "function",
-    function: {
-      name: "get_user_shipments",
-      description:
-        "Fetch the user's recent shipments. Use when user asks about their orders, deliveries, or shipment status without providing a specific AWB number.",
-      parameters: {
-        type: "object",
-        properties: {},
-      },
-    },
-  },
 ];
+
+/** Quick replies offered under the reply, keyed by the last tool the turn used. */
+const QUICK_REPLIES: Partial<Record<string, string[]>> = {
+  get_order_status: ["Show all my orders", "How do payments work?", "Talk to a person"],
+  get_tracking_summary: ["When will it arrive?", "Talk to a person"],
+  get_rates: ["Is pickup available at my pincode?", "How do I book?"],
+  check_pickup: ["Get a rate", "How do I book?"],
+  get_my_kyc_status: ["Show my orders"],
+  get_shipment_guidance: ["Show my orders", "Get a rate"],
+};
 
 export async function handleChat(
   messages: ChatMessage[],
   context: SupportChatContext
-): Promise<string> {
+): Promise<SupportChatResult> {
   const client = getOpenAIClient();
-  if (!client) {
-    // #region agent log
-    debugLog({
-      sessionId: "643d35",
-      runId: "request",
-      hypothesisId: "H5_fallback_branch",
-      location: "supportAgent.ts:handleChat",
-      message: "fallback: no client",
-      data: { branch: "no_client" },
-      timestamp: Date.now(),
-    });
-    fetch("http://127.0.0.1:7701/ingest/99554fe6-af8f-4c6f-9a0a-628d3111f8a2", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "643d35" }, body: JSON.stringify({ sessionId: "643d35", runId: "request", hypothesisId: "H5_fallback_branch", location: "supportAgent.ts:handleChat", message: "fallback: no client", data: { branch: "no_client" }, timestamp: Date.now() }) }).catch(() => {});
-    // #endregion
-    return FALLBACK_CHAT;
-  }
+  if (!client) return { message: FALLBACK_CHAT, suggestions: [] };
 
-  const systemPrompt = buildSystemPrompt(context);
-  const openaiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: "system", content: systemPrompt },
+  let currentMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    { role: "system", content: buildSystemPrompt(context) },
     ...messages.map((m) =>
       m.role === "user"
         ? { role: "user" as const, content: m.content }
@@ -730,16 +700,13 @@ export async function handleChat(
     ),
   ];
 
-  let iteration = 0;
-  let currentMessages = openaiMessages;
+  const owner = ownerOf(context);
+  const ownedOrderNos = new Set<string>();
+  let lastTool: string | null = null;
+  let lastToolTokens: string[] = [];
 
   try {
-    while (iteration < SUPPORT_CHAT_MAX_TOOL_ITERATIONS) {
-      iteration += 1;
-      // #region agent log
-      debugLog({ sessionId: "643d35", runId: "request", hypothesisId: "H6_openai_call", location: "supportAgent.ts:handleChat", message: "OpenAI API call start", data: { iteration }, timestamp: Date.now() });
-      fetch("http://127.0.0.1:7701/ingest/99554fe6-af8f-4c6f-9a0a-628d3111f8a2", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "643d35" }, body: JSON.stringify({ sessionId: "643d35", runId: "request", hypothesisId: "H6_openai_call", location: "supportAgent.ts:handleChat", message: "OpenAI API call start", data: { iteration }, timestamp: Date.now() }) }).catch(() => {});
-      // #endregion
+    for (let iteration = 0; iteration < SUPPORT_CHAT_MAX_TOOL_ITERATIONS; iteration++) {
       const response = await client.chat.completions.create({
         model: "gpt-4o-mini",
         messages: currentMessages,
@@ -747,33 +714,29 @@ export async function handleChat(
         tool_choice: "auto",
       });
 
-      const choice = response.choices?.[0];
-      if (!choice) {
-        // #region agent log
-        debugLog({ sessionId: "643d35", runId: "request", hypothesisId: "H5_fallback_branch", location: "supportAgent.ts:handleChat", message: "fallback: no choices", data: { branch: "no_choice", choicesLength: response.choices?.length ?? 0 }, timestamp: Date.now() });
-        fetch("http://127.0.0.1:7701/ingest/99554fe6-af8f-4c6f-9a0a-628d3111f8a2", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "643d35" }, body: JSON.stringify({ sessionId: "643d35", runId: "request", hypothesisId: "H5_fallback_branch", location: "supportAgent.ts:handleChat", message: "fallback: no choices", data: { branch: "no_choice", choicesLength: response.choices?.length ?? 0 }, timestamp: Date.now() }) }).catch(() => {});
-        // #endregion
-        return FALLBACK_CHAT;
-      }
+      const message = response.choices?.[0]?.message;
+      if (!message) return { message: FALLBACK_CHAT, suggestions: [] };
 
-      const message = choice.message;
       const toolCalls = message.tool_calls;
-
       if (!toolCalls || toolCalls.length === 0) {
-        const content = message.content;
-        const isString = typeof content === "string";
-        if (!isString) {
-          // #region agent log
-          debugLog({ sessionId: "643d35", runId: "request", hypothesisId: "H5_fallback_branch", location: "supportAgent.ts:handleChat", message: "fallback: final content not string", data: { branch: "content_not_string", contentType: typeof content }, timestamp: Date.now() });
-          fetch("http://127.0.0.1:7701/ingest/99554fe6-af8f-4c6f-9a0a-628d3111f8a2", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "643d35" }, body: JSON.stringify({ sessionId: "643d35", runId: "request", hypothesisId: "H5_fallback_branch", location: "supportAgent.ts:handleChat", message: "fallback: final content not string", data: { branch: "content_not_string", contentType: typeof content }, timestamp: Date.now() }) }).catch(() => {});
-          // #endregion
-        }
-        return typeof content === "string" ? content : FALLBACK_CHAT;
+        if (typeof message.content !== "string") return { message: FALLBACK_CHAT, suggestions: [] };
+        const final = await finalizeReply(message.content, {
+          owner,
+          ownedOrderNos,
+          fallbackTokens: lastToolTokens,
+        });
+        // A lookup that found nothing offers no buttons; follow-ups about the
+        // thing it did not find would be noise.
+        const foundNothing =
+          (lastTool === "get_tracking_summary" || lastTool === "get_order_status") &&
+          lastToolTokens.length === 0;
+        const replies = (!foundNothing && lastTool && QUICK_REPLIES[lastTool]) || [];
+        return {
+          message: final || FALLBACK_CHAT,
+          // Nothing about "my orders" for someone we cannot look orders up for.
+          suggestions: owner ? replies : replies.filter((r) => !/\bmy orders\b/i.test(r)),
+        };
       }
-      // #region agent log
-      debugLog({ sessionId: "643d35", runId: "request", hypothesisId: "H6_tool_loop", location: "supportAgent.ts:handleChat", message: "tool calls returned", data: { iteration, toolCallsCount: toolCalls.length }, timestamp: Date.now() });
-      fetch("http://127.0.0.1:7701/ingest/99554fe6-af8f-4c6f-9a0a-628d3111f8a2", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "643d35" }, body: JSON.stringify({ sessionId: "643d35", runId: "request", hypothesisId: "H6_tool_loop", location: "supportAgent.ts:handleChat", message: "tool calls returned", data: { iteration, toolCallsCount: toolCalls.length }, timestamp: Date.now() }) }).catch(() => {});
-      // #endregion
 
       const assistantMsg: OpenAI.Chat.Completions.ChatCompletionMessageParam = {
         role: "assistant",
@@ -787,47 +750,38 @@ export async function handleChat(
       const toolResults: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = await Promise.all(
         toolCalls.map(async (tc) => {
           const name = tc.function?.name ?? "";
-          const argsStr = tc.function?.arguments ?? "{}";
           let args: unknown = {};
           try {
-            args = JSON.parse(argsStr);
+            args = JSON.parse(tc.function?.arguments ?? "{}");
           } catch {
             args = {};
           }
-          const result = await dispatchTool(name, args, context);
+          const outcome = await dispatchTool(name, args, context);
+          for (const orderNo of outcome.orderNos ?? []) ownedOrderNos.add(orderNo);
           return {
             role: "tool" as const,
             tool_call_id: tc.id,
-            content: result,
+            content: outcome.content,
           };
         })
       );
       currentMessages = [...currentMessages, assistantMsg, ...toolResults];
+      lastTool = toolCalls[toolCalls.length - 1]?.function?.name ?? lastTool;
+      const lastResult = toolResults[toolResults.length - 1];
+      lastToolTokens =
+        lastResult && typeof lastResult.content === "string" ? tokensIn(lastResult.content) : [];
     }
 
-    // #region agent log
-    debugLog({ sessionId: "643d35", runId: "request", hypothesisId: "H5_fallback_branch", location: "supportAgent.ts:handleChat", message: "fallback: loop exhausted", data: { branch: "loop_exhausted", iteration }, timestamp: Date.now() });
-    fetch("http://127.0.0.1:7701/ingest/99554fe6-af8f-4c6f-9a0a-628d3111f8a2", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "643d35" }, body: JSON.stringify({ sessionId: "643d35", runId: "request", hypothesisId: "H5_fallback_branch", location: "supportAgent.ts:handleChat", message: "fallback: loop exhausted", data: { branch: "loop_exhausted", iteration }, timestamp: Date.now() }) }).catch(() => {});
-    // #endregion
-    return FALLBACK_CHAT;
+    return { message: FALLBACK_CHAT, suggestions: [] };
   } catch (err) {
-    // #region agent log
-    const e = err as Error;
-    debugLog({
-      sessionId: "643d35",
-      runId: "request",
-      hypothesisId: "H5_openai_throw",
-      location: "supportAgent.ts:handleChat",
-      message: "fallback: catch",
-      data: { branch: "catch", errName: e?.name, errMessage: e?.message?.slice(0, 200) ?? String(e).slice(0, 200) },
-      timestamp: Date.now(),
-    });
-    fetch("http://127.0.0.1:7701/ingest/99554fe6-af8f-4c6f-9a0a-628d3111f8a2", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "643d35" }, body: JSON.stringify({ sessionId: "643d35", runId: "request", hypothesisId: "H5_openai_throw", location: "supportAgent.ts:handleChat", message: "fallback: catch", data: { branch: "catch", errName: e?.name, errMessage: e?.message?.slice(0, 200) ?? String(e).slice(0, 200) }, timestamp: Date.now() }) }).catch(() => {});
-    // #endregion
-    const msg = e?.message ?? "";
+    const msg = (err as Error)?.message ?? "";
     if (msg.includes("429") || /quota|rate limit/i.test(msg)) {
-      return "Our AI support is temporarily at capacity. Please try again in a few minutes or contact support from the app menu.";
+      return {
+        message:
+          "Our AI support is temporarily at capacity. Please try again in a few minutes or contact support from the app menu.",
+        suggestions: [],
+      };
     }
-    return FALLBACK_CHAT;
+    return { message: FALLBACK_CHAT, suggestions: [] };
   }
 }
