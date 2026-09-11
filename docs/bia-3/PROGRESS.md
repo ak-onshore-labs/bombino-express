@@ -20,7 +20,7 @@ The single place to see where the BIA 3.0 build stands.
 |---|---|---|---|---|---|---|---|---|
 | [0.1](#01-ship-bia-20) | Ship BIA 2.0 | R0 | W0 | S · ½ d | — | ✅ | `aditya/final-phase` (direct, not pushed) | 2026-09-11 |
 | [0.2](#02-move-the-support-routes-out-of-routests) | Move the support routes out of routes.ts | R0 | W1 | S · ½ d | 0.1 | ✅ | `bia-3/wp0-2` → merged locally (28cd36f) | 2026-09-11 |
-| [1.1](#11-test-runner-and-eval-harness) | Test runner and eval harness | R1 | W2 | M · 1 d | 0.2 | ⬜ | `bia-3/wp1-1` | |
+| [1.1](#11-test-runner-and-eval-harness) | Test runner and eval harness | R1 | W2 | M · 1 d | 0.2 | ✅ | `bia-3/wp1-1` → merged locally (9a5cbfb) | 2026-09-11 |
 | [1.2](#12-error-catalog) | Error catalog | R1 | W2 | M · 1 d | 0.2 | ⬜ | `bia-3/wp1-2` | |
 | [1.3](#13-screen-context-and-cards) | Screen context and cards | R1 | W3 | M · 1 d | 1.1 | ⬜ | `bia-3/wp1-3` | |
 | [1.4](#14-bia-sheet-and-ask-bia) | BIA sheet and "Ask BIA" | R1 | W4 | L · 1.5 d | 1.3 | ⬜ | `bia-3/wp1-4` | |
@@ -137,23 +137,23 @@ Notes: Smoke-tested on a second dev server from the worktree (port 5001): sugges
 
 #### 1.1 Test runner and eval harness
 
-**Status:** ⬜ · **After:** 0.2 · **Owns:** `server/supportAgent.ts (trace hook only)`
+**Status:** ✅ · **After:** 0.2 · **Owns:** `server/supportAgent.ts (trace hook only)`
 
 Give every later package a way to prove itself: unit tests for pure logic, and an eval runner for BIA's behaviour.
 
 Build
-- [ ] `npm test`: `tsx --test` over `**/*.test.ts` with `node:test` and `node:assert`. No new dependency.
-- [ ] First tests: `finalizeReply`, `normalizeOrderNo`, `isBookableCorridor`.
-- [ ] `handleChat` takes an optional trace collector that records tool names and arguments. Nothing else changes.
-- [ ] `scripts/bia-eval.ts` and `npm run bia:eval`: JSON cases in `scripts/bia-evals/cases/` (identity, screen, turns, expected tools, required and forbidden text, expected buttons), with a `--module` filter; exits 1 on failure.
-- [ ] Convert `scripts/bia-evals.md` into cases. The runner impersonates the seeded identities by building `SupportChatContext` directly.
-- [ ] A global forbidden pattern: any run of more than four digits from a seeded ID number.
+- [x] `npm test`: `tsx --test` over `**/*.test.ts` with `node:test` and `node:assert`. No new dependency.
+- [x] First tests: `finalizeReply`, `normalizeOrderNo`, `isBookableCorridor` (plus `nextStepFor` and `handoverCodeLine`: 24 tests).
+- [x] `handleChat` takes an optional trace collector that records tool names and arguments. Nothing else changes.
+- [x] `scripts/bia-eval.ts` and `npm run bia:eval`: JSON cases in `scripts/bia-evals/cases/` (identity, screen, turns, expected tools, required and forbidden text, expected buttons), with `--module`, `--case`, `--repeat` and `--verbose`; exits 1 on failure.
+- [x] Convert `scripts/bia-evals.md` into cases. The runner impersonates the seeded identities by building `SupportChatContext` directly. (20 cases; #21–#22 stay manual because they test the HTTP route; #23 became a unit test.)
+- [x] A global forbidden pattern: any run of more than four digits from a seeded ID number. Also on every reply: the identity's real handover codes, uuids, internal statuses, markdown bold.
 
 Done when
-- [ ] `npm test` passes; every converted 2.0 case passes
-- [ ] A deliberately broken case fails with a readable diff
+- [x] `npm test` passes; every converted 2.0 case passes (20/20 on each of 3 runs, `--repeat 3`)
+- [x] A deliberately broken case fails with a readable diff (the real failures along the way printed each reason plus the full reply)
 
-Notes: —
+Notes: The harness caught a mistake of mine from 0.1. BOM-100108 has a rider and a live pickup code, so "no pickup code has been issued" was a false answer that the looser manual check had accepted. Fixed with `handoverCodeLine` (the order tool now says where the code is, never what it is) and a corrected prompt line. Chat temperature went from the default 1 to 0.2: at 1, three repeated runs showed skipped tools and "please confirm the weight" on a prompt that already gave it. **Heads-up:** `aditya/final-phase` still has the bad 0.1 prompt line until R1 merges back. Noise: `npm test` prints Redis connection errors because `postalLookup.ts` connects at import; harmless, but a lazy connect would quiet it. Scripts other than the runner stay out of `tsconfig` because several don't compile today. Run from a worktree with `DOTENV_CONFIG_PATH` pointing at the main clone's `.env`.
 
 #### 1.2 Error catalog
 
@@ -536,6 +536,7 @@ Notes: —
 
 Newest first. One line per merge, decision or surprise.
 
+- 2026-09-11 · 1.1 merged: `npm test` (24 unit tests) and `npm run bia:eval` (20 cases, 20/20 × 3 runs). BIA chat now runs at temperature 0.2. Fixed a false "no pickup code yet" answer introduced in 0.1.
 - 2026-09-11 · 0.2 merged into `bia-3/main`: support routes live in `server/routes/support.ts`. Wave W2 (1.1, 1.2) can start.
 - 2026-09-11 · Integration branch renamed `bia-3` → `bia-3/main` (git won't allow `bia-3` next to `bia-3/wpX-Y`).
 - 2026-09-11 · 0.1 done: BIA 2.0 committed on `aditya/final-phase` (not pushed), `bia-3/main` cut from it. 23/23 evals passing after three fixes.
