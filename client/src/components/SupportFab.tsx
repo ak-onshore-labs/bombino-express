@@ -1,8 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Link, useRoute } from "wouter";
+import { useLocation } from "wouter";
 import { Sparkles } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { screenForPath } from "@/lib/askBia";
+import { openBia, useBiaStore } from "@/lib/biaStore";
 
 const FAB_SIZE = 64;
 /** BottomNav tap row (matches `h-16` / 4rem). */
@@ -125,12 +127,25 @@ export function SupportFab() {
     setIsDragging(false);
   }, []);
 
-  const handleClick = useCallback((e: React.MouseEvent) => {
-    if (hasDraggedThisGestureRef.current) {
-      e.preventDefault();
-    }
-    hasDraggedThisGestureRef.current = false;
-  }, []);
+  const [location] = useLocation();
+
+  // Opens BIA over this screen, knowing which screen it is. On an order page it
+  // asks about that order straight away, as the old link to /help?order= did.
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (hasDraggedThisGestureRef.current) {
+        e.preventDefault();
+        hasDraggedThisGestureRef.current = false;
+        return;
+      }
+      const screen = screenForPath(location);
+      openBia({
+        screen,
+        seed: screen.orderNo ? `What's the latest on my order ${screen.orderNo}?` : undefined,
+      });
+    },
+    [location]
+  );
 
   useEffect(() => {
     if (position === null) return;
@@ -147,13 +162,9 @@ export function SupportFab() {
   }, [position]);
 
   const isMobile = useIsMobile();
-
-  // On an order screen, BIA opens already asking about that order.
-  const [onOrder, orderParams] = useRoute<{ orderNo: string }>("/order/:orderNo");
-  const helpHref =
-    onOrder && orderParams?.orderNo
-      ? `/help?order=${encodeURIComponent(orderParams.orderNo)}`
-      : "/help";
+  // Hidden while BIA is open: the sheet has its own close and send buttons,
+  // and the button would otherwise sit on top of them.
+  const biaOpen = useBiaStore((s) => s.open);
 
   const isPositioned = position !== null;
 
@@ -180,7 +191,7 @@ export function SupportFab() {
         touchAction: "none",
       };
 
-  if (!isMobile) return null;
+  if (!isMobile || biaOpen) return null;
 
   const fabContent = (
     <div
@@ -193,17 +204,17 @@ export function SupportFab() {
       role="presentation"
     >
       <div className="fab-aura" aria-hidden />
-      <Link
-        href={helpHref}
+      <button
+        type="button"
         className={`fab-button ${isDragging ? "fab-dragging" : ""}`}
-        aria-label="Open Support Assistant"
+        aria-label="Ask BIA"
         data-testid="fab-support"
         onClick={handleClick}
       >
         <span className="fab-icon-wrap">
           <Sparkles className="h-7 w-7" strokeWidth={2} aria-hidden />
         </span>
-      </Link>
+      </button>
     </div>
   );
 

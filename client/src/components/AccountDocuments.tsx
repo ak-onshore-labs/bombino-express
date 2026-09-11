@@ -1,4 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useLocation } from 'wouter';
+import type { BiaScreen } from '@shared/biaScreen';
+import { ocrErrorCode } from '@shared/errorCatalog';
+import { AskBiaLink } from '@/components/bia/AskBiaLink';
 import {
   CloudUpload,
   CheckCircle2,
@@ -53,6 +57,11 @@ interface SlotState {
    * stays outstanding rather than showing as done.
    */
   ocrNote: string;
+  /**
+   * The catalogued code behind `error` or `ocrNote` (shared/errorCatalog.ts),
+   * so "Ask BIA" knows which problem it is. Null when there is none.
+   */
+  errorCode: string | null;
 }
 
 const EMPTY_SLOT: SlotState = {
@@ -63,6 +72,7 @@ const EMPTY_SLOT: SlotState = {
   fileName: '',
   error: '',
   ocrNote: '',
+  errorCode: null,
 };
 
 /**
@@ -193,6 +203,15 @@ export function AccountDocuments({
   const slots = requiredDocuments(accountType, category);
   const basePath = endpoint === 'account' ? '/api/account/documents' : '/api/signup/documents';
   const [state, setState] = useState<Record<string, SlotState>>({});
+  // Where "Ask BIA" says the customer is: their account's documents, a guest
+  // opening an account, or the documents step of signup.
+  const [location] = useLocation();
+  const biaScreen: Omit<BiaScreen, 'errorCode'> =
+    endpoint === 'account'
+      ? { surface: 'documents' }
+      : location.startsWith('/guest-profile')
+        ? { surface: 'guest_profile' }
+        : { surface: 'signup', step: 'documents' };
   const fileInputs = useRef<Record<string, HTMLInputElement | null>>({});
   /** A file chosen before its number was valid; uploaded as soon as it is. */
   const pendingFiles = useRef<Record<string, File | null>>({});
@@ -383,7 +402,7 @@ export function AccountDocuments({
   };
 
   async function performUpload(slot: DocSlot, file: File, documentNo: string): Promise<void> {
-    patchSlot(slot, { status: 'uploading', fileName: file.name, error: '', ocrNote: '' });
+    patchSlot(slot, { status: 'uploading', fileName: file.name, error: '', ocrNote: '', errorCode: null });
 
     const formData = new FormData();
     formData.append('file', file);
@@ -410,7 +429,8 @@ export function AccountDocuments({
           patchSlot(slot, { status: 'pending', fileName: file.name, error: '' });
           return;
         }
-        throw new Error(body.message);
+        patchSlot(slot, { status: 'error', error: body.message, errorCode: body.code ?? null });
+        return;
       }
       const body = (await res.json().catch(() => ({}))) as {
         ocr?: { status?: string; message?: string };
@@ -421,6 +441,7 @@ export function AccountDocuments({
         fileName: file.name,
         error: '',
         ocrNote: verified ? '' : (body.ocr?.message ?? 'This document could not be verified.'),
+        errorCode: verified ? null : ocrErrorCode(body.ocr?.status),
       });
       pendingFiles.current[slot] = null;
       // The account endpoint returns the recomputed verification state with the
@@ -431,6 +452,7 @@ export function AccountDocuments({
       patchSlot(slot, {
         status: 'error',
         error: err instanceof Error ? err.message : 'Upload failed. Please try again.',
+        errorCode: null,
       });
     }
   }
@@ -896,6 +918,7 @@ export function AccountDocuments({
                 <>
                   <XCircle className="w-5 h-5 text-red-500" />
                   <p className="text-xs text-red-600 text-center px-2">{s.error}</p>
+                  <AskBiaLink screen={biaScreen} code={s.errorCode} message={s.error} />
                   <button
                     type="button"
                     onClick={(e) => {
@@ -911,9 +934,10 @@ export function AccountDocuments({
             </div>
 
             {s.status === 'unverified' && s.ocrNote && (
-              <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
-                {s.ocrNote}
-              </p>
+              <div className="flex flex-col items-start gap-1 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                <p>{s.ocrNote}</p>
+                <AskBiaLink screen={biaScreen} code={s.errorCode} message={s.ocrNote} />
+              </div>
             )}
           </div>
         );

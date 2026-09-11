@@ -55,7 +55,8 @@ import {
 import { usePickupCoverage } from '@/hooks/usePickupCoverage';
 import { lbToKg, inToCm } from '@/lib/mockData';
 import { apiRequest } from '@/lib/queryClient';
-import { parseApiErrorMessage } from '@/lib/apiError';
+import { parseApiErrorCode, parseApiErrorMessage } from '@/lib/apiError';
+import { AskBiaLink } from '@/components/bia/AskBiaLink';
 import { payForOrder } from '@/lib/razorpay';
 import { PaymentTestModeSwitch } from '@/components/PaymentTestModeSwitch';
 import { cn } from '@/lib/utils';
@@ -309,6 +310,9 @@ function itemizedChargesEmpty(service: ITDRateRow): boolean {
   const d = service.chrage_apply_data;
   return !d || Object.keys(d).length === 0;
 }
+
+/** The step names BIA understands (shared/biaScreen.ts), in the order of `steps`. */
+const BOOKING_STEP_NAMES = ['sender', 'receiver', 'package', 'invoice'] as const;
 
 const steps = [
   { id: 1, title: 'Sender', icon: User },
@@ -587,6 +591,9 @@ export default function CreateShipment() {
   const [pickupDatePickerOpen, setPickupDatePickerOpen] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [paymentError, setPaymentError] = useState('');
+  // The last booking error the server sent, with its code, so "Ask BIA" can
+  // say which error it was. Used only while its message is the one on screen.
+  const lastOrderErrorRef = useRef<{ message: string; code: string | null } | null>(null);
   const pendingOrderRef = useRef<Omit<OrderCreatePayload, 'payment_method'> | null>(null);
 
   /**
@@ -1135,6 +1142,7 @@ export default function CreateShipment() {
 
       // All other errors — keep the modal open so the user can retry
       const msg = message.replace(/^\d+:\s*/, '');
+      lastOrderErrorRef.current = { message: msg, code: parseApiErrorCode(err) };
       setPaymentError(msg);
     },
   });
@@ -3617,7 +3625,10 @@ export default function CreateShipment() {
             {submitError && (
               <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3">
                 <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-red-600">{submitError}</p>
+                <div className="flex flex-col items-start gap-1">
+                  <p className="text-xs text-red-600">{submitError}</p>
+                  <AskBiaLink screen={{ surface: 'create', step: BOOKING_STEP_NAMES[currentStep - 1] }} message={submitError} />
+                </div>
               </div>
             )}
 
@@ -3784,7 +3795,10 @@ export default function CreateShipment() {
                 {submitError && (
                   <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3">
                     <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                    <p className="text-xs text-red-600">{submitError}</p>
+                    <div className="flex flex-col items-start gap-1">
+                      <p className="text-xs text-red-600">{submitError}</p>
+                      <AskBiaLink screen={{ surface: 'create', step: BOOKING_STEP_NAMES[currentStep - 1] }} message={submitError} />
+                    </div>
                   </div>
                 )}
 
@@ -4239,7 +4253,14 @@ export default function CreateShipment() {
             {paymentError && (
               <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 mb-4">
                 <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-red-600">{paymentError}</p>
+                <div className="flex flex-col items-start gap-1">
+                  <p className="text-xs text-red-600">{paymentError}</p>
+                  <AskBiaLink
+                    screen={{ surface: 'create', step: 'payment' }}
+                    code={lastOrderErrorRef.current?.message === paymentError ? lastOrderErrorRef.current.code : null}
+                    message={paymentError}
+                  />
+                </div>
               </div>
             )}
 

@@ -19,6 +19,7 @@ import { useAppStore, type AuthUser } from '@/lib/store';
 import { useGuestProfile } from '@/hooks/useGuestProfile';
 import { apiRequest } from '@/lib/queryClient';
 import { parseApiErrorCode, parseApiErrorMessage } from '@/lib/apiError';
+import { AskBiaLink } from '@/components/bia/AskBiaLink';
 import { usePincodeLookup } from '@/hooks/usePincodeLookup';
 import { validateGstin } from '@shared/gstin';
 import { INDIA_HUBS } from '@shared/hubs';
@@ -245,6 +246,16 @@ export default function Signup() {
    * a fresh entry, and the customer can never actually go back.
    */
   const poppingBack = useRef(false);
+  // The last error a signup call returned, with its code, so "Ask BIA" can
+  // say which error it was. Used only while its message is the one shown.
+  const lastApiErrorRef = useRef<{ message: string; code: string | null } | null>(null);
+  const rememberApiError = (err: unknown, fallback: string): string => {
+    const message = parseApiErrorMessage(err, fallback);
+    lastApiErrorRef.current = { message, code: parseApiErrorCode(err) };
+    return message;
+  };
+  const codeFor = (message: string | undefined): string | null =>
+    message && lastApiErrorRef.current?.message === message ? lastApiErrorRef.current.code : null;
   const historySeeded = useRef(false);
 
   useEffect(() => {
@@ -329,7 +340,7 @@ export default function Signup() {
       setCooldown(RESEND_COOLDOWN_SECONDS);
       // Redundant with the OTP step subtitle; see Login.tsx.
     } catch (err) {
-      setErrors({ form: parseApiErrorMessage(err, 'Could not send OTP') });
+      setErrors({ form: rememberApiError(err, 'Could not send OTP') });
     } finally {
       setIsLoading(false);
     }
@@ -391,7 +402,7 @@ export default function Signup() {
       await apiRequest('POST', '/api/auth/otp/verify', { phone, purpose, code: otp });
       setStep('documents');
     } catch (err) {
-      setErrors({ otp: parseApiErrorMessage(err, 'Incorrect code') });
+      setErrors({ otp: rememberApiError(err, 'Incorrect code') });
     } finally {
       setIsLoading(false);
     }
@@ -495,7 +506,7 @@ export default function Signup() {
       // here, and a failure is nearly always a detail to correct rather than
       // a missing file. `missing_documents` in the body says otherwise when
       // it is.
-      setErrors({ form: parseApiErrorMessage(err, 'Could not create account') });
+      setErrors({ form: rememberApiError(err, 'Could not create account') });
     } finally {
       setIsLoading(false);
     }
@@ -995,7 +1006,12 @@ export default function Signup() {
                     </InputOTPGroup>
                   </InputOTP>
                 </div>
-                {errors.otp && <p role="alert" className="text-sm text-red-500 mt-2">{errors.otp}</p>}
+                {errors.otp && (
+                  <div className="mt-2 flex flex-col items-start gap-1">
+                    <p role="alert" className="text-sm text-red-500">{errors.otp}</p>
+                    <AskBiaLink screen={{ surface: 'signup', step }} code={codeFor(errors.otp)} message={errors.otp} />
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={handleResendOtp}
@@ -1088,7 +1104,10 @@ export default function Signup() {
             )}
 
             {errors.form && (
-              <p role="alert" className="text-sm text-red-500">{errors.form}</p>
+              <div className="flex flex-col items-start gap-1">
+                <p role="alert" className="text-sm text-red-500">{errors.form}</p>
+                <AskBiaLink screen={{ surface: 'signup', step }} code={codeFor(errors.form)} message={errors.form} />
+              </div>
             )}
 
             {/* No footer button on the choice step: picking a card IS the

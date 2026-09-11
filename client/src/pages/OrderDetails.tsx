@@ -51,6 +51,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { getOrderStatusTone } from '@/lib/orderStatus';
 import { apiRequest } from '@/lib/queryClient';
 import { payForOrder } from '@/lib/razorpay';
+import { openBia } from '@/lib/biaStore';
 import { PaymentTestModeSwitch } from '@/components/PaymentTestModeSwitch';
 import { DropoffBranches } from '@/components/DropoffBranches';
 import { cn } from '@/lib/utils';
@@ -965,11 +966,17 @@ export default function OrderDetails() {
         )}
 
         {/* ─── Ask BIA ─────────────────────────────────────────────────── */}
-        {/* Opens the assistant already asking about this order, so the
+        {/* Opens BIA over this page, already asking about this order, so the
             customer does not have to retype the number to get an answer. */}
-        <Link
-          href={`/help?order=${encodeURIComponent(order.order_no)}`}
-          className="mt-8 mb-16 md:mb-0 flex items-center gap-3 rounded-xl border border-border p-4 hover:bg-muted/50 transition-colors"
+        <button
+          type="button"
+          onClick={() =>
+            openBia({
+              screen: { surface: "order", orderNo: order.order_no },
+              seed: `What's the latest on my order ${order.order_no}?`,
+            })
+          }
+          className="mt-8 mb-16 md:mb-0 flex w-full items-center gap-3 rounded-xl border border-border p-4 text-left hover:bg-muted/50 transition-colors"
           data-testid="link-ask-bia"
         >
           <Sparkles className="w-5 h-5 shrink-0 text-[#F2A123]" aria-hidden />
@@ -982,7 +989,7 @@ export default function OrderDetails() {
             </span>
           </span>
           <ArrowRight className="w-4 h-4 shrink-0 text-muted-foreground" aria-hidden />
-        </Link>
+        </button>
       </div>
 
       <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>

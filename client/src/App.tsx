@@ -6,6 +6,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from '@/components/AppLayout';
+import { BiaSheet } from '@/components/bia/BiaSheet';
 import { SurfaceGuard } from '@/components/SurfaceGuard';
 import { AgentRoutes } from './routes.agent';
 import { OpsRoutes } from './routes.ops';
@@ -143,9 +144,12 @@ function Surfaces() {
   // TopBar's `below` slot on mobile (via Header), and under DesktopTopBar in
   // AppLayout. Mounted at this level it rendered above the whole shell and
   // pushed the sidebar down the page.
+  // BiaSheet: BIA over any customer screen (lib/biaStore.ts). Not on the agent
+  // or ops surfaces, which return above.
   return (
     <AppLayout>
       <CustomerRouter />
+      <BiaSheet />
     </AppLayout>
   );
 }

@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { AskBiaLink } from '@/components/bia/AskBiaLink';
 import { AADHAAR_DISPLAY_MAX_LENGTH, readAadhaarInput } from '@/lib/aadhaarInput';
 
 export const KYC_DOCUMENT_TYPE = 'Aadhaar Number';
@@ -126,6 +127,8 @@ export function KycUpload({
   const [docNoDisplay, setDocNoDisplay] = useState('');
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>('idle');
   const [uploadError, setUploadError] = useState('');
+  /** The catalogued code behind `uploadError`, when the server sent one. */
+  const [uploadErrorCode, setUploadErrorCode] = useState<string | null>(null);
   const [ocrNote, setOcrNote] = useState('');
   const [uploadResult, setUploadResult] = useState<KycUploadResult | null>(null);
   const [selectedFileName, setSelectedFileName] = useState('');
@@ -184,6 +187,7 @@ export function KycUpload({
     if (guestPhone) formData.append('phone', guestPhone);
 
     try {
+      setUploadErrorCode(null);
       const res = await fetch('/api/kyc/upload', {
         method: 'POST',
         body: formData,
@@ -201,7 +205,8 @@ export function KycUpload({
       }
 
       if (!res.ok) {
-        const body = await res.json().catch(() => ({ message: 'Upload failed.' })) as { message: string };
+        const body = await res.json().catch(() => ({ message: 'Upload failed.' })) as { message: string; code?: string };
+        setUploadErrorCode(body.code ?? null);
         throw new Error(body.message);
       }
 
@@ -525,6 +530,7 @@ export function KycUpload({
               <p className="text-xs text-red-600 text-center leading-tight px-2">
                 {uploadError}
               </p>
+              <AskBiaLink screen={{ surface: 'create', step: 'sender' }} code={uploadErrorCode} message={uploadError} />
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
