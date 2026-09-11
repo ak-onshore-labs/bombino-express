@@ -1,0 +1,243 @@
+/**
+ * BIA's HTTP surface: the chat endpoint, starter chips, and the signed-in
+ * user's saved conversation.
+ *
+ * Moved here from routes.ts unchanged (BIA 3.0, package 0.2) so the packages
+ * that grow BIA do not all edit the same 5,000-line file. Registered from the
+ * spot the block used to occupy, so route order is exactly what it was.
+ *
+ * Identity comes from the session alone: `supportContextFor` is the only
+ * place a request turns into a SupportChatContext, and every BIA tool reads
+ * ownership from that context.
+ */
+
+import type { Express, Request, Response } from "express";
+import {
+  createNewSupportSession,
+  generateSessionTitle,
+  getOrCreateSupportSession,
+  isSupportSessionOwnedBy,
+  resolveSupportSession,
+  updateSupportSessionMessages,
+} from "../appDb.js";
+import { refreshItdTokenIfNeeded } from "../itdTokenRefresh.js";
+import { ensureDbUser, requireUser } from "../routeGuards.js";
+import { handleChat } from "../supportAgent.js";
+import { suggestionsFor } from "../supportOrders.js";
+import { supportChatRateLimit } from "../supportRateLimit.js";
+import {
+  SUPPORT_CHAT_MAX_CONTENT_LENGTH,
+  SUPPORT_CHAT_MAX_MESSAGES,
+  type ChatMessage,
+  type SupportChatContext,
+} from "../supportTypes.js";
+
+export function registerSupportRoutes(app: Express): void {
+  /**
+   * Who BIA is talking to, from the session alone. A signed-in account wins;
+   * otherwise a guest ref, which only an OTP on `guestPhone` can have minted.
+   * BIA's order tools read ownership from here and nowhere else.
+   */
+  function supportContextFor(req: Request, sessionId: string | null): SupportChatContext {
+    const dbUserId = req.session.dbUserId ?? null;
+    const isLoggedIn = !!req.session.user && !!dbUserId;
+    return {
+      user: req.session.user ?? null,
+      itdToken: req.session.itdToken ?? null,
+      dbUserId,
+      sessionId,
+      guestRef: isLoggedIn ? null : (req.session.guestRef ?? null),
+      guestPhone: isLoggedIn ? null : (req.session.guestPhone ?? null),
+    };
+  }
+
+  // POST /api/support/chat — guest and logged-in; validates body and returns { message }
+  app.post(
+    "/api/support/chat",
+    ensureDbUser,
+    refreshItdTokenIfNeeded,
+    supportChatRateLimit,
+    async (req: Request, res: Response) => {
+    const body = req.body as { messages?: unknown; sessionId?: unknown };
+    const messages = body?.messages;
+    const bodySessionId =
+      typeof body?.sessionId === "string" && body.sessionId.trim() !== ""
+        ? body.sessionId.trim()
+        : null;
+
+    if (!Array.isArray(messages)) {
+      res.status(400).json({ message: "messages must be an array" });
+      return;
+    }
+    if (messages.length < 1 || messages.length > SUPPORT_CHAT_MAX_MESSAGES) {
+      res.status(400).json({
+        message: `messages must have 1–${SUPPORT_CHAT_MAX_MESSAGES} items`,
+      });
+      return;
+    }
+
+    for (let i = 0; i < messages.length; i++) {
+      const m = messages[i] as Record<string, unknown>;
+      if (m?.role !== "user" && m?.role !== "assistant") {
+        res.status(400).json({
+          message: `messages[${i}]: role must be "user" or "assistant"`,
+        });
+        return;
+      }
+      if (typeof m?.content !== "string") {
+        res.status(400).json({
+          message: `messages[${i}]: content must be a string`,
+        });
+        return;
+      }
+      if (m.content.length > SUPPORT_CHAT_MAX_CONTENT_LENGTH) {
+        res.status(400).json({
+          message: `messages[${i}]: content must be at most ${SUPPORT_CHAT_MAX_CONTENT_LENGTH} characters`,
+        });
+        return;
+      }
+    }
+
+    const chatMessages: ChatMessage[] = messages.map((m: Record<string, unknown>) => ({
+      role: m.role as "user" | "assistant",
+      content: String(m.content),
+    }));
+
+    const dbUserId = req.session.dbUserId ?? null;
+    const isLoggedIn = !!req.session.user && !!dbUserId;
+
+    let activeSessionId: string | null = null;
+    if (isLoggedIn && dbUserId) {
+      // The client's session id is only a hint. Unchecked, any signed-in user
+      // could name someone else's session and overwrite that transcript.
+      if (bodySessionId && (await isSupportSessionOwnedBy(bodySessionId, dbUserId))) {
+        activeSessionId = bodySessionId;
+      } else {
+        const row = await getOrCreateSupportSession(dbUserId);
+        activeSessionId = row?.id ?? null;
+      }
+    }
+
+    const context = supportContextFor(req, activeSessionId);
+
+    try {
+      const { message, suggestions } = await handleChat(chatMessages, context);
+      const stored: ChatMessage[] = [
+        ...chatMessages,
+        { role: "assistant" as const, content: message },
+      ];
+
+      if (isLoggedIn && activeSessionId) {
+        const firstUser = chatMessages.find((m) => m.role === "user");
+        const titleCandidate =
+          firstUser !== undefined
+            ? generateSessionTitle(firstUser.content)
+            : undefined;
+        void updateSupportSessionMessages(
+          activeSessionId,
+          stored,
+          titleCandidate
+        );
+
+        const lastUserMsg =
+          chatMessages
+            .filter((m) => m.role === "user")
+            .at(-1)
+            ?.content?.toLowerCase() ?? "";
+        const isThankyou = [
+          "thank you",
+          "thanks",
+          "bye",
+          "goodbye",
+          "perfect",
+          "great",
+        ].some((phrase) => lastUserMsg.includes(phrase));
+        const hasContactCta = message
+          .toLowerCase()
+          .includes("tap_contact_us");
+        if (isThankyou && !hasContactCta && activeSessionId) {
+          void resolveSupportSession(activeSessionId);
+        }
+      }
+
+      res.json({
+        message,
+        sessionId: isLoggedIn ? activeSessionId : null,
+        suggestions,
+      });
+    } catch {
+      res.status(500).json({
+        message:
+          "Something went wrong. Please try again or contact support from the app menu.",
+      });
+    }
+  });
+
+  // GET /api/support/suggestions — starter chips for an empty chat, led by the
+  // caller's own live orders. Anyone may call it; an anonymous caller gets the
+  // generic set.
+  app.get(
+    "/api/support/suggestions",
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      const chips = await suggestionsFor(supportContextFor(req, null));
+      res.json({ chips });
+    }
+  );
+
+  // GET /api/support/session — logged-in: active session + messages
+  app.get(
+    "/api/support/session",
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      const dbUserId = req.session.dbUserId ?? null;
+      if (!dbUserId) {
+        res.json({
+          sessionId: null,
+          messages: [] as ChatMessage[],
+          title: null as string | null,
+        });
+        return;
+      }
+
+      const row = await getOrCreateSupportSession(dbUserId);
+      if (!row) {
+        res.json({
+          sessionId: null,
+          messages: [] as ChatMessage[],
+          title: null as string | null,
+        });
+        return;
+      }
+
+      res.json({
+        sessionId: row.id,
+        messages: row.messages,
+        title: row.title,
+      });
+    }
+  );
+
+  // POST /api/support/new-session — start fresh conversation
+  app.post(
+    "/api/support/new-session",
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      const dbUserId = req.session.dbUserId ?? null;
+      if (!dbUserId) {
+        res.status(400).json({ message: "Profile not synced yet" });
+        return;
+      }
+
+      const created = await createNewSupportSession(dbUserId);
+      if (!created) {
+        res.status(503).json({ message: "Could not create a new session" });
+        return;
+      }
+
+      res.json({ sessionId: created.id });
+    }
+  );
+}
