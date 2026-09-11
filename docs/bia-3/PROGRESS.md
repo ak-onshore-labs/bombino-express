@@ -23,7 +23,7 @@ The single place to see where the BIA 3.0 build stands.
 | [1.1](#11-test-runner-and-eval-harness) | Test runner and eval harness | R1 | W2 | M · 1 d | 0.2 | ✅ | `bia-3/wp1-1` → merged locally (9a5cbfb) | 2026-09-11 |
 | [1.2](#12-error-catalog) | Error catalog | R1 | W2 | M · 1 d | 0.2 | ✅ | `bia-3/wp1-2` → merged locally (c869115) | 2026-09-11 |
 | [1.3](#13-screen-context-and-cards) | Screen context and cards | R1 | W3 | M · 1 d | 1.1 | ✅ | `bia-3/wp1-3` → merged locally (cbcc9af) | 2026-09-11 |
-| [1.4](#14-bia-sheet-and-ask-bia) | BIA sheet and "Ask BIA" | R1 | W4 | L · 1.5 d | 1.3 | ⬜ | `bia-3/wp1-4` | |
+| [1.4](#14-bia-sheet-and-ask-bia) | BIA sheet and "Ask BIA" | R1 | W4 | L · 1.5 d | 1.3 | ✅ | `bia-3/wp1-4` → merged locally (ee48623) | 2026-09-11 |
 | [1.5](#15-module-prompts-and-tool-registry) | Module prompts and tool registry | R1 | W4 | M · 1 d | 1.3 | ⬜ | `bia-3/wp1-5` | |
 | [1.6](#16-privacy-filter-telemetry-and-feedback) | Privacy filter, telemetry and feedback | R1 | W4 | M · 1 d | 1.3 | ⬜ | `bia-3/wp1-6` | |
 | [1.7](#17-guest-chat-history) | Guest chat history | R1 | W5 | S · ½ d | 1.4, 1.6 | ⬜ | `bia-3/wp1-7` | |
@@ -194,24 +194,24 @@ Notes: Cards come from the last round of tool calls that produced any, so "list,
 
 #### 1.4 BIA sheet and "Ask BIA"
 
-**Status:** ⬜ · **After:** 1.3 · **Owns:** `pages/Support.tsx → components/bia/BiaChat.tsx`, `pages/Signup.tsx (error links)`, `pages/CreateShipment.tsx (error links)`
+**Status:** ✅ · **After:** 1.3 · **Owns:** `pages/Support.tsx → components/bia/BiaChat.tsx`, `pages/Signup.tsx (error links)`, `pages/CreateShipment.tsx (error links)`
 
 BIA opens over any screen, already knowing the screen and the error, instead of only on /help.
 
 Build
-- [ ] Extract the chat UI into `components/bia/BiaChat.tsx`; `/help` becomes a thin page around it.
-- [ ] `components/bia/BiaSheet.tsx` (Radix Sheet) and a small zustand store: `openBia({ screen, seed })`.
-- [ ] An `askBia(err, screen)` helper built on `parseApiErrorCode`. "Ask BIA" links beside errors on signup, the documents step, guest verification and booking submit.
-- [ ] The support button opens the sheet for the current screen; `/help` still works.
-- [ ] Thumbs up/down under each reply, posting to the 1.6 endpoint (hidden until it exists).
-- [ ] "Ask BIA" links only show when that surface's module is on in `BIA_MODULES`.
+- [x] Extract the chat UI into `components/bia/BiaChat.tsx`; `/help` becomes a thin page around it.
+- [x] `components/bia/BiaSheet.tsx` (Radix Sheet) and a small zustand store: `openBia({ screen, seed })`.
+- [x] An `askBia(err, screen)` helper built on `parseApiErrorCode`. "Ask BIA" links beside errors on signup, the documents step, guest verification and booking submit (plus document OCR notes and the booking form's identity upload).
+- [x] The support button opens the sheet for the current screen; `/help` still works.
+- [ ] Thumbs up/down under each reply → **moved to 1.6**, which builds the endpoint; no dead UI in the meantime.
+- [ ] "Ask BIA" links only show when that surface's module is on in `BIA_MODULES` → **moved to 1.5**, which creates `BIA_MODULES`. Until then the links always show, and every error is explained through the SCREEN block regardless of modules.
 
 Done when
-- [ ] From a booking error, BIA's first reply explains that error (eval and by hand)
-- [ ] The sheet works at 375px and on desktop; focus is trapped and Escape closes it
-- [ ] Account history on `/help` is unchanged
+- [x] From a booking error, BIA's first reply explains that error (evals `ask-01`…`ask-04`, `screen-03/04`; by hand in Chrome)
+- [x] The sheet works at 375px and on desktop; focus is trapped and Escape closes it (Chrome at 561px and 1875px; Radix focus trap, Escape verified)
+- [x] Account history on `/help` is unchanged (same restore path; the sheet shows the same conversation)
 
-Notes: —
+Notes: The Order page's "Ask BIA" and the mobile Home pill also open the sheet; the desktop sidebar still goes to the `/help` page. The browser check found three things, all fixed: the support button drew on top of the sheet and covered Send (now hidden while BIA is open); card borders used `border-white/12`, which this Tailwind build doesn't generate; rate replies repeated the card, so they now give the best value in a sentence. A reply to "Ask BIA" about an error now keeps that error's button even if the model drops it (1 in 3 runs had). Test on `127.0.0.1:5001`, not `localhost`, to keep your `localhost:5000` session cookie. 62 unit tests; 29/29 evals × 3.
 
 #### 1.5 Module prompts and tool registry
 
@@ -536,6 +536,7 @@ Notes: —
 
 Newest first. One line per merge, decision or surprise.
 
+- 2026-09-11 · 1.4 merged: BIA sheet over any screen, "Ask BIA" beside errors, support button opens the sheet. Thumbs moved to 1.6, module gating to 1.5.
 - 2026-09-11 · 1.3 merged: screen context (allow-listed), order/pickup/rate cards, one shared button registry. W4 (1.4, 1.5, 1.6) next.
 - 2026-09-11 · 1.2 merged: 48 catalogued error codes (incl. payments), every message unchanged. Wave W2 done; W3 (1.3 screen context and cards) is next.
 - 2026-09-11 · 1.1 merged: `npm test` (24 unit tests) and `npm run bia:eval` (20 cases, 20/20 × 3 runs). BIA chat now runs at temperature 0.2. Fixed a false "no pickup code yet" answer introduced in 0.1.
