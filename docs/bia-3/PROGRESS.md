@@ -22,7 +22,7 @@ The single place to see where the BIA 3.0 build stands.
 | [0.2](#02-move-the-support-routes-out-of-routests) | Move the support routes out of routes.ts | R0 | W1 | S · ½ d | 0.1 | ✅ | `bia-3/wp0-2` → merged locally (28cd36f) | 2026-09-11 |
 | [1.1](#11-test-runner-and-eval-harness) | Test runner and eval harness | R1 | W2 | M · 1 d | 0.2 | ✅ | `bia-3/wp1-1` → merged locally (9a5cbfb) | 2026-09-11 |
 | [1.2](#12-error-catalog) | Error catalog | R1 | W2 | M · 1 d | 0.2 | ✅ | `bia-3/wp1-2` → merged locally (c869115) | 2026-09-11 |
-| [1.3](#13-screen-context-and-cards) | Screen context and cards | R1 | W3 | M · 1 d | 1.1 | ⬜ | `bia-3/wp1-3` | |
+| [1.3](#13-screen-context-and-cards) | Screen context and cards | R1 | W3 | M · 1 d | 1.1 | ✅ | `bia-3/wp1-3` → merged locally (cbcc9af) | 2026-09-11 |
 | [1.4](#14-bia-sheet-and-ask-bia) | BIA sheet and "Ask BIA" | R1 | W4 | L · 1.5 d | 1.3 | ⬜ | `bia-3/wp1-4` | |
 | [1.5](#15-module-prompts-and-tool-registry) | Module prompts and tool registry | R1 | W4 | M · 1 d | 1.3 | ⬜ | `bia-3/wp1-5` | |
 | [1.6](#16-privacy-filter-telemetry-and-feedback) | Privacy filter, telemetry and feedback | R1 | W4 | M · 1 d | 1.3 | ⬜ | `bia-3/wp1-6` | |
@@ -174,23 +174,23 @@ Notes: 48 codes, not ~40. The scan test found ten payment codes (`server/routes/
 
 #### 1.3 Screen context and cards
 
-**Status:** ⬜ · **After:** 1.1 · **Owns:** `server/routes/support.ts`, `server/supportAgent.ts`, `pages/Support.tsx`
+**Status:** ✅ · **After:** 1.1 · **Owns:** `server/routes/support.ts`, `server/supportAgent.ts`, `pages/Support.tsx`
 
 Define the contract the rest of the build uses: what the app tells BIA about the screen, and the structured reply BIA sends back.
 
 Build
-- [ ] `shared/biaScreen.ts`: { surface, step, orderNo, errorCode } with an allow-list validator. Surfaces: home, help, signup, documents, create, order, orders, guest_profile, track, rates.
-- [ ] The chat route accepts `screen`; `SupportChatContext.screen`; the system prompt gets a SCREEN block.
-- [ ] `shared/biaCards.ts`: a discriminated union (order, checklist, docStatus, draft, pickup, rate, hsn, case, docUpload). The response becomes { message, cards, suggestions }; `ToolOutcome` carries cards.
-- [ ] `shared/biaCta.ts`: one registry of button kinds (validation and route) that both `supportCta.ts` and `supportMessage.ts` read. `TAP_` tokens keep working.
-- [ ] Render order and pickup cards; the rest arrive with their packages.
+- [x] `shared/biaScreen.ts`: { surface, step, orderNo, errorCode } with an allow-list validator. Surfaces: home, help, signup, documents, create, order, orders, guest_profile, track, rates. (Steps are listed per surface: signup's five, and create's sender/receiver/package/invoice/payment.)
+- [x] The chat route accepts `screen`; `SupportChatContext.screen`; the system prompt gets a SCREEN block (with the error catalog's explanation and button when there's an error code).
+- [x] `shared/biaCards.ts`: a discriminated union. Built now: order, pickup, rate. The other kinds (checklist, docStatus, docUpload, hsn, draft, case) are added by their own packages, with a note in the file. The response is { message, suggestions, cards }; `ToolOutcome` carries cards.
+- [x] `shared/biaCta.ts`: one registry of button kinds (validation and route) that both `supportCta.ts` and `supportMessage.ts` read. `TAP_` tokens keep working.
+- [x] Render order and pickup cards (and rate cards, since `get_rates` already had the data); the rest arrive with their packages.
 
 Done when
-- [ ] An invalid screen value is dropped and never reaches the model
-- [ ] Eval: "where is it?" on an order screen calls `get_order_status` without asking which order
-- [ ] Old transcripts with `TAP_` tokens still render
+- [x] An invalid screen value is dropped and never reaches the model (unit tests on `parseBiaScreen` and `screenBlock`, including injection attempts; eval `screen-05`)
+- [x] Eval: "where is it?" on an order screen calls `get_order_status` without asking which order (`screen-01`; `screen-02` proves a guest can't use it to see an account's order)
+- [x] Old transcripts with `TAP_` tokens still render (`client/src/lib/supportMessage.test.ts`)
 
-Notes: —
+Notes: Cards come from the last round of tool calls that produced any, so "list, then open one" shows the one; none when the lookup found nothing. A card replaces its order's "Open order" button in the chat. The client validates every card with `isBiaCard`, and a card can only link inside the app (`/order/…`, `/shipment/…`, `/orders`). The chat UI's status colours are dark-tuned copies of the badge tones. **Not stored:** cards live for the conversation in the tab; an account's restored transcript keeps text and buttons, not cards (revisit with 1.7 if wanted). **Not visually checked in a browser yet:** logging in on a second localhost port would replace the :5000 app's session cookie in your browser; verified over HTTP instead (cards, tones, overdue = orange, junk screen ignored). 58 unit tests; 25/25 evals × 3.
 
 #### 1.4 BIA sheet and "Ask BIA"
 
@@ -536,6 +536,7 @@ Notes: —
 
 Newest first. One line per merge, decision or surprise.
 
+- 2026-09-11 · 1.3 merged: screen context (allow-listed), order/pickup/rate cards, one shared button registry. W4 (1.4, 1.5, 1.6) next.
 - 2026-09-11 · 1.2 merged: 48 catalogued error codes (incl. payments), every message unchanged. Wave W2 done; W3 (1.3 screen context and cards) is next.
 - 2026-09-11 · 1.1 merged: `npm test` (24 unit tests) and `npm run bia:eval` (20 cases, 20/20 × 3 runs). BIA chat now runs at temperature 0.2. Fixed a false "no pickup code yet" answer introduced in 0.1.
 - 2026-09-11 · 0.2 merged into `bia-3/main`: support routes live in `server/routes/support.ts`. Wave W2 (1.1, 1.2) can start.
