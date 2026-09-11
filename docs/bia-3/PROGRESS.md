@@ -4,11 +4,12 @@ The single place to see where the BIA 3.0 build stands.
 
 - **Product plan:** https://claude.ai/code/artifact/85e67fff-def9-4adf-9fad-6e66dd0195f9
 - **Build plan** (session briefs, hotspot rules, review checklist): https://claude.ai/code/artifact/70f68f82-7139-4bcd-8c61-f36311f60dd8
-- **Branches:** package `0.1` lands on `aditya/final-phase`. Everything after it branches from `bia-3` (cut from `aditya/final-phase` once 0.1 is in). Each package gets `bia-3/wpX-Y` in its own worktree and a PR into `bia-3`. A release merges `bia-3` back into `aditya/final-phase`.
+- **Branches:** package `0.1` lands on `aditya/final-phase`. Everything after it branches from `bia-3/main` (cut from `aditya/final-phase` once 0.1 is in). Each package gets `bia-3/wpX-Y` in its own worktree and a PR into `bia-3/main`. A release merges `bia-3/main` back into `aditya/final-phase`. (Git can't have a branch named `bia-3` alongside `bia-3/…` branches, hence `/main`.)
+- **Checkouts:** your usual clone stays on `aditya/final-phase`. `../bia-worktrees/main` is the permanent `bia-3/main` checkout where this file is updated. Package worktrees go in `../bia-worktrees/wpX-Y`, with `node_modules` as a junction to the main clone's. Remove the junction (`rmdir`) before deleting a worktree, so the delete can't reach through it.
 
 ## How to update this file
 
-- **Package sessions don't edit this file.** Several sessions run at once, and parallel edits to one table conflict. The orchestrating session (or Aditya) updates it on `bia-3` after each PR merges.
+- **Package sessions don't edit this file.** Several sessions run at once, and parallel edits to one table conflict. The orchestrating session (or Aditya) updates it on `bia-3/main` after each PR merges.
 - Status: ⬜ not started · 🟡 in progress · 🔵 PR open · ✅ merged · ⛔ blocked
 - On merge: set ✅, fill in the PR and date, tick the package's checklist below, and write anything surprising under its **Notes**.
 - Change a package's scope here and in the build plan together, or the two drift.
@@ -18,7 +19,7 @@ The single place to see where the BIA 3.0 build stands.
 | WP | Package | Rel | Wave | Size | After | Status | Branch / PR | Merged |
 |---|---|---|---|---|---|---|---|---|
 | [0.1](#01-ship-bia-20) | Ship BIA 2.0 | R0 | W0 | S · ½ d | — | ✅ | `aditya/final-phase` (direct, not pushed) | 2026-09-11 |
-| [0.2](#02-move-the-support-routes-out-of-routests) | Move the support routes out of routes.ts | R0 | W1 | S · ½ d | 0.1 | ⬜ | `bia-3/wp0-2` | |
+| [0.2](#02-move-the-support-routes-out-of-routests) | Move the support routes out of routes.ts | R0 | W1 | S · ½ d | 0.1 | ✅ | `bia-3/wp0-2` → merged locally (28cd36f) | 2026-09-11 |
 | [1.1](#11-test-runner-and-eval-harness) | Test runner and eval harness | R1 | W2 | M · 1 d | 0.2 | ⬜ | `bia-3/wp1-1` | |
 | [1.2](#12-error-catalog) | Error catalog | R1 | W2 | M · 1 d | 0.2 | ⬜ | `bia-3/wp1-2` | |
 | [1.3](#13-screen-context-and-cards) | Screen context and cards | R1 | W3 | M · 1 d | 1.1 | ⬜ | `bia-3/wp1-3` | |
@@ -46,7 +47,7 @@ The single place to see where the BIA 3.0 build stands.
 
 ## Waves
 
-Packages in the same wave run in parallel. A package starts only once everything it depends on has merged into `bia-3`.
+Packages in the same wave run in parallel. A package starts only once everything it depends on has merged into `bia-3/main`.
 
 | Wave | Packages | Note |
 |---|---|---|
@@ -107,7 +108,7 @@ Build
 - [x] Run `npm run check` and fix what it reports in the BIA files.
 - [x] Walk `scripts/bia-evals.md` by hand against `npm run dev` with the seeded orders (BOM-100001, BOM-100002 and the pickup_requested pair). Fix failures.
 - [x] Commit in logical pieces (server, client, docs) on `aditya/final-phase`. No PR: it's the working branch, and 0.1 was already sitting in its working tree.
-- [x] Create the `bia-3` integration branch from the result.
+- [x] Create the `bia-3/main` integration branch from the result.
 
 Done when
 - [x] `npm run check` is clean
@@ -118,19 +119,19 @@ Notes: Type check was clean first time. Eval run (23 prompts, against the dev se
 
 #### 0.2 Move the support routes out of routes.ts
 
-**Status:** ⬜ · **After:** 0.1 · **Owns:** `server/routes.ts`, `server/routes/support.ts`
+**Status:** ✅ · **After:** 0.1 · **Owns:** `server/routes.ts`, `server/routes/support.ts`
 
 Move `/api/support/*` and `supportContextFor` into `server/routes/support.ts` with `registerSupportRoutes(app)`, so later packages don't collide in a 5,393-line file.
 
 Build
-- [ ] A pure move: same middleware order (`ensureDbUser`, `refreshItdTokenIfNeeded`, `supportChatRateLimit`) and the same responses.
-- [ ] Register it next to `registerGuestProfileRoutes`.
+- [x] A pure move: same middleware order (`ensureDbUser`, `refreshItdTokenIfNeeded`, `supportChatRateLimit`) and the same responses.
+- [x] Register it where the block used to be (not next to `registerGuestProfileRoutes`), so Express matches routes in exactly the old order.
 
 Done when
-- [ ] The diff shows moved lines only
-- [ ] `/help` chat works for an account, a guest and a signed-out visitor
+- [x] The diff shows moved lines only (checked: the 207 moved lines are identical to the ones removed)
+- [x] `/help` chat works for an account, a guest and a signed-out visitor
 
-Notes: —
+Notes: Smoke-tested on a second dev server from the worktree (port 5001): suggestions, chat, session and new-session for signed-out, account (9000000090) and guest (9000000091). 9/9 passed, including 401 on `/api/support/session` without a login and a 400 on a malformed body. `routes.ts` is now 5,171 lines. Merged by fast-forward locally; nothing pushed.
 
 ### R1 · Foundations
 
@@ -535,5 +536,7 @@ Notes: —
 
 Newest first. One line per merge, decision or surprise.
 
-- 2026-09-11 · 0.1 done: BIA 2.0 committed on `aditya/final-phase` (not pushed), `bia-3` cut from it. 23/23 evals passing after three fixes.
+- 2026-09-11 · 0.2 merged into `bia-3/main`: support routes live in `server/routes/support.ts`. Wave W2 (1.1, 1.2) can start.
+- 2026-09-11 · Integration branch renamed `bia-3` → `bia-3/main` (git won't allow `bia-3` next to `bia-3/wpX-Y`).
+- 2026-09-11 · 0.1 done: BIA 2.0 committed on `aditya/final-phase` (not pushed), `bia-3/main` cut from it. 23/23 evals passing after three fixes.
 - 2026-09-11 · Plan agreed. Chat actions limited to drafts and re-uploads; support cases get an ops Cases tab; guest chats kept on the server; built by Aditya plus Claude sessions.
