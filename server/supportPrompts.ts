@@ -134,6 +134,7 @@ export const MODULE_PROMPTS: Record<BiaModuleOrGeneral, ModulePrompt> = {
   handoff: {
     tools: [
       "- escalate_support opens a case: call it as soon as they ask for a person or report a problem it covers, without asking for details first. Pass the Order ID when they named one or it's the one on screen, and the category (damaged, lost, delayed, refund, customs, rider, cancel, other). Asking again finds the case already open. Never promise to escalate or open a case later: only say what its answer says.",
+      "- get_support_case: they ask about their case, a case number (BIA-...), or whether our team replied.",
     ],
   },
   booking: {

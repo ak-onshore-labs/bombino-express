@@ -45,7 +45,7 @@ import { parseBiaScreen } from "../shared/biaScreen.js";
 import { buildSystemPrompt } from "../server/supportPrompts.js";
 import { enabledBiaModules, toolsForTurn } from "../server/supportTools.js";
 import { replaceSignupLoader, type SignupRecords } from "../server/supportDocuments.js";
-import { memoryCaseStore, replaceCaseStore, type CaseStore } from "../server/supportCases.js";
+import { isCaseCategory, memoryCaseStore, replaceCaseStore, type CaseOwner, type CaseStore } from "../server/supportCases.js";
 
 /** Staged signups by ref; each case that has one gets its own ref. */
 const stagedSignups = new Map<string, SignupRecords>();
@@ -66,6 +66,7 @@ function casesFor(key: string): ReturnType<typeof memoryCaseStore> {
 const scopedCaseStore: CaseStore = {
   findOpen: (owner, orderNo, since) => casesFor(caseScope.getStore() ?? "_").findOpen(owner, orderNo, since),
   insert: (c) => casesFor(caseScope.getStore() ?? "_").insert(c),
+  listForOwner: (owner, caseNo, limit) => casesFor(caseScope.getStore() ?? "_").listForOwner(owner, caseNo, limit),
 };
 replaceCaseStore(scopedCaseStore);
 
@@ -102,6 +103,12 @@ interface EvalCase {
    * shared database. Its numbers are held to the last-four rule like any other.
    */
   signup?: SignupRecords;
+  /**
+   * Support cases the identity already has, numbered from BIA-1001 in order,
+   * staged in the run's in-memory store: for "did the team reply?". They
+   * count towards `expect.case.count`.
+   */
+  cases?: { orderNo?: string | null; category?: string; status?: "open" | "answered" | "closed"; reply?: string | null }[];
   /** User messages, sent in order. Expectations apply to the last reply. */
   turns: string[];
   expect: {
@@ -214,6 +221,33 @@ async function resolveIdentities(): Promise<Record<Identity, ResolvedIdentity>> 
       ],
     },
   };
+}
+
+/** A case's `cases`, put in its run's store before the first turn. */
+function stageCases(c: EvalCase, who: ResolvedIdentity, store: ReturnType<typeof memoryCaseStore>): void {
+  const ctx = who.context;
+  const owner: CaseOwner | null = ctx.dbUserId
+    ? { kind: "account", userId: ctx.dbUserId }
+    : ctx.guestRef
+      ? { kind: "guest", guestRef: ctx.guestRef }
+      : null;
+  if (!owner) return;
+  for (const s of c.cases ?? []) {
+    const status = s.status ?? (s.reply ? "answered" : "open");
+    store.cases.push({
+      owner,
+      orderNo: s.orderNo ?? null,
+      category: isCaseCategory(s.category) ? s.category : "other",
+      summary: "Staged by the eval runner.",
+      transcript: [],
+      turnId: null,
+      caseNo: `BIA-${1001 + store.cases.length}`,
+      status,
+      createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+      reply: s.reply ?? null,
+      answeredAt: s.reply ? new Date(Date.now() - 60 * 60 * 1000).toISOString() : null,
+    });
+  }
 }
 
 // ─── Checks ──────────────────────────────────────────────────────────────────
@@ -413,6 +447,7 @@ async function main(): Promise<void> {
       let fails: string[];
       try {
         const scope = `${c.id}#${run}`;
+        stageCases(c, identities[c.identity], casesFor(scope));
         last = await caseScope.run(scope, () => runCase(c, identities[c.identity]));
         const staged = (c.signup?.numbers ?? []).flatMap((n) => idNumberWindows(n.document_no));
         fails = check(c, last, [...identities[c.identity].secrets, ...staged], casesFor(scope).cases);

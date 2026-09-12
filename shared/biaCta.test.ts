@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   biaButtonAllowedFor,
   biaButtonNeedsOwnership,
+  biaButtonOrderNo,
+  splitOrderRef,
   biaButtonToken,
   parseBiaButton,
 } from "./biaCta.js";
@@ -67,4 +69,17 @@ test("resuming signup may name just a company; account documents are for account
   assert.equal(parseBiaButton("TAP_SIGNUP:company"), null, "a new signup needs the exact kind");
   assert.equal(biaButtonAllowedFor("TAP_ACCOUNT_DOCUMENTS", "account"), true);
   assert.equal(biaButtonAllowedFor("TAP_ACCOUNT_DOCUMENTS", "guest"), false);
+});
+
+test("an order button can carry the part of the order page it opens", () => {
+  assert.deepEqual(parseBiaButton("TAP_VIEW_ORDER:BOM-100107#cancel"), { name: "TAP_VIEW_ORDER", arg: "BOM-100107#cancel" });
+  assert.deepEqual(parseBiaButton("TAP_VIEW_ORDER:100107#PAY"), { name: "TAP_VIEW_ORDER", arg: "BOM-100107#pay" });
+  assert.deepEqual(parseBiaButton("TAP_VIEW_ORDER:#BOM-100107#handover-code"), { name: "TAP_VIEW_ORDER", arg: "BOM-100107#handover-code" });
+  // An unknown section keeps the order and drops the section.
+  assert.deepEqual(parseBiaButton("TAP_VIEW_ORDER:BOM-100107#refund"), { name: "TAP_VIEW_ORDER", arg: "BOM-100107" });
+  assert.equal(parseBiaButton("TAP_VIEW_ORDER:#cancel"), null);
+  assert.deepEqual(parseBiaButton("TAP_VIEW_ORDER:BOM-100107#cancel."), { name: "TAP_VIEW_ORDER", arg: "BOM-100107#cancel" });
+  assert.deepEqual(splitOrderRef("BOM-100107#cancel"), { orderNo: "BOM-100107", section: "cancel" });
+  assert.deepEqual(splitOrderRef("BOM-100107"), { orderNo: "BOM-100107", section: null });
+  assert.equal(biaButtonOrderNo({ name: "TAP_VIEW_ORDER", arg: "BOM-100107#pay" }), "BOM-100107");
 });

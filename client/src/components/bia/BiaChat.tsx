@@ -17,8 +17,11 @@ import {
   ThumbsDown,
   UserPlus,
   FileText,
+  KeyRound,
+  CreditCard,
 } from "lucide-react";
 import { accountChoiceLabel, isAccountChoice, signupPathFor, type AccountChoice } from "@shared/accountMatch";
+import type { OrderSection } from "@shared/biaCta";
 import { BiaBackground } from "@/components/ui/bia-background";
 import { BiaOrb } from "@/components/ui/bia-orb";
 import { Button } from "@/components/ui/button";
@@ -577,13 +580,14 @@ export function BiaChat({
 
                 const parsed = parseAssistantMessage(msg.content);
                 const cards = msg.cards ?? [];
-                // A card already opens its order or shipment; no second button for it.
+                // A card already opens its order or shipment; no second button for it
+                // (unless the button opens a part of the order page, like #cancel).
                 const carded = new Set(
                   cards.flatMap((c) => (c.kind === "order" ? [c.orderNo, c.awb] : [])).filter(Boolean)
                 );
                 const ctas = parsed.ctas.filter(
                   (c) =>
-                    !(c.kind === "view_order" && carded.has(c.orderNo)) &&
+                    !(c.kind === "view_order" && !c.section && carded.has(c.orderNo)) &&
                     !(c.kind === "track" && carded.has(c.awb))
                 );
                 return (
@@ -748,6 +752,22 @@ export function BiaChat({
 const PILL =
   "inline-flex items-center gap-1.5 rounded-xl py-2 px-3 text-xs font-medium border border-white/15 text-white/85 bg-white/[0.05] hover:bg-white/[0.1] transition-colors";
 
+/**
+ * An order button that opens a part of the order page. It says where it goes,
+ * never that anything was done: the customer presses the real button there.
+ */
+const ORDER_SECTION_LABEL: Record<OrderSection, string> = {
+  cancel: "Request cancellation on the order page",
+  "handover-code": "See the code on the order page",
+  pay: "Pay on the order page",
+};
+
+const ORDER_SECTION_ICON: Record<OrderSection, typeof Package> = {
+  cancel: XCircle,
+  "handover-code": KeyRound,
+  pay: CreditCard,
+};
+
 function CtaButtons({
   ctas,
   onNavigate,
@@ -768,21 +788,27 @@ function CtaButtons({
     <div className="flex flex-col gap-2">
       {orders.length > 0 && (
         <div className="flex flex-col gap-1.5">
-          {orders.map((o) => (
-            <button
-              key={o.orderNo}
-              type="button"
-              onClick={() => onNavigate(`/order/${encodeURIComponent(o.orderNo)}`)}
-              className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left border border-[#FBAD1F]/25 bg-[#FBAD1F]/[0.06] hover:bg-[#FBAD1F]/[0.12] transition-colors"
-            >
-              <Package className="w-4 h-4 shrink-0 text-[#FBAD1F]" aria-hidden />
-              <span className="flex-1 min-w-0">
-                <span className="block text-sm font-semibold text-white tabular-nums">{o.orderNo}</span>
-                <span className="block text-[11px] text-white/50">Open order</span>
-              </span>
-              <ChevronRight className="w-4 h-4 shrink-0 text-white/40" aria-hidden />
-            </button>
-          ))}
+          {orders.map((o) => {
+            const Icon = o.section ? ORDER_SECTION_ICON[o.section] : Package;
+            return (
+              <button
+                key={`${o.orderNo}#${o.section ?? ""}`}
+                type="button"
+                onClick={() => onNavigate(`/order/${encodeURIComponent(o.orderNo)}${o.section ? `#${o.section}` : ""}`)}
+                className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left border border-[#FBAD1F]/25 bg-[#FBAD1F]/[0.06] hover:bg-[#FBAD1F]/[0.12] transition-colors"
+                data-testid={o.section ? `button-bia-order-${o.section}` : undefined}
+              >
+                <Icon className="w-4 h-4 shrink-0 text-[#FBAD1F]" aria-hidden />
+                <span className="flex-1 min-w-0">
+                  <span className="block text-sm font-semibold text-white tabular-nums">{o.orderNo}</span>
+                  <span className="block text-[11px] text-white/50">
+                    {o.section ? ORDER_SECTION_LABEL[o.section] : "Open order"}
+                  </span>
+                </span>
+                <ChevronRight className="w-4 h-4 shrink-0 text-white/40" aria-hidden />
+              </button>
+            );
+          })}
         </div>
       )}
 

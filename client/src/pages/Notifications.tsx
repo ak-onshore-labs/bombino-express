@@ -1,8 +1,10 @@
 ﻿import { useLocation } from 'wouter';
-import { ArrowLeft, Bell, AlertTriangle, Info, LogIn } from 'lucide-react';
+import { ArrowLeft, Bell, AlertTriangle, Info, LifeBuoy, LogIn } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
 import { useAppStore } from '@/lib/store';
 import { useGuestProfile } from '@/hooks/useGuestProfile';
+import { openBia } from '@/lib/biaStore';
+import { caseReplySeed, notificationLink } from '@/lib/notificationLink';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
@@ -10,13 +12,6 @@ import {
   useNotifications,
   type CustomerNotification as ApiNotification,
 } from '@/hooks/useCustomerOrders';
-
-function parseNotifData(raw: unknown): { awb?: string } {
-  if (!raw || typeof raw !== 'object') return {};
-  const d = raw as Record<string, unknown>;
-  const awb = d.awb;
-  return typeof awb === 'string' ? { awb } : {};
-}
 
 export default function Notifications() {
   const [, setLocation] = useLocation();
@@ -44,10 +39,13 @@ export default function Notifications() {
    * optimistic, so the dot clears either way and rolls back if the write fails.
    */
   const handleNotificationClick = (n: ApiNotification) => {
-    const parsed = parseNotifData(n.data);
+    const link = notificationLink(n.data);
     if (!n.is_read) markRead.mutate(n.id);
-    if (parsed.awb) {
-      setLocation(`/shipment/${encodeURIComponent(parsed.awb)}`);
+    if (link?.kind === 'shipment') {
+      setLocation(`/shipment/${encodeURIComponent(link.awb)}`);
+    } else if (link?.kind === 'case') {
+      // Our team answered a case BIA opened: BIA shows the case and the reply.
+      openBia({ screen: { surface: 'help' }, seed: caseReplySeed(link.caseNo) });
     }
   };
 
@@ -118,7 +116,8 @@ export default function Notifications() {
                 notif.type === 'customs_hold' ||
                 (notif.title ?? '').toLowerCase().includes('hold');
               const isShipmentCreated = notif.type === 'shipment_created';
-              const data = parseNotifData(notif.data);
+              const link = notificationLink(notif.data);
+              const isCase = link?.kind === 'case';
               return (
                 <button
                   key={notif.id}
@@ -142,7 +141,9 @@ export default function Notifications() {
                           : 'bg-[#F3F4F6] text-[#2F4468]'
                     )}
                   >
-                    {isWarn && !isShipmentCreated ? (
+                    {isCase ? (
+                      <LifeBuoy className="w-5 h-5" />
+                    ) : isWarn && !isShipmentCreated ? (
                       <AlertTriangle className="w-5 h-5" />
                     ) : (
                       <Info className="w-5 h-5" />
@@ -167,9 +168,14 @@ export default function Notifications() {
                       <p className="text-[10px] text-muted-foreground tabular-nums">
                         {formatTime(notif.created_at)}
                       </p>
-                      {data.awb && (
+                      {link?.kind === 'shipment' && (
                         <span className="text-[10px] font-mono font-semibold text-[#2F4468] bg-[#2F4468]/8 px-2 py-0.5 rounded-full">
-                          {data.awb}
+                          {link.awb}
+                        </span>
+                      )}
+                      {isCase && (
+                        <span className="text-[10px] font-semibold text-[#2F4468] bg-[#2F4468]/8 px-2 py-0.5 rounded-full" data-testid="badge-open-in-bia">
+                          Open in BIA
                         </span>
                       )}
                     </div>

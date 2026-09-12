@@ -9,7 +9,7 @@ delete process.env.DATABASE_URL;
 delete process.env.OPENAI_API_KEY;
 
 const { memoryCaseStore, openSupportCase, replaceCaseStore, summarizeForCase } = await import("./supportCases.js");
-const { executeEscalateSupport } = await import("./supportGeneral.js");
+const { executeEscalateSupport, executeGetSupportCase } = await import("./supportGeneral.js");
 type Ctx = import("./supportTypes.js").SupportChatContext;
 
 const base: Ctx = {
@@ -104,6 +104,7 @@ test("a signed-out visitor gets no case, and a store that fails falls back to th
     insert: async () => {
       throw new Error('relation "support_cases" does not exist');
     },
+    listForOwner: async () => [],
   });
   try {
     const out = await executeEscalateSupport({}, { ...guest, modules: ["orders", "handoff"], transcript: talk });
@@ -112,4 +113,50 @@ test("a signed-out visitor gets no case, and a store that fails falls back to th
   } finally {
     replaceCaseStore(null);
   }
+});
+
+test("BIA reads back only the caller's own cases, with our team's reply in the card", async () => {
+  const store = memoryCaseStore();
+  replaceCaseStore(store);
+  try {
+    const mine = { kind: "guest" as const, guestRef: guest.guestRef! };
+    const theirs = { kind: "guest" as const, guestRef: "22222222-2222-4222-8222-222222222222" };
+    await openSupportCase({ owner: mine, orderNo: "BOM-100136", category: "damaged", transcript: talk, turnId: null });
+    await openSupportCase({ owner: theirs, orderNo: null, category: "other", transcript: talk, turnId: null });
+    Object.assign(store.cases[0], { status: "answered", reply: "Please send photos of the box on WhatsApp.", answeredAt: new Date().toISOString() });
+
+    const out = await executeGetSupportCase({ case_no: "bia 1001" }, guest);
+    assert.match(out.content, /Case BIA-1001 \(Damaged parcel, BOM-100136\).*answered/);
+    assert.match(out.content, /to quote word for word: "Please send photos of the box on WhatsApp\."/);
+    assert.match(out.content, /TAP_CASE_WHATSAPP:BIA-1001/);
+    assert.deepEqual(out.caseNos, ["BIA-1001"]);
+    const card = out.cards?.[0];
+    assert.equal(card?.kind, "case");
+    assert.equal(card?.kind === "case" ? card.reply : undefined, "Please send photos of the box on WhatsApp.");
+
+    // Someone else's case number is simply not theirs.
+    const other = await executeGetSupportCase({ case_no: "BIA-1002" }, guest);
+    assert.match(other.content, /no case BIA-1002/);
+    assert.equal(other.cards, undefined);
+
+    // No number: their latest cases.
+    const latest = await executeGetSupportCase({}, guest);
+    assert.equal(latest.cards?.length, 1);
+
+    // A closed case gets no WhatsApp button.
+    store.cases[0].status = "closed";
+    assert.doesNotMatch((await executeGetSupportCase({}, guest)).content, /TAP_CASE_WHATSAPP/);
+
+    const anonOut = await executeGetSupportCase({ case_no: "BIA-1001" }, base);
+    assert.match(anonOut.content, /can't be looked up/);
+    assert.equal(anonOut.cards, undefined);
+  } finally {
+    replaceCaseStore(null);
+  }
+});
+
+test("before the migration, looking a case up says so and offers WhatsApp", async () => {
+  const out = await executeGetSupportCase({ case_no: "BIA-1001" }, guest);
+  assert.match(out.content, /can't be looked up right now/);
+  assert.match(out.content, /TAP_CONTACT_US/);
 });

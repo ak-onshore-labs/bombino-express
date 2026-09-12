@@ -50,6 +50,9 @@ export interface SupportCase {
   orderNo: string | null;
   category: CaseCategory;
   createdAt: string;
+  /** What our team wrote back (the Cases tab, 4.2); null until they have. */
+  reply: string | null;
+  answeredAt: string | null;
 }
 
 export interface NewCase {
@@ -66,6 +69,8 @@ export interface CaseStore {
   findOpen(owner: CaseOwner, orderNo: string | null, sinceIso: string): Promise<SupportCase | null>;
   /** Opens a case. Throws when it can't be stored. */
   insert(c: NewCase): Promise<SupportCase>;
+  /** The owner's cases, newest first: just `caseNo` when given (never another owner's). */
+  listForOwner(owner: CaseOwner, caseNo: string | null, limit: number): Promise<SupportCase[]>;
 }
 
 // ─── Stores ──────────────────────────────────────────────────────────────────
@@ -76,6 +81,8 @@ interface CaseRow {
   order_no: string | null;
   category: string;
   created_at: string;
+  ops_reply?: string | null;
+  answered_at?: string | null;
 }
 
 function fromRow(row: CaseRow): SupportCase {
@@ -85,10 +92,12 @@ function fromRow(row: CaseRow): SupportCase {
     orderNo: row.order_no,
     category: isCaseCategory(row.category) ? row.category : "other",
     createdAt: row.created_at,
+    reply: row.ops_reply ?? null,
+    answeredAt: row.answered_at ?? null,
   };
 }
 
-const CASE_COLUMNS = "case_no, status, order_no, category, created_at";
+const CASE_COLUMNS = "case_no, status, order_no, category, created_at, ops_reply, answered_at";
 
 export const databaseCaseStore: CaseStore = {
   async findOpen(owner, orderNo, sinceIso) {
@@ -119,6 +128,15 @@ export const databaseCaseStore: CaseStore = {
     if (error || !data) throw new Error(error?.message ?? "no row");
     return fromRow(data as CaseRow);
   },
+  async listForOwner(owner, caseNo, limit) {
+    if (!supabase) throw new Error("no database");
+    let query = supabase.from("support_cases").select(CASE_COLUMNS);
+    query = owner.kind === "account" ? query.eq("user_id", owner.userId) : query.eq("guest_ref", owner.guestRef);
+    if (caseNo) query = query.eq("case_no", caseNo);
+    const { data, error } = await query.order("created_at", { ascending: false }).limit(limit);
+    if (error) throw new Error(error.message);
+    return ((data ?? []) as CaseRow[]).map(fromRow);
+  },
 };
 
 /** Cases kept in memory, numbered from BIA-1001: for the eval runner and tests. */
@@ -126,13 +144,22 @@ export function memoryCaseStore(): CaseStore & { cases: (NewCase & SupportCase)[
   const cases: (NewCase & SupportCase)[] = [];
   const sameOwner = (a: CaseOwner, b: CaseOwner): boolean =>
     a.kind === "account" ? b.kind === "account" && a.userId === b.userId : b.kind === "guest" && a.guestRef === b.guestRef;
+  const view = (c: NewCase & SupportCase): SupportCase => ({
+    caseNo: c.caseNo,
+    status: c.status,
+    orderNo: c.orderNo,
+    category: c.category,
+    createdAt: c.createdAt,
+    reply: c.reply,
+    answeredAt: c.answeredAt,
+  });
   return {
     cases,
     async findOpen(owner, orderNo, sinceIso) {
       const hit = [...cases]
         .reverse()
         .find((c) => c.status === "open" && sameOwner(c.owner, owner) && c.orderNo === orderNo && c.createdAt >= sinceIso);
-      return hit ? { caseNo: hit.caseNo, status: hit.status, orderNo: hit.orderNo, category: hit.category, createdAt: hit.createdAt } : null;
+      return hit ? view(hit) : null;
     },
     async insert(c) {
       const opened: NewCase & SupportCase = {
@@ -140,9 +167,18 @@ export function memoryCaseStore(): CaseStore & { cases: (NewCase & SupportCase)[
         caseNo: `BIA-${1001 + cases.length}`,
         status: "open",
         createdAt: new Date().toISOString(),
+        reply: null,
+        answeredAt: null,
       };
       cases.push(opened);
-      return { caseNo: opened.caseNo, status: opened.status, orderNo: opened.orderNo, category: opened.category, createdAt: opened.createdAt };
+      return view(opened);
+    },
+    async listForOwner(owner, caseNo, limit) {
+      return [...cases]
+        .reverse()
+        .filter((c) => sameOwner(c.owner, owner) && (!caseNo || c.caseNo === caseNo))
+        .slice(0, limit)
+        .map(view);
     },
   };
 }
@@ -241,4 +277,13 @@ export async function openSupportCase(input: {
     turnId: input.turnId,
   });
   return { ...opened, existing: false };
+}
+
+/**
+ * The owner's own cases, for BIA to answer "did the team reply?" (4.3): the one
+ * named, or the latest few. Throws when cases can't be read (the migration not
+ * run).
+ */
+export async function findOwnerCases(owner: CaseOwner, caseNo: string | null): Promise<SupportCase[]> {
+  return store.listForOwner(owner, caseNo, caseNo ? 1 : 3);
 }

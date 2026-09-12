@@ -464,6 +464,41 @@ export function handoverCodeLine(order: OrderWithAddress, isGuest: boolean): str
 }
 
 /**
+ * The order page's own buttons, for when the customer asks about one
+ * (BIA 3.0, 4.3): cancelling, the handover code, paying. BIA never does any of
+ * them; its button opens the order page on that spot and the customer presses
+ * the real one. Accounts only: a guest has no order page.
+ */
+export function orderPageLinks(order: OrderWithAddress, isGuest: boolean): string[] {
+  if (isGuest) return [];
+  const link = (section: string): string => `TAP_VIEW_ORDER:${order.order_no}#${section}`;
+  const lines: string[] = [];
+
+  const canRequest = availableActions(order, "customer", { userId: order.user_id }).some(
+    (a) => a.action === "request_cancellation"
+  );
+  // Each token ends its line: punctuation after one would be read as part of it.
+  if (canRequest) {
+    lines.push(
+      `Important: only if they want to cancel: you can't cancel or send the request, and never say you did. They ask with the cancel button on the order page and our team decides. Its button: ${link("cancel")}`
+    );
+  } else if (cancellationState(order) === "pending") {
+    lines.push(`Important: only if they ask about their cancellation request, the order page shows it: ${link("cancel")}`);
+  }
+
+  // Where handoverCodeLine says the code is on the order page.
+  if (["agent_accepted", "out_for_pickup", "awaiting_dropoff"].includes(order.status)) {
+    const kind = order.status === "awaiting_dropoff" ? "drop-off" : "pickup";
+    lines.push(`Important: only if they ask for the ${kind} code or a new one, the order page has both: ${link("handover-code")}`);
+  }
+
+  if (order.payment_method === "pay_now" && order.payment_status === "pending" && order.status !== "cancelled") {
+    lines.push(`Important: only if they ask how to pay, they pay with the Pay button on the order page: ${link("pay")}`);
+  }
+  return lines;
+}
+
+/**
  * Pickup statuses in which nobody is on the way yet. `out_for_pickup` is left
  * out: a rider riding to the door today is the pickup happening, whatever day
  * it was booked for.
@@ -536,6 +571,7 @@ async function describeOrder(order: OrderWithAddress, owner: OrderOwner): Promis
   if (code) lines.push(code);
   const cancellation = cancellationLine(order, isGuest);
   if (cancellation) lines.push(cancellation);
+  lines.push(...orderPageLinks(order, isGuest));
   // A guest has no cancel button anywhere in the app; support is the only way,
   // so the reply must carry the way to reach them.
   const guestCancelsViaSupport = isGuest && !isTerminalOrderStatus(order.status);

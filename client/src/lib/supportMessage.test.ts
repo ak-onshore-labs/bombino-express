@@ -19,7 +19,7 @@ test("an old transcript still gets its buttons back", () => {
   assert.deepEqual(ctas, [
     { kind: "locations", state: "Maharashtra" },
     { kind: "my_orders" },
-    { kind: "view_order", orderNo: "BOM-100108" },
+    { kind: "view_order", orderNo: "BOM-100108", section: null },
     { kind: "track", awb: "AB12CD34" },
     { kind: "contact_us" },
   ]);
@@ -40,4 +40,12 @@ test("a signup button carries the account kind it opens on", () => {
 test("unknown or malformed tokens are left out, and duplicates collapse", () => {
   const { ctas } = parseAssistantMessage("x\nTAP_BOGUS\nTAP_VIEW_ORDER:nope\nTAP_MY_ORDERS\nTAP_MY_ORDERS");
   assert.deepEqual(ctas, [{ kind: "my_orders" }]);
+});
+
+test("an order button keeps the part of the order page it opens", () => {
+  const { ctas } = parseAssistantMessage("Ask from the order page.\n\nTAP_VIEW_ORDER:BOM-100107#cancel\nTAP_VIEW_ORDER:BOM-100108");
+  assert.deepEqual(ctas, [
+    { kind: "view_order", orderNo: "BOM-100107", section: "cancel" },
+    { kind: "view_order", orderNo: "BOM-100108", section: null },
+  ]);
 });

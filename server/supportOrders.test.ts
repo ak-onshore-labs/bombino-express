@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { OrderWithAddress } from "./ordersDb.js";
-import { handoverCodeLine, nextStepFor, normalizeOrderNo } from "./supportOrders.js";
+import { handoverCodeLine, nextStepFor, normalizeOrderNo, orderPageLinks } from "./supportOrders.js";
 
 // ─── normalizeOrderNo ────────────────────────────────────────────────────────
 
@@ -92,4 +92,26 @@ test("once the parcel is with us, no code line at all", () => {
 test("a dispatched order points at its tracking number", () => {
   const step = nextStepFor(order({ status: "dispatched", awb_no: "12345678" }), account);
   assert.match(step, /AWB 12345678/);
+});
+
+// ─── orderPageLinks ──────────────────────────────────────────────────────────
+
+test("an account is pointed at the order page's own buttons, never told BIA does it", () => {
+  const cancellable = orderPageLinks(order({ order_no: "BOM-100107", status: "agent_accepted", user_id: "u1" }), false).join("\n");
+  assert.match(cancellable, /TAP_VIEW_ORDER:BOM-100107#cancel/);
+  assert.match(cancellable, /you can't cancel/);
+  assert.match(cancellable, /TAP_VIEW_ORDER:BOM-100107#handover-code/);
+  assert.doesNotMatch(cancellable, /#pay/);
+
+  const owing = orderPageLinks(
+    order({ order_no: "BOM-100200", status: "pickup_requested", user_id: "u1", payment_method: "pay_now", payment_status: "pending" }),
+    false
+  ).join("\n");
+  assert.match(owing, /TAP_VIEW_ORDER:BOM-100200#pay/);
+  assert.doesNotMatch(owing, /#handover-code/, "no code before a rider accepts");
+});
+
+test("a guest has no order page, and a finished order has nothing to press", () => {
+  assert.deepEqual(orderPageLinks(order({ order_no: "BOM-100136", status: "awaiting_dropoff", pickup_request: 2 }), true), []);
+  assert.deepEqual(orderPageLinks(order({ order_no: "BOM-100111", status: "dispatched", user_id: "u1" }), false), []);
 });

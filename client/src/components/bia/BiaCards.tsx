@@ -208,9 +208,25 @@ function CaseCardView({ card }: { card: CaseCard }): React.JSX.Element {
         {card.topic}
         {card.orderNo ? ` · ${card.orderNo}` : ''}
       </p>
-      <p className="text-[11px] text-white/55">
-        {card.existing ? 'Already open from earlier. ' : ''}Our team can see this conversation. Quote the case number if you message us.
-      </p>
+      {/* Looked up (4.3): the reply exactly as our team wrote it, or that
+          there isn't one yet. Opened just now: what happens to the chat. */}
+      {card.reply !== undefined ? (
+        <>
+          {card.reply ? (
+            <div className="rounded-lg border border-emerald-400/25 bg-emerald-400/[0.07] px-2.5 py-2" data-testid="bia-case-reply">
+              <span className="block text-[10.5px] font-medium uppercase tracking-wide text-emerald-300/90">Our team replied</span>
+              <p className="mt-0.5 whitespace-pre-wrap break-words text-xs text-white/90">{card.reply}</p>
+            </div>
+          ) : (
+            <p className="text-[11px] text-white/55">No reply from our team yet.</p>
+          )}
+          <p className="text-[11px] text-white/55">Quote the case number if you message us.</p>
+        </>
+      ) : (
+        <p className="text-[11px] text-white/55">
+          {card.existing ? 'Already open from earlier. ' : ''}Our team can see this conversation. Quote the case number if you message us.
+        </p>
+      )}
     </div>
   );
 }

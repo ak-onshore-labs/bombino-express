@@ -54,6 +54,41 @@ function canonicalOrderNo(raw: string): string | null {
   return match ? `BOM-${match[1]}` : null;
 }
 
+/**
+ * Parts of the order page a button can open on (BIA 3.0, 4.3): what the
+ * customer does themselves, on that page, and BIA never does for them.
+ * Each is an element id on client/src/pages/OrderDetails.tsx.
+ */
+export const ORDER_SECTIONS = ["cancel", "handover-code", "pay"] as const;
+
+export type OrderSection = (typeof ORDER_SECTIONS)[number];
+
+function isOrderSection(value: string): value is OrderSection {
+  return (ORDER_SECTIONS as readonly string[]).includes(value);
+}
+
+/**
+ * An order, optionally with the section to open on: "BOM-100107#cancel".
+ * An unknown section is dropped and the order kept.
+ */
+function canonicalOrderRef(raw: string): string | null {
+  const s = raw.trim().replace(/^#/, "");
+  const hash = s.indexOf("#");
+  const orderNo = canonicalOrderNo(hash === -1 ? s : s.slice(0, hash));
+  if (!orderNo) return null;
+  // A full stop or comma the model left on the end is not part of it.
+  const section = hash === -1 ? "" : s.slice(hash + 1).trim().toLowerCase().replace(/[^a-z-]+$/, "");
+  return isOrderSection(section) ? `${orderNo}#${section}` : orderNo;
+}
+
+/** A TAP_VIEW_ORDER argument as its order and section. */
+export function splitOrderRef(arg: string): { orderNo: string; section: OrderSection | null } {
+  const hash = arg.indexOf("#");
+  if (hash === -1) return { orderNo: arg, section: null };
+  const section = arg.slice(hash + 1);
+  return { orderNo: arg.slice(0, hash), section: isOrderSection(section) ? section : null };
+}
+
 /** The account kinds signup can open on (shared/accountMatch.ts). */
 const ACCOUNT_CHOICE_RE = /^(personal|corporate|co_courier|ecommerce|fbb)$/;
 
@@ -83,8 +118,9 @@ export const BIA_BUTTONS = {
   TAP_LOCATIONS: { audience: "anyone", arg: "optional", canonical: canonicalState },
   // Public tracking: anyone may look up any AWB, so only the shape is checked.
   TAP_TRACK: { audience: "anyone", arg: "required", canonical: canonicalAwb },
-  // The order screen answers to an account only; a guest has none.
-  TAP_VIEW_ORDER: { audience: "account", arg: "required", canonical: canonicalOrderNo, ownsOrder: true },
+  // The order screen answers to an account only; a guest has none. It may
+  // carry the section to open on: TAP_VIEW_ORDER:BOM-100107#cancel.
+  TAP_VIEW_ORDER: { audience: "account", arg: "required", canonical: canonicalOrderRef, ownsOrder: true },
   // Signup, opened on the account kind BIA recommended. Pointless once signed in.
   TAP_SIGNUP: { audience: "no_account", arg: "required", canonical: canonicalAccountChoice },
   // Back to a signup already under way, on the account kind it was for.
@@ -144,6 +180,11 @@ export function biaButtonAllowedFor(name: BiaButtonName, caller: "account" | "gu
 /** True when the button names an order the caller has to own. */
 export function biaButtonNeedsOwnership(name: BiaButtonName): boolean {
   return (BIA_BUTTONS[name] as ButtonSpec).ownsOrder === true;
+}
+
+/** The order a button names, without any section: what ownership is checked on. */
+export function biaButtonOrderNo(button: BiaButton): string {
+  return button.name === "TAP_VIEW_ORDER" ? splitOrderRef(button.arg).orderNo : button.arg;
 }
 
 /** True when the button names a support case, which this turn must have opened or found. */

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { finalizeReply, tokensIn, type CtaContext } from "./supportCta.js";
+import { finalizeReply, onePerOrder, sectionsAskedAbout, tokensIn, type CtaContext } from "./supportCta.js";
 
 // A uuid nobody owns anything under. With or without a database configured,
 // an order lookup for it finds nothing, so these tests need no fixtures.
@@ -108,4 +108,44 @@ test("a case's WhatsApp button survives only for a case this turn opened, and on
   assert.equal(await finalizeReply("See TAP_CASE_WHATSAPP:BIA-1002", opened), "See");
   assert.equal(await finalizeReply("TAP_CASE_WHATSAPP:BIA-1001", { ...anon, ownedCaseNos: new Set(["BIA-1001"]) }), "");
   assert.equal(await finalizeReply("TAP_CASE_WHATSAPP:BIA-1001", guest()), "");
+});
+
+test("a section button is checked on its order, and one order gets one button", async () => {
+  const reply = await finalizeReply(
+    "Tap below to ask.\nTAP_VIEW_ORDER:BOM-100107\nTAP_VIEW_ORDER:BOM-100107#cancel",
+    account(["BOM-100107"])
+  );
+  assert.deepEqual(buttons(reply), ["TAP_VIEW_ORDER:BOM-100107#cancel"]);
+  // Not theirs: the section doesn't help it through.
+  assert.deepEqual(buttons(await finalizeReply("x\nTAP_VIEW_ORDER:BOM-999999#cancel", account())), []);
+});
+
+test("several sections for one order read as none chosen", () => {
+  assert.deepEqual(
+    onePerOrder(["TAP_VIEW_ORDER:BOM-100107#cancel", "TAP_TRACK:ABC123", "TAP_VIEW_ORDER:BOM-100107#pay", "TAP_VIEW_ORDER:BOM-100108"]),
+    ["TAP_VIEW_ORDER:BOM-100107", "TAP_TRACK:ABC123", "TAP_VIEW_ORDER:BOM-100108"]
+  );
+});
+
+test("a reply with no buttons of its own never falls back to a section", async () => {
+  const reply = await finalizeReply("It's with the rider.", {
+    ...account(["BOM-100107"]),
+    fallbackTokens: ["TAP_VIEW_ORDER:BOM-100107", "TAP_VIEW_ORDER:BOM-100107#cancel", "TAP_VIEW_ORDER:BOM-100107#handover-code"],
+  });
+  assert.deepEqual(buttons(reply), ["TAP_VIEW_ORDER:BOM-100107"]);
+});
+
+test("a plain order button goes to the section the customer asked about, if a tool offered it", async () => {
+  const offered = new Set(["BOM-100105#handover-code", "BOM-100105#cancel"]);
+  const ctx = { ...account(["BOM-100105"]), offeredSections: offered };
+  const asked = (text: string) => ({ ...ctx, askedSections: sectionsAskedAbout(text) });
+  const reply = "It's on the order page.\nTAP_VIEW_ORDER:BOM-100105";
+  assert.deepEqual(buttons(await finalizeReply(reply, asked("Where's my pickup code?"))), ["TAP_VIEW_ORDER:BOM-100105#handover-code"]);
+  assert.deepEqual(buttons(await finalizeReply(reply, asked("I want to cancel it"))), ["TAP_VIEW_ORDER:BOM-100105#cancel"]);
+  // Not offered for this order (nothing to pay), or asked about nothing: the plain button.
+  assert.deepEqual(buttons(await finalizeReply(reply, asked("How do I pay?"))), ["TAP_VIEW_ORDER:BOM-100105"]);
+  assert.deepEqual(buttons(await finalizeReply(reply, asked("Where is it?"))), ["TAP_VIEW_ORDER:BOM-100105"]);
+  // Two at once is no choice.
+  assert.deepEqual(buttons(await finalizeReply(reply, asked("cancel it, or give me the code"))), ["TAP_VIEW_ORDER:BOM-100105"]);
+  assert.deepEqual(sectionsAskedAbout("what's my pincode"), []);
 });

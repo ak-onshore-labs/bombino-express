@@ -553,9 +553,12 @@ export default function OrderDetails() {
             to find while somebody stands in front of them waiting. Set in the
             same mono the agent's screen uses, spaced so it can be read out
             loud without losing a digit. */}
+        {/* `id`s on this page are where BIA's buttons land (#handover-code,
+            #pay, #cancel): the customer presses the real button here. */}
         {handover && (
           <div
-            className="mt-4 rounded-xl border-2 p-4"
+            id="handover-code"
+            className="mt-4 rounded-xl border-2 p-4 scroll-mt-24"
             style={{ borderColor: BRAND_NAVY }}
             data-testid="card-handover-code"
           >
@@ -858,7 +861,7 @@ export default function OrderDetails() {
           {order.payment_method === 'pay_now' &&
             order.payment_status === 'pending' &&
             order.status !== 'cancelled' && (
-              <>
+              <div id="pay" className="scroll-mt-24 rounded-lg">
                 {/* TEMPORARY — only renders when the server has
                     PAYMENTS_TEST_MODE set. */}
                 <PaymentTestModeSwitch className="mt-4" />
@@ -874,7 +877,7 @@ export default function OrderDetails() {
                     `Pay ${formatInr(order.final_amount ?? order.quoted_amount) ?? 'now'}`
                   )}
                 </Button>
-              </>
+              </div>
             )}
 
           {/* COD never produces a payments row — an empty list here would
@@ -888,6 +891,7 @@ export default function OrderDetails() {
         </Section>
 
         {/* ─── Cancellation ────────────────────────────────────────────── */}
+        <div id="cancel" className="scroll-mt-24">
         {/* A request already with the team. Deliberately not styled as a
             success: nothing has been cancelled yet, and the pickup stands. */}
         {cancelPending && (
@@ -964,6 +968,7 @@ export default function OrderDetails() {
             </p>
           </div>
         )}
+        </div>
 
         {/* ─── Ask BIA ─────────────────────────────────────────────────── */}
         {/* Opens BIA over this page, already asking about this order, so the

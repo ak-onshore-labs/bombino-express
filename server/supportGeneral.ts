@@ -14,7 +14,7 @@ import type { ITDTrackingResult } from "./itd.js";
 import { guidance, escalation } from "./supportContent.js";
 import type { GuidanceKey } from "./supportContent.js";
 import { findOrderForOwner } from "./ordersDb.js";
-import { CASE_CATEGORIES, CASE_TOPICS, isCaseCategory, openSupportCase } from "./supportCases.js";
+import { CASE_CATEGORIES, CASE_TOPICS, findOwnerCases, isCaseCategory, openSupportCase } from "./supportCases.js";
 import {
   describeOwnedOrderByAwb,
   executeCheckPickup,
@@ -479,6 +479,76 @@ export async function executeEscalateSupport(
   }
 }
 
+const CASE_STATUS_WORDS = {
+  open: "open, no reply from our team yet. Never say when they'll reply",
+  answered: "answered",
+  closed: "closed",
+} as const;
+
+function caseDay(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" });
+}
+
+/**
+ * Their own support cases (BIA 3.0, 4.3): "did the team reply?", or a case
+ * number from the bell. Our team's reply is handed over word for word and
+ * drawn in the case card; BIA adds nothing to it. Only ever the caller's own
+ * cases: a number that isn't theirs reads as not found.
+ */
+export async function executeGetSupportCase(
+  args: { case_no?: unknown },
+  context: SupportChatContext
+): Promise<ToolOutcome> {
+  const owner = ownerOf(context);
+  if (!owner) {
+    return {
+      content:
+        "They aren't signed in and haven't verified a phone, so their cases can't be looked up. Ask them to sign in, or, if they booked as a guest, to verify their phone on the Ship screen.",
+    };
+  }
+  const raw = typeof args.case_no === "string" ? args.case_no.trim().toUpperCase().replace(/\s+/g, "") : "";
+  const digits = raw.match(/^(?:BIA-?)?([0-9]{4,7})$/);
+  const caseNo = digits ? `BIA-${digits[1]}` : null;
+  const where = owner.kind === "guest" ? "phone number" : "account";
+
+  let cases;
+  try {
+    cases = await findOwnerCases(owner, caseNo);
+  } catch {
+    return { content: `Their cases can't be looked up right now. Ask them to message our team on WhatsApp${caseNo ? ` with ${caseNo}` : ""}.\nTAP_CONTACT_US` };
+  }
+  if (cases.length === 0) {
+    return {
+      content: caseNo
+        ? `There is no case ${caseNo} on their ${where}. Never guess its status.\nTAP_CONTACT_US`
+        : `They have no support cases on their ${where}.`,
+    };
+  }
+
+  const lines = cases.map((c) => {
+    const about = [CASE_TOPICS[c.category], c.orderNo].filter(Boolean).join(", ");
+    const reply = c.reply ? ` Our team's reply, to quote word for word: "${c.reply}"` : "";
+    return `Case ${c.caseNo} (${about}), opened ${caseDay(c.createdAt)}: ${CASE_STATUS_WORDS[c.status]}.${reply}`;
+  });
+  const latest = cases[0];
+  lines.push(
+    "Important: the case card under your reply shows our team's reply. Give it in a sentence or two; never add to it, explain it, or promise anything it doesn't say."
+  );
+  if (latest.status !== "closed") lines.push(`TAP_CASE_WHATSAPP:${latest.caseNo}`);
+
+  const cards: CaseCard[] = cases.map((c) => ({
+    kind: "case",
+    caseNo: c.caseNo,
+    status: c.status,
+    orderNo: c.orderNo,
+    topic: CASE_TOPICS[c.category],
+    existing: true,
+    reply: c.reply,
+  }));
+  return { content: lines.join("\n"), cards, caseNos: cases.map((c) => c.caseNo) };
+}
+
 // ─── Registration ────────────────────────────────────────────────────────────
 
 const str = (v: unknown): string => (v == null ? "" : String(v));
@@ -613,5 +683,27 @@ export const GENERAL_TOOLS: readonly BiaTool[] = [
       },
     },
     run: (args, context) => executeEscalateSupport(args, context),
+  },
+];
+
+/** The handoff module's own tool: offered only while cases are switched on. */
+export const CASE_TOOLS: readonly BiaTool[] = [
+  {
+    module: "handoff",
+    definition: {
+      type: "function",
+      function: {
+        name: "get_support_case",
+        description:
+          "The customer's own support cases and our team's reply: when they ask about a case, give a case number (BIA-...), or ask whether the team has replied.",
+        parameters: {
+          type: "object",
+          properties: {
+            case_no: { type: "string", description: "The case number, e.g. BIA-1002, if they gave one." },
+          },
+        },
+      },
+    },
+    run: (args, context) => executeGetSupportCase(args, context),
   },
 ];

@@ -86,6 +86,7 @@
       ],
       "buttonsAny": [
         "TAP_VIEW_ORDER:BOM-100108",
+        "TAP_VIEW_ORDER:BOM-100108#cancel",
         "TAP_CANCELLATIONS"
       ],
       "notContains": [
@@ -173,6 +174,63 @@
         "unverified",
         "in review",
         "re:(will|does|may) (block|hold)"
+      ]
+    }
+  },
+  {
+    "id": "account-17-cancel-links-to-the-cancel-button",
+    "module": "orders",
+    "identity": "account",
+    "turns": [
+      "I want to cancel BOM-100107"
+    ],
+    "expect": {
+      "tools": [
+        "get_order_status"
+      ],
+      "buttons": [
+        "TAP_VIEW_ORDER:BOM-100107#cancel"
+      ],
+      "contains": [
+        "re:order page"
+      ],
+      "notContains": [
+        "re:I('ve| have) (cancelled|canceled|requested|sent|submitted)|(has|have) been (cancelled|canceled)|request (has been|was|is) (sent|submitted|raised)|I('ll| will) (cancel|request)"
+      ]
+    }
+  },
+  {
+    "id": "account-18-code-links-to-the-code",
+    "module": "orders",
+    "identity": "account",
+    "turns": [
+      "Where do I find the pickup code for BOM-100105?"
+    ],
+    "expect": {
+      "tools": [
+        "get_order_status"
+      ],
+      "buttons": [
+        "TAP_VIEW_ORDER:BOM-100105#handover-code"
+      ],
+      "contains": [
+        "re:order page"
+      ]
+    }
+  },
+  {
+    "id": "account-19-a-status-question-opens-the-order",
+    "module": "orders",
+    "identity": "account",
+    "turns": [
+      "What's the status of BOM-100107?"
+    ],
+    "expect": {
+      "tools": [
+        "get_order_status"
+      ],
+      "buttonsNot": [
+        "re:TAP_VIEW_ORDER:BOM-100107#"
       ]
     }
   }

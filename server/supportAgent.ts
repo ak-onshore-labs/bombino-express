@@ -14,17 +14,23 @@
  */
 
 import OpenAI from "openai";
-import { finalizeReply, tokensIn } from "./supportCta.js";
+import { finalizeReply, sectionsAskedAbout, tokensIn } from "./supportCta.js";
 import { ownerOf } from "./supportOrders.js";
 import { buildSystemPrompt } from "./supportPrompts.js";
 import { dispatchTool, enabledBiaModules, toolDefinitions, toolsForTurn } from "./supportTools.js";
 import type { ChatMessage, SupportChatContext, SupportChatResult, SupportTurnMeta } from "./supportTypes.js";
 import { MAX_BIA_CARDS, biaCardKey, type BiaCard } from "../shared/biaCards.js";
+import { parseBiaButton } from "../shared/biaCta.js";
 import { explainError } from "../shared/errorCatalog.js";
 
 const FALLBACK_CHAT =
   "I'm having trouble responding right now. Please try again in a moment or use the app menu to contact support.";
 const SUPPORT_CHAT_MAX_TOOL_ITERATIONS = 5;
+
+/** A support case number (server/supportCases.ts). */
+const CASE_NO_RE = /\bBIA-[0-9]{4,7}\b/g;
+const CASE_NUDGE =
+  "That reply names a case number no tool gave you. Never write a case number yourself: call escalate_support to open or find their case, or get_support_case to look one up, and answer from what it returns.";
 
 /** "Can I talk to someone", "customer care", "a real person". */
 export const ASKS_FOR_A_PERSON =
@@ -109,6 +115,11 @@ export async function handleChat(
   const owner = ownerOf(context);
   const ownedOrderNos = new Set<string>();
   const ownedCaseNos = new Set<string>();
+  /** Order-page sections the tools offered this turn ("BOM-100107#cancel"). */
+  const offeredSections = new Set<string>();
+  /** Case numbers already in the conversation, which BIA may repeat. */
+  const caseNosInChat = new Set(messages.flatMap((m) => m.content.match(CASE_NO_RE) ?? []));
+  let caseNudged = false;
   let lastTool: string | null = null;
   let lastToolTokens: string[] = [];
   /** The cards from the latest round of tool calls that produced any. */
@@ -150,12 +161,28 @@ export async function handleChat(
       const toolCalls = message.tool_calls;
       if (!toolCalls || toolCalls.length === 0) {
         if (typeof message.content !== "string") return fallback();
+        // "I've opened another case, BIA-1002" with no tool behind it: a case
+        // number no tool gave this turn, and not already in the chat, is made
+        // up. Sent back once to use the tool (3 runs in 8 did it for "escalate
+        // it again" once get_support_case existed).
+        const invented = (message.content.match(CASE_NO_RE) ?? []).some((n) => !ownedCaseNos.has(n) && !caseNosInChat.has(n));
+        if (invented && modules.includes("handoff") && !caseNudged) {
+          caseNudged = true;
+          currentMessages = [
+            ...currentMessages,
+            { role: "assistant", content: message.content },
+            { role: "system", content: CASE_NUDGE },
+          ];
+          continue;
+        }
         const final = await finalizeReply(message.content, {
           owner,
           ownedOrderNos,
           ownedCaseNos,
           fallbackTokens:
             lastToolTokens.length > 0 ? lastToolTokens : errorButton ? [errorButton] : personButton ? [personButton] : [],
+          offeredSections,
+          askedSections: sectionsAskedAbout(lastUserText),
         });
         // A lookup that found nothing offers no buttons; follow-ups about the
         // thing it did not find would be noise.
@@ -200,6 +227,10 @@ export async function handleChat(
           const outcome = await dispatchTool(name, args, turnContext, tools);
           for (const orderNo of outcome.orderNos ?? []) ownedOrderNos.add(orderNo);
           for (const caseNo of outcome.caseNos ?? []) ownedCaseNos.add(caseNo);
+          for (const token of tokensIn(outcome.content)) {
+            const button = parseBiaButton(token);
+            if (button?.name === "TAP_VIEW_ORDER" && button.arg.includes("#")) offeredSections.add(button.arg);
+          }
           return { id: tc.id, outcome };
         })
       );

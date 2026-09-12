@@ -144,6 +144,8 @@ export interface CaseCard {
   topic: string;
   /** Already open from earlier today, so no second case was made. */
   existing: boolean;
+  /** Our team's reply, word for word, when BIA looked the case up (4.3). */
+  reply?: string | null;
 }
 
 /**
@@ -327,7 +329,8 @@ export function isBiaCard(value: unknown): value is BiaCard {
         (c.status === "open" || c.status === "answered" || c.status === "closed") &&
         (c.orderNo === null || (isStr(c.orderNo) && /^BOM-[0-9]{6,9}$/.test(c.orderNo))) &&
         isStr(c.topic) &&
-        typeof c.existing === "boolean"
+        typeof c.existing === "boolean" &&
+        (c.reply === undefined || c.reply === null || (isStr(c.reply) && c.reply.length <= 2000))
       );
     case "hsn":
       return (

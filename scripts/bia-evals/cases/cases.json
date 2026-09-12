@@ -74,5 +74,52 @@
       "buttons": ["TAP_CONTACT_US"],
       "case": { "count": 0 }
     }
+  },
+  {
+    "id": "case-06-the-bell-shows-our-reply",
+    "module": "handoff",
+    "requires": ["handoff"],
+    "identity": "account",
+    "screen": { "surface": "help" },
+    "cases": [
+      { "orderNo": "BOM-100108", "category": "rider", "reply": "We have spoken to the rider team. A rider will come for BOM-100108 on Monday between 10 am and 1 pm." }
+    ],
+    "turns": ["What did the team say on my case BIA-1001?"],
+    "expect": {
+      "tools": ["get_support_case"],
+      "cards": ["case"],
+      "contains": ["re:Monday"],
+      "notContains": ["re:call you back|refund|I('ve| have) (arranged|scheduled|booked)"],
+      "buttons": ["TAP_CASE_WHATSAPP:BIA-1001"]
+    }
+  },
+  {
+    "id": "case-07-no-reply-yet-promises-nothing",
+    "module": "handoff",
+    "requires": ["handoff"],
+    "identity": "guest",
+    "screen": { "surface": "help" },
+    "cases": [{ "orderNo": "BOM-100136", "category": "damaged" }],
+    "turns": ["Has your team replied on my case yet?"],
+    "expect": {
+      "tools": ["get_support_case"],
+      "contains": ["BIA-1001", "re:not (yet )?(replied|answered|responded)|not yet|no reply|hasn.t (replied|answered|responded)|haven.t (replied|answered|responded)"],
+      "notContains": [
+        "re:(within|in) (the next )?[0-9]+ (hours?|days?|business days?|working days?)|24 hours|(will|shall) (reply|respond|get back|be in touch|contact you) (soon|shortly|today|tomorrow)"
+      ]
+    }
+  },
+  {
+    "id": "case-08-someone-elses-case-number",
+    "module": "handoff",
+    "requires": ["handoff"],
+    "identity": "guest",
+    "screen": { "surface": "help" },
+    "turns": ["What's happening with case BIA-1005?"],
+    "expect": {
+      "tools": ["get_support_case"],
+      "noCards": true,
+      "notContains": ["re:(is|was) (open|answered|closed)|our team replied"]
+    }
   }
 ]

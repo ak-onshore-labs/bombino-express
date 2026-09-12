@@ -17,8 +17,12 @@ import {
   biaButtonAllowedFor,
   biaButtonNeedsCase,
   biaButtonNeedsOwnership,
+  biaButtonOrderNo,
   biaButtonToken,
+  ORDER_SECTIONS,
   parseBiaButton,
+  splitOrderRef,
+  type OrderSection,
 } from "../shared/biaCta.js";
 import { findOrderForOwner, type OrderOwner } from "./ordersDb.js";
 
@@ -38,6 +42,26 @@ export interface CtaContext {
    * otherwise arrive with no way to book it.
    */
   fallbackTokens?: readonly string[];
+  /**
+   * Order-page sections a tool offered this turn ("BOM-100107#cancel"), and
+   * the ones the customer's message asked about (`sectionsAskedAbout`). The
+   * model tends to copy the plain order button even when they asked to cancel,
+   * so a plain button is sent to the section they asked about when a tool
+   * offered it for that order.
+   */
+  offeredSections?: ReadonlySet<string>;
+  askedSections?: readonly OrderSection[];
+}
+
+const ASKED: Record<OrderSection, RegExp> = {
+  cancel: /\bcancel/i,
+  "handover-code": /\b(code|otp)\b/i,
+  pay: /\bpay(ing|ment)?\b/i,
+};
+
+/** The order-page sections a customer's message is about. */
+export function sectionsAskedAbout(text: string): OrderSection[] {
+  return ORDER_SECTIONS.filter((s) => ASKED[s].test(text));
 }
 
 /** Every `TAP_*` token in a piece of text, in order. */
@@ -51,7 +75,9 @@ export function tokensIn(text: string): string[] {
  */
 export async function finalizeReply(message: string, ctx: CtaContext): Promise<string> {
   const own = tokensIn(message);
-  const raw = own.length > 0 ? own : [...(ctx.fallbackTokens ?? [])];
+  // A tool's section buttons ("…#cancel") are for when the customer asked
+  // about that; nobody chose one when the reply carried no buttons at all.
+  const raw = own.length > 0 ? own : (ctx.fallbackTokens ?? []).map((t) => t.replace(/#[a-z-]+\W*$/, ""));
   const body = message
     .replace(BIA_BUTTON_TOKEN_RE, "")
     // The tool output labels its button block; the model sometimes echoes it.
@@ -78,7 +104,48 @@ export async function finalizeReply(message: string, ctx: CtaContext): Promise<s
     if (valid && !kept.includes(valid)) kept.push(valid);
   }
 
-  return kept.length > 0 ? `${body}\n\n${kept.join("\n")}` : body;
+  const buttons = onePerOrder(kept).map((token) => toAskedSection(token, ctx));
+  return buttons.length > 0 ? `${body}\n\n${buttons.join("\n")}` : body;
+}
+
+/** A plain order button, sent to the one section they asked about if a tool offered it. */
+function toAskedSection(token: string, ctx: CtaContext): string {
+  const button = parseBiaButton(token);
+  if (button?.name !== "TAP_VIEW_ORDER" || splitOrderRef(button.arg).section) return token;
+  const fits = (ctx.askedSections ?? []).filter((s) => ctx.offeredSections?.has(`${button.arg}#${s}`));
+  return fits.length === 1 ? `${token}#${fits[0]}` : token;
+}
+
+/**
+ * One order button per order. A section the reply chose ("…#cancel") stands in
+ * for the plain button; a reply that copied several sections for one order
+ * chose none of them, so it gets the plain button.
+ */
+export function onePerOrder(tokens: readonly string[]): string[] {
+  const sections = new Map<string, Set<string>>();
+  for (const token of tokens) {
+    const button = parseBiaButton(token);
+    if (button?.name !== "TAP_VIEW_ORDER") continue;
+    const { orderNo, section } = splitOrderRef(button.arg);
+    const set = sections.get(orderNo) ?? new Set<string>();
+    if (section) set.add(section);
+    sections.set(orderNo, set);
+  }
+  const out: string[] = [];
+  const placed = new Set<string>();
+  for (const token of tokens) {
+    const button = parseBiaButton(token);
+    if (button?.name !== "TAP_VIEW_ORDER") {
+      out.push(token);
+      continue;
+    }
+    const { orderNo } = splitOrderRef(button.arg);
+    if (placed.has(orderNo)) continue;
+    placed.add(orderNo);
+    const chosen = Array.from(sections.get(orderNo) ?? []);
+    out.push(chosen.length === 1 ? `TAP_VIEW_ORDER:${orderNo}#${chosen[0]}` : `TAP_VIEW_ORDER:${orderNo}`);
+  }
+  return out;
 }
 
 async function validateToken(
@@ -92,9 +159,10 @@ async function validateToken(
 
   if (biaButtonNeedsOwnership(button.name)) {
     if (!ctx.owner) return null;
-    if (!ctx.ownedOrderNos.has(button.arg)) {
+    const orderNo = biaButtonOrderNo(button);
+    if (!ctx.ownedOrderNos.has(orderNo)) {
       if (!mayLookUp()) return null;
-      const order = await findOrderForOwner({ orderNo: button.arg }, ctx.owner).catch(() => null);
+      const order = await findOrderForOwner({ orderNo }, ctx.owner).catch(() => null);
       if (!order) return null;
     }
   }

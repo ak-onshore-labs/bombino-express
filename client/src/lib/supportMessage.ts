@@ -8,7 +8,7 @@
  * buttons back.
  */
 
-import { BIA_BUTTON_TOKEN_RE, parseBiaButton, type BiaButton } from '@shared/biaCta';
+import { BIA_BUTTON_TOKEN_RE, parseBiaButton, splitOrderRef, type BiaButton, type OrderSection } from '@shared/biaCta';
 
 export type SupportCta =
   | { kind: 'create_shipment' }
@@ -18,7 +18,8 @@ export type SupportCta =
   | { kind: 'guest_profile' }
   | { kind: 'locations'; state: string | null }
   | { kind: 'track'; awb: string }
-  | { kind: 'view_order'; orderNo: string }
+  /** `section`: where on the order page it opens (#cancel, #handover-code, #pay). */
+  | { kind: 'view_order'; orderNo: string; section: OrderSection | null }
   | { kind: 'signup'; choice: string }
   | { kind: 'resume_signup'; choice: string }
   | { kind: 'account_documents' }
@@ -47,7 +48,7 @@ function toCta(button: BiaButton): SupportCta {
     case 'TAP_TRACK':
       return { kind: 'track', awb: button.arg };
     case 'TAP_VIEW_ORDER':
-      return { kind: 'view_order', orderNo: button.arg };
+      return { kind: 'view_order', ...splitOrderRef(button.arg) };
     case 'TAP_SIGNUP':
       return { kind: 'signup', choice: button.arg };
     case 'TAP_RESUME_SIGNUP':
@@ -66,7 +67,7 @@ function ctaKey(cta: SupportCta): string {
     case 'track':
       return `track:${cta.awb}`;
     case 'view_order':
-      return `view_order:${cta.orderNo}`;
+      return `view_order:${cta.orderNo}#${cta.section ?? ''}`;
     case 'signup':
       return `signup:${cta.choice}`;
     case 'resume_signup':
