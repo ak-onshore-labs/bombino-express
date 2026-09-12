@@ -1,10 +1,10 @@
 ﻿import { useLocation } from 'wouter';
-import { ArrowLeft, Bell, AlertTriangle, Info, LifeBuoy, LogIn } from 'lucide-react';
+import { ArrowLeft, Bell, AlertTriangle, Info, LifeBuoy, LogIn, Sparkles } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
 import { useAppStore } from '@/lib/store';
 import { useGuestProfile } from '@/hooks/useGuestProfile';
 import { openBia } from '@/lib/biaStore';
-import { caseReplySeed, notificationLink } from '@/lib/notificationLink';
+import { notificationLink, seedFor } from '@/lib/notificationLink';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
@@ -41,11 +41,12 @@ export default function Notifications() {
   const handleNotificationClick = (n: ApiNotification) => {
     const link = notificationLink(n.data);
     if (!n.is_read) markRead.mutate(n.id);
+    const seed = seedFor(link);
     if (link?.kind === 'shipment') {
       setLocation(`/shipment/${encodeURIComponent(link.awb)}`);
-    } else if (link?.kind === 'case') {
-      // Our team answered a case BIA opened: BIA shows the case and the reply.
-      openBia({ screen: { surface: 'help' }, seed: caseReplySeed(link.caseNo) });
+    } else if (seed) {
+      // A case our team answered, or something BIA nudged about: BIA opens on it.
+      openBia({ screen: { surface: 'help' }, seed });
     }
   };
 
@@ -118,6 +119,8 @@ export default function Notifications() {
               const isShipmentCreated = notif.type === 'shipment_created';
               const link = notificationLink(notif.data);
               const isCase = link?.kind === 'case';
+              // BIA speaking first (5.1): marked as BIA's, and it opens BIA.
+              const isNudge = link?.kind === 'nudge';
               return (
                 <button
                   key={notif.id}
@@ -134,7 +137,9 @@ export default function Notifications() {
                   <div
                     className={cn(
                       'w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0',
-                      isWarn && !isShipmentCreated
+                      isNudge
+                        ? 'bg-[#FDF3E1] text-[#F2A123]'
+                        : isWarn && !isShipmentCreated
                         ? 'bg-amber-50 text-amber-600'
                         : isShipmentCreated
                           ? 'bg-[lab(34.0831_-9.57756_-27.7093)]/8 text-[lab(34.0831_-9.57756_-27.7093)]'
@@ -143,6 +148,8 @@ export default function Notifications() {
                   >
                     {isCase ? (
                       <LifeBuoy className="w-5 h-5" />
+                    ) : isNudge ? (
+                      <Sparkles className="w-5 h-5" />
                     ) : isWarn && !isShipmentCreated ? (
                       <AlertTriangle className="w-5 h-5" />
                     ) : (
@@ -173,9 +180,9 @@ export default function Notifications() {
                           {link.awb}
                         </span>
                       )}
-                      {isCase && (
+                      {(isCase || isNudge) && (
                         <span className="text-[10px] font-semibold text-[#2F4468] bg-[#2F4468]/8 px-2 py-0.5 rounded-full" data-testid="badge-open-in-bia">
-                          Open in BIA
+                          {isNudge ? 'Ask BIA' : 'Open in BIA'}
                         </span>
                       )}
                     </div>

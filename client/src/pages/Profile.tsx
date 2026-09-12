@@ -46,6 +46,7 @@ import { KycUpload } from '@/components/KycUpload';
 import { KycOnFileCard } from '@/components/KycOnFileCard';
 import { useKycOnFile } from '@/hooks/useKycOnFile';
 import { AccountDocuments } from '@/components/AccountDocuments';
+import { NudgePrefs } from '@/components/bia/NudgePrefs';
 import {
   publishVerificationState,
   useVerificationState,
@@ -477,6 +478,9 @@ export default function Profile() {
                 <KycUpload />
               </div>
             )}
+
+            {/* BIA's reminders, each one switchable (BIA 3.0, 5.1). */}
+            <NudgePrefs />
 
             {/* Support card */}
             <div className="bg-white rounded-2xl border border-border divide-y divide-[#E2E8F0] shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">

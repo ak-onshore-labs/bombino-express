@@ -16,6 +16,7 @@ import { BottomNav } from '@/components/BottomNav';
 import { StateBlock } from '@/components/StateBlock';
 import { ProfileProgressTracker } from '@/components/ProfileProgressTracker';
 import { GuestOrders } from '@/components/GuestOrders';
+import { NudgePrefs } from '@/components/bia/NudgePrefs';
 import {
   ACCOUNT_TYPE_LABEL,
   shadowProfileProgress,
@@ -190,6 +191,9 @@ export default function GuestProfileDashboard(): React.JSX.Element {
             answers only to an account. Shared with Home rather than duplicated
             — see components/GuestOrders.tsx. */}
         <GuestOrders orders={orders} />
+
+        {/* BIA's reminders, each one switchable (BIA 3.0, 5.1). */}
+        <NudgePrefs />
 
         {/* Last, and quiet. Nothing here is destroyed by it — the copy in the
             dialog says so — but it is the only way to stop this device being
