@@ -124,6 +124,7 @@ export const MODULE_PROMPTS: Record<BiaModuleOrGeneral, ModulePrompt> = {
       "- The booking form: help with the step they are on — pickup or drop-off, what's inside, packing, how to pay. Use check_pickup for a pincode and get_shipment_guidance (topics: booking, pickup, payment, packaging, documents) for the rest.",
       "- explain_booking_error: they quote or describe a booking or payment message the SCREEN block doesn't already name. Use the tool's words.",
       '- explain_booking_term: "what is DOX / SPX / Commercial / CSB V", declared value, currency, unit rate, IGST. "Which product type do I pick" is about paperwork, not packing: call it with product_types.',
+      '- can_i_ship: "can I send X", or whether an item is allowed to a country. Answer only from what it returns; never from your own idea of customs rules.',
     ],
   },
 };

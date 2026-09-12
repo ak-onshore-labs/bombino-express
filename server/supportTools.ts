@@ -17,6 +17,7 @@ import { DOCUMENT_TOOLS } from "./supportDocuments.js";
 import { GENERAL_TOOLS } from "./supportGeneral.js";
 import { ONBOARDING_TOOLS } from "./supportOnboarding.js";
 import { ORDER_TOOLS } from "./supportOrders.js";
+import { RESTRICTED_TOOLS } from "./supportRestricted.js";
 import type { BiaTool, SupportChatContext, ToolOutcome } from "./supportTypes.js";
 import { modulesForScreen, parseBiaModules, type BiaModule } from "../shared/biaModules.js";
 import type { BiaScreen } from "../shared/biaScreen.js";
@@ -27,6 +28,7 @@ export const ALL_TOOLS: readonly BiaTool[] = [
   ...ONBOARDING_TOOLS,
   ...DOCUMENT_TOOLS,
   ...BOOKING_TOOLS,
+  ...RESTRICTED_TOOLS,
 ];
 
 const FALLBACK_DISPATCHER =
