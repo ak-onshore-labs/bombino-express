@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'wouter';
 import { Loader2 } from 'lucide-react';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { Button } from '@/components/ui/button';
@@ -24,9 +25,10 @@ type StaffUser = {
   id: string;
   full_name: string;
   phone: string | null;
+  email: string | null;
   role: string;
   is_active: boolean;
-  /** Rounds this agent runs. Read-only here — edited at /ops/beats. */
+  /** Rounds this agent runs. Read-only here — edited on the rider's page. */
   beats: string[];
 };
 
@@ -38,7 +40,7 @@ export default function OpsUsers() {
   const [phone, setPhone] = useState('');
   // ITD attribution for the corporate `add_customer` call, and unrelated to
   // pickup beats despite sharing city names with them. A rider's coverage is
-  // set at /ops/beats.
+  // set on their profile page.
   const [hubId, setHubId] = useState('');
   const [role, setRole] = useState<StaffRole>('agent');
   const [formError, setFormError] = useState('');
@@ -232,7 +234,12 @@ export default function OpsUsers() {
         {!list.isLoading && !list.isError && (list.data?.length ?? 0) > 0 && (
           <ul className="rounded-2xl border border-border bg-white divide-y divide-border">
             {list.data!.map((user) => (
-              <li key={user.id} className="px-4 py-3" data-testid={`ops-staff-row-${user.id}`}>
+              <li key={user.id}>
+                <Link
+                  href={`/ops/users/${user.id}`}
+                  className="block px-4 py-3 hover:bg-muted/40 transition-colors"
+                  data-testid={`ops-staff-row-${user.id}`}
+                >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-sm font-extrabold text-foreground truncate">{user.full_name}</p>
@@ -259,6 +266,7 @@ export default function OpsUsers() {
                     </p>
                   </div>
                 </div>
+                </Link>
               </li>
             ))}
           </ul>

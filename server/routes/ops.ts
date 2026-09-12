@@ -10,12 +10,14 @@ import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import { isIndiaHubId } from "../../shared/hubs.js";
 import {
+  beatIdsForAgent,
   beatNamesByAgent,
   getBeat,
   insertBeat,
   listBeats,
   replaceBeatAgents,
   replaceBeatPincodes,
+  setAgentBeats,
   updateBeat,
   type BeatPincode,
 } from "../beatsDb.js";
@@ -41,10 +43,12 @@ import {
   findActiveAgentById,
   findItdUserIdByPhone,
   getCustomerForOps,
+  getStaffUserById,
   insertStaffUser,
   listCustomerAccounts,
   listCustomersForOps,
   listStaffUsers,
+  updateStaffUser,
 } from "../appDb.js";
 import { getCodeForOwner, issueCode } from "../handoverCodes.js";
 import {
@@ -88,6 +92,37 @@ const createStaffSchema = z.object({
   phone: z.string().trim().regex(/^\d{10}$/, "Enter a valid 10-digit phone number"),
   role: z.enum(["agent", "admin"]),
   hub_id: z.coerce.number().int().refine(isIndiaHubId, "Select a valid hub"),
+});
+
+const staffUserIdSchema = z.string().uuid();
+
+const patchStaffSchema = z
+  .object({
+    full_name: z.string().trim().min(1, "Full name is required").optional(),
+    phone: z
+      .string()
+      .trim()
+      .regex(/^\d{10}$/, "Enter a valid 10-digit phone number")
+      .optional(),
+    email: z
+      .string()
+      .trim()
+      .refine(
+        (value) => value === "" || z.string().email().safeParse(value).success,
+        "Enter a valid email"
+      )
+      .optional(),
+  })
+  .refine(
+    (patch) =>
+      patch.full_name !== undefined ||
+      patch.phone !== undefined ||
+      patch.email !== undefined,
+    "Nothing to change"
+  );
+
+const setAgentBeatsSchema = z.object({
+  beat_ids: z.array(z.string().uuid()).max(200),
 });
 
 /**
@@ -861,6 +896,124 @@ export function registerOpsRoutes(app: Express): void {
           beats: beats?.get(user.id) ?? [],
         })),
       });
+    }
+  );
+
+  // GET /api/ops/users/:id — one staff row + this agent's beat ids
+  app.get(
+    "/api/ops/users/:id",
+    requireUser,
+    requireRole("admin", "super_admin"),
+    async (req: Request, res: Response) => {
+      const id = staffUserIdSchema.safeParse(req.params.id);
+      if (!id.success) {
+        res.status(400).json({ message: "Invalid user id" });
+        return;
+      }
+
+      const user = await getStaffUserById(id.data);
+      if (!user) {
+        res.status(404).json({ message: "User not found" });
+        return;
+      }
+
+      const beatIds =
+        user.role === "agent" ? await beatIdsForAgent(user.id) : [];
+      res.json({
+        user,
+        beat_ids: beatIds ?? [],
+      });
+    }
+  );
+
+  // PUT /api/ops/users/:id/beats — replace THIS agent's rounds.
+  // Registered before PATCH /users/:id so "beats" is never parsed as an id.
+  app.put(
+    "/api/ops/users/:id/beats",
+    requireUser,
+    requireRole("admin", "super_admin"),
+    async (req: Request, res: Response) => {
+      const id = staffUserIdSchema.safeParse(req.params.id);
+      if (!id.success) {
+        res.status(400).json({ message: "Invalid user id" });
+        return;
+      }
+
+      const parsed = setAgentBeatsSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          message: parsed.error.issues[0]?.message ?? "Invalid request",
+        });
+        return;
+      }
+
+      const staff = await getStaffUserById(id.data);
+      if (!staff) {
+        res.status(404).json({ message: "User not found" });
+        return;
+      }
+      if (staff.role !== "agent") {
+        res.status(400).json({ message: "Only pickup agents have beats" });
+        return;
+      }
+
+      const agent = await findActiveAgentById(id.data);
+      if (!agent) {
+        res.status(400).json({ message: "That agent is not active" });
+        return;
+      }
+
+      const written = await setAgentBeats(id.data, parsed.data.beat_ids);
+      if (written === "missing") {
+        res.status(400).json({ message: "One of those beats does not exist" });
+        return;
+      }
+      if (written === null) {
+        res.status(502).json({ message: "Could not save beats" });
+        return;
+      }
+
+      res.json({ beat_ids: parsed.data.beat_ids });
+    }
+  );
+
+  // PATCH /api/ops/users/:id — name / phone / email. Not role, not is_active.
+  app.patch(
+    "/api/ops/users/:id",
+    requireUser,
+    requireRole("admin", "super_admin"),
+    async (req: Request, res: Response) => {
+      const id = staffUserIdSchema.safeParse(req.params.id);
+      if (!id.success) {
+        res.status(400).json({ message: "Invalid user id" });
+        return;
+      }
+
+      const parsed = patchStaffSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          message: parsed.error.issues[0]?.message ?? "Invalid request",
+        });
+        return;
+      }
+
+      const updated = await updateStaffUser(id.data, parsed.data);
+      if (updated === "taken") {
+        res.status(409).json({
+          message: "This phone number is already registered.",
+        });
+        return;
+      }
+      if (updated === "missing") {
+        res.status(404).json({ message: "User not found" });
+        return;
+      }
+      if (!updated) {
+        res.status(502).json({ message: "Could not save user" });
+        return;
+      }
+
+      res.json({ user: updated });
     }
   );
 

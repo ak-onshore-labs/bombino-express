@@ -232,9 +232,31 @@ export type StaffUserRow = {
   id: string;
   full_name: string;
   phone: string | null;
+  email: string | null;
   role: string;
   is_active: boolean;
 };
+
+const STAFF_ROLES = ["agent", "admin", "super_admin"] as const;
+const STAFF_USER_COLUMNS = "id, full_name, phone, email, role, is_active";
+
+function mapStaffUserRow(row: {
+  id: unknown;
+  full_name: unknown;
+  phone: unknown;
+  email: unknown;
+  role: unknown;
+  is_active: unknown;
+}): StaffUserRow {
+  return {
+    id: String(row.id),
+    full_name: String(row.full_name ?? ""),
+    phone: typeof row.phone === "string" ? row.phone : null,
+    email: typeof row.email === "string" ? row.email : null,
+    role: String(row.role ?? ""),
+    is_active: row.is_active !== false,
+  };
+}
 
 export type InsertStaffUserInput = {
   full_name: string;
@@ -299,8 +321,8 @@ export async function listStaffUsers(): Promise<StaffUserRow[] | null> {
 
   const { data, error } = await client
     .from("itd_users")
-    .select("id, full_name, phone, role, is_active")
-    .in("role", ["agent", "admin", "super_admin"])
+    .select(STAFF_USER_COLUMNS)
+    .in("role", [...STAFF_ROLES])
     .order("created_at", { ascending: false })
     .limit(200);
 
@@ -309,13 +331,84 @@ export async function listStaffUsers(): Promise<StaffUserRow[] | null> {
     return null;
   }
 
-  return (data ?? []).map((row) => ({
-    id: String(row.id),
-    full_name: String(row.full_name ?? ""),
-    phone: typeof row.phone === "string" ? row.phone : null,
-    role: String(row.role ?? ""),
-    is_active: row.is_active !== false,
-  }));
+  return (data ?? []).map(mapStaffUserRow);
+}
+
+/** One staff row. Returns null when the id is missing, not staff, or the query failed. */
+export async function getStaffUserById(id: string): Promise<StaffUserRow | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("itd_users")
+    .select(STAFF_USER_COLUMNS)
+    .eq("id", id)
+    .in("role", [...STAFF_ROLES])
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("getStaffUserById", error);
+    return null;
+  }
+  if (!data?.id) return null;
+  return mapStaffUserRow(data);
+}
+
+export type UpdateStaffUserInput = {
+  full_name?: string;
+  phone?: string;
+  email?: string;
+};
+
+/**
+ * Patch a staff account's name / phone / email. Never writes role or is_active.
+ *
+ * Phone is the OTP login key. A new number that already belongs to a different
+ * row is `"taken"` (itd_users_phone_key). The rider's own phone is not a
+ * collision. When phone changes, username is kept in sync with it.
+ */
+export async function updateStaffUser(
+  id: string,
+  patch: UpdateStaffUserInput
+): Promise<StaffUserRow | "missing" | "taken" | null> {
+  const existing = await getStaffUserById(id);
+  if (!existing) return "missing";
+
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const update: {
+    full_name?: string;
+    phone?: string;
+    email?: string;
+    username?: string;
+    updated_at: string;
+  } = { updated_at: new Date().toISOString() };
+
+  if (patch.full_name !== undefined) update.full_name = patch.full_name;
+  if (patch.email !== undefined) update.email = patch.email;
+  if (patch.phone !== undefined && patch.phone !== existing.phone) {
+    const owner = await findItdUserIdByPhone(patch.phone);
+    if (owner && owner.id !== id) return "taken";
+    update.phone = patch.phone;
+    update.username = patch.phone;
+  }
+
+  const { data, error } = await client
+    .from("itd_users")
+    .update(update)
+    .eq("id", id)
+    .in("role", [...STAFF_ROLES])
+    .select(STAFF_USER_COLUMNS)
+    .maybeSingle();
+
+  if (error) {
+    if (error.code === "23505") return "taken";
+    logSupabaseError("updateStaffUser", error);
+    return null;
+  }
+  if (!data?.id) return "missing";
+  return mapStaffUserRow(data);
 }
 
 export type CustomerAccountRow = {
@@ -500,7 +593,7 @@ export async function findActiveAgentById(id: string): Promise<StaffUserRow | nu
 
   const { data, error } = await client
     .from("itd_users")
-    .select("id, full_name, phone, role, is_active")
+    .select("id, full_name, phone, email, role, is_active")
     .eq("id", id)
     .maybeSingle();
 
@@ -513,13 +606,7 @@ export async function findActiveAgentById(id: string): Promise<StaffUserRow | nu
   const role = String(data.role ?? "");
   if (role !== "agent" || data.is_active !== true) return null;
 
-  return {
-    id: String(data.id),
-    full_name: String(data.full_name ?? ""),
-    phone: typeof data.phone === "string" ? data.phone : null,
-    role,
-    is_active: true,
-  };
+  return mapStaffUserRow(data);
 }
 
 /**

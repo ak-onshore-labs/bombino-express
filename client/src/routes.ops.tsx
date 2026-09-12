@@ -8,6 +8,7 @@ import OpsOrderDetail from '@/pages/ops/OpsOrderDetail';
 import OpsCustomers from '@/pages/ops/OpsCustomers';
 import OpsCustomerDetail from '@/pages/ops/OpsCustomerDetail';
 import OpsUsers from '@/pages/ops/OpsUsers';
+import OpsStaffDetail from '@/pages/ops/OpsStaffDetail';
 import OpsBeats from '@/pages/ops/OpsBeats';
 import NotFound from '@/pages/not-found';
 
@@ -29,6 +30,7 @@ export function OpsRoutes() {
       <Route path="/ops/customers" component={OpsCustomers} />
       <Route path="/ops/customers/:id" component={OpsCustomerDetail} />
       <Route path="/ops/users" component={OpsUsers} />
+      <Route path="/ops/users/:id" component={OpsStaffDetail} />
       <Route path="/ops/beats" component={OpsBeats} />
       <Route path="/ops/orders/:id" component={OpsOrderDetail} />
       <Route component={NotFound} />

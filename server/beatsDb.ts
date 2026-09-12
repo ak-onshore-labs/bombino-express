@@ -371,6 +371,86 @@ export async function replaceBeatAgents(
   return agentIds.length;
 }
 
+/**
+ * Beat ids this agent is on, retired included.
+ *
+ * Ops' rider-profile picker must prefill every membership row. Filtering
+ * is_active here would drop a retired round, and the next save would unassign
+ * it without anyone meaning to.
+ */
+export async function beatIdsForAgent(agentId: string): Promise<string[] | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("pickup_beat_agents")
+    .select("beat_id")
+    .eq("agent_id", agentId);
+
+  if (error) {
+    logSupabaseError("beatIdsForAgent", error);
+    return null;
+  }
+
+  return (data ?? []).map((row) => String((row as { beat_id: string }).beat_id));
+}
+
+/**
+ * Replace THIS agent's beat memberships.
+ *
+ * Deletes by agent_id, then inserts the new (beat_id, agent_id) rows. Must
+ * never call replaceBeatAgents — that deletes by beat_id and would wipe every
+ * other rider on those rounds.
+ *
+ * Coverage is unchanged (pincodes stay serviceable); only the WhatsApp
+ * fan-out reads this table, and it is queried fresh on every booking.
+ */
+export async function setAgentBeats(
+  agentId: string,
+  beatIds: readonly string[]
+): Promise<number | "missing" | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const unique = Array.from(new Set(beatIds));
+
+  if (unique.length > 0) {
+    const { data: beats, error: beatError } = await client
+      .from("pickup_beats")
+      .select("id")
+      .in("id", unique);
+
+    if (beatError) {
+      logSupabaseError("setAgentBeats/beats", beatError);
+      return null;
+    }
+    if ((beats ?? []).length !== unique.length) return "missing";
+  }
+
+  const { error: deleteError } = await client
+    .from("pickup_beat_agents")
+    .delete()
+    .eq("agent_id", agentId);
+
+  if (deleteError) {
+    logSupabaseError("setAgentBeats/delete", deleteError);
+    return null;
+  }
+
+  if (unique.length === 0) return 0;
+
+  const { error: insertError } = await client
+    .from("pickup_beat_agents")
+    .insert(unique.map((beat_id) => ({ beat_id, agent_id: agentId })));
+
+  if (insertError) {
+    logSupabaseError("setAgentBeats/insert", insertError);
+    return null;
+  }
+
+  return unique.length;
+}
+
 /** A round as its own rider sees it: where they collect, and by when. */
 export interface AgentBeat {
   slug: string;
