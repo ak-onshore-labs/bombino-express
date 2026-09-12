@@ -39,11 +39,11 @@ The single place to see where the BIA 3.0 build stands.
 | [4.1](#41-support-cases) | Support cases | R4 | W6 | M · 1 d | 1.3, 1.7 | ✅ | `bia-3/wp4-1` → merged locally (8010748); **migration not run**, `handoff` off | 2026-09-12 |
 | [4.2](#42-ops-cases-tab) | Ops Cases tab | R4 | W7 | L · 1.5 d | 4.1 | ✅ | `bia-3/wp4-2` → merged locally (9cbd194); needs 4.1's migration | 2026-09-12 |
 | [4.3](#43-customer-side-of-cases-order-page-links) | Customer side of cases, order-page links | R4 | W8 | M · 1 d | 4.1 | ✅ | `bia-3/wp4-3` → merged locally (9556c0c); case replies need `handoff` | 2026-09-12 |
-| [5.1](#51-nudges) | Nudges | R5 | W8 | L · 1.5 d | 1.4, 2.2 | ⬜ | `bia-3/wp5-1` | |
+| [5.1](#51-nudges) | Nudges | R5 | W8 | L · 1.5 d | 1.4, 2.2 | ✅ | `bia-3/wp5-1` → merged locally (8e690f4); **migration not run**, scheduler not pointed | 2026-09-12 |
 | [5.2](#52-voice-notes) | Voice notes | R5 | — | M · 1 d | 1.4, 1.6 | ⏭ | — | skipped 2026-09-12 |
 | [5.3](#53-hindi) | Hindi | R5 | — | S · ½ d | 1.5 | ⏭ | — | skipped 2026-09-12 |
 
-**20 packages (4 more skipped) · 19 dev-days · 9 waves.** 19 merged, 1 to go.
+**20 packages (4 more skipped) · 19 dev-days · 9 waves.** 20 merged. **Build complete**; going live is migrations, the scheduler and a merge into `aditya/final-phase`.
 
 ## Waves
 
@@ -73,8 +73,8 @@ Modules ship dark and go live by adding them to `BIA_MODULES` in production.
 | R1 | Foundations | Any catalogued error opens BIA already explaining it; evals and telemetry run on every change. | 🔵 code complete on `bia-3/main`; needs the two R1 migrations, then a merge into `aditya/final-phase` |
 | R2 | Onboarding and documents | Every OCR verdict has a tested explanation; a document can be retaken from chat. | 🔵 code complete on `bia-3/main` (2.1, 2.2, 2.3, 2.5); goes live with `BIA_MODULES=orders,onboarding,documents` after a merge into `aditya/final-phase` |
 | R3 | Booking help | BIA explains every step, error and term on the booking form, answers "can I send this?" only from Bombino's lists, and suggests HSN codes. It never fills or submits the form. | 🔵 code complete on `bia-3/main` (3.1, 3.2, 3.4); goes live with `booking` in `BIA_MODULES` after a merge into `aditya/final-phase` |
-| R4 | Handoff | Every escalation is a case ops can see and answer; risky actions link to the order page. | ⬜ |
-| R5 | Proactive | Nudges are capped and switchable. (Voice and Hindi were dropped.) | ⬜ |
+| R4 | Handoff | Every escalation is a case ops can see and answer; risky actions link to the order page. | 🔵 code complete on `bia-3/main` (4.1, 4.2, 4.3); order-page links go live with `orders`; cases need `create_support_cases.sql`, then `handoff` in `BIA_MODULES` |
+| R5 | Proactive | Nudges are capped and switchable. (Voice and Hindi were dropped.) | 🔵 code complete on `bia-3/main` (5.1); needs `create_bia_nudges.sql` and the daily scheduler call |
 
 ## Migrations
 
@@ -86,7 +86,7 @@ Sessions write them; Aditya runs each in Supabase before its package merges.
 | `migrations/support_sessions_guest_ref.sql` | 1.7 | ✅ | ✅ 2026-09-11 |
 | ~~`migrations/create_bia_drafts.sql`~~ | 3.3 | ⏭ not needed | — |
 | `migrations/create_support_cases.sql` | 4.1 | ✅ | ⬜ |
-| `migrations/create_bia_nudges.sql` | 5.1 | ⬜ | ⬜ |
+| `migrations/create_bia_nudges.sql` | 5.1 | ✅ | ⬜ |
 
 ## Waiting on people
 
@@ -495,21 +495,21 @@ Notes: **Order-page links are live with `orders`** (no new module): `TAP_VIEW_OR
 
 #### 5.1 Nudges
 
-**Status:** ⬜ · **After:** 1.4, 2.2 · **Owns:** `server/routes/bia.ts`, `pages/Profile.tsx` · **Migration:** `create_bia_nudges.sql`
+**Status:** ✅ (needs `create_bia_nudges.sql` and the scheduler) · **After:** 1.4, 2.2 · **Owns:** `server/routes/bia.ts`, `pages/Profile.tsx` · **Migration:** `create_bia_nudges.sql`
 
 BIA speaks first when something stalls, through the bell.
 
 Build
-- [ ] `server/supportNudges.ts` rules: signup stuck at documents for 24 hours; a guest with two or more orders and no account; pickup tomorrow; final amount changed after weighing (skipped if `notify.ts` already sent that message); document failed (live Cashfree only).
-- [ ] `POST /api/admin/bia/nudges/sweep` behind the same bearer secret as the retention sweep; the external scheduler calls it daily.
-- [ ] `bia_nudges` log (unique per owner, kind and subject; at most one per owner per day), plus per-kind opt-outs on Profile and the guest profile.
-- [ ] Each bell row carries a BIA seed; tapping it opens the sheet about that thing.
+- [x] `server/supportNudges.ts` rules: signup stuck at documents for 24 hours; a guest with two or more orders and no account; pickup tomorrow; final amount changed after weighing (skipped if `notify.ts` already sent that message); document failed (live Cashfree only).
+- [x] `POST /api/admin/bia/nudges/sweep` behind the same bearer secret as the retention sweep; the external scheduler calls it daily.
+- [x] `bia_nudges` log (unique per owner, kind and subject; at most one per owner per day), plus per-kind opt-outs on Profile and the guest profile.
+- [x] Each bell row carries a BIA seed; tapping it opens the sheet about that thing.
 
 Done when
-- [ ] Running the sweep twice sends nothing new
-- [ ] An opt-out stops that kind; no nudge is marketing
+- [x] Running the sweep twice sends nothing new (`supportNudges.test.ts`, and a day later the same document still isn't news)
+- [x] An opt-out stops that kind; no nudge is marketing (tests: the switched-off kind is skipped and the rest go; every nudge's words are checked for offers, discounts, reviews, referrals and exclamation marks)
 
-Notes: —
+Notes: **Shape:** pure rules (`nudgesFrom`) over a snapshot the sweep reads (`loadNudgeSnapshot`), storage behind `NudgeStore` like `CaseStore`, and the bell row written with type `bia_nudge`, falling back to `order_status`. The more useful kind goes first when one person is due several (document, amount, pickup, signup, guest account), and a bell row that couldn't be written releases its claim so the next sweep tries again. **The seed isn't stored:** the bell row's `data` is `{ kind: "bia_nudge", nudge, orderNo }` and the client builds BIA's question from the kind (`shared/biaNudges.ts` §nudgeSeed). **Rules, tightened by a read-only dry run on the shared database:** a guest's one identity document is mirrored into the signup tables under their ref, so six guests who had only booked read as stalled signups; a signup now needs two documents, a GST number, or both Aadhaar and PAN (`looksLikeSignup`), which left the one real one. A document nudge needs a verdict a new photo fixes (mismatch, wrong document, tampered, unreadable): `unavailable` is our checker not answering, and saying "needs replacing" for it would be wrong. The amount nudge states the estimate and the final amount and says our team will be in touch, never the difference. "Pickup tomorrow" tells an account the code is on the order page and a guest that it comes on WhatsApp. **Before the migration** the sweep answers 503 `NUDGES_NOT_SET_UP` (uncatalogued: nobody sees it) and sends nothing; the switches card isn't drawn. The sweep logs one line per run, quiet ones included. Chrome, account 9000000090, mocked tables: the switches on Profile (one switched off, sent as `{ kind, on: false }`) and a nudge on the bell opening BIA with "What do I need for tomorrow's pickup of BOM-100107?". 187 unit tests.
 
 #### 5.2 Voice notes
 
@@ -547,6 +547,7 @@ Notes: —
 
 Newest first. One line per merge, decision or surprise.
 
+- 2026-09-12 · 5.1 merged: nudges on the bell (failed document, changed amount, pickup tomorrow, a guest's stalled signup, a guest's second booking), once each, one a day, switchable on Profile and the guest profile. **All 20 packages merged.** Left for Aditya: run `create_support_cases.sql` and `create_bia_nudges.sql`, point the scheduler at the sweep, then merge `bia-3/main` into `aditya/final-phase`.
 - 2026-09-12 · 4.3 merged: BIA's order buttons open the cancel button, the handover code or Pay on the order page (live with `orders`); a case reply on the bell opens BIA with ops' words (with `handoff`). **R4 code-complete**; switching it on waits on `create_support_cases.sql`. Left: 5.1.
 - 2026-09-12 · 4.2 merged: ops Cases tab (queue, case detail, reply to the customer's bell, close), additive to the ops console; waits on `create_support_cases.sql` like 4.1. **Wave W7 done.** Left: 4.3, 5.1.
 - 2026-09-12 · 3.2 merged: `suggest_hsn` names entries and codes from Bombino's contents list; the customer chooses in the form. **R3 code-complete.** Left: 4.2, 4.3, 5.1.
