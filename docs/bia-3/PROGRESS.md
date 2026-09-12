@@ -38,12 +38,12 @@ The single place to see where the BIA 3.0 build stands.
 | [3.4](#34-restricted-items-waits-on-content) | Restricted items (waits on content) | R3 | W6 | S · ½ d | 1.5 | ✅ | `bia-3/wp3-4` → merged locally (de6d190); lists wait on Bombino | 2026-09-12 |
 | [4.1](#41-support-cases) | Support cases | R4 | W6 | M · 1 d | 1.3, 1.7 | ✅ | `bia-3/wp4-1` → merged locally (8010748); **migration not run**, `handoff` off | 2026-09-12 |
 | [4.2](#42-ops-cases-tab) | Ops Cases tab | R4 | W7 | L · 1.5 d | 4.1 | ✅ | `bia-3/wp4-2` → merged locally (9cbd194); needs 4.1's migration | 2026-09-12 |
-| [4.3](#43-customer-side-of-cases-order-page-links) | Customer side of cases, order-page links | R4 | W8 | M · 1 d | 4.1 | ⬜ | `bia-3/wp4-3` | |
+| [4.3](#43-customer-side-of-cases-order-page-links) | Customer side of cases, order-page links | R4 | W8 | M · 1 d | 4.1 | ✅ | `bia-3/wp4-3` → merged locally (9556c0c); case replies need `handoff` | 2026-09-12 |
 | [5.1](#51-nudges) | Nudges | R5 | W8 | L · 1.5 d | 1.4, 2.2 | ⬜ | `bia-3/wp5-1` | |
 | [5.2](#52-voice-notes) | Voice notes | R5 | — | M · 1 d | 1.4, 1.6 | ⏭ | — | skipped 2026-09-12 |
 | [5.3](#53-hindi) | Hindi | R5 | — | S · ½ d | 1.5 | ⏭ | — | skipped 2026-09-12 |
 
-**20 packages (4 more skipped) · 19 dev-days · 9 waves.** 18 merged, 2 to go.
+**20 packages (4 more skipped) · 19 dev-days · 9 waves.** 19 merged, 1 to go.
 
 ## Waves
 
@@ -476,20 +476,20 @@ Notes: **Additive, to stay out of the ops console's lane:** the routes are a new
 
 #### 4.3 Customer side of cases, order-page links
 
-**Status:** ⬜ · **After:** 4.1 · **Owns:** `pages/Notifications.tsx`, `pages/OrderDetails.tsx`, `components/bia/BiaChat.tsx`
+**Status:** ✅ (case half dark with `handoff`) · **After:** 4.1 · **Owns:** `pages/Notifications.tsx`, `pages/OrderDetails.tsx`, `components/bia/BiaChat.tsx`
 
 Close the loop for the customer, and send the actions that stay off chat to the right spot on the order page.
 
 Build
-- [ ] A case bell item opens BIA with the case and ops' reply at the top.
-- [ ] Anchors on the order page: `#cancel`, `#handover-code`, `#pay`. VIEW_ORDER buttons can carry the section.
-- [ ] BIA's answers about cancelling, a new code or paying link to those anchors.
+- [x] A case bell item opens BIA with the case and ops' reply at the top.
+- [x] Anchors on the order page: `#cancel`, `#handover-code`, `#pay`. VIEW_ORDER buttons can carry the section.
+- [x] BIA's answers about cancelling, a new code or paying link to those anchors.
 
 Done when
-- [ ] Eval: "cancel my order" → explains and links to `#cancel`; never runs it
-- [ ] Bell → BIA shows ops' reply
+- [x] Eval: "cancel my order" → explains and links to `#cancel`; never runs it (`account-17`, plus `account-18` for the code and `account-19`: a plain status question gets the plain button)
+- [x] Bell → BIA shows ops' reply (`case-06`/`07`/`08` with staged cases; the bell checked in Chrome from a mocked notification)
 
-Notes: —
+Notes: **Order-page links are live with `orders`** (no new module): `TAP_VIEW_ORDER:BOM-…#cancel` (also `#handover-code`, `#pay`), checked on the order number, drawn as the order button with "Request cancellation on the order page" / "See the code on the order page" / "Pay on the order page", and followed by `navigateInApp`, which now waits up to 5 s for the section (the order page waits on its fetch) and outlines it briefly. `get_order_status` offers a section only when the order page shows it (`orderPageLinks`: cancel when the customer may request it or a request is pending; the code while a rider is assigned or it's awaiting drop-off; pay for a pending pay-now order), accounts only. **The model copies the plain order button** even when asked to cancel (0/3 for the code), so the server does it: `sectionsAskedAbout` reads the customer's message, and a plain button goes to the one section they asked about when a tool offered it for that order; several sections for one order collapse to the plain one, and the no-buttons fallback never picks a section. **Found along the way:** a token followed by a full stop in tool text ("…#cancel.") was captured with the full stop; tool lines now end on the token, and parsing drops trailing punctuation. **Case replies** need `handoff`: `get_support_case` (new, handoff module) reads the caller's own cases through `CaseStore.listForOwner` and puts ops' reply in the case card word for word; the bell item (`data.kind` support_case) opens BIA with "What did the team say on my case BIA-…?". The eval runner can now stage cases (`cases` on a case). **Regression caught:** with the new tool, "escalate it again" had the model write "I've opened another case, BIA-1002" without calling anything (3/8); a reply naming a case number no tool gave and not already in the chat is now sent back once to use the tool (8/8 after). Chrome, account 9000000090: "I want to cancel BOM-100107" → the button → order page scrolled with Request cancellation in view, nothing requested; bell → BIA with the reply card. 168 unit tests; evals: `orders` 43/43 ×2; all modules + `handoff` 73/77 ×2, the misses rate limits (3/3 on rerun) and the known `guest-18`.
 
 ### R5 · Proactive and reach
 
@@ -547,6 +547,7 @@ Notes: —
 
 Newest first. One line per merge, decision or surprise.
 
+- 2026-09-12 · 4.3 merged: BIA's order buttons open the cancel button, the handover code or Pay on the order page (live with `orders`); a case reply on the bell opens BIA with ops' words (with `handoff`). **R4 code-complete**; switching it on waits on `create_support_cases.sql`. Left: 5.1.
 - 2026-09-12 · 4.2 merged: ops Cases tab (queue, case detail, reply to the customer's bell, close), additive to the ops console; waits on `create_support_cases.sql` like 4.1. **Wave W7 done.** Left: 4.3, 5.1.
 - 2026-09-12 · 3.2 merged: `suggest_hsn` names entries and codes from Bombino's contents list; the customer chooses in the form. **R3 code-complete.** Left: 4.2, 4.3, 5.1.
 - 2026-09-12 · **Decision:** BIA won't ship anything or fill forms; it helps on the screens. 3.3 (drafts, "say it to ship") dropped with its migration; 3.2 suggests HSN codes without a "Use this code" button and moves to W7; R3 is booking help. Re-uploading a document (2.5) is BIA's only chat action.
