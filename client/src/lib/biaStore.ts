@@ -14,7 +14,7 @@ import type { BiaScreen } from '@shared/biaScreen';
 export interface BiaOpenRequest {
   /** Where the customer is. Only known values survive on the server. */
   screen: BiaScreen;
-  /** A first message to send for them, e.g. about the error they just saw. */
+  /** A first question, e.g. about the error they just saw: put in the typing box for them to send, never sent for them. */
   seed?: string;
 }
 

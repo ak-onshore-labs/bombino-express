@@ -30,7 +30,8 @@ export function screenForPath(path: string): BiaScreen {
  * Open BIA about the screen at this path: the floating button on Home and the
  * top-bar button everywhere else. The page's own account of itself, when it
  * gives one, knows more than its path (the signup step and account, the
- * booking step). On an order page it asks about that order straight away.
+ * booking step). On an order page it suggests a question about that order,
+ * which waits in the typing box for the customer to send.
  */
 export function openBiaHere(path: string): void {
   const pageScreen = useBiaStore.getState().pageScreen;

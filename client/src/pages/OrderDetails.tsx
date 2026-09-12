@@ -142,7 +142,7 @@ function TopBar({
           {isFetching ? 'Refreshing' : 'Refresh'}
         </button>
       )}
-      <AskBiaTopButton />
+      <AskBiaTopButton withLabel />
       </div>
     </div>
   );

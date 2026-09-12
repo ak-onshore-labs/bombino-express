@@ -127,7 +127,7 @@ export default function Profile() {
               <ArrowLeft className="w-5 h-5" />
             </button>
             <h1 className="ml-2 font-semibold text-sm">Profile</h1>
-            <AskBiaTopButton className="ml-auto -mr-2" />
+            <AskBiaTopButton withLabel className="ml-auto" />
           </div>
         </header>
 
@@ -304,7 +304,7 @@ export default function Profile() {
             <ArrowLeft className="w-5 h-5" />
           </button>
           <h1 className="ml-2 font-semibold text-sm">My Profile</h1>
-          <AskBiaTopButton className="ml-auto -mr-2" />
+          <AskBiaTopButton withLabel className="ml-auto" />
         </div>
       </header>
 

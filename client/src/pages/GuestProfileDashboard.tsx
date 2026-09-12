@@ -248,7 +248,7 @@ function GuestShell({
             <ArrowLeft className="h-5 w-5" />
           </button>
           <h1 className="ml-2 text-sm font-semibold">Your profile</h1>
-          <AskBiaTopButton className="ml-auto -mr-2" />
+          <AskBiaTopButton withLabel className="ml-auto" />
         </div>
       </header>
 

@@ -166,6 +166,13 @@ export function BiaChat({
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastSentMessagesRef = useRef<ChatMessage[]>([]);
   const seedSentRef = useRef<number | null>(null);
+  /**
+   * A question BIA put in the typing box (the top-bar button on an order page,
+   * "Ask BIA about this" beside an error, a reminder). Never sent for them:
+   * it waits, Send is highlighted, and the customer sends it or changes it.
+   */
+  const [suggested, setSuggested] = useState<string | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const sessionRedirectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
@@ -357,6 +364,7 @@ export function BiaChat({
   };
 
   const sendUserText = (text: string) => {
+    setSuggested(null);
     const userMessage: ChatMessage = { role: "user", content: text };
     const nextMessages = [...messages, userMessage];
     setMessages(nextMessages);
@@ -364,14 +372,26 @@ export function BiaChat({
     void sendMessages(nextMessages);
   };
 
-  // A seed is sent once per request, after any history has loaded, so it
-  // lands at the end of the conversation rather than before it.
+  // A seed goes into the typing box once per request, after any history has
+  // loaded, for the customer to send. BIA never sends it for them.
   useEffect(() => {
-    if (!restoreDone || !seed || loading || seedSentRef.current === seedKey) return;
+    if (!restoreDone || !seed || seedSentRef.current === seedKey) return;
     seedSentRef.current = seedKey;
-    sendUserText(seed);
+    setInput(seed);
+    setSuggested(seed);
     onSeedSent?.();
-  }, [restoreDone, seed, seedKey, loading]);
+  }, [restoreDone, seed, seedKey]);
+
+  // The box grows with what's in it (up to four lines), so a suggested
+  // question can be read whole before sending.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 96)}px`;
+  }, [input]);
+
+  const sendReady = suggested !== null && input.trim().length > 0 && !loading;
 
   const handleNewChat = async () => {
     if (loading) return;
@@ -706,17 +726,27 @@ export function BiaChat({
 
       {/* Floating input dock + disclaimer */}
       <div className="flex-shrink-0 px-4 pb-4 pt-3 max-w-md mx-auto w-full">
+        {sendReady && (
+          <p className="mb-1.5 px-1 text-[11px] font-medium text-[#FBAD1F]" role="status" data-testid="bia-send-hint">
+            Your question is ready. Change it if you like, then tap send.
+          </p>
+        )}
         <div
           className={cn(
             "rounded-2xl p-2 flex gap-2 items-end",
-            "bg-white/[0.06] border border-white/[0.06]",
+            "bg-white/[0.06] border",
+            sendReady ? "border-[#FBAD1F]/50" : "border-white/[0.06]",
             "shadow-[0_8px_32px_rgba(0,0,0,.35),0_0_0_1px_rgba(255,255,255,.03)]"
           )}
         >
           <Textarea
+            ref={inputRef}
             placeholder="Ask BIA..."
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              setInput(e.target.value);
+              if (!e.target.value.trim()) setSuggested(null);
+            }}
             onKeyDown={handleKeyDown}
             disabled={loading}
             rows={1}
@@ -735,9 +765,11 @@ export function BiaChat({
             className={cn(
               "shrink-0 h-10 w-10 rounded-full text-white border-0 transition-all duration-200",
               "bg-[#FBAD1F] hover:bg-[#ECB954] active:scale-95",
-              "shadow-[0_0_20px_rgba(251,173,31,0.35),inset_0_0_0_1px_rgba(255,255,255,.08)]"
+              "shadow-[0_0_20px_rgba(251,173,31,0.35),inset_0_0_0_1px_rgba(255,255,255,.08)]",
+              sendReady && "bia-send-ready"
             )}
             aria-label="Send"
+            data-testid="button-bia-send"
           >
             {loading ? (
               <Loader2 className="h-5 w-5 animate-spin" />

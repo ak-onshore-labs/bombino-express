@@ -1017,3 +1017,60 @@ input[type="date"] {
     animation: none;
   }
 }
+
+/* BIA's button in the top bar: a warm gradient that keeps drifting, a light
+   sweep across it and a breathing glow, so it reads as BIA on every screen. */
+.bia-top-btn {
+  background: linear-gradient(110deg, #fbad1f 0%, #f2a123 25%, #e8742a 50%, #f2a123 75%, #fbad1f 100%);
+  background-size: 200% 100%;
+  animation:
+    bia-top-shift 3s ease-in-out infinite alternate,
+    bia-top-glow 2.4s ease-in-out infinite;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.bia-top-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.55) 50%, transparent 70%);
+  background-size: 250% 100%;
+  animation: bia-top-sweep 2.8s ease-in-out infinite;
+  z-index: 0;
+  pointer-events: none;
+}
+
+@keyframes bia-top-shift {
+  from { background-position: 0% 50%; }
+  to { background-position: 100% 50%; }
+}
+
+@keyframes bia-top-glow {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7), 0 2px 8px rgba(242, 161, 35, 0.35); }
+  50% { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7), 0 2px 16px rgba(242, 161, 35, 0.65); }
+}
+
+@keyframes bia-top-sweep {
+  0% { background-position: 150% 0; }
+  60%, 100% { background-position: -100% 0; }
+}
+
+/* A question BIA put in the typing box for the customer to send. */
+.bia-send-ready {
+  animation: bia-send-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes bia-send-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(251, 173, 31, 0.55), 0 0 20px rgba(251, 173, 31, 0.35); }
+  50% { box-shadow: 0 0 0 6px rgba(251, 173, 31, 0), 0 0 28px rgba(251, 173, 31, 0.6); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bia-top-btn,
+  .bia-top-btn::before,
+  .bia-send-ready {
+    animation: none;
+  }
+}

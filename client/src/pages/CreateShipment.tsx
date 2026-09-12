@@ -1245,7 +1245,7 @@ export default function CreateShipment() {
               <ArrowLeft className="w-5 h-5" />
             </button>
             <h1 className="ml-2 font-semibold text-sm">Ship</h1>
-            <AskBiaTopButton className="ml-auto -mr-2" />
+            <AskBiaTopButton withLabel className="ml-auto" />
           </div>
         </header>
 
