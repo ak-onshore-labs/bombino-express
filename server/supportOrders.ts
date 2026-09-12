@@ -51,6 +51,8 @@ import {
   type OrderStatus,
 } from "../shared/orderContract.js";
 import { formatCutoffHour, getPickupServiceability } from "../shared/pickupPincodes.js";
+import { screenChips, screenWantsOrderChips } from "../shared/biaChips.js";
+import type { BiaModule } from "../shared/biaModules.js";
 
 // ─── Owner ───────────────────────────────────────────────────────────────────
 
@@ -763,15 +765,19 @@ export async function executeCheckPickup(args: { pincode?: string }): Promise<To
 
 // ─── Suggestions ─────────────────────────────────────────────────────────────
 
-const DEFAULT_CHIPS = ["Get shipping rates", "Is pickup available at my pincode?", "Track a shipment"] as const;
+/** Chips in the row above BIA's typing box; it scrolls sideways. */
+const MAX_CHIPS = 6;
 
 /**
- * Starter chips for an empty chat, led by the caller's own live orders. Asked
- * as questions so tapping one reads naturally in the transcript.
+ * The chips for the screen BIA was opened on (shared/biaChips.ts), led on
+ * Home, Help and Orders by the caller's own live orders. Asked as questions so
+ * tapping one reads naturally in the transcript.
  */
-export async function suggestionsFor(context: SupportChatContext): Promise<string[]> {
+export async function suggestionsFor(context: SupportChatContext, modules: readonly BiaModule[] = ["orders"]): Promise<string[]> {
   const owner = ownerOf(context);
   const chips: string[] = [];
+  const forScreen = screenChips(context.screen, modules);
+  if (!screenWantsOrderChips(context.screen)) return forScreen.slice(0, MAX_CHIPS);
 
   try {
     if (owner?.kind === "account") {
@@ -794,9 +800,9 @@ export async function suggestionsFor(context: SupportChatContext): Promise<strin
   }
 
   if (owner && chips.length === 0) chips.push("Show my orders");
-  for (const c of DEFAULT_CHIPS) {
-    if (chips.length >= 4) break;
-    chips.push(c);
+  for (const c of forScreen) {
+    if (chips.length >= MAX_CHIPS) break;
+    if (!chips.includes(c)) chips.push(c);
   }
   return chips;
 }

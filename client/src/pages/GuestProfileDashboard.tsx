@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { AskBiaTopButton } from '@/components/bia/AskBiaTopButton';
 import { useLocation } from 'wouter';
 import {
   ArrowLeft,
@@ -247,6 +248,7 @@ function GuestShell({
             <ArrowLeft className="h-5 w-5" />
           </button>
           <h1 className="ml-2 text-sm font-semibold">Your profile</h1>
+          <AskBiaTopButton className="ml-auto -mr-2" />
         </div>
       </header>
 

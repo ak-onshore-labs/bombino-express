@@ -256,16 +256,22 @@ export function BiaChat({
     };
   }, [isLoggedIn, isGuest, guestChecked]);
 
-  // Starter chips, led by the caller's own live orders.
+  // Chips for the screen BIA was opened on (shared/biaChips.ts), led on Home,
+  // Help and Orders by the caller's own live orders. Fetched again when the
+  // screen changes, e.g. the next booking step while the sheet is open.
+  const chipScreenKey = [screen.surface, screen.step ?? "", screen.orderNo ?? ""].join("|");
   useEffect(() => {
     let cancelled = false;
+    const params = new URLSearchParams({ surface: screen.surface });
+    if (screen.step) params.set("step", screen.step);
+    if (screen.orderNo) params.set("orderNo", screen.orderNo);
     (async () => {
       try {
-        const res = await fetch("/api/support/suggestions", { credentials: "include" });
+        const res = await fetch(`/api/support/suggestions?${params.toString()}`, { credentials: "include" });
         if (!res.ok) return;
         const data = (await res.json()) as { chips?: unknown };
         if (!cancelled && isStringArray(data.chips) && data.chips.length > 0) {
-          setStarterChips(data.chips.slice(0, 4));
+          setStarterChips(data.chips.slice(0, 6));
         }
       } catch {
         /* keep the defaults */
@@ -274,7 +280,7 @@ export function BiaChat({
     return () => {
       cancelled = true;
     };
-  }, [isLoggedIn, isGuest]);
+  }, [isLoggedIn, isGuest, chipScreenKey]);
 
   const sendMessages = async (nextMessages: ChatMessage[]) => {
     lastSentMessagesRef.current = nextMessages;
@@ -407,6 +413,7 @@ export function BiaChat({
 
   const isEmpty = messages.length === 0 && !loading;
   const lastIndex = messages.length - 1;
+  const chipRow = loading ? [] : messages.length > 0 && quickReplies.length > 0 ? quickReplies : starterChips;
 
   return (
     <div
@@ -516,19 +523,6 @@ export function BiaChat({
                   Where your order is, what happens next, pickup at your pincode, rates and tracking.
                 </p>
               </div>
-              <div className="flex flex-wrap justify-center gap-2 mt-4 mb-6 px-2">
-                {starterChips.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    disabled={loading}
-                    onClick={() => sendUserText(s)}
-                    className="rounded-full border border-[#FBAD1F]/30 px-4 py-2 text-sm text-white/70 bg-white/[0.04] hover:bg-white/[0.08] transition-colors disabled:opacity-50 disabled:pointer-events-none"
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
               {!isLoggedIn && !isGuest && (
                 <div
                   className="mx-4 mb-4 rounded-xl p-3 flex items-center justify-between gap-3"
@@ -620,20 +614,6 @@ export function BiaChat({
                           onRate={(rating) => msg.turnId && rate(msg.turnId, rating)}
                         />
                       )}
-                      {i === lastIndex && !loading && quickReplies.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 pt-1">
-                          {quickReplies.map((q) => (
-                            <button
-                              key={q}
-                              type="button"
-                              onClick={() => sendUserText(q)}
-                              className="rounded-full border border-white/15 px-3 py-1.5 text-xs text-white/70 bg-white/[0.03] hover:bg-white/[0.08] transition-colors"
-                            >
-                              {q}
-                            </button>
-                          ))}
-                        </div>
-                      )}
                     </div>
                   </div>
                 );
@@ -676,7 +656,7 @@ export function BiaChat({
 
       {/* Error state */}
       {error && (
-        <div className="shrink-0 px-4 py-2 max-w-md mx-auto w-full absolute bottom-28 left-0 right-0">
+        <div className="shrink-0 px-4 py-2 max-w-md mx-auto w-full absolute bottom-40 left-0 right-0">
           <div className="rounded-lg bg-red-500/10 border border-red-500/20 text-red-300 text-sm px-3 py-2 flex items-center justify-between gap-2">
             <span>{error}</span>
             <Button
@@ -697,8 +677,35 @@ export function BiaChat({
         </div>
       )}
 
+      {/* Chips: one row above the input that scrolls sideways. Before the
+          first question, and when an answer brought no follow-ups, they are
+          the screen's own; after an answer, its follow-ups. */}
+      {chipRow.length > 0 && (
+        <div className="flex-shrink-0 max-w-md mx-auto w-full pt-3" data-testid="bia-chip-row">
+          <div
+            className="flex gap-2 overflow-x-auto px-4 scroll-px-4 snap-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            role="list"
+            aria-label="Suggested questions"
+          >
+            {chipRow.map((c) => (
+              <button
+                key={c}
+                type="button"
+                role="listitem"
+                disabled={loading}
+                onClick={() => sendUserText(c)}
+                className="shrink-0 snap-start whitespace-nowrap rounded-full border border-[#FBAD1F]/30 bg-white/[0.04] px-3.5 py-1.5 text-xs text-white/75 transition-colors hover:bg-white/[0.08] disabled:pointer-events-none disabled:opacity-50"
+                data-testid="bia-chip"
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Floating input dock + disclaimer */}
-      <div className="flex-shrink-0 px-4 pb-4 pt-4 max-w-md mx-auto w-full">
+      <div className="flex-shrink-0 px-4 pb-4 pt-3 max-w-md mx-auto w-full">
         <div
           className={cn(
             "rounded-2xl p-2 flex gap-2 items-end",

@@ -71,6 +71,7 @@ import {
   orderDetailKey,
   useCustomerOrderDetail,
 } from '@/hooks/useCustomerOrders';
+import { AskBiaTopButton } from '@/components/bia/AskBiaTopButton';
 
 const BRAND_NAVY = 'lab(34.0831 -9.57756 -27.7093)';
 
@@ -127,12 +128,13 @@ function TopBar({
         <ArrowLeft className="w-4 h-4" />
         Back
       </button>
+      <div className="-mr-2 flex items-center gap-1">
       {onRefresh && (
         <button
           type="button"
           onClick={onRefresh}
           disabled={isFetching}
-          className="-mr-2 inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1.5 rounded-lg disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1.5 rounded-lg disabled:opacity-50"
           aria-label="Refresh order"
           data-testid="button-refresh-order"
         >
@@ -140,6 +142,8 @@ function TopBar({
           {isFetching ? 'Refreshing' : 'Refresh'}
         </button>
       )}
+      <AskBiaTopButton />
+      </div>
     </div>
   );
 }

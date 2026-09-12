@@ -1,7 +1,7 @@
 import { explainError, isErrorCode } from '@shared/errorCatalog';
 import type { BiaScreen } from '@shared/biaScreen';
 import { parseApiErrorCode, parseApiErrorMessage } from './apiError';
-import { openBia } from './biaStore';
+import { openBia, useBiaStore } from './biaStore';
 
 /**
  * Turning "something went wrong" into a question for BIA.
@@ -24,6 +24,22 @@ export function screenForPath(path: string): BiaScreen {
   if (path.startsWith('/guest-profile')) return { surface: 'guest_profile' };
   if (path === '/track' || path === '/receive' || path.startsWith('/shipment/')) return { surface: 'track' };
   return { surface: 'home' };
+}
+
+/**
+ * Open BIA about the screen at this path: the floating button on Home and the
+ * top-bar button everywhere else. The page's own account of itself, when it
+ * gives one, knows more than its path (the signup step and account, the
+ * booking step). On an order page it asks about that order straight away.
+ */
+export function openBiaHere(path: string): void {
+  const pageScreen = useBiaStore.getState().pageScreen;
+  const fromPath = screenForPath(path);
+  const screen = pageScreen && pageScreen.surface === fromPath.surface ? pageScreen : fromPath;
+  openBia({
+    screen,
+    seed: screen.orderNo ? `What's the latest on my order ${screen.orderNo}?` : undefined,
+  });
 }
 
 /**

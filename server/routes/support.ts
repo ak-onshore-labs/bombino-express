@@ -26,6 +26,7 @@ import { refreshItdTokenIfNeeded } from "../itdTokenRefresh.js";
 import { ensureDbUser } from "../routeGuards.js";
 import { parseBiaScreen, type BiaScreen } from "../../shared/biaScreen.js";
 import { handleChat } from "../supportAgent.js";
+import { enabledBiaModules, toolsForTurn } from "../supportTools.js";
 import { maskSensitive } from "../supportPrivacy.js";
 import { rateTurn, recordTurn, type RatingOwner } from "../supportTelemetry.js";
 import { suggestionsFor } from "../supportOrders.js";
@@ -255,14 +256,20 @@ export function registerSupportRoutes(app: Express): void {
     }
   );
 
-  // GET /api/support/suggestions — starter chips for an empty chat, led by the
-  // caller's own live orders. Anyone may call it; an anonymous caller gets the
-  // generic set.
+  // GET /api/support/suggestions?surface=&step=&orderNo= — the chips for the
+  // screen BIA was opened on, led on Home, Help and Orders by the caller's own
+  // live orders. Anyone may call it. The screen goes through parseBiaScreen, so
+  // only known surfaces, steps and order-number shapes survive.
   app.get(
     "/api/support/suggestions",
     ensureDbUser,
     async (req: Request, res: Response) => {
-      const chips = await suggestionsFor(supportContextFor(req, null));
+      const q = req.query as Record<string, unknown>;
+      const screen = parseBiaScreen({ surface: q.surface, step: q.step, orderNo: q.orderNo });
+      const context = supportContextFor(req, null, screen);
+      const { modules } = toolsForTurn(screen, enabledBiaModules(), true);
+      const chips = await suggestionsFor(context, modules);
+      res.set("Cache-Control", "no-store");
       res.json({ chips });
     }
   );

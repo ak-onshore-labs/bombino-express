@@ -88,6 +88,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
+import { AskBiaTopButton } from '@/components/bia/AskBiaTopButton';
 
 interface FreeFormLineItem {
   total: string;
@@ -1244,6 +1245,7 @@ export default function CreateShipment() {
               <ArrowLeft className="w-5 h-5" />
             </button>
             <h1 className="ml-2 font-semibold text-sm">Ship</h1>
+            <AskBiaTopButton className="ml-auto -mr-2" />
           </div>
         </header>
 

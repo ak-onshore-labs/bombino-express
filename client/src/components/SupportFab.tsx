@@ -3,8 +3,8 @@ import { createPortal } from "react-dom";
 import { useLocation } from "wouter";
 import { Sparkles } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { screenForPath } from "@/lib/askBia";
-import { openBia, useBiaStore } from "@/lib/biaStore";
+import { openBiaHere } from "@/lib/askBia";
+import { useBiaStore } from "@/lib/biaStore";
 
 const FAB_SIZE = 64;
 /** BottomNav tap row (matches `h-16` / 4rem). */
@@ -138,15 +138,7 @@ export function SupportFab() {
         hasDraggedThisGestureRef.current = false;
         return;
       }
-      // The page's own account of itself, when it gives one, knows more than
-      // its path: the signup step and account, the booking step.
-      const pageScreen = useBiaStore.getState().pageScreen;
-      const fromPath = screenForPath(location);
-      const screen = pageScreen && pageScreen.surface === fromPath.surface ? pageScreen : fromPath;
-      openBia({
-        screen,
-        seed: screen.orderNo ? `What's the latest on my order ${screen.orderNo}?` : undefined,
-      });
+      openBiaHere(location);
     },
     [location]
   );
@@ -195,7 +187,9 @@ export function SupportFab() {
         touchAction: "none",
       };
 
-  if (!isMobile || biaOpen) return null;
+  // Home only. Everywhere else BIA sits in the screen's top bar
+  // (AskBiaTopButton): floating, it covered the screen's own buttons.
+  if (!isMobile || biaOpen || location !== "/home") return null;
 
   const fabContent = (
     <div

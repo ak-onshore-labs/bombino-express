@@ -1,5 +1,6 @@
 import { Menu, Bell } from 'lucide-react';
-import { Link } from 'wouter';
+import { Link, useLocation } from 'wouter';
+import { AskBiaTopButton } from '@/components/bia/AskBiaTopButton';
 import { useAppStore } from '@/lib/store';
 import { TopBar } from '@/components/TopBar';
 import { GuestProfileBanner } from '@/components/GuestProfileBanner';
@@ -23,6 +24,9 @@ export function Header({ onMenuClick }: HeaderProps) {
   // not clear when the customer read something and did not appear when
   // something arrived.
   const unreadCount = useUnreadNotificationCount(hasBell);
+  // Home keeps BIA's floating button; every other screen has it up here.
+  const [location] = useLocation();
+  const onHome = location === '/home';
 
   return (
     <TopBar
@@ -50,9 +54,11 @@ export function Header({ onMenuClick }: HeaderProps) {
         </button>
       }
       right={
+        <div className="flex items-center gap-1 -mr-2">
+        {!onHome && <AskBiaTopButton />}
         <Link
           href="/notifications"
-          className="relative p-2 -mr-2 rounded-xl hover:bg-muted active:scale-95 transition-all"
+          className="relative p-2 rounded-xl hover:bg-muted active:scale-95 transition-all"
           data-testid="button-notifications"
         >
           <Bell className="w-5 h-5 text-foreground" />
@@ -62,6 +68,7 @@ export function Header({ onMenuClick }: HeaderProps) {
             </span>
           )}
         </Link>
+        </div>
       }
     />
   );

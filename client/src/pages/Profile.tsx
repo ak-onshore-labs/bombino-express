@@ -54,6 +54,7 @@ import {
 } from '@/hooks/useVerificationState';
 import { useQueryClient } from '@tanstack/react-query';
 import type { CompanyCategory, DocSlot } from '@shared/accountSpec';
+import { AskBiaTopButton } from '@/components/bia/AskBiaTopButton';
 
 function formatMemberSince(iso: string | undefined | null): string | null {
   if (!iso) return null;
@@ -126,6 +127,7 @@ export default function Profile() {
               <ArrowLeft className="w-5 h-5" />
             </button>
             <h1 className="ml-2 font-semibold text-sm">Profile</h1>
+            <AskBiaTopButton className="ml-auto -mr-2" />
           </div>
         </header>
 
@@ -302,6 +304,7 @@ export default function Profile() {
             <ArrowLeft className="w-5 h-5" />
           </button>
           <h1 className="ml-2 font-semibold text-sm">My Profile</h1>
+          <AskBiaTopButton className="ml-auto -mr-2" />
         </div>
       </header>
 

@@ -1,4 +1,5 @@
 import { lazy, Suspense, useState } from 'react';
+import { AskBiaTopButton } from '@/components/bia/AskBiaTopButton';
 import { useRoute, useLocation } from 'wouter';
 import {
   ArrowLeft,
@@ -173,12 +174,13 @@ function TopBar({
         <ArrowLeft className="w-4 h-4" />
         Back
       </button>
+      <div className="-mr-2 flex items-center gap-1">
       {onRefresh && (
         <button
           type="button"
           onClick={onRefresh}
           disabled={isFetching}
-          className="-mr-2 inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1.5 rounded-lg disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1.5 rounded-lg disabled:opacity-50"
           aria-label="Refresh tracking"
           data-testid="button-refresh-tracking"
         >
@@ -186,6 +188,8 @@ function TopBar({
           {isFetching ? 'Refreshing' : 'Refresh'}
         </button>
       )}
+      <AskBiaTopButton />
+      </div>
     </div>
   );
 }
