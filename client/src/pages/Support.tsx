@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import type { BiaScreen } from "@shared/biaScreen";
 import { BiaChat } from "@/components/bia/BiaChat";
+import { navigateInApp } from "@/lib/biaNavigate";
 
 /**
  * /help — BIA as a full page. The chat itself is BiaChat, which the BIA sheet
@@ -30,7 +31,7 @@ export default function Support(): React.JSX.Element {
       seedKey={1}
       onSeedSent={() => setLocation("/help", { replace: true })}
       onClose={() => setLocation("/home")}
-      onNavigate={setLocation}
+      onNavigate={(to) => navigateInApp(setLocation, to)}
     />
   );
 }

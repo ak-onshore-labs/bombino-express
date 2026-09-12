@@ -16,6 +16,7 @@ import {
   ThumbsUp,
   ThumbsDown,
   UserPlus,
+  FileText,
 } from "lucide-react";
 import { accountChoiceLabel, isAccountChoice, signupPathFor, type AccountChoice } from "@shared/accountMatch";
 import { BiaBackground } from "@/components/ui/bia-background";
@@ -840,6 +841,32 @@ function CtaButtons({
                     Open a {accountChoiceLabel(c.choice as AccountChoice)} account
                   </button>
                 ) : null;
+              case "resume_signup":
+                return isAccountChoice(c.choice) || c.choice === "company" ? (
+                  <button
+                    key={`resume-${c.choice}`}
+                    type="button"
+                    className={PILL}
+                    onClick={() => onNavigate(signupPathFor(c.choice as AccountChoice | "company"))}
+                    data-testid="button-bia-resume-signup"
+                  >
+                    <UserPlus className="w-3.5 h-3.5" aria-hidden />
+                    Continue signup
+                  </button>
+                ) : null;
+              case "account_documents":
+                return (
+                  <button
+                    key="account-documents"
+                    type="button"
+                    className={PILL}
+                    onClick={() => onNavigate("/profile#documents")}
+                    data-testid="button-bia-account-documents"
+                  >
+                    <FileText className="w-3.5 h-3.5" aria-hidden />
+                    My documents
+                  </button>
+                );
               default:
                 return null;
             }

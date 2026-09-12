@@ -27,6 +27,13 @@ test("tokensIn finds every token in order", () => {
   ]);
 });
 
+test("a token written with a space after its colon leaves nothing stray behind", async () => {
+  const reply = await finalizeReply("You're nearly done.\nTAP_VIEW_ORDER: BOM-100231\nTAP_CONTACT_US", anon);
+  assert.equal(reply, "You're nearly done.\n\nTAP_CONTACT_US");
+  // A colon inside a sentence is left alone.
+  assert.equal(await finalizeReply("Two things: a bill, and a letter.", anon), "Two things: a bill, and a letter.");
+});
+
 test("an order the tool proved the caller owns keeps its button, moved to the end", async () => {
   const reply = await finalizeReply("See TAP_VIEW_ORDER:BOM-100231 for details.", account(["BOM-100231"]));
   assert.equal(reply, "See  for details.\n\nTAP_VIEW_ORDER:BOM-100231");

@@ -106,12 +106,14 @@ export const MODULE_PROMPTS: Record<BiaModuleOrGeneral, ModulePrompt> = {
     tools: [
       '- recommend_account: "which account do I need", "do I need an account", or someone describing what they ship. Call it before naming any account type; never pick one yourself. Pass what they said: selling online, being a courier or a company means for_business is true. Only if you can\'t tell whether it\'s for a business, ask that one question.',
       "- explain_term: what GSTIN, IEC, LUT, AD code, IEC branch code, an authorization letter or PAN means.",
+      '- get_signup_progress: someone not signed in asking where their signup stands, "what\'s left", "did my documents go through". Call it straight away; never ask them to list what they uploaded.',
       "- Account or guest in general: get_shipment_guidance (topic: account).",
     ],
   },
   documents: {
     tools: [
-      "- Documents and identity checks: if the SCREEN block names an error, explain that. For what is on file, use get_my_kyc_status; for what is needed and why, get_shipment_guidance (topics: kyc, documents).",
+      "- Documents and identity checks: if the SCREEN block names an error, explain that.",
+      "- get_document_status: a signed-in account asking about its documents, what's missing or what needs replacing. For a guest's one identity document, get_my_kyc_status. For what is needed and why, get_shipment_guidance (topics: kyc, documents).",
     ],
   },
   booking: {
@@ -124,8 +126,11 @@ export const MODULE_PROMPTS: Record<BiaModuleOrGeneral, ModulePrompt> = {
 /** The order modules' parts appear in the prompt: orders, then general, then the rest. */
 const PROMPT_ORDER: readonly BiaModuleOrGeneral[] = ["orders", "general", "onboarding", "documents", "booking"];
 
-/** Who is asking, from the session alone. */
-function currentUserBlock(context: SupportChatContext): string {
+/**
+ * Who is asking, from the session alone. `canLookUpSignup` is whether the
+ * onboarding module (and so get_signup_progress) is on for this turn.
+ */
+function currentUserBlock(context: SupportChatContext, canLookUpSignup = false): string {
   const firstName = context.user?.fullName?.trim().split(/\s+/)[0] ?? "";
   const owner = ownerOf(context);
   if (owner?.kind === "account") {
@@ -136,8 +141,12 @@ Signed in${firstName ? `. First name: ${firstName}` : ""}. You can look up their
     return `CURRENT USER
 Booked as a guest and verified their phone${context.guestPhone ? ` ending ${context.guestPhone.slice(-4)}` : ""}. You can look up their guest orders and identity document. Do not ask them to log in for order questions. They have no order page: point them to My shipments.`;
   }
+  const signup =
+    canLookUpSignup && (context.signupRef || context.screen?.surface === "signup")
+      ? " They may be partway through opening an account: their signup's numbers and documents need no sign-in, so call get_signup_progress for those."
+      : "";
   return `CURRENT USER
-Not signed in. For their own orders, ask them to sign in, or, if they booked as a guest, to verify their phone on the Ship screen. Tracking an AWB, rates, pickup checks and how-to questions work without signing in.`;
+Not signed in. For their own orders, ask them to sign in, or, if they booked as a guest, to verify their phone on the Ship screen. Tracking an AWB, rates, pickup checks and how-to questions work without signing in.${signup}`;
 }
 
 /**
@@ -178,6 +187,6 @@ export function buildSystemPrompt(context: SupportChatContext, modules: readonly
     ...sections,
     LANGUAGE,
     ["STYLE", ...style].join("\n"),
-    currentUserBlock(context),
+    currentUserBlock(context, modules.includes("onboarding")),
   ].join("\n\n") + screenBlock(context.screen);
 }

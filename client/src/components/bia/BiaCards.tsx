@@ -1,5 +1,5 @@
 import { ChevronRight, FileText, MapPin, Package, Radar, Truck } from 'lucide-react';
-import type { BiaCard, BiaCardTone, ChecklistCard, OrderCard, PickupCard, RateCard } from '@shared/biaCards';
+import type { BiaCard, BiaCardTone, ChecklistCard, DocStatusCard, OrderCard, PickupCard, RateCard } from '@shared/biaCards';
 import { cn } from '@/lib/utils';
 
 /**
@@ -41,6 +41,8 @@ export function BiaCards({
             return <RateCardView key={`r-${card.destination}-${card.weightKg}`} card={card} />;
           case 'checklist':
             return <ChecklistCardView key={`c-${card.choice}`} card={card} />;
+          case 'docStatus':
+            return <DocStatusCardView key={`d-${card.scope}`} card={card} />;
           default:
             return null;
         }
@@ -150,6 +152,44 @@ function ChecklistCardView({ card }: { card: ChecklistCard }): React.JSX.Element
           And these details: <span className="text-white/80">{card.fields.join(', ')}</span>
         </p>
       )}
+    </div>
+  );
+}
+
+const DOC_STATE: Record<DocStatusCard['items'][number]['state'], { label: string; tone: BiaCardTone }> = {
+  on_file: { label: 'On file', tone: 'green' },
+  attention: { label: 'Needs attention', tone: 'orange' },
+  missing: { label: 'To upload', tone: 'gray' },
+};
+
+function DocStatusCardView({ card }: { card: DocStatusCard }): React.JSX.Element {
+  return (
+    <div className={cn(CARD, 'flex flex-col gap-1.5')} data-testid={`bia-card-docstatus-${card.scope}`}>
+      <div className="flex items-center gap-2">
+        <FileText className="h-4 w-4 shrink-0 text-[#FBAD1F]" aria-hidden />
+        <span className="flex-1 text-sm font-semibold text-white">{card.title}</span>
+        {card.total !== null && (
+          <span className="shrink-0 text-xs font-semibold text-white/80 tabular-nums">
+            {card.done} of {card.total}
+          </span>
+        )}
+      </div>
+      <ul className="flex flex-col">
+        {card.items.map((item) => (
+          <li
+            key={item.label}
+            className="flex items-start justify-between gap-3 border-t border-white/[0.07] py-1 first:border-t-0"
+          >
+            <span className="min-w-0">
+              <span className="block text-xs text-white/90">{item.label}</span>
+              {item.note && <span className="block text-[11px] text-white/50">{item.note}</span>}
+            </span>
+            <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-medium', TONE_CLASS[DOC_STATE[item.state].tone])}>
+              {DOC_STATE[item.state].label}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

@@ -12,6 +12,7 @@
  */
 
 import type OpenAI from "openai";
+import { DOCUMENT_TOOLS } from "./supportDocuments.js";
 import { GENERAL_TOOLS } from "./supportGeneral.js";
 import { ONBOARDING_TOOLS } from "./supportOnboarding.js";
 import { ORDER_TOOLS } from "./supportOrders.js";
@@ -19,7 +20,7 @@ import type { BiaTool, SupportChatContext, ToolOutcome } from "./supportTypes.js
 import { modulesForScreen, parseBiaModules, type BiaModule } from "../shared/biaModules.js";
 import type { BiaScreen } from "../shared/biaScreen.js";
 
-export const ALL_TOOLS: readonly BiaTool[] = [...GENERAL_TOOLS, ...ORDER_TOOLS, ...ONBOARDING_TOOLS];
+export const ALL_TOOLS: readonly BiaTool[] = [...GENERAL_TOOLS, ...ORDER_TOOLS, ...ONBOARDING_TOOLS, ...DOCUMENT_TOOLS];
 
 const FALLBACK_DISPATCHER =
   "Something went wrong. Please try again or contact support from the app menu.";

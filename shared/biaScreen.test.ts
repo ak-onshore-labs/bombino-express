@@ -41,6 +41,20 @@ test("only catalogued error codes survive", () => {
   assert.equal(parseBiaScreen({ surface: "create", errorCode: "KYC_REQUIRED" })?.errorCode, "KYC_REQUIRED");
 });
 
+test("signup can say which account is being opened; nothing else can", () => {
+  assert.deepEqual(parseBiaScreen({ surface: "signup", step: "documents", account: "ecommerce" }), {
+    surface: "signup",
+    step: "documents",
+    account: "ecommerce",
+  });
+  assert.deepEqual(parseBiaScreen({ surface: "signup", account: "superuser" }), { surface: "signup" });
+  assert.deepEqual(parseBiaScreen({ surface: "create", account: "ecommerce" }), { surface: "create" });
+  assert.equal(
+    describeBiaScreen({ surface: "signup", step: "documents", account: "co_courier" }),
+    "account signup (Co-Courier account), on the uploading documents step"
+  );
+});
+
 test("the description reads as English", () => {
   assert.equal(
     describeBiaScreen({ surface: "create", step: "package" }),

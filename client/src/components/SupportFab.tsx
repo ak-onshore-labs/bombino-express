@@ -138,7 +138,11 @@ export function SupportFab() {
         hasDraggedThisGestureRef.current = false;
         return;
       }
-      const screen = screenForPath(location);
+      // The page's own account of itself, when it gives one, knows more than
+      // its path: the signup step and account, the booking step.
+      const pageScreen = useBiaStore.getState().pageScreen;
+      const fromPath = screenForPath(location);
+      const screen = pageScreen && pageScreen.surface === fromPath.surface ? pageScreen : fromPath;
       openBia({
         screen,
         seed: screen.orderNo ? `What's the latest on my order ${screen.orderNo}?` : undefined,

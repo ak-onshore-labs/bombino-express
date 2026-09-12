@@ -211,7 +211,11 @@ export function AccountDocuments({
       ? { surface: 'documents' }
       : location.startsWith('/guest-profile')
         ? { surface: 'guest_profile' }
-        : { surface: 'signup', step: 'documents' };
+        : {
+            surface: 'signup',
+            step: 'documents',
+            ...(accountType === 'personal' ? { account: 'personal' } : category ? { account: category } : {}),
+          };
   const fileInputs = useRef<Record<string, HTMLInputElement | null>>({});
   /** A file chosen before its number was valid; uploaded as soon as it is. */
   const pendingFiles = useRef<Record<string, File | null>>({});

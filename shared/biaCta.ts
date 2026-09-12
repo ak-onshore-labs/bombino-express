@@ -59,6 +59,12 @@ function canonicalAccountChoice(raw: string): string | null {
   return ACCOUNT_CHOICE_RE.test(s) ? s : null;
 }
 
+/** A signup to go back to: an account kind, or just "company" when the category isn't known. */
+function canonicalSignupShape(raw: string): string | null {
+  const s = raw.trim().toLowerCase();
+  return s === "company" ? s : canonicalAccountChoice(s);
+}
+
 export const BIA_BUTTONS = {
   TAP_CREATE_SHIPMENT: { audience: "anyone", arg: "none" },
   TAP_CONTACT_US: { audience: "anyone", arg: "none" },
@@ -72,6 +78,10 @@ export const BIA_BUTTONS = {
   TAP_VIEW_ORDER: { audience: "account", arg: "required", canonical: canonicalOrderNo, ownsOrder: true },
   // Signup, opened on the account kind BIA recommended. Pointless once signed in.
   TAP_SIGNUP: { audience: "no_account", arg: "required", canonical: canonicalAccountChoice },
+  // Back to a signup already under way, on the account kind it was for.
+  TAP_RESUME_SIGNUP: { audience: "no_account", arg: "required", canonical: canonicalSignupShape },
+  // The account's own documents, on Profile.
+  TAP_ACCOUNT_DOCUMENTS: { audience: "account", arg: "none" },
 } as const satisfies Record<string, ButtonSpec>;
 
 export type BiaButtonName = keyof typeof BIA_BUTTONS;

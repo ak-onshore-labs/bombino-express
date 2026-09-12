@@ -3,6 +3,7 @@ import { useLocation } from 'wouter';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useBiaStore } from '@/lib/biaStore';
+import { navigateInApp } from '@/lib/biaNavigate';
 import { BiaChat } from './BiaChat';
 
 /**
@@ -46,7 +47,7 @@ export function BiaSheet(): React.JSX.Element | null {
           onClose={closeBia}
           onNavigate={(to) => {
             closeBia();
-            setLocation(to);
+            navigateInApp(setLocation, to);
           }}
         />
       </SheetContent>

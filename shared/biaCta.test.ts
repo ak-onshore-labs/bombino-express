@@ -60,3 +60,11 @@ test("signup opens on a known account kind, for anyone without an account", () =
   assert.equal(biaButtonAllowedFor("TAP_SIGNUP", "guest"), true);
   assert.equal(biaButtonAllowedFor("TAP_SIGNUP", "account"), false);
 });
+
+test("resuming signup may name just a company; account documents are for accounts", () => {
+  assert.deepEqual(parseBiaButton("TAP_RESUME_SIGNUP:company"), { name: "TAP_RESUME_SIGNUP", arg: "company" });
+  assert.deepEqual(parseBiaButton("TAP_RESUME_SIGNUP:fbb"), { name: "TAP_RESUME_SIGNUP", arg: "fbb" });
+  assert.equal(parseBiaButton("TAP_SIGNUP:company"), null, "a new signup needs the exact kind");
+  assert.equal(biaButtonAllowedFor("TAP_ACCOUNT_DOCUMENTS", "account"), true);
+  assert.equal(biaButtonAllowedFor("TAP_ACCOUNT_DOCUMENTS", "guest"), false);
+});

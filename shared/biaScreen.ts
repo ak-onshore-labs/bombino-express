@@ -9,6 +9,7 @@
  * shapes, so whatever reaches the prompt was written by us.
  */
 
+import { accountChoiceLabel, isAccountChoice, type AccountChoice } from "./accountMatch.js";
 import { isErrorCode, type ErrorCode } from "./errorCatalog.js";
 
 export const BIA_SURFACES = [
@@ -31,6 +32,8 @@ export interface BiaScreen {
   step?: string;
   orderNo?: string;
   errorCode?: ErrorCode;
+  /** Signup only: the account being opened, once chosen (shared/accountMatch.ts). */
+  account?: AccountChoice;
 }
 
 /** Steps a surface may report; any other step is dropped. */
@@ -90,11 +93,13 @@ export function parseBiaScreen(raw: unknown): BiaScreen | null {
     if (/^BOM-\d{6,9}$/.test(orderNo)) screen.orderNo = orderNo;
   }
   if (isErrorCode(r.errorCode)) screen.errorCode = r.errorCode;
+  if (r.surface === "signup" && isAccountChoice(r.account)) screen.account = r.account;
   return screen;
 }
 
-/** "the booking form (Create Shipment), on the package step" */
+/** "account signup (E-commerce account), on the uploading documents step" */
 export function describeBiaScreen(screen: BiaScreen): string {
-  const where = BIA_SURFACE_LABELS[screen.surface];
+  const base = BIA_SURFACE_LABELS[screen.surface];
+  const where = screen.account ? `${base} (${accountChoiceLabel(screen.account)} account)` : base;
   return screen.step ? `${where}, on the ${STEP_LABELS[screen.step] ?? screen.step} step` : where;
 }

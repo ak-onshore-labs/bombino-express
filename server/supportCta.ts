@@ -54,6 +54,9 @@ export async function finalizeReply(message: string, ctx: CtaContext): Promise<s
     // The tool output labels its button block; the model sometimes echoes it.
     .split("\n")
     .filter((line) => !/^\s*buttons\b[^a-z]*$/i.test(line) && !/^\s*buttons \(copy/i.test(line))
+    // A token written with a space after its colon ("TAP_VIEW_ORDER: BOM-…")
+    // leaves ": BOM-…" behind once the token is gone.
+    .filter((line) => !/^\s*[-•]?\s*:\s*\S*\s*$/.test(line))
     .join("\n")
     // The chat renders plain text, and the prompt's "no markdown" is not always
     // obeyed: stray bold markers and heading hashes would show up literally.

@@ -92,7 +92,12 @@ export function accountChecklist(choice: AccountChoice): AccountChecklist {
   };
 }
 
-/** Where signup starts for this choice, already on the right form. */
-export function signupPathFor(choice: AccountChoice): string {
-  return choice === "personal" ? "/signup?type=personal" : `/signup?type=company&category=${choice}`;
+/**
+ * Where signup starts for this choice, already on the right form. "company"
+ * alone opens the company form on its default category.
+ */
+export function signupPathFor(choice: AccountChoice | "company"): string {
+  if (choice === "personal") return "/signup?type=personal";
+  if (choice === "company") return "/signup?type=company";
+  return `/signup?type=company&category=${choice}`;
 }

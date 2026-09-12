@@ -7,8 +7,8 @@
  * the customer may see: customer status labels (never weighed / settled /
  * ready_for_docket), no ids, no codes.
  *
- * More kinds arrive with later packages: docStatus (2.2), docUpload (2.5),
- * hsn (3.2), draft (3.3), case (4.1). Add the kind here, in biaCardKey and
+ * More kinds arrive with later packages: docUpload (2.5), hsn (3.2),
+ * draft (3.3), case (4.1). Add the kind here, in biaCardKey and
  * isBiaCard, and its renderer in client/src/components/bia/BiaCards.tsx
  * together.
  */
@@ -71,7 +71,23 @@ export interface ChecklistCard {
   fields: string[];
 }
 
-export type BiaCard = OrderCard | PickupCard | RateCard | ChecklistCard;
+/**
+ * Where a signup's, or an account's, documents stand (server/supportDocuments.ts).
+ * `state` never says "verified" or "bypassed": a document is on file, needs
+ * attention, or is still to upload.
+ */
+export interface DocStatusCard {
+  kind: "docStatus";
+  /** "signup" while an account is being opened; "account" once it exists. */
+  scope: "signup" | "account";
+  title: string;
+  /** Required documents on file, of how many; null when the list isn't known yet. */
+  done: number;
+  total: number | null;
+  items: { label: string; state: "on_file" | "attention" | "missing"; note: string | null }[];
+}
+
+export type BiaCard = OrderCard | PickupCard | RateCard | ChecklistCard | DocStatusCard;
 
 /** At most this many cards under one reply. */
 export const MAX_BIA_CARDS = 5;
@@ -87,6 +103,8 @@ export function biaCardKey(card: BiaCard): string {
       return `rate:${card.destination}:${card.weightKg}`;
     case "checklist":
       return `checklist:${card.choice}`;
+    case "docStatus":
+      return `docStatus:${card.scope}`;
   }
 }
 
@@ -131,6 +149,8 @@ const TONES: readonly string[] = ["gray", "blue", "amber", "green", "red", "oran
 
 /** The account choices a checklist can be for (shared/accountMatch.ts). */
 const CHOICES: readonly string[] = ["personal", "corporate", "co_courier", "ecommerce", "fbb"];
+
+const DOC_STATES: readonly string[] = ["on_file", "attention", "missing"];
 
 const isStr = (v: unknown): v is string => typeof v === "string";
 const isStrOrNull = (v: unknown): v is string | null => v === null || typeof v === "string";
@@ -188,6 +208,19 @@ export function isBiaCard(value: unknown): value is BiaCard {
         ) &&
         Array.isArray(c.fields) &&
         c.fields.every(isStr)
+      );
+    case "docStatus":
+      return (
+        (c.scope === "signup" || c.scope === "account") &&
+        isStr(c.title) &&
+        typeof c.done === "number" &&
+        (c.total === null || typeof c.total === "number") &&
+        Array.isArray(c.items) &&
+        c.items.every((item) => {
+          if (!item || typeof item !== "object") return false;
+          const i = item as Record<string, unknown>;
+          return isStr(i.label) && DOC_STATES.includes(i.state as string) && isStrOrNull(i.note);
+        })
       );
     default:
       return false;

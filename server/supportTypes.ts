@@ -68,6 +68,13 @@ export interface SupportChatContext {
   guestRef: string | null;
   guestPhone: string | null;
   /**
+   * The signup this browser has under way, for the number it last verified
+   * (`req.session.signupRef` while `signupPhone` is set). Null once signed in,
+   * or before signup has recorded anything. Its rows are read by
+   * get_signup_progress and by nothing else in BIA.
+   */
+  signupRef?: string | null;
+  /**
    * Where the customer opened BIA from, already reduced by parseBiaScreen to
    * known values. A hint, never proof: an order number here is still looked
    * up with ownership checked. Null when the client sent none.

@@ -1,0 +1,87 @@
+[
+  {
+    "id": "docs-01-half-finished-ecommerce-signup",
+    "module": "onboarding",
+    "requires": ["onboarding"],
+    "identity": "anon",
+    "screen": { "surface": "signup", "step": "documents", "account": "ecommerce" },
+    "signup": {
+      "numbers": [
+        { "kind": "pan", "document_no": "ABCPE1234K" },
+        { "kind": "gstin", "document_no": "27ABCPE1234K1Z5" }
+      ],
+      "documents": [
+        { "doc_slot": "pan_card", "ocr_status": "match" },
+        { "doc_slot": "gst_certificate", "ocr_status": "unreadable" },
+        { "doc_slot": "iec_certificate", "ocr_status": "skipped" }
+      ]
+    },
+    "turns": ["What's left before my account can open?"],
+    "expect": {
+      "tools": ["get_signup_progress"],
+      "cards": ["docStatus"],
+      "contains": ["re:3 (out )?of (the )?4|three (out )?of (the )?four", "re:authori[sz]ation letter", "re:GST certificate"],
+      "notContains": ["re:bypass"]
+    }
+  },
+  {
+    "id": "docs-02-bypassed-reads-as-on-file",
+    "module": "onboarding",
+    "requires": ["onboarding"],
+    "identity": "anon",
+    "screen": { "surface": "help" },
+    "signup": {
+      "numbers": [
+        { "kind": "aadhaar", "document_no": "234123412346" },
+        { "kind": "pan", "document_no": "ABCPE1234K" }
+      ],
+      "documents": [{ "doc_slot": "aadhaar_card", "ocr_status": "bypassed" }]
+    },
+    "turns": ["Did the documents for my signup go through?"],
+    "expect": {
+      "tools": ["get_signup_progress"],
+      "cards": ["docStatus"],
+      "contains": ["re:PAN"],
+      "notContains": ["re:bypass|skipped|not (been )?verified|unverified|couldn.t be (checked|verified)"],
+      "buttons": ["TAP_RESUME_SIGNUP:personal"]
+    }
+  },
+  {
+    "id": "docs-03-account-document-status",
+    "module": "documents",
+    "requires": ["documents"],
+    "identity": "account",
+    "screen": { "surface": "documents" },
+    "turns": ["Are all my account documents in?"],
+    "expect": {
+      "tools": ["get_document_status"],
+      "cards": ["docStatus"],
+      "toolsNot": ["get_signup_progress"]
+    }
+  },
+  {
+    "id": "docs-04-guest-has-one-document",
+    "module": "documents",
+    "requires": ["documents"],
+    "identity": "guest",
+    "screen": { "surface": "help" },
+    "turns": ["Is my ID document on file?"],
+    "expect": {
+      "toolsAny": ["get_my_kyc_status"],
+      "notContains": ["re:bypass|unverified"]
+    }
+  },
+  {
+    "id": "docs-05-no-signup-yet",
+    "module": "onboarding",
+    "requires": ["onboarding"],
+    "identity": "anon",
+    "screen": { "surface": "signup", "step": "details", "account": "personal" },
+    "turns": ["Which documents have I uploaded so far?"],
+    "expect": {
+      "tools": ["get_signup_progress"],
+      "contains": ["re:nothing|haven.t|not yet|no (documents|numbers)|none"],
+      "noCards": true
+    }
+  }
+]

@@ -57,6 +57,9 @@ export function registerSupportRoutes(app: Express): void {
       sessionId,
       guestRef: isLoggedIn ? null : (req.session.guestRef ?? null),
       guestPhone: isLoggedIn ? null : (req.session.guestPhone ?? null),
+      // Only a signup bound to the number this session verified; the same
+      // rule as signupRefForReading in routes.ts.
+      signupRef: !isLoggedIn && req.session.signupPhone ? (req.session.signupRef ?? null) : null,
       screen,
     };
   }

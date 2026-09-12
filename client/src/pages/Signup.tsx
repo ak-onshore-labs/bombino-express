@@ -20,6 +20,8 @@ import { useGuestProfile } from '@/hooks/useGuestProfile';
 import { apiRequest } from '@/lib/queryClient';
 import { parseApiErrorCode, parseApiErrorMessage } from '@/lib/apiError';
 import { AskBiaLink } from '@/components/bia/AskBiaLink';
+import { usePublishBiaScreen } from '@/lib/biaStore';
+import type { BiaScreen } from '@shared/biaScreen';
 import { usePincodeLookup } from '@/hooks/usePincodeLookup';
 import { validateGstin } from '@shared/gstin';
 import { INDIA_HUBS } from '@shared/hubs';
@@ -226,6 +228,15 @@ export default function Signup() {
 
   const categorySpec = COMPANY_CATEGORY_SPECS[category];
   const activeExtras = accountType === 'company' ? requiredExtraFields(category) : [];
+
+  // Where BIA should think they are: the step, and — once chosen — the
+  // account being opened, so "what's left?" is answered for the right list.
+  const biaScreen: Omit<BiaScreen, 'errorCode'> = {
+    surface: 'signup',
+    step,
+    ...(step !== 'account_type' ? { account: accountType === 'personal' ? 'personal' : category } : {}),
+  };
+  usePublishBiaScreen(biaScreen);
   /** The name this account is for: the individual's on a personal account,
    *  the company's on a corporate one. Only the GSTIN check reads it — the
    *  server refuses to open a company account under a name the GSTIN was not
@@ -1017,7 +1028,7 @@ export default function Signup() {
                 {errors.otp && (
                   <div className="mt-2 flex flex-col items-start gap-1">
                     <p role="alert" className="text-sm text-red-500">{errors.otp}</p>
-                    <AskBiaLink screen={{ surface: 'signup', step }} code={codeFor(errors.otp)} message={errors.otp} />
+                    <AskBiaLink screen={biaScreen} code={codeFor(errors.otp)} message={errors.otp} />
                   </div>
                 )}
                 <button
@@ -1114,7 +1125,7 @@ export default function Signup() {
             {errors.form && (
               <div className="flex flex-col items-start gap-1">
                 <p role="alert" className="text-sm text-red-500">{errors.form}</p>
-                <AskBiaLink screen={{ surface: 'signup', step }} code={codeFor(errors.form)} message={errors.form} />
+                <AskBiaLink screen={biaScreen} code={codeFor(errors.form)} message={errors.form} />
               </div>
             )}
 

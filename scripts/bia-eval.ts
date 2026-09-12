@@ -43,6 +43,11 @@ import type { BiaCard } from "../shared/biaCards.js";
 import { parseBiaScreen } from "../shared/biaScreen.js";
 import { buildSystemPrompt } from "../server/supportPrompts.js";
 import { enabledBiaModules, toolsForTurn } from "../server/supportTools.js";
+import { replaceSignupLoader, type SignupRecords } from "../server/supportDocuments.js";
+
+/** Staged signups by ref; each case that has one gets its own ref. */
+const stagedSignups = new Map<string, SignupRecords>();
+replaceSignupLoader(async (ref) => stagedSignups.get(ref) ?? { numbers: [], documents: [] });
 
 // ─── Case format ─────────────────────────────────────────────────────────────
 
@@ -69,6 +74,12 @@ interface EvalCase {
    * module's tools are withheld on purpose.
    */
   requires?: string[];
+  /**
+   * A signup under way in this browser, for the signup tools to find. Staged
+   * in memory (server/supportDocuments.ts §replaceSignupLoader), never in the
+   * shared database. Its numbers are held to the last-four rule like any other.
+   */
+  signup?: SignupRecords;
   /** User messages, sent in order. Expectations apply to the last reply. */
   turns: string[];
   expect: {
@@ -261,6 +272,11 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 async function runCase(c: EvalCase, who: ResolvedIdentity): Promise<Turn> {
   const history: ChatMessage[] = [];
   const context: SupportChatContext = { ...who.context, screen: parseBiaScreen(c.screen) };
+  if (c.signup && !context.dbUserId) {
+    const ref = `eval-signup-${c.id}`;
+    stagedSignups.set(ref, c.signup);
+    context.signupRef = ref;
+  }
   let last: Turn = { reply: "", tools: [], suggestions: [], cards: [] };
   for (const text of c.turns) {
     history.push({ role: "user", content: text });
@@ -346,7 +362,8 @@ async function main(): Promise<void> {
       let fails: string[];
       try {
         last = await runCase(c, identities[c.identity]);
-        fails = check(c, last, identities[c.identity].secrets);
+        const staged = (c.signup?.numbers ?? []).flatMap((n) => idNumberWindows(n.document_no));
+        fails = check(c, last, [...identities[c.identity].secrets, ...staged]);
       } catch (err) {
         last = { reply: "", tools: [], suggestions: [], cards: [] };
         fails = [`threw: ${(err as Error).message}`];
