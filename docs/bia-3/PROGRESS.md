@@ -37,13 +37,13 @@ The single place to see where the BIA 3.0 build stands.
 | [3.3](#33-drafts-and-say-it-to-ship) | Drafts and "say it to ship" | R3 | — | L · 2 d | 3.1 | ⏭ | — | skipped 2026-09-12 |
 | [3.4](#34-restricted-items-waits-on-content) | Restricted items (waits on content) | R3 | W6 | S · ½ d | 1.5 | ✅ | `bia-3/wp3-4` → merged locally (de6d190); lists wait on Bombino | 2026-09-12 |
 | [4.1](#41-support-cases) | Support cases | R4 | W6 | M · 1 d | 1.3, 1.7 | ✅ | `bia-3/wp4-1` → merged locally (8010748); **migration not run**, `handoff` off | 2026-09-12 |
-| [4.2](#42-ops-cases-tab) | Ops Cases tab | R4 | W7 | L · 1.5 d | 4.1 | ⬜ | `bia-3/wp4-2` | |
+| [4.2](#42-ops-cases-tab) | Ops Cases tab | R4 | W7 | L · 1.5 d | 4.1 | ✅ | `bia-3/wp4-2` → merged locally (9cbd194); needs 4.1's migration | 2026-09-12 |
 | [4.3](#43-customer-side-of-cases-order-page-links) | Customer side of cases, order-page links | R4 | W8 | M · 1 d | 4.1 | ⬜ | `bia-3/wp4-3` | |
 | [5.1](#51-nudges) | Nudges | R5 | W8 | L · 1.5 d | 1.4, 2.2 | ⬜ | `bia-3/wp5-1` | |
 | [5.2](#52-voice-notes) | Voice notes | R5 | — | M · 1 d | 1.4, 1.6 | ⏭ | — | skipped 2026-09-12 |
 | [5.3](#53-hindi) | Hindi | R5 | — | S · ½ d | 1.5 | ⏭ | — | skipped 2026-09-12 |
 
-**20 packages (4 more skipped) · 19 dev-days · 9 waves.** 17 merged, 3 to go.
+**20 packages (4 more skipped) · 19 dev-days · 9 waves.** 18 merged, 2 to go.
 
 ## Waves
 
@@ -458,21 +458,21 @@ Notes: **Dark behind a new module, `handoff`:** `escalate_support` is a general 
 
 #### 4.2 Ops Cases tab
 
-**Status:** ⬜ · **After:** 4.1 · **Owns:** `server/routes/ops.ts`, `client/src/lib/opsNav.ts`
+**Status:** ✅ (needs `create_support_cases.sql`) · **After:** 4.1 · **Owns:** `server/routes/opsCases.ts` (new), `client/src/lib/opsNav.ts`
 
 Ops can read a case and reply in one place.
 
 Build
-- [ ] `GET /api/ops/cases` (filter by open, answered, closed), `GET /api/ops/cases/:id`, `POST …/reply`, `POST …/close`, behind the same role guard as the other ops routes.
-- [ ] `pages/ops/OpsCases.tsx` and `OpsCaseDetail.tsx`: summary first, transcript below, order link, reply box.
-- [ ] An `OPS_NAV` entry (in the More sheet on mobile).
-- [ ] A reply writes a bell notification for the owner via `insertNotification`, with `data.kind` set to support_case.
+- [x] `GET /api/ops/cases` (filter by open, answered, closed), `GET /api/ops/cases/:id`, `POST …/reply`, `POST …/close`, behind the same role guard as the other ops routes.
+- [x] `pages/ops/OpsCases.tsx` and `OpsCaseDetail.tsx`: summary first, transcript below, order link, reply box.
+- [x] An `OPS_NAV` entry (in the More sheet on mobile).
+- [x] A reply writes a bell notification for the owner via `insertNotification`, with `data.kind` set to support_case.
 
 Done when
-- [ ] Customers and riders can't reach `/api/ops/cases`
-- [ ] A reply reaches the customer's bell on the next refresh
+- [x] Customers and riders can't reach `/api/ops/cases` (`server/routes/opsCases.test.ts`: 401 signed out, 403 customer and rider, on all four routes)
+- [ ] A reply reaches the customer's bell on the next refresh — written, not seen end to end: needs the migration
 
-Notes: —
+Notes: **Additive, to stay out of the ops console's lane:** the routes are a new `server/routes/opsCases.ts` (one `registerOpsCaseRoutes(app)` line in `routes.ts`, after `registerOpsRoutes`), queries in `server/supportCasesOps.ts`, pages and `hooks/useOpsCases.ts` new; `routes.ops.tsx` and `opsNav.ts` gain two routes and one entry. Nothing in `routes/ops.ts` changed. **Before the migration** every route answers 503 `CASES_NOT_SET_UP` (listed in `UNCATALOGUED_CODES`: staff only) and the tab says "Cases aren't set up yet" with what to run. **The reply notification** uses type `support_case` and falls back to `order_status` if the notifications type check rejects it; `data` is `{ kind: "support_case", caseNo, caseId }`, which 4.3's bell item keys on. A closed case refuses replies (409); there's no reopen. The detail page shows the customer's name and phone (account cases, via `itd_users`) and links the order to `/ops/orders/:id` when `order_no` resolves. Checked in Chrome at 1280 and 390 from mocked responses: queue, status filter, detail, empty-reply guard, reply → "Answered" with the sent reply shown. 156 unit tests.
 
 #### 4.3 Customer side of cases, order-page links
 
@@ -547,6 +547,7 @@ Notes: —
 
 Newest first. One line per merge, decision or surprise.
 
+- 2026-09-12 · 4.2 merged: ops Cases tab (queue, case detail, reply to the customer's bell, close), additive to the ops console; waits on `create_support_cases.sql` like 4.1. **Wave W7 done.** Left: 4.3, 5.1.
 - 2026-09-12 · 3.2 merged: `suggest_hsn` names entries and codes from Bombino's contents list; the customer chooses in the form. **R3 code-complete.** Left: 4.2, 4.3, 5.1.
 - 2026-09-12 · **Decision:** BIA won't ship anything or fill forms; it helps on the screens. 3.3 (drafts, "say it to ship") dropped with its migration; 3.2 suggests HSN codes without a "Use this code" button and moves to W7; R3 is booking help. Re-uploading a document (2.5) is BIA's only chat action.
 - 2026-09-12 · 4.1 merged, dark: escalations become support cases once `BIA_MODULES` includes `handoff`; `create_support_cases.sql` written, **not run**. **Wave W6 done.** W7 next: 4.2 ops Cases tab (and 3.2, once 3.3 was dropped).
