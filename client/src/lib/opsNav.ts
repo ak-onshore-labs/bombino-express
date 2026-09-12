@@ -7,6 +7,7 @@
 import type { LucideIcon } from 'lucide-react';
 import {
   ContactRound,
+  LifeBuoy,
   Route as RouteIcon,
   LayoutDashboard,
   Package,
@@ -67,6 +68,16 @@ export const OPS_NAV: readonly OpsNavItem[] = [
     mobileLabel: 'Txns',
     path: '/ops/transactions',
     icon: Wallet,
+    mobile: false,
+    mobileMore: true,
+  },
+  {
+    // Support cases BIA opened (BIA 3.0, 4.2). A desk task, so it sits in the
+    // More sheet on mobile.
+    label: 'Cases',
+    mobileLabel: 'Cases',
+    path: '/ops/cases',
+    icon: LifeBuoy,
     mobile: false,
     mobileMore: true,
   },

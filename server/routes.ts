@@ -85,6 +85,7 @@ import { getLatestGuestRefForPhone, upsertGuestProfile } from "./guestProfileDb.
 import { registerWhatsappRoutes } from "./routes/whatsapp.js";
 import { registerWhatsappScheduleRoutes } from "./routes/whatsappSchedule.js";
 import { registerOpsRoutes } from "./routes/ops.js";
+import { registerOpsCaseRoutes } from "./routes/opsCases.js";
 import {
   handleGenerateDocket,
   handleMarkDispatched,
@@ -276,6 +277,8 @@ export async function registerRoutes(
   // users. Admin/super_admin gated inside the module; writes go through the
   // uniform action endpoint below.
   registerOpsRoutes(app);
+  // BIA support cases, for the ops console's Cases tab (BIA 3.0, 4.2).
+  registerOpsCaseRoutes(app);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 

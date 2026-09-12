@@ -9,6 +9,8 @@ import OpsCustomers from '@/pages/ops/OpsCustomers';
 import OpsCustomerDetail from '@/pages/ops/OpsCustomerDetail';
 import OpsUsers from '@/pages/ops/OpsUsers';
 import OpsBeats from '@/pages/ops/OpsBeats';
+import OpsCases from '@/pages/ops/OpsCases';
+import OpsCaseDetail from '@/pages/ops/OpsCaseDetail';
 import NotFound from '@/pages/not-found';
 
 /**
@@ -30,6 +32,8 @@ export function OpsRoutes() {
       <Route path="/ops/customers/:id" component={OpsCustomerDetail} />
       <Route path="/ops/users" component={OpsUsers} />
       <Route path="/ops/beats" component={OpsBeats} />
+      <Route path="/ops/cases" component={OpsCases} />
+      <Route path="/ops/cases/:id" component={OpsCaseDetail} />
       <Route path="/ops/orders/:id" component={OpsOrderDetail} />
       <Route component={NotFound} />
     </Switch>
