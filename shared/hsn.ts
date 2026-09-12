@@ -1,3 +1,12 @@
+/**
+ * Bombino's list of shipment contents and the 8-digit HS code each carries.
+ *
+ * The booking form's "Shipment Content" search offers these descriptions and
+ * fills the HS code from the one chosen (getHsnCode). BIA's suggest_hsn reads
+ * the same list (server/supportHsn.ts), so the code it names is the one the
+ * form will use. Moved here from client/src/lib/hsnData.ts so the server can
+ * read it too (BIA 3.0, package 3.2).
+ */
 export const HSN_CODE_MAP: { description: string; hsCode: string }[] = [
   { description: "ADAPTOR", hsCode: "85389000" },
   { description: "AGARBATTI", hsCode: "33074100" },

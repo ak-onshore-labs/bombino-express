@@ -142,6 +142,7 @@ export const MODULE_PROMPTS: Record<BiaModuleOrGeneral, ModulePrompt> = {
       "- explain_booking_error: they quote or describe a booking or payment message the SCREEN block doesn't already name. Use the tool's words.",
       '- explain_booking_term: "what is DOX / SPX / Commercial / CSB V", declared value, currency, unit rate, IGST. "Which product type do I pick" is about paperwork, not packing: call it with product_types.',
       '- can_i_ship: "can I send X", or whether an item is allowed to a country. Answer only from what it returns; never from your own idea of customs rules.',
+      '- suggest_hsn: "what HS code for X", or what to put in Shipment Content. Only codes it returns, never your own. They choose it in the form; you never fill anything in.',
     ],
   },
 };

@@ -7,8 +7,7 @@
  * the customer may see: customer status labels (never weighed / settled /
  * ready_for_docket), no ids, no codes.
  *
- * One more kind arrives with a later package: hsn (3.2). There is no draft
- * card: BIA helps on the screens and never fills a form.
+ * There is no draft card: BIA helps on the screens and never fills a form.
  * Add the kind here, in biaCardKey and isBiaCard, and its renderer in
  * client/src/components/bia/BiaCards.tsx together.
  */
@@ -147,7 +146,29 @@ export interface CaseCard {
   existing: boolean;
 }
 
-export type BiaCard = OrderCard | PickupCard | RateCard | ChecklistCard | DocStatusCard | DocUploadCard | CaseCard;
+/**
+ * Entries from Bombino's contents list for an item (server/supportHsn.ts). The
+ * customer chooses one in the booking form's "Shipment Content" search; the
+ * card only lists them. `sure`: the item was typed as an entry's description.
+ */
+export interface HsnCard {
+  kind: "hsn";
+  /** What they said they're sending. */
+  item: string;
+  sure: boolean;
+  /** At most three, best first. Codes are the 8-digit ones the form fills. */
+  candidates: { description: string; code: string }[];
+}
+
+export type BiaCard =
+  | OrderCard
+  | PickupCard
+  | RateCard
+  | ChecklistCard
+  | DocStatusCard
+  | DocUploadCard
+  | CaseCard
+  | HsnCard;
 
 /** At most this many cards under one reply. */
 export const MAX_BIA_CARDS = 5;
@@ -169,6 +190,8 @@ export function biaCardKey(card: BiaCard): string {
       return `docUpload:${card.target}:${card.slot ?? card.documentType}`;
     case "case":
       return `case:${card.caseNo}`;
+    case "hsn":
+      return `hsn:${card.item.toLowerCase()}`;
   }
 }
 
@@ -305,6 +328,19 @@ export function isBiaCard(value: unknown): value is BiaCard {
         (c.orderNo === null || (isStr(c.orderNo) && /^BOM-[0-9]{6,9}$/.test(c.orderNo))) &&
         isStr(c.topic) &&
         typeof c.existing === "boolean"
+      );
+    case "hsn":
+      return (
+        isStr(c.item) &&
+        typeof c.sure === "boolean" &&
+        Array.isArray(c.candidates) &&
+        c.candidates.length > 0 &&
+        c.candidates.length <= 3 &&
+        c.candidates.every((e) => {
+          if (!e || typeof e !== "object") return false;
+          const x = e as Record<string, unknown>;
+          return isStr(x.description) && isStr(x.code) && /^[0-9]{8}$/.test(x.code);
+        })
       );
     default:
       return false;

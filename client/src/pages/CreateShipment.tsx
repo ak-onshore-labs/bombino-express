@@ -64,7 +64,7 @@ import { PRODUCT_TYPE_INFO, isProductType } from '@shared/bookingTerms';
 import { payForOrder } from '@/lib/razorpay';
 import { PaymentTestModeSwitch } from '@/components/PaymentTestModeSwitch';
 import { cn } from '@/lib/utils';
-import { getHsnCode } from '@/lib/hsnData';
+import { getHsnCode } from '@shared/hsn';
 import { useToast } from '@/hooks/use-toast';
 import { usePincodeLookup } from '@/hooks/usePincodeLookup';
 import { DropoffBranches } from '@/components/DropoffBranches';
@@ -1210,6 +1210,15 @@ export default function CreateShipment() {
     ...(isProductType(productType) ? { productType } : {}),
   };
   usePublishBiaScreen(biaScreen);
+  // "Which HS code?" beside the contents and CSB V fields. BIA suggests from
+  // Bombino's list (suggest_hsn); the customer picks in the field themselves.
+  const askBiaAboutHsn = (content: string): void => {
+    const item = content.trim().slice(0, 80);
+    openBia({
+      screen: biaScreen,
+      seed: item ? `Which HS code fits "${item}"?` : "What should I put in Shipment Content, and which HS code goes with it?",
+    });
+  };
   const askBiaAboutStep = (): void =>
     openBia({
       screen: biaScreen,
@@ -2818,6 +2827,15 @@ export default function CreateShipment() {
               {fieldErrors.shipmentContent && (
                 <p className="text-xs text-red-600 mt-1">This field is required</p>
               )}
+              <button
+                type="button"
+                onClick={() => askBiaAboutHsn(shipmentContent)}
+                className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-[#14567C] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14567C]/40 rounded"
+                data-testid="button-ask-bia-hsn"
+              >
+                <Sparkles className="h-3 w-3 text-[#F2A123]" aria-hidden />
+                Not sure what to pick? Ask BIA
+              </button>
             </div>
 
             <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
@@ -3244,6 +3262,15 @@ export default function CreateShipment() {
                           10 digits
                         </p>
                       )}
+                      <button
+                        type="button"
+                        onClick={() => askBiaAboutHsn(shipmentContent)}
+                        className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-[#14567C] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14567C]/40 rounded"
+                        data-testid="button-ask-bia-csbv-hs"
+                      >
+                        <Sparkles className="h-3 w-3 text-[#F2A123]" aria-hidden />
+                        Ask BIA about the HS code
+                      </button>
                     </div>
 
                     <div className="flex items-center justify-between">

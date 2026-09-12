@@ -42,7 +42,7 @@
         "TAP_CONTACT_US"
       ],
       "contains": [
-        "re:not (been )?(collected|happened|picked up)|hasn.t (been )?(collected|happened)|has passed"
+        "re:not (yet )?(been )?(collected|happened|picked up)|hasn.t (been )?(collected|happened)|has passed"
       ],
       "cards": [
         "order"

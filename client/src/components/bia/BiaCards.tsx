@@ -1,5 +1,5 @@
-import { ChevronRight, FileText, LifeBuoy, MapPin, Package, Radar, Truck } from 'lucide-react';
-import type { BiaCard, BiaCardTone, CaseCard, ChecklistCard, DocStatusCard, OrderCard, PickupCard, RateCard } from '@shared/biaCards';
+import { ChevronRight, FileText, LifeBuoy, MapPin, Package, Radar, Tag, Truck } from 'lucide-react';
+import type { BiaCard, BiaCardTone, CaseCard, ChecklistCard, DocStatusCard, HsnCard, OrderCard, PickupCard, RateCard } from '@shared/biaCards';
 import { cn } from '@/lib/utils';
 import { CARD, TONE_CLASS } from './cardStyles';
 import { DocUploadCardView } from './DocUploadCard';
@@ -48,6 +48,8 @@ export function BiaCards({
             );
           case 'case':
             return <CaseCardView key={`case-${card.caseNo}`} card={card} />;
+          case 'hsn':
+            return <HsnCardView key={`hsn-${card.item}`} card={card} />;
           default:
             return null;
         }
@@ -157,6 +159,30 @@ function ChecklistCardView({ card }: { card: ChecklistCard }): React.JSX.Element
           And these details: <span className="text-white/80">{card.fields.join(', ')}</span>
         </p>
       )}
+    </div>
+  );
+}
+
+/** Codes from Bombino's contents list. Nothing to tap: the customer chooses in the form. */
+function HsnCardView({ card }: { card: HsnCard }): React.JSX.Element {
+  return (
+    <div className={cn(CARD, 'flex flex-col gap-1.5')} data-testid="bia-card-hsn">
+      <div className="flex items-center gap-2">
+        <Tag className="h-4 w-4 shrink-0 text-[#FBAD1F]" aria-hidden />
+        <span className="flex-1 min-w-0 break-words text-sm font-semibold text-white">HS codes for “{card.item}”</span>
+        <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-medium', TONE_CLASS[card.sure ? 'green' : 'blue'])}>
+          {card.sure ? 'Exact' : 'Closest'}
+        </span>
+      </div>
+      <ul className="flex flex-col">
+        {card.candidates.map((c) => (
+          <li key={c.description} className="flex items-baseline justify-between gap-3 border-t border-white/[0.07] py-1 first:border-t-0">
+            <span className="min-w-0 text-xs text-white/90">{c.description}</span>
+            <span className="shrink-0 font-mono text-xs tabular-nums text-white/80">{c.code}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-[11px] text-white/55">Choose it in “Shipment Content” on the package step; the form fills in its code.</p>
     </div>
   );
 }
