@@ -91,12 +91,8 @@ Cases live in `scripts/bia-evals/cases/*.json`, one array per file. For example:
   staged in memory for `get_signup_progress` to find (see `documents.json`).
   Nothing is written to the database. Its numbers join the forbidden list, so
   a reply quoting more than four digits of one fails.
-- `skipIf` (optional): modules that must be off, e.g. `["handoff"]` for what
-  escalating does before cases exist. Skipped, not failed, when one is on.
-- `expect.case` (optional): the support cases the run opened. Each run gets
-  its own in-memory store (never the database), so `{ "count": 1 }` after two
-  complaints proves the second found the first. Also `orderNo`, `category`,
-  and `summaryContains` / `summaryNotContains` on the summary ops would read.
+- `skipIf` (optional): modules that must be off for the case to mean
+  anything. Skipped, not failed, when one is on.
 - In `contains`, `notContains` and `buttonsNot`, a plain string matches
   case-insensitively as a substring; `re:…` is a case-insensitive regex.
   `contains` looks at the text only; `notContains` also covers the button lines.

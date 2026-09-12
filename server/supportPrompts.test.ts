@@ -92,14 +92,3 @@ test("a booking step brings what that step asks for; no other screen does", () =
   assert.doesNotMatch(withError, /What that step asks for/);
 });
 
-test("with handoff on, BIA may say a case is open; with it off, the prompt is as it was", () => {
-  const off = buildSystemPrompt(signedOut, ["orders"]);
-  const on = buildSystemPrompt(signedOut, ["orders", "handoff"]);
-  assert.match(off, /Never say you have escalated/);
-  assert.match(off, /After escalate_support, end with TAP_CONTACT_US\./);
-  assert.doesNotMatch(off, /opens a support case/);
-  assert.doesNotMatch(on, /Never say you have escalated/);
-  assert.match(on, /escalate_support opens a support case our team can see/);
-  assert.match(on, /never promise when they'll reply/);
-  assert.match(on, /After escalate_support, end with the button its answer gives\./);
-});

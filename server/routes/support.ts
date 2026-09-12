@@ -151,9 +151,7 @@ export function registerSupportRoutes(app: Express): void {
     // Only known surfaces, steps, order-number shapes and catalogued error codes
     // survive; anything else the client sent is dropped here, before the model.
     const context = supportContextFor(req, activeSessionId, parseBiaScreen(body?.screen));
-    // Minted first, so a support case opened during the turn can record it.
     const turnId = crypto.randomUUID();
-    context.turnId = turnId;
 
     try {
       const startedAt = Date.now();

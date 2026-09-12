@@ -1,5 +1,5 @@
 ﻿import { useLocation } from 'wouter';
-import { ArrowLeft, Bell, AlertTriangle, Info, LifeBuoy, LogIn, Sparkles } from 'lucide-react';
+import { ArrowLeft, Bell, AlertTriangle, Info, LogIn, Sparkles } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
 import { useAppStore } from '@/lib/store';
 import { useGuestProfile } from '@/hooks/useGuestProfile';
@@ -45,7 +45,7 @@ export default function Notifications() {
     if (link?.kind === 'shipment') {
       setLocation(`/shipment/${encodeURIComponent(link.awb)}`);
     } else if (seed) {
-      // A case our team answered, or something BIA nudged about: BIA opens on it.
+      // Something BIA nudged about: BIA opens on it.
       openBia({ screen: { surface: 'help' }, seed });
     }
   };
@@ -118,7 +118,6 @@ export default function Notifications() {
                 (notif.title ?? '').toLowerCase().includes('hold');
               const isShipmentCreated = notif.type === 'shipment_created';
               const link = notificationLink(notif.data);
-              const isCase = link?.kind === 'case';
               // BIA speaking first (5.1): marked as BIA's, and it opens BIA.
               const isNudge = link?.kind === 'nudge';
               return (
@@ -146,9 +145,7 @@ export default function Notifications() {
                           : 'bg-[#F3F4F6] text-[#2F4468]'
                     )}
                   >
-                    {isCase ? (
-                      <LifeBuoy className="w-5 h-5" />
-                    ) : isNudge ? (
+                    {isNudge ? (
                       <Sparkles className="w-5 h-5" />
                     ) : isWarn && !isShipmentCreated ? (
                       <AlertTriangle className="w-5 h-5" />
@@ -180,9 +177,9 @@ export default function Notifications() {
                           {link.awb}
                         </span>
                       )}
-                      {(isCase || isNudge) && (
+                      {isNudge && (
                         <span className="text-[10px] font-semibold text-[#2F4468] bg-[#2F4468]/8 px-2 py-0.5 rounded-full" data-testid="badge-open-in-bia">
-                          {isNudge ? 'Ask BIA' : 'Open in BIA'}
+                          Ask BIA
                         </span>
                       )}
                     </div>

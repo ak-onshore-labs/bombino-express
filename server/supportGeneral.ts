@@ -13,16 +13,12 @@ import { itdClient } from "./itd.js";
 import type { ITDTrackingResult } from "./itd.js";
 import { guidance, escalation } from "./supportContent.js";
 import type { GuidanceKey } from "./supportContent.js";
-import { findOrderForOwner } from "./ordersDb.js";
-import { CASE_CATEGORIES, CASE_TOPICS, findOwnerCases, isCaseCategory, openSupportCase } from "./supportCases.js";
 import {
   describeOwnedOrderByAwb,
   executeCheckPickup,
   executeGetMyKycStatus,
   executeGetOrderStatus,
   formatInr,
-  normalizeOrderNo,
-  ownerOf,
 } from "./supportOrders.js";
 import type {
   BiaTool,
@@ -36,7 +32,7 @@ import {
   type GetRatesArgs,
   type GetTrackingSummaryArgs,
 } from "./supportTypes.js";
-import type { CaseCard, RateCard } from "../shared/biaCards.js";
+import type { RateCard } from "../shared/biaCards.js";
 import { isBookableCorridor } from "../shared/corridor.js";
 
 // ─── Fallback strings (never expose internal errors) ───────────────────────────
@@ -405,148 +401,15 @@ export function executeGetShipmentGuidance(
   }
 }
 
-let warnedNoCases = false;
-
-/**
- * Hand the customer to our team. With the handoff module off (the default),
- * that means the contact buttons and nothing else: nobody is told. With it on,
- * an account or a guest gets a support case our team can see (supportCases.ts),
- * about their own order when they named one; asking again finds the case
- * already open. A signed-out visitor, or a case that can't be stored (the
- * migration not run yet), gets the buttons as before.
- */
-export async function executeEscalateSupport(
-  args: { reason?: unknown; order_no?: unknown; category?: unknown },
-  context: SupportChatContext
-): Promise<ToolOutcome> {
-  const plain: ToolOutcome = { content: `${escalation ?? FALLBACK_ESCALATION}\nTAP_CONTACT_US` };
-  if (!context.modules?.includes("handoff")) return plain;
-
-  const owner = ownerOf(context);
-  if (!owner) {
-    return {
-      content: `They aren't signed in and haven't verified a phone, so no case can be opened for them. ${plain.content}`,
-    };
-  }
-
-  // The order it's about, and only if it's theirs: a case must never name
-  // someone else's order.
-  const named = typeof args.order_no === "string" ? normalizeOrderNo(args.order_no) : null;
-  const candidate = named ?? context.screen?.orderNo ?? null;
-  const owned = candidate ? await findOrderForOwner({ orderNo: candidate }, owner).catch(() => null) : null;
-  const orderNo = owned ? candidate : null;
-  const category = isCaseCategory(args.category) ? args.category : "other";
-
+export function executeEscalateSupport(
+  _args: { reason?: string },
+  _context: SupportChatContext
+): string {
   try {
-    const opened = await openSupportCase({
-      owner,
-      orderNo,
-      category,
-      transcript: context.transcript ?? [],
-      turnId: context.turnId ?? null,
-    });
-    const card: CaseCard = {
-      kind: "case",
-      caseNo: opened.caseNo,
-      status: opened.status,
-      orderNo: opened.orderNo,
-      topic: CASE_TOPICS[opened.category],
-      existing: opened.existing,
-    };
-    const about = opened.orderNo ? ` for ${opened.orderNo}` : "";
-    const lines = [
-      opened.existing
-        ? `Case ${opened.caseNo}${about} was already open from earlier, so no new one was made.`
-        : `Case ${opened.caseNo}${about} is open.`,
-      "Our team can see this conversation and the case. Give them the case number, and say they can message us on WhatsApp with it using the button. Never promise when the team will reply or what they'll decide, and don't say anything else was done.",
-      named && !orderNo
-        ? `The order they named isn't on their ${owner.kind === "guest" ? "phone number" : "account"}, so the case doesn't name an order.`
-        : "",
-      `TAP_CASE_WHATSAPP:${opened.caseNo}`,
-    ].filter(Boolean);
-    return {
-      content: lines.join("\n"),
-      cards: [card],
-      caseNos: [opened.caseNo],
-      ...(orderNo ? { orderNos: [orderNo] } : {}),
-    };
-  } catch (err) {
-    if (!warnedNoCases) {
-      warnedNoCases = true;
-      console.warn(`[bia] could not open a support case: ${(err as Error).message} (has migrations/create_support_cases.sql been run?)`);
-    }
-    return plain;
-  }
-}
-
-const CASE_STATUS_WORDS = {
-  open: "open, no reply from our team yet. Never say when they'll reply",
-  answered: "answered",
-  closed: "closed",
-} as const;
-
-function caseDay(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" });
-}
-
-/**
- * Their own support cases (BIA 3.0, 4.3): "did the team reply?", or a case
- * number from the bell. Our team's reply is handed over word for word and
- * drawn in the case card; BIA adds nothing to it. Only ever the caller's own
- * cases: a number that isn't theirs reads as not found.
- */
-export async function executeGetSupportCase(
-  args: { case_no?: unknown },
-  context: SupportChatContext
-): Promise<ToolOutcome> {
-  const owner = ownerOf(context);
-  if (!owner) {
-    return {
-      content:
-        "They aren't signed in and haven't verified a phone, so their cases can't be looked up. Ask them to sign in, or, if they booked as a guest, to verify their phone on the Ship screen.",
-    };
-  }
-  const raw = typeof args.case_no === "string" ? args.case_no.trim().toUpperCase().replace(/\s+/g, "") : "";
-  const digits = raw.match(/^(?:BIA-?)?([0-9]{4,7})$/);
-  const caseNo = digits ? `BIA-${digits[1]}` : null;
-  const where = owner.kind === "guest" ? "phone number" : "account";
-
-  let cases;
-  try {
-    cases = await findOwnerCases(owner, caseNo);
+    return `${escalation ?? FALLBACK_ESCALATION}\nTAP_CONTACT_US`;
   } catch {
-    return { content: `Their cases can't be looked up right now. Ask them to message our team on WhatsApp${caseNo ? ` with ${caseNo}` : ""}.\nTAP_CONTACT_US` };
+    return `${FALLBACK_ESCALATION}\nTAP_CONTACT_US`;
   }
-  if (cases.length === 0) {
-    return {
-      content: caseNo
-        ? `There is no case ${caseNo} on their ${where}. Never guess its status.\nTAP_CONTACT_US`
-        : `They have no support cases on their ${where}.`,
-    };
-  }
-
-  const lines = cases.map((c) => {
-    const about = [CASE_TOPICS[c.category], c.orderNo].filter(Boolean).join(", ");
-    const reply = c.reply ? ` Our team's reply, to quote word for word: "${c.reply}"` : "";
-    return `Case ${c.caseNo} (${about}), opened ${caseDay(c.createdAt)}: ${CASE_STATUS_WORDS[c.status]}.${reply}`;
-  });
-  const latest = cases[0];
-  lines.push(
-    "Important: the case card under your reply shows our team's reply. Give it in a sentence or two; never add to it, explain it, or promise anything it doesn't say."
-  );
-  if (latest.status !== "closed") lines.push(`TAP_CASE_WHATSAPP:${latest.caseNo}`);
-
-  const cards: CaseCard[] = cases.map((c) => ({
-    kind: "case",
-    caseNo: c.caseNo,
-    status: c.status,
-    orderNo: c.orderNo,
-    topic: CASE_TOPICS[c.category],
-    existing: true,
-    reply: c.reply,
-  }));
-  return { content: lines.join("\n"), cards, caseNos: cases.map((c) => c.caseNo) };
 }
 
 // ─── Registration ────────────────────────────────────────────────────────────
@@ -671,39 +534,17 @@ export const GENERAL_TOOLS: readonly BiaTool[] = [
       function: {
         name: "escalate_support",
         description:
-          "Show the user the buttons to reach our support team on WhatsApp or by phone. For a signed-in or verified customer it may also open a case our team can see: its answer says which. Use when they ask for a person or need help beyond what you can provide.",
+          "Show the user the buttons to reach our support team on WhatsApp or by phone. It notifies nobody: the user has to contact them. Use when they ask for a person or need help beyond what you can provide.",
         parameters: {
           type: "object",
           properties: {
             reason: { type: "string", description: "Optional reason for escalation" },
-            order_no: { type: "string", description: "The Order ID it's about, if they gave one." },
-            category: { type: "string", enum: [...CASE_CATEGORIES], description: "What it's about." },
           },
         },
       },
     },
-    run: (args, context) => executeEscalateSupport(args, context),
-  },
-];
-
-/** The handoff module's own tool: offered only while cases are switched on. */
-export const CASE_TOOLS: readonly BiaTool[] = [
-  {
-    module: "handoff",
-    definition: {
-      type: "function",
-      function: {
-        name: "get_support_case",
-        description:
-          "The customer's own support cases and our team's reply: when they ask about a case, give a case number (BIA-...), or ask whether the team has replied.",
-        parameters: {
-          type: "object",
-          properties: {
-            case_no: { type: "string", description: "The case number, e.g. BIA-1002, if they gave one." },
-          },
-        },
-      },
-    },
-    run: (args, context) => executeGetSupportCase(args, context),
+    run: async (args, context) => ({
+      content: executeEscalateSupport({ reason: args.reason != null ? String(args.reason) : undefined }, context),
+    }),
   },
 ];

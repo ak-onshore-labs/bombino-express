@@ -14,9 +14,8 @@
 /**
  * Who may see a button. Ownership of an order is checked separately.
  * `no_account` is anyone without an account yet: a guest or a visitor.
- * `owner` is anyone BIA can open a case for: an account or a guest.
  */
-export type BiaButtonAudience = "anyone" | "account" | "guest" | "no_account" | "owner";
+export type BiaButtonAudience = "anyone" | "account" | "guest" | "no_account";
 
 interface ButtonSpec {
   audience: BiaButtonAudience;
@@ -28,8 +27,6 @@ interface ButtonSpec {
   canonical?: (raw: string) => string | null;
   /** The argument names an order, which the caller must own. */
   ownsOrder?: boolean;
-  /** The argument names a support case, which this turn must have opened or found for the caller. */
-  ownsCase?: boolean;
 }
 
 const STATE_RE = /^[A-Za-z .&-]{2,40}$/;
@@ -97,12 +94,6 @@ function canonicalAccountChoice(raw: string): string | null {
   return ACCOUNT_CHOICE_RE.test(s) ? s : null;
 }
 
-/** A support case number: BIA-1001 and on (migrations/create_support_cases.sql). */
-function canonicalCaseNo(raw: string): string | null {
-  const s = raw.trim().toUpperCase();
-  return /^BIA-[0-9]{4,7}$/.test(s) ? s : null;
-}
-
 /** A signup to go back to: an account kind, or just "company" when the category isn't known. */
 function canonicalSignupShape(raw: string): string | null {
   const s = raw.trim().toLowerCase();
@@ -127,8 +118,6 @@ export const BIA_BUTTONS = {
   TAP_RESUME_SIGNUP: { audience: "no_account", arg: "required", canonical: canonicalSignupShape },
   // The account's own documents, on Profile.
   TAP_ACCOUNT_DOCUMENTS: { audience: "account", arg: "none" },
-  // WhatsApp, with the case number already in the message (BIA 3.0, 4.1).
-  TAP_CASE_WHATSAPP: { audience: "owner", arg: "required", canonical: canonicalCaseNo, ownsCase: true },
 } as const satisfies Record<string, ButtonSpec>;
 
 export type BiaButtonName = keyof typeof BIA_BUTTONS;
@@ -173,7 +162,6 @@ export function biaButtonToken(button: BiaButton): string {
 export function biaButtonAllowedFor(name: BiaButtonName, caller: "account" | "guest" | null): boolean {
   const { audience } = BIA_BUTTONS[name] as ButtonSpec;
   if (audience === "no_account") return caller !== "account";
-  if (audience === "owner") return caller !== null;
   return audience === "anyone" || audience === caller;
 }
 
@@ -185,9 +173,4 @@ export function biaButtonNeedsOwnership(name: BiaButtonName): boolean {
 /** The order a button names, without any section: what ownership is checked on. */
 export function biaButtonOrderNo(button: BiaButton): string {
   return button.name === "TAP_VIEW_ORDER" ? splitOrderRef(button.arg).orderNo : button.arg;
-}
-
-/** True when the button names a support case, which this turn must have opened or found. */
-export function biaButtonNeedsCase(name: BiaButtonName): boolean {
-  return (BIA_BUTTONS[name] as ButtonSpec).ownsCase === true;
 }

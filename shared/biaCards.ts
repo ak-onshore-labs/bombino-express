@@ -131,24 +131,6 @@ export interface DocUploadCard {
 }
 
 /**
- * A support case BIA opened, or found already open (server/supportCases.ts).
- * Ops answer it from the console's Cases tab; the reply reaches the bell.
- */
-export interface CaseCard {
-  kind: "case";
-  /** "BIA-1001" */
-  caseNo: string;
-  status: "open" | "answered" | "closed";
-  orderNo: string | null;
-  /** What it's about, in a few words: "Damaged parcel". */
-  topic: string;
-  /** Already open from earlier today, so no second case was made. */
-  existing: boolean;
-  /** Our team's reply, word for word, when BIA looked the case up (4.3). */
-  reply?: string | null;
-}
-
-/**
  * Entries from Bombino's contents list for an item (server/supportHsn.ts). The
  * customer chooses one in the booking form's "Shipment Content" search; the
  * card only lists them. `sure`: the item was typed as an entry's description.
@@ -169,7 +151,6 @@ export type BiaCard =
   | ChecklistCard
   | DocStatusCard
   | DocUploadCard
-  | CaseCard
   | HsnCard;
 
 /** At most this many cards under one reply. */
@@ -190,8 +171,6 @@ export function biaCardKey(card: BiaCard): string {
       return `docStatus:${card.scope}`;
     case "docUpload":
       return `docUpload:${card.target}:${card.slot ?? card.documentType}`;
-    case "case":
-      return `case:${card.caseNo}`;
     case "hsn":
       return `hsn:${card.item.toLowerCase()}`;
   }
@@ -321,16 +300,6 @@ export function isBiaCard(value: unknown): value is BiaCard {
         // Four characters at most: a card never carries a whole number.
         (c.numberEnding === null || (isStr(c.numberEnding) && /^[A-Za-z0-9]{4}$/.test(c.numberEnding))) &&
         typeof c.needsNumber === "boolean"
-      );
-    case "case":
-      return (
-        isStr(c.caseNo) &&
-        /^BIA-[0-9]{4,7}$/.test(c.caseNo) &&
-        (c.status === "open" || c.status === "answered" || c.status === "closed") &&
-        (c.orderNo === null || (isStr(c.orderNo) && /^BOM-[0-9]{6,9}$/.test(c.orderNo))) &&
-        isStr(c.topic) &&
-        typeof c.existing === "boolean" &&
-        (c.reply === undefined || c.reply === null || (isStr(c.reply) && c.reply.length <= 2000))
       );
     case "hsn":
       return (

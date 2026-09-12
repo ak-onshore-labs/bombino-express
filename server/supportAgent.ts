@@ -27,11 +27,6 @@ const FALLBACK_CHAT =
   "I'm having trouble responding right now. Please try again in a moment or use the app menu to contact support.";
 const SUPPORT_CHAT_MAX_TOOL_ITERATIONS = 5;
 
-/** A support case number (server/supportCases.ts). */
-const CASE_NO_RE = /\bBIA-[0-9]{4,7}\b/g;
-const CASE_NUDGE =
-  "That reply names a case number no tool gave you. Never write a case number yourself: call escalate_support to open or find their case, or get_support_case to look one up, and answer from what it returns.";
-
 /** "Can I talk to someone", "customer care", "a real person". */
 export const ASKS_FOR_A_PERSON =
   /\b(speak|talk|chat)\s+(to|with)\s+(someone|somebody|a\s+(real\s+)?(person|human)|an?\s+(agent|executive)|your\s+(team|staff|support)|support|customer\s+care)\b|\bcustomer\s+care\b|\b(real|actual)\s+(person|human)\b|\bcall\s+me\b/i;
@@ -87,9 +82,6 @@ export async function handleChat(
   // What this turn may use: the enabled modules that fit the screen, and the
   // order tools only for someone whose orders we can look up.
   const { modules, tools } = toolsForTurn(context.screen, enabledBiaModules(), !!ownerOf(context));
-  // What a tool may need beyond the session: this turn's modules, and the
-  // conversation so far (already masked), for a support case.
-  const turnContext: SupportChatContext = { ...context, modules, transcript: messages };
 
   // What the turn log records. Filled in as the turn goes.
   const meta: SupportTurnMeta = { modules: [...modules], tools: [], fallback: false, promptTokens: 0, completionTokens: 0 };
@@ -114,12 +106,8 @@ export async function handleChat(
 
   const owner = ownerOf(context);
   const ownedOrderNos = new Set<string>();
-  const ownedCaseNos = new Set<string>();
   /** Order-page sections the tools offered this turn ("BOM-100107#cancel"). */
   const offeredSections = new Set<string>();
-  /** Case numbers already in the conversation, which BIA may repeat. */
-  const caseNosInChat = new Set(messages.flatMap((m) => m.content.match(CASE_NO_RE) ?? []));
-  let caseNudged = false;
   let lastTool: string | null = null;
   let lastToolTokens: string[] = [];
   /** The cards from the latest round of tool calls that produced any. */
@@ -161,24 +149,9 @@ export async function handleChat(
       const toolCalls = message.tool_calls;
       if (!toolCalls || toolCalls.length === 0) {
         if (typeof message.content !== "string") return fallback();
-        // "I've opened another case, BIA-1002" with no tool behind it: a case
-        // number no tool gave this turn, and not already in the chat, is made
-        // up. Sent back once to use the tool (3 runs in 8 did it for "escalate
-        // it again" once get_support_case existed).
-        const invented = (message.content.match(CASE_NO_RE) ?? []).some((n) => !ownedCaseNos.has(n) && !caseNosInChat.has(n));
-        if (invented && modules.includes("handoff") && !caseNudged) {
-          caseNudged = true;
-          currentMessages = [
-            ...currentMessages,
-            { role: "assistant", content: message.content },
-            { role: "system", content: CASE_NUDGE },
-          ];
-          continue;
-        }
         const final = await finalizeReply(message.content, {
           owner,
           ownedOrderNos,
-          ownedCaseNos,
           fallbackTokens:
             lastToolTokens.length > 0 ? lastToolTokens : errorButton ? [errorButton] : personButton ? [personButton] : [],
           offeredSections,
@@ -224,9 +197,8 @@ export async function handleChat(
             /* a tracer never breaks a reply */
           }
           // Only what this turn offered runs; a dark module's tool does not.
-          const outcome = await dispatchTool(name, args, turnContext, tools);
+          const outcome = await dispatchTool(name, args, context, tools);
           for (const orderNo of outcome.orderNos ?? []) ownedOrderNos.add(orderNo);
-          for (const caseNo of outcome.caseNos ?? []) ownedCaseNos.add(caseNo);
           for (const token of tokensIn(outcome.content)) {
             const button = parseBiaButton(token);
             if (button?.name === "TAP_VIEW_ORDER" && button.arg.includes("#")) offeredSections.add(button.arg);

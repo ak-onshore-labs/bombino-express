@@ -777,11 +777,9 @@ function CtaButtons({
 }): React.JSX.Element {
   const orders = ctas.filter((c): c is Extract<SupportCta, { kind: "view_order" }> => c.kind === "view_order");
   const create = ctas.some((c) => c.kind === "create_shipment");
-  // A case's WhatsApp button carries its number; it stands in for the plain one.
-  const supportCase = ctas.find((c): c is Extract<SupportCta, { kind: "case_whatsapp" }> => c.kind === "case_whatsapp");
-  const contact = !!supportCase || ctas.some((c) => c.kind === "contact_us");
+  const contact = ctas.some((c) => c.kind === "contact_us");
   const others = ctas.filter(
-    (c) => c.kind !== "view_order" && c.kind !== "create_shipment" && c.kind !== "contact_us" && c.kind !== "case_whatsapp"
+    (c) => c.kind !== "view_order" && c.kind !== "create_shipment" && c.kind !== "contact_us"
   );
 
   return (
@@ -916,18 +914,13 @@ function CtaButtons({
       {contact && (
         <div className="flex gap-2">
           <a
-            href={
-              supportCase
-                ? `https://api.whatsapp.com/send?phone=917045999553&text=${encodeURIComponent(`Hi, about my case ${supportCase.caseNo}`)}`
-                : "https://api.whatsapp.com/send?phone=917045999553"
-            }
+            href="https://api.whatsapp.com/send?phone=917045999553"
             target="_blank"
             rel="noopener noreferrer"
             className="flex-1 flex items-center justify-center gap-2 rounded-xl py-2 px-3 text-sm font-medium text-white"
             style={{ background: "#25D366" }}
-            data-testid={supportCase ? "button-bia-case-whatsapp" : undefined}
           >
-            {supportCase ? `WhatsApp us about ${supportCase.caseNo}` : "WhatsApp Us"}
+            WhatsApp Us
           </a>
           <a
             href="tel:+912266400000"

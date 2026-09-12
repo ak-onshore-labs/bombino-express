@@ -1,0 +1,24 @@
+[
+  {
+    "id": "escalate-01-signed-out-asks-for-a-person",
+    "module": "general",
+    "identity": "anon",
+    "screen": { "surface": "help" },
+    "turns": ["I want to speak to someone at Bombino."],
+    "expect": {
+      "buttons": ["TAP_CONTACT_US"],
+      "notContains": ["re:(have|has) (escalated|forwarded|passed on|raised)|someone will (call|contact|be in touch)"]
+    }
+  },
+  {
+    "id": "escalate-02-damaged-parcel-gets-the-buttons",
+    "module": "general",
+    "identity": "guest",
+    "screen": { "surface": "help" },
+    "turns": ["My parcel BOM-100136 arrived damaged. I want to talk to your team."],
+    "expect": {
+      "buttons": ["TAP_CONTACT_US"],
+      "notContains": ["re:BIA-[0-9]{4}|case (is|has been) (open|opened)|(have|has) (escalated|forwarded|passed on|raised)|someone will (call|contact|be in touch)"]
+    }
+  }
+]

@@ -1,5 +1,5 @@
-import { ChevronRight, FileText, LifeBuoy, MapPin, Package, Radar, Tag, Truck } from 'lucide-react';
-import type { BiaCard, BiaCardTone, CaseCard, ChecklistCard, DocStatusCard, HsnCard, OrderCard, PickupCard, RateCard } from '@shared/biaCards';
+import { ChevronRight, FileText, MapPin, Package, Radar, Tag, Truck } from 'lucide-react';
+import type { BiaCard, BiaCardTone, ChecklistCard, DocStatusCard, HsnCard, OrderCard, PickupCard, RateCard } from '@shared/biaCards';
 import { cn } from '@/lib/utils';
 import { CARD, TONE_CLASS } from './cardStyles';
 import { DocUploadCardView } from './DocUploadCard';
@@ -46,8 +46,6 @@ export function BiaCards({
                 onNavigate={onNavigate}
               />
             );
-          case 'case':
-            return <CaseCardView key={`case-${card.caseNo}`} card={card} />;
           case 'hsn':
             return <HsnCardView key={`hsn-${card.item}`} card={card} />;
           default:
@@ -183,50 +181,6 @@ function HsnCardView({ card }: { card: HsnCard }): React.JSX.Element {
         ))}
       </ul>
       <p className="text-[11px] text-white/55">Choose it in “Shipment Content” on the package step; the form fills in its code.</p>
-    </div>
-  );
-}
-
-const CASE_STATUS: Record<CaseCard['status'], { label: string; tone: BiaCardTone }> = {
-  open: { label: 'Open', tone: 'blue' },
-  answered: { label: 'Answered', tone: 'green' },
-  closed: { label: 'Closed', tone: 'gray' },
-};
-
-function CaseCardView({ card }: { card: CaseCard }): React.JSX.Element {
-  const status = CASE_STATUS[card.status];
-  return (
-    <div className={cn(CARD, 'flex flex-col gap-1.5')} data-testid="bia-card-case">
-      <div className="flex items-center gap-2">
-        <LifeBuoy className="h-4 w-4 shrink-0 text-[#FBAD1F]" aria-hidden />
-        <span className="flex-1 text-sm font-semibold text-white tabular-nums">Case {card.caseNo}</span>
-        <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-medium', TONE_CLASS[status.tone])}>
-          {status.label}
-        </span>
-      </div>
-      <p className="text-xs text-white/80">
-        {card.topic}
-        {card.orderNo ? ` · ${card.orderNo}` : ''}
-      </p>
-      {/* Looked up (4.3): the reply exactly as our team wrote it, or that
-          there isn't one yet. Opened just now: what happens to the chat. */}
-      {card.reply !== undefined ? (
-        <>
-          {card.reply ? (
-            <div className="rounded-lg border border-emerald-400/25 bg-emerald-400/[0.07] px-2.5 py-2" data-testid="bia-case-reply">
-              <span className="block text-[10.5px] font-medium uppercase tracking-wide text-emerald-300/90">Our team replied</span>
-              <p className="mt-0.5 whitespace-pre-wrap break-words text-xs text-white/90">{card.reply}</p>
-            </div>
-          ) : (
-            <p className="text-[11px] text-white/55">No reply from our team yet.</p>
-          )}
-          <p className="text-[11px] text-white/55">Quote the case number if you message us.</p>
-        </>
-      ) : (
-        <p className="text-[11px] text-white/55">
-          {card.existing ? 'Already open from earlier. ' : ''}Our team can see this conversation. Quote the case number if you message us.
-        </p>
-      )}
     </div>
   );
 }

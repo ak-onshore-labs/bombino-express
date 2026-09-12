@@ -386,7 +386,7 @@ export interface NudgeSweepReport {
   skipped: { optedOut: number; sentBefore: number; oneADay: number; notifyFailed: number };
 }
 
-/** Writes the bell row: `support_case`'s pattern, a type of its own with order_status to fall back on. */
+/** Writes the bell row: a type of its own, with order_status to fall back on if the table only takes known types. */
 async function notifyNudge(nudge: Nudge): Promise<boolean> {
   const owner = nudge.owner.kind === "account" ? { user_id: nudge.owner.userId } : { guest_ref: nudge.owner.guestRef };
   const data: NudgeNotificationData = { kind: "bia_nudge", nudge: nudge.kind, orderNo: nudge.orderNo };

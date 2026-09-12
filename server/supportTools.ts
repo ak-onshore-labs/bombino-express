@@ -14,7 +14,7 @@
 import type OpenAI from "openai";
 import { BOOKING_TOOLS } from "./supportBooking.js";
 import { DOCUMENT_TOOLS } from "./supportDocuments.js";
-import { CASE_TOOLS, GENERAL_TOOLS } from "./supportGeneral.js";
+import { GENERAL_TOOLS } from "./supportGeneral.js";
 import { HSN_TOOLS } from "./supportHsn.js";
 import { ONBOARDING_TOOLS } from "./supportOnboarding.js";
 import { ORDER_TOOLS } from "./supportOrders.js";
@@ -31,7 +31,6 @@ export const ALL_TOOLS: readonly BiaTool[] = [
   ...BOOKING_TOOLS,
   ...RESTRICTED_TOOLS,
   ...HSN_TOOLS,
-  ...CASE_TOOLS,
 ];
 
 const FALLBACK_DISPATCHER =

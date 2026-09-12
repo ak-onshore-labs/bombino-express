@@ -30,7 +30,6 @@ import "dotenv/config";
 const modulesArg = process.argv.indexOf("--modules");
 process.env.BIA_MODULES =
   modulesArg > -1 ? (process.argv[modulesArg + 1] ?? "") : "orders,onboarding,documents,booking";
-import { AsyncLocalStorage } from "node:async_hooks";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,30 +44,10 @@ import { parseBiaScreen } from "../shared/biaScreen.js";
 import { buildSystemPrompt } from "../server/supportPrompts.js";
 import { enabledBiaModules, toolsForTurn } from "../server/supportTools.js";
 import { replaceSignupLoader, type SignupRecords } from "../server/supportDocuments.js";
-import { isCaseCategory, memoryCaseStore, replaceCaseStore, type CaseOwner, type CaseStore } from "../server/supportCases.js";
 
 /** Staged signups by ref; each case that has one gets its own ref. */
 const stagedSignups = new Map<string, SignupRecords>();
 replaceSignupLoader(async (ref) => stagedSignups.get(ref) ?? { numbers: [], documents: [] });
-
-/**
- * Support cases (server/supportCases.ts) are kept in memory, never in the
- * shared database, and each case run gets a store of its own: runs go four at
- * a time, and one run's open case must not turn another's into "already open".
- */
-const caseScope = new AsyncLocalStorage<string>();
-const caseStores = new Map<string, ReturnType<typeof memoryCaseStore>>();
-function casesFor(key: string): ReturnType<typeof memoryCaseStore> {
-  let store = caseStores.get(key);
-  if (!store) caseStores.set(key, (store = memoryCaseStore()));
-  return store;
-}
-const scopedCaseStore: CaseStore = {
-  findOpen: (owner, orderNo, since) => casesFor(caseScope.getStore() ?? "_").findOpen(owner, orderNo, since),
-  insert: (c) => casesFor(caseScope.getStore() ?? "_").insert(c),
-  listForOwner: (owner, caseNo, limit) => casesFor(caseScope.getStore() ?? "_").listForOwner(owner, caseNo, limit),
-};
-replaceCaseStore(scopedCaseStore);
 
 // ─── Case format ─────────────────────────────────────────────────────────────
 
@@ -103,12 +82,6 @@ interface EvalCase {
    * shared database. Its numbers are held to the last-four rule like any other.
    */
   signup?: SignupRecords;
-  /**
-   * Support cases the identity already has, numbered from BIA-1001 in order,
-   * staged in the run's in-memory store: for "did the team reply?". They
-   * count towards `expect.case.count`.
-   */
-  cases?: { orderNo?: string | null; category?: string; status?: "open" | "answered" | "closed"; reply?: string | null }[];
   /** User messages, sent in order. Expectations apply to the last reply. */
   turns: string[];
   expect: {
@@ -127,16 +100,6 @@ interface EvalCase {
     cards?: string[];
     /** No cards at all. */
     noCards?: boolean;
-    /** The support cases the run left behind (in memory; see caseScope). */
-    case?: {
-      /** How many cases were opened; 0 for none. */
-      count?: number;
-      /** The latest case's summary, as ops would read it. */
-      summaryContains?: Matcher[];
-      summaryNotContains?: Matcher[];
-      orderNo?: string | null;
-      category?: string;
-    };
   };
 }
 
@@ -223,33 +186,6 @@ async function resolveIdentities(): Promise<Record<Identity, ResolvedIdentity>> 
   };
 }
 
-/** A case's `cases`, put in its run's store before the first turn. */
-function stageCases(c: EvalCase, who: ResolvedIdentity, store: ReturnType<typeof memoryCaseStore>): void {
-  const ctx = who.context;
-  const owner: CaseOwner | null = ctx.dbUserId
-    ? { kind: "account", userId: ctx.dbUserId }
-    : ctx.guestRef
-      ? { kind: "guest", guestRef: ctx.guestRef }
-      : null;
-  if (!owner) return;
-  for (const s of c.cases ?? []) {
-    const status = s.status ?? (s.reply ? "answered" : "open");
-    store.cases.push({
-      owner,
-      orderNo: s.orderNo ?? null,
-      category: isCaseCategory(s.category) ? s.category : "other",
-      summary: "Staged by the eval runner.",
-      transcript: [],
-      turnId: null,
-      caseNo: `BIA-${1001 + store.cases.length}`,
-      status,
-      createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-      reply: s.reply ?? null,
-      answeredAt: s.reply ? new Date(Date.now() - 60 * 60 * 1000).toISOString() : null,
-    });
-  }
-}
-
 // ─── Checks ──────────────────────────────────────────────────────────────────
 
 /** Never acceptable in any reply, to anyone. */
@@ -279,25 +215,10 @@ interface Turn {
   cards: BiaCard[];
 }
 
-function check(c: EvalCase, last: Turn, secrets: string[], opened: ReturnType<typeof memoryCaseStore>["cases"] = []): string[] {
+function check(c: EvalCase, last: Turn, secrets: string[]): string[] {
   const e = c.expect;
   const { body, buttons } = splitReply(last.reply);
   const fails: string[] = [];
-
-  if (e.case) {
-    const latest = opened[opened.length - 1];
-    if (e.case.count !== undefined && opened.length !== e.case.count) {
-      fails.push(`expected ${e.case.count} case(s), got ${opened.length}`);
-    }
-    if (latest) {
-      for (const m of e.case.summaryContains ?? []) if (!toRegex(m).test(latest.summary)) fails.push(`case summary: expected ${m}`);
-      for (const m of e.case.summaryNotContains ?? []) if (toRegex(m).test(latest.summary)) fails.push(`case summary: did not expect ${m}`);
-      if (e.case.orderNo !== undefined && latest.orderNo !== e.case.orderNo) fails.push(`case order: expected ${e.case.orderNo}, got ${latest.orderNo}`);
-      if (e.case.category !== undefined && latest.category !== e.case.category) fails.push(`case category: expected ${e.case.category}, got ${latest.category}`);
-    } else if ((e.case.summaryContains?.length ?? 0) > 0 || e.case.orderNo !== undefined || e.case.category !== undefined) {
-      fails.push("expected a case to check, but none was opened");
-    }
-  }
 
   for (const t of e.tools ?? []) if (!last.tools.includes(t)) fails.push(`expected tool ${t}`);
   if (e.toolsAny && !e.toolsAny.some((t) => last.tools.includes(t)))
@@ -446,11 +367,9 @@ async function main(): Promise<void> {
       let last: Turn;
       let fails: string[];
       try {
-        const scope = `${c.id}#${run}`;
-        stageCases(c, identities[c.identity], casesFor(scope));
-        last = await caseScope.run(scope, () => runCase(c, identities[c.identity]));
+        last = await runCase(c, identities[c.identity]);
         const staged = (c.signup?.numbers ?? []).flatMap((n) => idNumberWindows(n.document_no));
-        fails = check(c, last, [...identities[c.identity].secrets, ...staged], casesFor(scope).cases);
+        fails = check(c, last, [...identities[c.identity].secrets, ...staged]);
       } catch (err) {
         last = { reply: "", tools: [], suggestions: [], cards: [] };
         fails = [`threw: ${(err as Error).message}`];

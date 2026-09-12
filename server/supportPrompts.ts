@@ -50,18 +50,6 @@ const HARD_RULES = `HARD RULES
 - Do not work out how much more is owed or how much will be refunded. If the amount changed, say our team will be in touch.
 - Never mention tools, APIs or internal systems.`;
 
-/**
- * With the handoff module on, escalate_support opens a case our team can see,
- * so the two rules that forbid saying so are swapped for these. Off, the
- * prompt is exactly what it was.
- */
-const NO_CONTACT_RULE =
-  "- You cannot contact the team for them. Never say you have escalated, forwarded, raised or passed on anything, or that someone will be in touch because of this chat. Ask them to reach our team with the WhatsApp or call buttons.";
-const CASE_RULE =
-  "- escalate_support opens a support case our team can see, with this conversation. Say that and give the case number; never promise when they'll reply or what they'll decide, and never say anything else was done. Only after escalate_support has answered may you say a case is open.";
-const ESCALATE_BUTTON_RULE = "- After escalate_support, end with TAP_CONTACT_US.";
-const CASE_BUTTON_RULE = "- After escalate_support, end with the button its answer gives.";
-
 const BUTTONS = `BUTTONS
 - Tool results may list lines starting with TAP_ (for example TAP_VIEW_ORDER:BOM-100231). Copy the ones relevant to your answer exactly as written, each on its own line at the very end of your reply. Never invent one, never change one, never explain them, and never write the word "Buttons".
 - After escalate_support, end with TAP_CONTACT_US.`;
@@ -131,12 +119,6 @@ export const MODULE_PROMPTS: Record<BiaModuleOrGeneral, ModulePrompt> = {
       '- offer_document_upload: they want to upload, retake or replace a document here ("can I upload it here", "let me send a clearer one"). It puts an upload card under your reply; they tap it themselves. Never say a document was uploaded.',
     ],
   },
-  handoff: {
-    tools: [
-      "- escalate_support opens a case: call it as soon as they ask for a person or report a problem it covers, without asking for details first. Pass the Order ID when they named one or it's the one on screen, and the category (damaged, lost, delayed, refund, customs, rider, cancel, other). Asking again finds the case already open. Never promise to escalate or open a case later: only say what its answer says.",
-      "- get_support_case: they ask about their case, a case number (BIA-...), or whether our team replied.",
-    ],
-  },
   booking: {
     tools: [
       "- The booking form: help with the step they are on — pickup or drop-off, what's inside, packing, how to pay. Use check_pickup for a pincode and get_shipment_guidance (topics: booking, pickup, payment, packaging, documents) for the rest.",
@@ -149,7 +131,7 @@ export const MODULE_PROMPTS: Record<BiaModuleOrGeneral, ModulePrompt> = {
 };
 
 /** The order modules' parts appear in the prompt: orders, then general, then the rest. */
-const PROMPT_ORDER: readonly BiaModuleOrGeneral[] = ["orders", "general", "onboarding", "documents", "booking", "handoff"];
+const PROMPT_ORDER: readonly BiaModuleOrGeneral[] = ["orders", "general", "onboarding", "documents", "booking"];
 
 /**
  * Who is asking, from the session alone. `canLookUpSignup` is whether the
@@ -220,9 +202,5 @@ export function buildSystemPrompt(context: SupportChatContext, modules: readonly
     LANGUAGE,
     ["STYLE", ...style].join("\n"),
     currentUserBlock(context, modules.includes("onboarding")),
-  ]
-    .join("\n\n")
-    .replace(NO_CONTACT_RULE, modules.includes("handoff") ? CASE_RULE : NO_CONTACT_RULE)
-    .replace(ESCALATE_BUTTON_RULE, modules.includes("handoff") ? CASE_BUTTON_RULE : ESCALATE_BUTTON_RULE) +
-    screenBlock(context.screen);
+  ].join("\n\n") + screenBlock(context.screen);
 }
