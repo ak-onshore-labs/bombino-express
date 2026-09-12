@@ -31,7 +31,7 @@ The single place to see where the BIA 3.0 build stands.
 | [2.2](#22-signup-progress-and-document-status) | Signup progress and document status | R2 | W5 | M · 1 d | 1.5 | ✅ | `bia-3/wp2-2` → merged locally (ad43d6c) | 2026-09-12 |
 | [2.3](#23-verdict-explainer-on-the-upload-screens) | Verdict explainer on the upload screens | R2 | W5 | S · ½ d | 1.2 | ✅ | `bia-3/wp2-3` → merged locally (f8e6870) | 2026-09-12 |
 | [2.4](#24-photo-check-before-upload) | Photo check before upload | R2 | — | M · 1 d | 2.3 | ⏭ | — | skipped 2026-09-12 |
-| [2.5](#25-upload-card-inside-the-chat) | Upload card inside the chat | R2 | W6 | M · 1 d | 2.2, 2.3 | ⬜ | `bia-3/wp2-5` | |
+| [2.5](#25-upload-card-inside-the-chat) | Upload card inside the chat | R2 | W6 | M · 1 d | 2.2, 2.3 | ✅ | `bia-3/wp2-5` → merged locally (b9b235b) | 2026-09-12 |
 | [3.1](#31-booking-context-and-error-explainer) | Booking context and error explainer | R3 | W6 | M · 1 d | 1.4, 1.5 | ⬜ | `bia-3/wp3-1` | |
 | [3.2](#32-hsn-helper) | HSN helper | R3 | W8 | M · 1 d | 3.3 | ⬜ | `bia-3/wp3-2` | |
 | [3.3](#33-drafts-and-say-it-to-ship) | Drafts and "say it to ship" | R3 | W7 | L · 2 d | 3.1 | ⬜ | `bia-3/wp3-3` | |
@@ -43,7 +43,7 @@ The single place to see where the BIA 3.0 build stands.
 | [5.2](#52-voice-notes) | Voice notes | R5 | — | M · 1 d | 1.4, 1.6 | ⏭ | — | skipped 2026-09-12 |
 | [5.3](#53-hindi) | Hindi | R5 | — | S · ½ d | 1.5 | ⏭ | — | skipped 2026-09-12 |
 
-**21 packages (3 more skipped) · 21 dev-days · 9 waves.** 12 merged, 9 to go.
+**21 packages (3 more skipped) · 21 dev-days · 9 waves.** 13 merged, 8 to go.
 
 ## Waves
 
@@ -71,7 +71,7 @@ Modules ship dark and go live by adding them to `BIA_MODULES` in production.
 |---|---|---|---|
 | R0 | Ship BIA 2.0 | Evals pass; nothing leaks; support routes live in their own file. | ⬜ |
 | R1 | Foundations | Any catalogued error opens BIA already explaining it; evals and telemetry run on every change. | 🔵 code complete on `bia-3/main`; needs the two R1 migrations, then a merge into `aditya/final-phase` |
-| R2 | Onboarding and documents | Every OCR verdict has a tested explanation; a document can be retaken from chat. | ⬜ |
+| R2 | Onboarding and documents | Every OCR verdict has a tested explanation; a document can be retaken from chat. | 🔵 code complete on `bia-3/main` (2.1, 2.2, 2.3, 2.5); goes live with `BIA_MODULES=orders,onboarding,documents` after a merge into `aditya/final-phase` |
 | R3 | Booking Copilot | A one-sentence request becomes a correct pre-filled draft across the eval set. | ⬜ |
 | R4 | Handoff | Every escalation is a case ops can see and answer; risky actions link to the order page. | ⬜ |
 | R5 | Proactive | Nudges are capped and switchable. (Voice and Hindi were dropped.) | ⬜ |
@@ -102,7 +102,7 @@ Found along the way; not a package yet. Give one a number and a row above when i
 - [ ] **Resume signup at the documents step** (from 2.2). "Continue signup" opens the right form on the details step. Signup keeps no form state on the server, so a true resume means saving it (for a guest, the guest profile already covers the details). Touches `Signup.tsx` and the signup routes.
 - [x] ~~**`skipped` on Profile** (for 2.3).~~ Not a real case: `skipped` only comes from slots nothing reads or an identity slot with no number, which the number-first rule prevents. See 2.3's notes.
 - [ ] **KYC card says "In review" for a document with no verdict.** `KycOnFileCard` treats a missing `ocr_status` as "In review", while BIA's `get_my_kyc_status` calls the same row verified. Legacy rows only, but "in review" is wording the KYC rule says customers never see. One-line fix in `KycOnFileCard.tsx` (outside 2.3's files).
-- [ ] **Two old eval flakes, about 1 run in 6.** `anon-07-unknown-awb` sometimes asks for the AWB instead of tracking it (all modules on), and `brief-02` sometimes lists the counters and mentions cancelling to a guest (even with `--modules orders`, so it's in production today). Both predate 2.2. Tighten the orders prompt before R2 goes live.
+- [ ] **One old eval flake left, about 1 run in 6.** `anon-07-unknown-awb` sometimes asks for the AWB instead of tracking it (all modules on). Predates 2.2. ~~`brief-02` listing the counters~~ fixed in 2.5 (the order tool asks for the counters' areas only).
 
 ## Package checklists
 
@@ -351,20 +351,20 @@ Notes: —
 
 #### 2.5 Upload card inside the chat
 
-**Status:** ⬜ · **After:** 2.2, 2.3 · **Owns:** `components/bia/BiaChat.tsx`
+**Status:** ✅ · **After:** 2.2, 2.3 · **Owns:** `components/bia/BiaChat.tsx`
 
 The first chat action: retake and re-upload a document without leaving BIA.
 
 Build
-- [ ] A docUpload card for one slot, posting to the endpoint that screen uses (`/api/signup/documents`, `/api/account/documents`, or `/api/kyc/upload` for guests). Each endpoint authorises the caller itself.
-- [ ] Shows the verdict explanation from `ocrExplain` after the upload. (No photo check: 2.4 was dropped.)
-- [ ] Marked as coming from BIA in telemetry.
+- [x] A docUpload card for one slot, posting to the endpoint that screen uses: `/api/account/documents` for an account, `/api/kyc/upload` for a guest. Each endpoint authorises the caller itself. **Changed:** no `/api/signup/documents` from chat. That endpoint needs the full phone and an OTP under ten minutes old, which a chat can't supply, so for a signup BIA points to signup's documents step instead.
+- [x] Shows the verdict explanation from `ocrExplain` after the upload. (No photo check: 2.4 was dropped.)
+- [x] Marked as coming from BIA in telemetry: `POST /api/support/upload-outcome` adds `chat_upload:<uploaded|unchecked|refused|failed>` to the offering turn's `tools` (owner-checked, no new column).
 
 Done when
-- [ ] A re-upload from chat updates the same slot the screen shows
-- [ ] A guest without a verified phone is refused by the endpoint, and the card explains why
+- [x] A re-upload from chat updates the same slot the screen shows (Profile re-reads its list on `bia:documents-changed`, and the KYC and verification queries are invalidated; seen in Chrome, the PAN slot showing the new file with the sheet closed)
+- [x] A guest without a verified phone is refused by the endpoint, and the card explains why (real `401` from `/api/kyc/upload` with the session dropped; the card says the phone check is gone and offers Ship)
 
-Notes: —
+Notes: The tool is `offer_document_upload` (documents module); it writes nothing, the card is the customer's tap. **No whole ID number passes through BIA:** a card carries at most the last four; for an account the number on file is read from its own document list at upload time, and when there is none (or for a guest) the customer types it on the card, from where it goes straight to the upload. **Fixed along the way:** (1) the app-wide 401 handler took `/api/kyc/upload`'s 401 (a guest with no verified number) for an expired session and sent the guest to the login screen mid-upload. That also happened on the booking form's own identity upload. `/api/kyc/upload` joins `NOT_AN_EXPIRY` in `client/src/lib/session.ts`, with a test. (2) The longer prompt pushed `brief-02` from 8/8 to 5/8, because for a drop-off order the model read out both counter addresses. The order tool now asks for the areas only, since the Locations button has the addresses; it's 8/8 with all modules and 4/4 with orders only. **Touched outside its files:** `server/routes/support.ts` (4.1's in W6) for the telemetry route, plus `session.ts`, `AccountDocuments.tsx` (a refresh listener, account endpoint only) and `supportOrders.ts`. That's harmless while packages are built one at a time. **Known limit:** a restored transcript keeps text, not cards, so an old "use the card below" reply comes back without its card (the 1.3 limit, now more visible). Checked in headless Chrome at 390px with the account's upload POST mocked (nothing written to the shared DB): a refusal explained with the right retry label, then an upload, the Profile slot refreshed, and both outcomes logged against the turn. 124 unit tests; 47 evals ×3 with all modules (one one-off, `anon-03`, then 8/8 here and on main) and 32/32 ×2 with `--modules orders`.
 
 ### R3 · Booking Copilot
 
@@ -546,6 +546,7 @@ Notes: —
 
 Newest first. One line per merge, decision or surprise.
 
+- 2026-09-12 · 2.5 merged: upload a document from the chat (`offer_document_upload` + docUpload card) for accounts and guests; signups stay on their own screen. Guests are no longer sent to login when an identity upload is refused. **R2 code-complete.** W6 left: 3.1, 3.4, 4.1.
 - 2026-09-12 · **Decision:** 2.4 (photo check), 5.2 (voice notes) and 5.3 (Hindi) dropped. 2.5 now uploads without a photo check and moves to W6; W9 is gone; R5 is nudges only; sample photos are no longer needed. W6 is now 2.5 · 3.1 · 3.4 · 4.1.
 
 - 2026-09-12 · 2.3 merged: one explanation per document verdict on both upload screens and in BIA (`explain_document_issue`). **Wave W5 done.** W6 next: 2.4 photo check (needs your sample photos to tune), 3.1 booking context, 3.4 restricted items (waits on Bombino's lists), 4.1 support cases (writes a migration).
