@@ -94,6 +94,13 @@ Sessions write them; Aditya runs each in Supabase before its package merges.
 - [ ] **Sample document photos** (20–30, sharp, blurred, glare, cropped; own or team documents, kept out of the repo). Needed by 2.4.
 - [ ] **Scheduler:** point the external scheduler at `POST /api/admin/bia/nudges/sweep` with the retention-sweep secret. Needed by 5.1.
 
+## Follow-ups
+
+Found along the way; not a package yet. Give one a number and a row above when it's picked up.
+
+- [ ] **Resume signup at the documents step** (from 2.2). "Continue signup" opens the right form on the details step. Signup keeps no form state on the server, so a true resume means saving it (for a guest, the guest profile already covers the details). Touches `Signup.tsx` and the signup routes.
+- [ ] **`skipped` on Profile** (for 2.3). BIA reads a `skipped` document as on file, but Profile's "Finish verifying your account" section still shows for it, because `verificationState` counts only `match` and `bypassed` as done. 2.3 owns the upload screens; decide there whether `skipped` should count as done too.
+
 ## Package checklists
 
 ### R0 · Ship BIA 2.0
@@ -302,7 +309,7 @@ Done when
 - [x] Eval: a half-finished E-commerce signup → "3 of 4 uploaded, the GST certificate needs a clearer photo, the authorization letter still to come" (`docs-01`; the plan's "4 of 6" predates the real E-commerce list, which is 4 documents)
 - [x] No reply carries more than four digits of an ID number (staged numbers join the eval's forbidden list; unit tests on the summary)
 
-Notes: Signup now tells BIA which account is being opened (screen `account`, signup only, allow-listed) and publishes its step, so the support button opens BIA on the right step. **Known limit:** "Continue signup" opens the right form on the details step, not the documents step: signup keeps no form state on the server, so the details and the phone check come again, and the staged documents are waiting once they're back. Verified over HTTP on `127.0.0.1:5001` (the Chrome extension wasn't connected, so the card isn't checked visually yet): an account gets its card and the button only off the documents screen; guest 9000000091 gets its real signup rows (Aadhaar on file, PAN to upload, no digits); a number that has verified but staged nothing yet is told nothing is recorded, not sent to the Ship screen (first wording did that; fixed). `finalizeReply` also drops the ": BOM-…" a token leaves when written with a space after its colon (the 0.1 edge case). **Also fixed:** `supportTelemetry.test.ts` was writing to the shared database when the Supabase keys are in the shell (they are on this machine), and failed once `bia_turns` existed; it clears them now. 107 unit tests; 41 evals ×3 with all modules (two one-off flakes, `anon-07` and `brief-02`, each then 5/5), 31/31 ×2 with `--modules orders`.
+Notes: Signup now tells BIA which account is being opened (screen `account`, signup only, allow-listed) and publishes its step, so the support button opens BIA on the right step. **Known limit:** "Continue signup" opens the right form on the details step, not the documents step: signup keeps no form state on the server, so the details and the phone check come again, and the staged documents are waiting once they're back. Checked in headless Chrome at 390px and 1440px (2026-09-12): card, "My documents" landing on Profile's `#documents` (it now clears the sticky header with `scroll-mt-20`), and "Continue signup" landing on details with the guest's name, email and phone already filled. Verified over HTTP on `127.0.0.1:5001`: an account gets its card and the button only off the documents screen; guest 9000000091 gets its real signup rows (Aadhaar on file, PAN to upload, no digits); a number that has verified but staged nothing yet is told nothing is recorded, not sent to the Ship screen (first wording did that; fixed). `finalizeReply` also drops the ": BOM-…" a token leaves when written with a space after its colon (the 0.1 edge case). **Also fixed:** `supportTelemetry.test.ts` was writing to the shared database when the Supabase keys are in the shell (they are on this machine), and failed once `bia_turns` existed; it clears them now. 107 unit tests; 41 evals ×3 with all modules (two one-off flakes, `anon-07` and `brief-02`, each then 5/5), 31/31 ×2 with `--modules orders`.
 
 #### 2.3 Verdict explainer on the upload screens
 

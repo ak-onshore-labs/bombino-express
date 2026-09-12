@@ -414,7 +414,7 @@ export default function Profile() {
             {verification && !verification.verified && (
               <div
                 id="documents"
-                className="bg-white rounded-2xl border border-amber-200 p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)] space-y-3"
+                className="scroll-mt-20 bg-white rounded-2xl border border-amber-200 p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)] space-y-3"
                 data-testid="profile-documents-section"
               >
                 <div>
