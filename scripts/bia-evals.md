@@ -86,6 +86,11 @@ Cases live in `scripts/bia-evals/cases/*.json`, one array per file. For example:
   `{ "surface": "create", "step": "sender", "errorCode": "KYC_REQUIRED" }`.
   It goes through `parseBiaScreen` like the real route, so a case can also
   prove that junk is dropped (see `screen.json`).
+- `signup` (optional, signed-out identities only): a half-finished signup,
+  `{ numbers: [{ kind, document_no }], documents: [{ doc_slot, ocr_status }] }`,
+  staged in memory for `get_signup_progress` to find (see `documents.json`).
+  Nothing is written to the database. Its numbers join the forbidden list, so
+  a reply quoting more than four digits of one fails.
 - In `contains`, `notContains` and `buttonsNot`, a plain string matches
   case-insensitively as a substring; `re:…` is a case-insensitive regex.
   `contains` looks at the text only; `notContains` also covers the button lines.

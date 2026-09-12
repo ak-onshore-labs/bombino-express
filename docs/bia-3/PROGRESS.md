@@ -27,8 +27,8 @@ The single place to see where the BIA 3.0 build stands.
 | [1.5](#15-module-prompts-and-tool-registry) | Module prompts and tool registry | R1 | W4 | M · 1 d | 1.3 | ✅ | `bia-3/wp1-5` → merged locally (604f328) | 2026-09-11 |
 | [1.6](#16-privacy-filter-telemetry-and-feedback) | Privacy filter, telemetry and feedback | R1 | W4 | M · 1 d | 1.3 | ✅ | `bia-3/wp1-6` → merged locally (ea55620); **migration not run** | 2026-09-11 |
 | [1.7](#17-guest-chat-history) | Guest chat history | R1 | W5 | S · ½ d | 1.4, 1.6 | ✅ | `bia-3/wp1-7` → merged locally (4437aa4); **migration not run** | 2026-09-11 |
-| [2.1](#21-account-matchmaker) | Account Matchmaker | R2 | W5 | M · 1 d | 1.5 | ⬜ | `bia-3/wp2-1` | |
-| [2.2](#22-signup-progress-and-document-status) | Signup progress and document status | R2 | W5 | M · 1 d | 1.5 | ⬜ | `bia-3/wp2-2` | |
+| [2.1](#21-account-matchmaker) | Account Matchmaker | R2 | W5 | M · 1 d | 1.5 | ✅ | `bia-3/wp2-1` → merged locally (5a50de9) | 2026-09-11 |
+| [2.2](#22-signup-progress-and-document-status) | Signup progress and document status | R2 | W5 | M · 1 d | 1.5 | ✅ | `bia-3/wp2-2` → merged locally (ad43d6c) | 2026-09-12 |
 | [2.3](#23-verdict-explainer-on-the-upload-screens) | Verdict explainer on the upload screens | R2 | W5 | S · ½ d | 1.2 | ⬜ | `bia-3/wp2-3` | |
 | [2.4](#24-photo-check-before-upload) | Photo check before upload | R2 | W6 | M · 1 d | 2.3 | ⬜ | `bia-3/wp2-4` | |
 | [2.5](#25-upload-card-inside-the-chat) | Upload card inside the chat | R2 | W7 | M · 1 d | 2.2, 2.4 | ⬜ | `bia-3/wp2-5` | |
@@ -270,39 +270,39 @@ Notes: Before the migration it fails soft: guests chat as before with the tab's 
 
 #### 2.1 Account Matchmaker
 
-**Status:** ⬜ · **After:** 1.5 · **Owns:** `pages/Signup.tsx`
+**Status:** ✅ · **After:** 1.5 · **Owns:** `pages/Signup.tsx`
 
 Answer "which account do I need?" from a fixed decision table, with the exact document list.
 
 Build
-- [ ] `shared/accountMatch.ts`: answers (for a business, sells online under LUT, is a courier, stock held by Bombino) → personal, corporate, co_courier, ecommerce or fbb. Unit tests for every path.
-- [ ] Onboarding tools: `recommend_account` (a checklist card from `requiredDocuments`, `requiredExtraFields` and `DOC_SLOT_SPECS`) and `explain_term` (GSTIN, IEC, LUT, AD code, IEC branch code, authorization letter).
-- [ ] Signup reads `?category=` and preselects it; a SIGNUP button kind (type and category).
-- [ ] The guest-or-account answer comes from the guidance content.
+- [x] `shared/accountMatch.ts`: answers (for a business, sells online under LUT, is a courier, stock held by Bombino) → personal, corporate, co_courier, ecommerce or fbb. Unit tests for every path.
+- [x] Onboarding tools: `recommend_account` (a checklist card from `requiredDocuments`, `requiredExtraFields` and `DOC_SLOT_SPECS`) and `explain_term` (GSTIN, IEC, LUT, AD code, IEC branch code, authorization letter, plus PAN).
+- [x] Signup reads `?category=` and preselects it; a SIGNUP button kind (`TAP_SIGNUP:<kind>`, for anyone without an account).
+- [x] The guest-or-account answer comes from the guidance content (`supportContent`).
 
 Done when
-- [ ] Every category's checklist equals `requiredDocuments` plus `requiredExtraFields` (test)
-- [ ] Eval: the Etsy-seller prompt → E-commerce, the right list, and a working button
+- [x] Every category's checklist equals `requiredDocuments` plus `requiredExtraFields` (test)
+- [x] Eval: the Etsy-seller prompt → E-commerce, the right list, and a working button (`onboard-01`; all five onboarding cases 3/3 in the 2.2 session's full run)
 
-Notes: —
+Notes: Cards got a shared `biaCardKey` so new kinds dedupe correctly. The eval runner learned `requires` (a case needing a module that's off is skipped, not failed) and retries a turn that hit the rate limit. The status board wasn't updated when it merged; done with 2.2.
 
 #### 2.2 Signup progress and document status
 
-**Status:** ⬜ · **After:** 1.5
+**Status:** ✅ · **After:** 1.5
 
 BIA can say where a signup, or an account's documents, stand without asking.
 
 Build
-- [ ] `get_signup_progress`: from the session's `signupRef`, via `listIdentityVerificationsBySignupRef` and `listDocumentsBySignupRef`: numbers recorded (last four only), slots uploaded with verdicts, slots still missing (`missingDocuments`).
-- [ ] `get_document_status` for accounts, via `getVerificationState`.
-- [ ] docStatus card, and a RESUME_SIGNUP button to the right step.
-- [ ] `bypassed` and `skipped` read as on file, with no verification talk.
+- [x] `get_signup_progress`: from the session's `signupRef`, via `listIdentityVerificationsBySignupRef` and `listDocumentsBySignupRef`: numbers recorded (last four only), slots uploaded with verdicts, slots still missing. (`server/supportDocuments.ts`; the ref reaches BIA only while `signupPhone` is set, the same binding as `signupRefForReading`.)
+- [x] `get_document_status` for accounts. **Changed:** reads `getAccountShapeById` + `listDocumentsByUserId` and summarises with the same code as signup, instead of `getVerificationState`, so both scopes say the same thing.
+- [x] docStatus card, `TAP_RESUME_SIGNUP` (an account kind, or `company`) and `TAP_ACCOUNT_DOCUMENTS` (Profile `#documents`). Neither button is offered on the screen it points at.
+- [x] `bypassed` and `skipped` read as on file, with no verification talk; only `match` says it matched.
 
 Done when
-- [ ] Eval: a half-finished E-commerce signup → "4 of 6 uploaded, PAN matched, Aadhaar needs a clearer photo"
-- [ ] No reply carries more than four digits of an ID number
+- [x] Eval: a half-finished E-commerce signup → "3 of 4 uploaded, the GST certificate needs a clearer photo, the authorization letter still to come" (`docs-01`; the plan's "4 of 6" predates the real E-commerce list, which is 4 documents)
+- [x] No reply carries more than four digits of an ID number (staged numbers join the eval's forbidden list; unit tests on the summary)
 
-Notes: —
+Notes: Signup now tells BIA which account is being opened (screen `account`, signup only, allow-listed) and publishes its step, so the support button opens BIA on the right step. **Known limit:** "Continue signup" opens the right form on the details step, not the documents step: signup keeps no form state on the server, so the details and the phone check come again, and the staged documents are waiting once they're back. Verified over HTTP on `127.0.0.1:5001` (the Chrome extension wasn't connected, so the card isn't checked visually yet): an account gets its card and the button only off the documents screen; guest 9000000091 gets its real signup rows (Aadhaar on file, PAN to upload, no digits); a number that has verified but staged nothing yet is told nothing is recorded, not sent to the Ship screen (first wording did that; fixed). `finalizeReply` also drops the ": BOM-…" a token leaves when written with a space after its colon (the 0.1 edge case). **Also fixed:** `supportTelemetry.test.ts` was writing to the shared database when the Supabase keys are in the shell (they are on this machine), and failed once `bia_turns` existed; it clears them now. 107 unit tests; 41 evals ×3 with all modules (two one-off flakes, `anon-07` and `brief-02`, each then 5/5), 31/31 ×2 with `--modules orders`.
 
 #### 2.3 Verdict explainer on the upload screens
 
@@ -535,6 +535,9 @@ Notes: —
 ## Log
 
 Newest first. One line per merge, decision or surprise.
+
+- 2026-09-12 · 2.2 merged: `get_signup_progress` and `get_document_status`, docStatus card, resume-signup and my-documents buttons. The telemetry unit tests had been writing a fixed-id row to the shared `bia_turns`; fixed. 2.3 is the last W5 package.
+- 2026-09-11 · 2.1 merged: Account Matchmaker (`recommend_account`, `explain_term`, `TAP_SIGNUP`, `?category=` on signup).
 
 - 2026-09-11 · Both R1 migrations run in Supabase (`create_bia_turns.sql`, `support_sessions_guest_ref.sql`). Left before merging into `aditya/final-phase`: check turn rows for 1.6 and guest history across tabs/devices for 1.7.
 - 2026-09-11 · 1.7 merged: guest conversations kept on the server (after `support_sessions_guest_ref.sql`). **R1 code-complete.** Waiting on two migrations before merging into `aditya/final-phase`.
