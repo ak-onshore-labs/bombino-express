@@ -2,7 +2,6 @@ import { ChevronRight, FileText, MapPin, Package, Radar, Tag, Truck } from 'luci
 import type { BiaCard, BiaCardTone, ChecklistCard, DocStatusCard, HsnCard, OrderCard, PickupCard, RateCard } from '@shared/biaCards';
 import { cn } from '@/lib/utils';
 import { CARD, TONE_CLASS } from './cardStyles';
-import { DocUploadCardView } from './DocUploadCard';
 
 /**
  * The cards under a BIA reply (shared/biaCards.ts). Drawn on the chat's dark
@@ -37,15 +36,6 @@ export function BiaCards({
             return <ChecklistCardView key={`c-${card.choice}`} card={card} />;
           case 'docStatus':
             return <DocStatusCardView key={`d-${card.scope}`} card={card} />;
-          case 'docUpload':
-            return (
-              <DocUploadCardView
-                key={`u-${card.target}-${card.slot ?? card.documentType}`}
-                card={card}
-                turnId={turnId}
-                onNavigate={onNavigate}
-              />
-            );
           case 'hsn':
             return <HsnCardView key={`hsn-${card.item}`} card={card} />;
           default:

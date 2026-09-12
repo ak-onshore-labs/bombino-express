@@ -31,6 +31,10 @@ const SUPPORT_CHAT_MAX_TOOL_ITERATIONS = 5;
 export const ASKS_FOR_A_PERSON =
   /\b(speak|talk|chat)\s+(to|with)\s+(someone|somebody|a\s+(real\s+)?(person|human)|an?\s+(agent|executive)|your\s+(team|staff|support)|support|customer\s+care)\b|\bcustomer\s+care\b|\b(real|actual)\s+(person|human)\b|\bcall\s+me\b/i;
 
+/** "Can I upload my PAN here", "let me send a clearer photo of my Aadhaar". */
+export const ASKS_TO_UPLOAD =
+  /\b(upload|re-?upload|retake|replace|re-?send|send|submit)\b[^.?!]{0,60}\b(documents?|photo|picture|pic|scan|pan|aadhaar|passport|licen[cs]e|gst|certificate|id|kyc)\b/i;
+
 function getOpenAIClient(): OpenAI | null {
   const key = process.env.OPENAI_API_KEY;
   if (!key || typeof key !== "string" || key.trim() === "") return null;
@@ -127,6 +131,12 @@ export async function handleChat(
    * no buttons at all.
    */
   const personButton = ASKS_FOR_A_PERSON.test(lastUserText) ? "TAP_CONTACT_US" : null;
+  /**
+   * BIA can't upload anything. An account asking to upload a document in the
+   * chat is told where to do it, and leaves with the button to its documents
+   * on Profile even when the reply forgot it. Navigation only.
+   */
+  const uploadButton = owner?.kind === "account" && ASKS_TO_UPLOAD.test(lastUserText) ? "TAP_ACCOUNT_DOCUMENTS" : null;
 
   try {
     for (let iteration = 0; iteration < SUPPORT_CHAT_MAX_TOOL_ITERATIONS; iteration++) {
@@ -153,7 +163,15 @@ export async function handleChat(
           owner,
           ownedOrderNos,
           fallbackTokens:
-            lastToolTokens.length > 0 ? lastToolTokens : errorButton ? [errorButton] : personButton ? [personButton] : [],
+            lastToolTokens.length > 0
+              ? lastToolTokens
+              : errorButton
+                ? [errorButton]
+                : personButton
+                  ? [personButton]
+                  : uploadButton
+                    ? [uploadButton]
+                    : [],
           offeredSections,
           askedSections: sectionsAskedAbout(lastUserText),
         });

@@ -1,7 +1,7 @@
 import type { BiaCardTone } from '@shared/biaCards';
 
 /**
- * The look BIA's cards share (BiaCards.tsx, DocUploadCard.tsx). Status colours
+ * The look BIA's cards share (BiaCards.tsx). Status colours
  * are dark-tuned copies of the app's badge tones, for the chat's dark ground.
  */
 export const TONE_CLASS: Record<BiaCardTone, string> = {

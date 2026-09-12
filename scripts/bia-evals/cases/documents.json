@@ -123,29 +123,16 @@
     }
   },
   {
-    "id": "docs-09-account-uploads-from-chat",
+    "id": "docs-09-upload-in-chat-gets-instructions",
     "module": "documents",
     "requires": ["documents"],
     "identity": "account",
     "screen": { "surface": "help" },
     "turns": ["Can I upload a clearer photo of my PAN card right here?"],
     "expect": {
-      "tools": ["offer_document_upload"],
-      "cards": ["docUpload"],
-      "notContains": ["re:(has|have|was|been) (now )?(been )?uploaded|i.ve uploaded|i uploaded|type (your|the) (pan|number) (here|in (the|this) chat)"]
-    }
-  },
-  {
-    "id": "docs-10-guest-replaces-id-from-chat",
-    "module": "documents",
-    "requires": ["documents"],
-    "identity": "guest",
-    "screen": { "surface": "help" },
-    "turns": ["I'd like to replace my ID document here in the chat."],
-    "expect": {
-      "tools": ["offer_document_upload"],
-      "cards": ["docUpload"],
-      "notContains": ["re:(has|have|was|been) (now )?(been )?uploaded|i.ve uploaded|bypass|unverified"]
+      "contains": ["re:profile"],
+      "buttons": ["TAP_ACCOUNT_DOCUMENTS"],
+      "notContains": ["re:(has|have|was|been) (now )?(been )?uploaded|i.ve uploaded|i uploaded|upload (it )?(here|below)|card below"]
     }
   },
   {
@@ -156,7 +143,7 @@
     "screen": { "surface": "signup", "step": "details", "account": "personal" },
     "turns": ["Can I just upload my Aadhaar to you here instead?"],
     "expect": {
-      "contains": ["re:documents step|signup (screen|form|page)|on the signup"],
+      "contains": ["re:documents? step|signup (screen|form|page|process)|on the signup"],
       "noCards": true
     }
   }

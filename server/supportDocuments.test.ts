@@ -4,7 +4,6 @@ import {
   describeSummary,
   executeExplainDocumentIssue,
   executeGetDocumentStatus,
-  executeOfferDocumentUpload,
   executeGetSignupProgress,
   inferShape,
   replaceSignupLoader,
@@ -195,19 +194,3 @@ test("a guest is sent back to the booking form's identity upload, never to an ac
   assert.doesNotMatch(out, /TAP_ACCOUNT_DOCUMENTS|Profile/);
 });
 
-// Only the branches that return before any lookup: the rest read the shared
-// database, and are covered by the evals (documents.json) instead.
-test("no upload card for someone signed out, or for a signup: signup's own screen does those", async () => {
-  const signedOut = await executeOfferDocumentUpload({ document: "aadhaar_card" }, anon);
-  assert.equal(signedOut.cards, undefined);
-  assert.match(signedOut.content, /aren't signed in/);
-  const signingUp = await executeOfferDocumentUpload({ document: "pan_card" }, { ...anon, signupRef: "ref-1" });
-  assert.equal(signingUp.cards, undefined);
-  assert.match(signingUp.content, /signup's documents step/);
-});
-
-test("an account must name a real document before a card is offered", async () => {
-  const out = await executeOfferDocumentUpload({ document: "passport" }, accountCtx);
-  assert.equal(out.cards, undefined);
-  assert.match(out.content, /Ask which document/);
-});

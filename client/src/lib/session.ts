@@ -46,7 +46,7 @@ const NOT_AN_EXPIRY = [
   '/api/guest/',
   // The identity upload a guest shares with accounts. Its 401 (code
   // phone_unverified) is the same "no verified number here" answer, and the
-  // upload box — on the booking form or in BIA's chat — explains it in place.
+  // upload box on the booking form explains it in place.
   // Taking it as an expiry sent a guest to the login screen mid-upload. An
   // account whose session really died is still caught by the next request.
   '/api/kyc/upload',

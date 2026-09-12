@@ -6,31 +6,8 @@ import {
   isBiaCard,
   parseBiaCards,
   toneForOrderStatus,
-  type DocUploadCard,
   type OrderCard,
 } from "./biaCards.js";
-
-test("an upload card names a known endpoint and document, and never a whole number", () => {
-  const account: DocUploadCard = {
-    kind: "docUpload",
-    target: "account",
-    slot: "aadhaar_card",
-    documentType: null,
-    label: "Aadhaar Card",
-    numberEnding: "2346",
-    needsNumber: false,
-  };
-  const kyc: DocUploadCard = { ...account, target: "kyc", slot: null, documentType: "Aadhaar Number", needsNumber: true };
-  assert.equal(isBiaCard(account), true);
-  assert.equal(isBiaCard(kyc), true);
-  assert.equal(isBiaCard({ ...account, numberEnding: "234123412346" }), false, "a whole Aadhaar");
-  assert.equal(isBiaCard({ ...account, target: "signup" }), false, "no signup uploads from chat");
-  assert.equal(isBiaCard({ ...account, slot: "passport" }), false);
-  assert.equal(isBiaCard({ ...account, documentType: "Aadhaar Number" }), false, "an account card has a slot, not a type");
-  assert.equal(isBiaCard({ ...kyc, documentType: "Ration Card" }), false);
-  assert.equal(isBiaCard({ ...kyc, url: "https://evil.example/upload" }), true, "extra fields are ignored; the client never reads a URL");
-  assert.notEqual(biaCardKey(account), biaCardKey(kyc));
-});
 
 const order: OrderCard = {
   kind: "order",

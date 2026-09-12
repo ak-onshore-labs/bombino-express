@@ -5,7 +5,6 @@ import { ocrErrorCode } from '@shared/errorCatalog';
 import { explainDocumentIssue } from '@shared/ocrExplain';
 import { AskBiaLink } from '@/components/bia/AskBiaLink';
 import { DocumentIssueNote } from '@/components/DocumentIssueNote';
-import { DOCUMENTS_CHANGED_EVENT } from '@/lib/biaEvents';
 import {
   CloudUpload,
   CheckCircle2,
@@ -372,16 +371,6 @@ export function AccountDocuments({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phone, basePath, endpoint, reloadKey]);
 
-  // A document uploaded from BIA's chat (DocUploadCard) lands on the server,
-  // not here: read the account's documents again when one does. Account only —
-  // on signup the load above also resets the identity numbers, and chat never
-  // uploads to a signup anyway.
-  useEffect(() => {
-    if (endpoint !== 'account') return;
-    const onChanged = (): void => setReloadKey((k) => k + 1);
-    window.addEventListener(DOCUMENTS_CHANGED_EVENT, onChanged);
-    return () => window.removeEventListener(DOCUMENTS_CHANGED_EVENT, onChanged);
-  }, [endpoint]);
 
   // Report upward on every change. The parent gates "create account" on this,
   // and the server refuses the same set independently.
