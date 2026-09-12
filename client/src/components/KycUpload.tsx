@@ -12,7 +12,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import type { BiaScreen } from '@shared/biaScreen';
+import { explainDocumentIssue, type DocumentIssue } from '@shared/ocrExplain';
 import { AskBiaLink } from '@/components/bia/AskBiaLink';
+import { DocumentIssueNote } from '@/components/DocumentIssueNote';
 import { AADHAAR_DISPLAY_MAX_LENGTH, readAadhaarInput } from '@/lib/aadhaarInput';
 
 export const KYC_DOCUMENT_TYPE = 'Aadhaar Number';
@@ -90,13 +93,10 @@ const DOC_TYPES: Record<string, DocConfig> = {
 const DOC_TYPE_KEYS = Object.keys(DOC_TYPES);
 
 /**
- * OCR outcomes worth telling the customer about. A contradicting number, the
- * wrong document or a tamper signal never reaches a successful response — the
- * server refuses those uploads with 422 and the message lands in the error
- * state below. What is left says the document went in *unverified*, which
- * should not look identical to a clean pass.
+ * Where "Ask BIA" says the customer is. The identity upload sits in the
+ * booking form's sender step, which is where most customers meet it.
  */
-const OCR_SILENT = new Set(['match', 'skipped', 'bypassed']);
+const KYC_BIA_SCREEN: Omit<BiaScreen, 'errorCode'> = { surface: 'create', step: 'sender' };
 
 const ALLOWED_MIME_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png']);
 const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB — must match kycUpload in server/routes.ts
@@ -130,6 +130,14 @@ export function KycUpload({
   /** The catalogued code behind `uploadError`, when the server sent one. */
   const [uploadErrorCode, setUploadErrorCode] = useState<string | null>(null);
   const [ocrNote, setOcrNote] = useState('');
+  /**
+   * What an accepted upload's verdict means, when it means anything
+   * (shared/ocrExplain.ts). A contradicting number, the wrong document or a
+   * tamper signal never gets here — the server refuses those with 422 and they
+   * land in the error state. What's left is a file kept but not checked, which
+   * shouldn't look identical to a clean pass.
+   */
+  const [ocrIssue, setOcrIssue] = useState<DocumentIssue | null>(null);
   const [uploadResult, setUploadResult] = useState<KycUploadResult | null>(null);
   const [selectedFileName, setSelectedFileName] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -162,6 +170,7 @@ export function KycUpload({
     setUploadStatus('idle');
     setUploadError('');
     setOcrNote('');
+    setOcrIssue(null);
     setUploadResult(null);
     setSelectedFileName('');
     pendingFileRef.current = null;
@@ -175,6 +184,7 @@ export function KycUpload({
     setUploadStatus('uploading');
     setUploadError('');
     setOcrNote('');
+    setOcrIssue(null);
     setUploadResult(null);
     syncToParent(documentNo, null, selectedDocType);
 
@@ -214,9 +224,9 @@ export function KycUpload({
         capability_id: string;
         ocr?: { status?: string; message?: string };
       };
-      setOcrNote(
-        data.ocr && !OCR_SILENT.has(data.ocr.status ?? '') ? (data.ocr.message ?? '') : '',
-      );
+      const issue = explainDocumentIssue({ verdict: data.ocr?.status });
+      setOcrIssue(issue);
+      setOcrNote(issue ? (data.ocr?.message ?? '') : '');
       const result: KycUploadResult = {
         document_type: data.document_type,
         last_four: data.last_four,
@@ -322,11 +332,15 @@ export function KycUpload({
 
   async function handleFileSelect(file: File): Promise<void> {
     if (!ALLOWED_MIME_TYPES.has(file.type)) {
+      // The code is cleared too: one left from an earlier refusal would explain
+      // the wrong problem in place of this message.
+      setUploadErrorCode(null);
       setUploadError('Only PDF, JPEG, or PNG files are accepted.');
       setUploadStatus('error');
       return;
     }
     if (file.size > MAX_FILE_SIZE) {
+      setUploadErrorCode(null);
       setUploadError('File must be under 4MB.');
       setUploadStatus('error');
       return;
@@ -363,6 +377,8 @@ export function KycUpload({
   /** Pending = file selected, waiting for valid number — not a missing file for Continue validation */
   const showFileError =
     fieldErrors?.file && uploadStatus !== 'success' && uploadStatus !== 'pending';
+  /** A refused upload, explained the way BIA explains it; null keeps the server's message. */
+  const refusal = uploadStatus === 'error' ? explainDocumentIssue({ code: uploadErrorCode }) : null;
   const showIncompleteHint =
     fieldErrors?.document_no &&
     docNoRaw.length > 0 &&
@@ -527,16 +543,25 @@ export function KycUpload({
           {uploadStatus === 'error' && (
             <>
               <XCircle className="w-6 h-6 text-red-500" />
-              <p className="text-xs text-red-600 text-center leading-tight px-2">
-                {uploadError}
-              </p>
-              <AskBiaLink screen={{ surface: 'create', step: 'sender' }} code={uploadErrorCode} message={uploadError} />
+              {refusal ? (
+                // Explained below the box; here, just which file it was.
+                selectedFileName && (
+                  <p className="text-xs text-red-600 font-medium truncate max-w-[200px]">{selectedFileName}</p>
+                )
+              ) : (
+                <>
+                  <p className="text-xs text-red-600 text-center leading-tight px-2">
+                    {uploadError}
+                  </p>
+                  <AskBiaLink screen={KYC_BIA_SCREEN} code={uploadErrorCode} message={uploadError} />
+                </>
+              )}
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
                 className="text-[11px] text-primary underline"
               >
-                Try again
+                {refusal?.retryLabel ?? 'Try again'}
               </button>
             </>
           )}
@@ -545,10 +570,11 @@ export function KycUpload({
         {showFileError && (
           <p className="text-xs text-red-600 mt-1">Please upload your {docConfig.label} document</p>
         )}
-        {uploadStatus === 'success' && ocrNote && (
-          <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 mt-1.5">
-            {ocrNote}
-          </p>
+        {refusal && (
+          <DocumentIssueNote issue={refusal} refused screen={KYC_BIA_SCREEN} message={uploadError} className="mt-1.5" />
+        )}
+        {uploadStatus === 'success' && ocrIssue && (
+          <DocumentIssueNote issue={ocrIssue} refused={false} screen={KYC_BIA_SCREEN} message={ocrNote} className="mt-1.5" />
         )}
         <div className="flex items-center gap-1 mt-1.5">
           <FileText className="w-3 h-3 text-muted-foreground" />

@@ -113,6 +113,7 @@ export const MODULE_PROMPTS: Record<BiaModuleOrGeneral, ModulePrompt> = {
   documents: {
     tools: [
       "- Documents and identity checks: if the SCREEN block names an error, explain that.",
+      '- explain_document_issue: they describe or quote a document message ("couldn\'t be read", "doesn\'t match", "wrong document", "screenshot"). Explain it with the tool\'s words, never your own guess at the cause.',
       "- get_document_status: a signed-in account asking about its documents, what's missing or what needs replacing. For a guest's one identity document, get_my_kyc_status. For what is needed and why, get_shipment_guidance (topics: kyc, documents).",
     ],
   },

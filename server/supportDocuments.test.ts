@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   describeSummary,
+  executeExplainDocumentIssue,
   executeGetDocumentStatus,
   executeGetSignupProgress,
   inferShape,
@@ -9,6 +10,7 @@ import {
   summarizeDocuments,
 } from "./supportDocuments.js";
 import type { SupportChatContext } from "./supportTypes.js";
+import { ERROR_CATALOG } from "../shared/errorCatalog.js";
 
 const anon: SupportChatContext = {
   user: null,
@@ -146,4 +148,48 @@ test("no signup under way, or an account holder, gets no lookup", async () => {
 test("document status is for accounts; a guest and a visitor are pointed elsewhere", async () => {
   assert.match((await executeGetDocumentStatus(anon)).content, /aren't signed in/);
   assert.match((await executeGetDocumentStatus({ ...anon, guestRef: "g1" })).content, /get_my_kyc_status/);
+});
+
+test("a checked document with no verdict at all is asked for again, as the upload screen asks", () => {
+  const s = summarizeDocuments("personal", [], [
+    { doc_slot: "aadhaar_card", ocr_status: null },
+    { doc_slot: "pan_card", ocr_status: "bypassed" },
+  ]);
+  const aadhaar = s.items.find((i) => i.slot === "aadhaar_card");
+  assert.equal(aadhaar?.state, "attention");
+  assert.equal(aadhaar?.note, ERROR_CATALOG.DOCUMENTS_UNVERIFIED.title);
+  assert.equal(s.items.find((i) => i.slot === "pan_card")?.state, "on_file");
+});
+
+const accountCtx: SupportChatContext = {
+  ...anon,
+  user: { id: "c", email: "", fullName: "", code: "" },
+  dbUserId: "u1",
+};
+
+test("explain_document_issue words a problem the way the upload screen does", () => {
+  const out = executeExplainDocumentIssue({ issue: "unreadable" }, accountCtx).content;
+  assert.match(out, new RegExp(ERROR_CATALOG.OCR_UNREADABLE.title));
+  assert.ok(out.includes(ERROR_CATALOG.OCR_UNREADABLE.fix));
+  assert.match(out, /Profile/);
+  assert.match(out, /TAP_ACCOUNT_DOCUMENTS/);
+  // Already on the documents screen: no button back to it.
+  const here = executeExplainDocumentIssue({ issue: "unreadable" }, { ...accountCtx, screen: { surface: "documents" } });
+  assert.doesNotMatch(here.content, /TAP_ACCOUNT_DOCUMENTS/);
+});
+
+test("with no issue named, the one on screen is explained; with neither, BIA asks", () => {
+  const onScreen = executeExplainDocumentIssue({}, { ...anon, screen: { surface: "signup", errorCode: "OCR_TAMPERED" } });
+  assert.match(onScreen.content, new RegExp(ERROR_CATALOG.OCR_TAMPERED.title));
+  assert.match(onScreen.content, /signup's documents step/);
+  assert.match(executeExplainDocumentIssue({ issue: "made_up" }, anon).content, /word for word/);
+  // A non-document error on screen isn't this tool's to explain.
+  const otp = executeExplainDocumentIssue({}, { ...anon, screen: { surface: "signup", errorCode: "OTP_RATE_LIMITED" } });
+  assert.match(otp.content, /word for word/);
+});
+
+test("a guest is sent back to the booking form's identity upload, never to an account's Profile", () => {
+  const out = executeExplainDocumentIssue({ issue: "mismatch" }, { ...anon, guestRef: "g1" }).content;
+  assert.match(out, /booking form/);
+  assert.doesNotMatch(out, /TAP_ACCOUNT_DOCUMENTS|Profile/);
 });

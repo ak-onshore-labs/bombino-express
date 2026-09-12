@@ -1,18 +1,21 @@
 /**
  * Where a signup, or an account's documents, stand (BIA 3.0, package 2.2):
  * get_signup_progress while an account is being opened, get_document_status
- * once it exists.
+ * once it exists. And what a document problem means (2.3):
+ * explain_document_issue, in the upload screens' own words.
  *
  * Read-only, and owned by the session alone: a signup is the session's own
  * signupRef (bound to the phone it verified, as signupRefForReading in
- * routes.ts), an account is its dbUserId. The model passes nothing.
+ * routes.ts), an account is its dbUserId. The model passes nothing but, for
+ * explain_document_issue, which problem to explain.
  *
  * What leaves this file:
  *   - identity numbers as their last four characters, never more
  *   - a document as on file, needing attention, or still to upload. `bypassed`
- *     and `skipped` read as on file with nothing said about checking, since
- *     while Cashfree runs on test credentials nothing was checked and the
- *     customer is never told so. Only `match` may say it matched.
+ *     (the check switched off while Cashfree runs on test credentials, which
+ *     the customer is never told) and `skipped` (a document nothing reads)
+ *     read as on file with nothing said about checking. Only `match` may say
+ *     it matched. Problems are worded by shared/ocrExplain.ts.
  */
 
 import { getAccountShapeById } from "./appDb.js";
@@ -33,7 +36,12 @@ import {
   type DocSlot,
 } from "../shared/accountSpec.js";
 import type { DocStatusCard } from "../shared/biaCards.js";
-import { explainError, ocrErrorCode } from "../shared/errorCatalog.js";
+import {
+  DOCUMENT_ISSUE_NAMES,
+  explainDocumentIssue,
+  explainDocumentIssueByName,
+  isDocumentIssueName,
+} from "../shared/ocrExplain.js";
 
 // ─── The summary (pure) ──────────────────────────────────────────────────────
 
@@ -108,9 +116,13 @@ function itemFor(slot: DocSlot, row: SlotRecord | undefined): DocItem {
   // Bills, letters and the IEC certificate are on file by being there.
   if (!isVerifiedDocSlot(slot)) return { slot, label, state: "on_file", note: null, fix: null };
   if (row.ocr_status === "match") return { slot, label, state: "on_file", note: "Matches the number given", fix: null };
-  const problem = explainError(ocrErrorCode(row.ocr_status));
+  // The same words the upload screen shows for this verdict. A checked
+  // document with no verdict at all predates the checks; the screen asks for
+  // it again, so this does too.
+  const problem =
+    row.ocr_status == null ? explainDocumentIssueByName("unverified") : explainDocumentIssue({ verdict: row.ocr_status });
   if (!problem) return { slot, label, state: "on_file", note: null, fix: null };
-  return { slot, label, state: "attention", note: problem.title, fix: problem.fix };
+  return { slot, label, state: "attention", note: problem.headline, fix: problem.fix };
 }
 
 export function summarizeDocuments(
@@ -283,6 +295,53 @@ export async function executeGetDocumentStatus(context: SupportChatContext): Pro
   }
 }
 
+// ─── explain_document_issue ──────────────────────────────────────────────────
+
+/** How the model tells the problems apart, for the tool's `issue` argument. */
+const ISSUE_HINTS: Record<(typeof DOCUMENT_ISSUE_NAMES)[number], string> = {
+  mismatch: "the number on the document doesn't match the one entered",
+  wrong_document: "a different kind of document from the one asked for",
+  tampered: "a screenshot or edited image was refused",
+  unreadable: "the document couldn't be read (blur, glare, cut-off edge)",
+  unavailable: "the document couldn't be checked just now (our checker didn't respond)",
+  unverified: "it just says the document couldn't be verified",
+  outdated: "uploaded for a number that has since changed",
+  number_first: "asked to enter the number before uploading",
+  gstin_changed: "the GST number changed after it was verified",
+};
+
+export function executeExplainDocumentIssue(args: { issue?: unknown }, context: SupportChatContext): ToolOutcome {
+  // What they named, or else the problem on the screen they opened BIA from.
+  const onScreen = explainDocumentIssue({ code: context.screen?.errorCode });
+  const issue = isDocumentIssueName(args.issue) ? explainDocumentIssueByName(args.issue) : onScreen;
+  if (!issue) {
+    return {
+      content:
+        "Not a document problem this can explain. Ask them what the message under the upload box says, word for word.",
+    };
+  }
+
+  const owner = ownerOf(context);
+  const where =
+    owner?.kind === "account"
+      ? "They replace it on their Profile, under their account documents."
+      : owner?.kind === "guest"
+        ? "They replace it where they uploaded it: the identity document in the booking form."
+        : context.signupRef || context.screen?.surface === "signup"
+          ? "They replace it on signup's documents step; everything else they uploaded stays."
+          : null;
+  const lines = [
+    `Problem: ${issue.headline}.`,
+    `Why: ${issue.why}`,
+    `What to do: ${issue.fix}`,
+    ...(where ? [where] : []),
+    "Explain it in two or three sentences, in these words, from their side; don't add causes of your own and don't blame them.",
+  ];
+  if (issue.button) lines.push(issue.button);
+  if (owner?.kind === "account" && context.screen?.surface !== "documents") lines.push("TAP_ACCOUNT_DOCUMENTS");
+  return { content: lines.join("\n") };
+}
+
 // ─── Registration ────────────────────────────────────────────────────────────
 
 export const DOCUMENT_TOOLS: readonly BiaTool[] = [
@@ -311,5 +370,28 @@ export const DOCUMENT_TOOLS: readonly BiaTool[] = [
       },
     },
     run: (_args, context) => executeGetDocumentStatus(context),
+  },
+  {
+    module: "documents",
+    definition: {
+      type: "function",
+      function: {
+        name: "explain_document_issue",
+        description:
+          "What a document problem means and how to fix it, in the same words as the upload screen. For when they describe or quote a document message and the SCREEN block doesn't already explain it.",
+        parameters: {
+          type: "object",
+          properties: {
+            issue: {
+              type: "string",
+              enum: [...DOCUMENT_ISSUE_NAMES],
+              description: DOCUMENT_ISSUE_NAMES.map((name) => `${name}: ${ISSUE_HINTS[name]}`).join("; "),
+            },
+          },
+          required: ["issue"],
+        },
+      },
+    },
+    run: async (args, context) => executeExplainDocumentIssue(args, context),
   },
 ];

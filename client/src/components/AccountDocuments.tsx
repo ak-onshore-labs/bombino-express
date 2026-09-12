@@ -2,7 +2,9 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation } from 'wouter';
 import type { BiaScreen } from '@shared/biaScreen';
 import { ocrErrorCode } from '@shared/errorCatalog';
+import { explainDocumentIssue } from '@shared/ocrExplain';
 import { AskBiaLink } from '@/components/bia/AskBiaLink';
+import { DocumentIssueNote } from '@/components/DocumentIssueNote';
 import {
   CloudUpload,
   CheckCircle2,
@@ -347,6 +349,9 @@ export function AccountDocuments({
               ocrNote: verified
                 ? ''
                 : 'This document could not be verified. Please upload it again.',
+              // A row with no verdict at all predates the checks: explained as
+              // unverified rather than left without a reason.
+              errorCode: verified ? null : (ocrErrorCode(doc.ocr_status) ?? 'DOCUMENTS_UNVERIFIED'),
             };
           }
           return next;
@@ -445,7 +450,7 @@ export function AccountDocuments({
         fileName: file.name,
         error: '',
         ocrNote: verified ? '' : (body.ocr?.message ?? 'This document could not be verified.'),
-        errorCode: verified ? null : ocrErrorCode(body.ocr?.status),
+        errorCode: verified ? null : (ocrErrorCode(body.ocr?.status) ?? 'DOCUMENTS_UNVERIFIED'),
       });
       pendingFiles.current[slot] = null;
       // The account endpoint returns the recomputed verification state with the
@@ -517,6 +522,7 @@ export function AccountDocuments({
           numberRecorded: false,
           status: 'error',
           error: parsed.message ?? 'Could not save this number. Please try again.',
+          errorCode: parsed.code ?? null,
         });
         return null;
       }
@@ -537,6 +543,7 @@ export function AccountDocuments({
         numberRecorded: false,
         status: 'error',
         error: 'Could not save this number. Please try again.',
+        errorCode: null,
       });
       return null;
     }
@@ -597,6 +604,7 @@ export function AccountDocuments({
       patchSlot('gst_certificate', {
         status: 'error',
         error: 'Go back and enter the company name.',
+        errorCode: null,
       });
       return;
     }
@@ -626,11 +634,13 @@ export function AccountDocuments({
 
   async function handleFile(slot: DocSlot, file: File): Promise<void> {
     if (!ALLOWED_MIME_TYPES.has(file.type)) {
-      patchSlot(slot, { status: 'error', error: 'Only PDF, JPEG, or PNG files are accepted.' });
+      // errorCode cleared too: a code left from an earlier upload would
+      // explain the wrong problem in place of this message.
+      patchSlot(slot, { status: 'error', error: 'Only PDF, JPEG, or PNG files are accepted.', errorCode: null });
       return;
     }
     if (file.size > MAX_FILE_SIZE) {
-      patchSlot(slot, { status: 'error', error: 'File must be under 4MB.' });
+      patchSlot(slot, { status: 'error', error: 'File must be under 4MB.', errorCode: null });
       return;
     }
 
@@ -674,6 +684,10 @@ export function AccountDocuments({
         const flagged = highlight?.includes(slot) && s.status !== 'success';
         // The GST number is not typed here; it comes from the details step.
         const isGst = slot === 'gst_certificate';
+        // A refused file or a failed check, explained the way BIA explains it.
+        // Null for any other error, which keeps the server's own message.
+        const issue =
+          s.status === 'error' || s.status === 'unverified' ? explainDocumentIssue({ code: s.errorCode }) : null;
 
         return (
           <div
@@ -913,7 +927,7 @@ export function AccountDocuments({
                     }}
                     className="text-[11px] text-primary underline"
                   >
-                    Upload a clearer photo
+                    {issue?.retryLabel ?? 'Upload a clearer photo'}
                   </button>
                 </>
               )}
@@ -921,8 +935,17 @@ export function AccountDocuments({
               {s.status === 'error' && (
                 <>
                   <XCircle className="w-5 h-5 text-red-500" />
-                  <p className="text-xs text-red-600 text-center px-2">{s.error}</p>
-                  <AskBiaLink screen={biaScreen} code={s.errorCode} message={s.error} />
+                  {issue ? (
+                    // Explained below the box; here, just which file it was.
+                    s.fileName && (
+                      <p className="text-xs text-red-600 font-medium truncate max-w-[200px]">{s.fileName}</p>
+                    )
+                  ) : (
+                    <>
+                      <p className="text-xs text-red-600 text-center px-2">{s.error}</p>
+                      <AskBiaLink screen={biaScreen} code={s.errorCode} message={s.error} />
+                    </>
+                  )}
                   <button
                     type="button"
                     onClick={(e) => {
@@ -931,17 +954,27 @@ export function AccountDocuments({
                     }}
                     className="text-[11px] text-primary underline"
                   >
-                    Try again
+                    {issue?.retryLabel ?? 'Try again'}
                   </button>
                 </>
               )}
             </div>
 
-            {s.status === 'unverified' && s.ocrNote && (
-              <div className="flex flex-col items-start gap-1 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
-                <p>{s.ocrNote}</p>
-                <AskBiaLink screen={biaScreen} code={s.errorCode} message={s.ocrNote} />
-              </div>
+            {issue ? (
+              <DocumentIssueNote
+                issue={issue}
+                refused={s.status === 'error'}
+                screen={biaScreen}
+                message={s.status === 'error' ? s.error : s.ocrNote}
+              />
+            ) : (
+              s.status === 'unverified' &&
+              s.ocrNote && (
+                <div className="flex flex-col items-start gap-1 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                  <p>{s.ocrNote}</p>
+                  <AskBiaLink screen={biaScreen} code={s.errorCode} message={s.ocrNote} />
+                </div>
+              )
             )}
           </div>
         );

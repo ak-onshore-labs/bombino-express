@@ -83,5 +83,43 @@
       "contains": ["re:nothing|haven.t|not yet|no (documents|numbers)|none"],
       "noCards": true
     }
+  },
+  {
+    "id": "docs-06-quoted-unreadable",
+    "module": "documents",
+    "requires": ["documents"],
+    "identity": "account",
+    "screen": { "surface": "help" },
+    "turns": ["My PAN upload says the document couldn't be read. What should I do?"],
+    "expect": {
+      "tools": ["explain_document_issue"],
+      "contains": ["re:daylight|flat|flash|corners"],
+      "notContains": ["re:your fault|you uploaded (it )?wrong"],
+      "buttons": ["TAP_ACCOUNT_DOCUMENTS"]
+    }
+  },
+  {
+    "id": "docs-07-outage-is-not-a-bad-photo",
+    "module": "documents",
+    "requires": ["documents"],
+    "identity": "anon",
+    "screen": { "surface": "signup", "step": "documents", "account": "personal" },
+    "turns": ["It says my Aadhaar couldn't be checked just now. Is my photo bad?"],
+    "expect": {
+      "toolsAny": ["explain_document_issue"],
+      "contains": ["re:(few|couple of) minutes|try (uploading )?(it )?again", "re:not (a problem with|about) (the|your) (document|photo)|isn.t (a problem with|about) (the|your) (document|photo)|nothing wrong with"],
+      "notContains": ["re:clearer photo|blur|glare"]
+    }
+  },
+  {
+    "id": "docs-08-ask-bia-on-wrong-document",
+    "module": "documents",
+    "identity": "anon",
+    "screen": { "surface": "signup", "step": "documents", "account": "personal", "errorCode": "OCR_WRONG_DOCUMENT" },
+    "turns": ["What went wrong with this upload?"],
+    "expect": {
+      "contains": ["re:(different|another|wrong|correct|right) (kind of |type of )?document|(asks|asking) for|type (required|needed|asked)"],
+      "notContains": ["re:bypass|tamper|screenshot"]
+    }
   }
 ]
