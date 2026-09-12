@@ -33,7 +33,7 @@ The single place to see where the BIA 3.0 build stands.
 | [2.4](#24-photo-check-before-upload) | Photo check before upload | R2 | — | M · 1 d | 2.3 | ⏭ | — | skipped 2026-09-12 |
 | [2.5](#25-upload-card-inside-the-chat) | Upload card inside the chat | R2 | W6 | M · 1 d | 2.2, 2.3 | ✅ | `bia-3/wp2-5` → merged locally (b9b235b) | 2026-09-12 |
 | [3.1](#31-booking-context-and-error-explainer) | Booking context and error explainer | R3 | W6 | M · 1 d | 1.4, 1.5 | ✅ | `bia-3/wp3-1` → merged locally (1c085e4) | 2026-09-12 |
-| [3.2](#32-hsn-helper) | HSN helper (suggests, never fills) | R3 | W7 | M · 1 d | 3.1 | ⬜ | `bia-3/wp3-2` | |
+| [3.2](#32-hsn-helper) | HSN helper (suggests, never fills) | R3 | W7 | M · 1 d | 3.1 | ✅ | `bia-3/wp3-2` → merged locally (8d82361) | 2026-09-12 |
 | [3.3](#33-drafts-and-say-it-to-ship) | Drafts and "say it to ship" | R3 | — | L · 2 d | 3.1 | ⏭ | — | skipped 2026-09-12 |
 | [3.4](#34-restricted-items-waits-on-content) | Restricted items (waits on content) | R3 | W6 | S · ½ d | 1.5 | ✅ | `bia-3/wp3-4` → merged locally (de6d190); lists wait on Bombino | 2026-09-12 |
 | [4.1](#41-support-cases) | Support cases | R4 | W6 | M · 1 d | 1.3, 1.7 | ✅ | `bia-3/wp4-1` → merged locally (8010748); **migration not run**, `handoff` off | 2026-09-12 |
@@ -43,7 +43,7 @@ The single place to see where the BIA 3.0 build stands.
 | [5.2](#52-voice-notes) | Voice notes | R5 | — | M · 1 d | 1.4, 1.6 | ⏭ | — | skipped 2026-09-12 |
 | [5.3](#53-hindi) | Hindi | R5 | — | S · ½ d | 1.5 | ⏭ | — | skipped 2026-09-12 |
 
-**20 packages (4 more skipped) · 19 dev-days · 9 waves.** 16 merged, 4 to go.
+**20 packages (4 more skipped) · 19 dev-days · 9 waves.** 17 merged, 3 to go.
 
 ## Waves
 
@@ -72,7 +72,7 @@ Modules ship dark and go live by adding them to `BIA_MODULES` in production.
 | R0 | Ship BIA 2.0 | Evals pass; nothing leaks; support routes live in their own file. | ⬜ |
 | R1 | Foundations | Any catalogued error opens BIA already explaining it; evals and telemetry run on every change. | 🔵 code complete on `bia-3/main`; needs the two R1 migrations, then a merge into `aditya/final-phase` |
 | R2 | Onboarding and documents | Every OCR verdict has a tested explanation; a document can be retaken from chat. | 🔵 code complete on `bia-3/main` (2.1, 2.2, 2.3, 2.5); goes live with `BIA_MODULES=orders,onboarding,documents` after a merge into `aditya/final-phase` |
-| R3 | Booking help | BIA explains every step, error and term on the booking form, answers "can I send this?" only from Bombino's lists, and suggests HSN codes. It never fills or submits the form. | ⬜ |
+| R3 | Booking help | BIA explains every step, error and term on the booking form, answers "can I send this?" only from Bombino's lists, and suggests HSN codes. It never fills or submits the form. | 🔵 code complete on `bia-3/main` (3.1, 3.2, 3.4); goes live with `booking` in `BIA_MODULES` after a merge into `aditya/final-phase` |
 | R4 | Handoff | Every escalation is a case ops can see and answer; risky actions link to the order page. | ⬜ |
 | R5 | Proactive | Nudges are capped and switchable. (Voice and Hindi were dropped.) | ⬜ |
 
@@ -387,20 +387,20 @@ Notes: **Added:** a per-step guide in the SCREEN block (`BOOKING_STEP_GUIDE`). A
 
 #### 3.2 HSN helper
 
-**Status:** ⬜ · **After:** 3.1 · **Owns:** `pages/CreateShipment.tsx (HSN field: an "Ask BIA" link only)`
+**Status:** ✅ · **After:** 3.1 · **Owns:** `pages/CreateShipment.tsx (HSN field: an "Ask BIA" link only)`
 
 Suggest HSN codes; the customer types the one they choose. **Changed 2026-09-12:** BIA never fills a form field, so there is no "Use this code" button.
 
 Build
-- [ ] Move the lookup in `client/src/lib/hsnData.ts` to `shared/hsn.ts` so the server can use it.
-- [ ] `suggest_hsn(description)`: exact lookup first, then up to three model candidates checked against the known list, with how sure it is.
-- [ ] An hsn card listing the candidates (code and what it covers). The customer copies the one they choose into the HSN field themselves.
+- [x] Move the lookup in `client/src/lib/hsnData.ts` to `shared/hsn.ts` so the server can use it (`git mv`; the form's two importers follow).
+- [x] `suggest_hsn(description)` (`server/supportHsn.ts`, booking module): an item typed as an entry is a sure match; anything else goes to gpt-4o-mini with the numbered list, and only real entries come back (word matches stand in if it can't answer). Codes are the ones the form fills (`getHsnCode`).
+- [x] An hsn card listing up to three entries and their codes, with "Exact" or "Closest". The customer chooses in "Shipment Content" themselves. Plus "Ask BIA" beside that field and the CSB V HS code.
 
 Done when
-- [ ] Eval: turmeric powder, cotton kurta, brass idol → sensible candidates; an unknown item → "check with our team"
-- [ ] Nothing BIA sends changes a form field
+- [x] Eval: turmeric powder, cotton kurta, brass idol → sensible candidates; an unknown item → "check with our team" (`hsn-01`…`hsn-05`, 5/5 ×4; turmeric is on the list as TURMERIC POWDER 09103030)
+- [x] Nothing BIA sends changes a form field (the card has no button; the links only open BIA)
 
-Notes: —
+Notes: **The list's codes are 8 digits** and CSB V's form asks for 10, so on a CSB V booking BIA says the full code comes from the shipping bill or our team (an "Important:" line; the model dropped it 3/3 without). **List quality:** SPICES appears twice with different codes (13019044 and 91099900, the second a clock-parts heading); BIA gives the one the form fills, the first. Worth a look by whoever owns `shared/hsn.ts`. The first pick prompt was too strict ("small brass idol of Ganesha" got "nothing fits"); it now takes the closest reasonable entries and says none only for things like live animals. Checked in Chrome from a mocked reply (the card). 151 unit tests; evals 38/40 ×2 on `--modules orders` (`account-10` a matcher, widened; `guest-18` 7/8 vs 8/8 on main with an identical prompt, so noise) and every other miss with all modules was the rate limit.
 
 #### 3.3 Drafts and "say it to ship"
 
@@ -547,6 +547,7 @@ Notes: —
 
 Newest first. One line per merge, decision or surprise.
 
+- 2026-09-12 · 3.2 merged: `suggest_hsn` names entries and codes from Bombino's contents list; the customer chooses in the form. **R3 code-complete.** Left: 4.2, 4.3, 5.1.
 - 2026-09-12 · **Decision:** BIA won't ship anything or fill forms; it helps on the screens. 3.3 (drafts, "say it to ship") dropped with its migration; 3.2 suggests HSN codes without a "Use this code" button and moves to W7; R3 is booking help. Re-uploading a document (2.5) is BIA's only chat action.
 - 2026-09-12 · 4.1 merged, dark: escalations become support cases once `BIA_MODULES` includes `handoff`; `create_support_cases.sql` written, **not run**. **Wave W6 done.** W7 next: 4.2 ops Cases tab (and 3.2, once 3.3 was dropped).
 - 2026-09-12 · 3.4 merged: `can_i_ship` answers only from `content/bia/restricted/` (format in its README). No lists yet, so every answer is "our team will confirm". W6 left: 4.1.
