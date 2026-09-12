@@ -29,7 +29,7 @@ The single place to see where the BIA 3.0 build stands.
 | [1.7](#17-guest-chat-history) | Guest chat history | R1 | W5 | S · ½ d | 1.4, 1.6 | ✅ | `bia-3/wp1-7` → merged locally (4437aa4); **migration not run** | 2026-09-11 |
 | [2.1](#21-account-matchmaker) | Account Matchmaker | R2 | W5 | M · 1 d | 1.5 | ✅ | `bia-3/wp2-1` → merged locally (5a50de9) | 2026-09-11 |
 | [2.2](#22-signup-progress-and-document-status) | Signup progress and document status | R2 | W5 | M · 1 d | 1.5 | ✅ | `bia-3/wp2-2` → merged locally (ad43d6c) | 2026-09-12 |
-| [2.3](#23-verdict-explainer-on-the-upload-screens) | Verdict explainer on the upload screens | R2 | W5 | S · ½ d | 1.2 | ⬜ | `bia-3/wp2-3` | |
+| [2.3](#23-verdict-explainer-on-the-upload-screens) | Verdict explainer on the upload screens | R2 | W5 | S · ½ d | 1.2 | ✅ | `bia-3/wp2-3` → merged locally (f8e6870) | 2026-09-12 |
 | [2.4](#24-photo-check-before-upload) | Photo check before upload | R2 | W6 | M · 1 d | 2.3 | ⬜ | `bia-3/wp2-4` | |
 | [2.5](#25-upload-card-inside-the-chat) | Upload card inside the chat | R2 | W7 | M · 1 d | 2.2, 2.4 | ⬜ | `bia-3/wp2-5` | |
 | [3.1](#31-booking-context-and-error-explainer) | Booking context and error explainer | R3 | W6 | M · 1 d | 1.4, 1.5 | ⬜ | `bia-3/wp3-1` | |
@@ -99,7 +99,9 @@ Sessions write them; Aditya runs each in Supabase before its package merges.
 Found along the way; not a package yet. Give one a number and a row above when it's picked up.
 
 - [ ] **Resume signup at the documents step** (from 2.2). "Continue signup" opens the right form on the details step. Signup keeps no form state on the server, so a true resume means saving it (for a guest, the guest profile already covers the details). Touches `Signup.tsx` and the signup routes.
-- [ ] **`skipped` on Profile** (for 2.3). BIA reads a `skipped` document as on file, but Profile's "Finish verifying your account" section still shows for it, because `verificationState` counts only `match` and `bypassed` as done. 2.3 owns the upload screens; decide there whether `skipped` should count as done too.
+- [x] ~~**`skipped` on Profile** (for 2.3).~~ Not a real case: `skipped` only comes from slots nothing reads or an identity slot with no number, which the number-first rule prevents. See 2.3's notes.
+- [ ] **KYC card says "In review" for a document with no verdict.** `KycOnFileCard` treats a missing `ocr_status` as "In review", while BIA's `get_my_kyc_status` calls the same row verified. Legacy rows only, but "in review" is wording the KYC rule says customers never see. One-line fix in `KycOnFileCard.tsx` (outside 2.3's files).
+- [ ] **Two old eval flakes, about 1 run in 6.** `anon-07-unknown-awb` sometimes asks for the AWB instead of tracking it (all modules on), and `brief-02` sometimes lists the counters and mentions cancelling to a guest (even with `--modules orders`, so it's in production today). Both predate 2.2. Tighten the orders prompt before R2 goes live.
 
 ## Package checklists
 
@@ -313,20 +315,20 @@ Notes: Signup now tells BIA which account is being opened (screen `account`, sig
 
 #### 2.3 Verdict explainer on the upload screens
 
-**Status:** ⬜ · **After:** 1.2 · **Owns:** `AccountDocuments.tsx`, `KycUpload.tsx`
+**Status:** ✅ · **After:** 1.2 · **Owns:** `AccountDocuments.tsx`, `KycUpload.tsx`
 
 Each OCR verdict shows one explanation and one fix, the same on the upload screen as in BIA.
 
 Build
-- [ ] `shared/ocrExplain.ts`: verdict (plus a changed GSTIN and number-entered-first) → headline, why, fix, button, built on the error catalog.
-- [ ] `AccountDocuments.tsx` and `KycUpload.tsx` show it instead of the raw note, with "Ask BIA" beside it.
-- [ ] Documents tool: `explain_document_issue`.
+- [x] `shared/ocrExplain.ts`: verdict (plus a changed GSTIN, number-entered-first, an outdated upload and a row with no verdict) → headline, why, fix, button and the retry control's label, built on the error catalog.
+- [x] `AccountDocuments.tsx` and `KycUpload.tsx` show it instead of the raw note, with "Ask BIA" beside it (`components/DocumentIssueNote.tsx`: red when refused, amber when kept but unchecked).
+- [x] Documents tool: `explain_document_issue`, for a message the customer quotes or the one on screen, saying where to replace the file.
 
 Done when
-- [ ] Tests cover all eight `OcrStatus` values
-- [ ] Nothing appears for `match` or `bypassed`
+- [x] Tests cover all eight `OcrStatus` values (and a test reads `server/cashfreeOcr.ts`, so the shared list can't drift from the union)
+- [x] Nothing appears for `match` or `bypassed` (nor `skipped`)
 
-Notes: —
+Notes: **Fixed along the way:** the retry control said "Upload a clearer photo" even for an outage, which the explanation itself says isn't a photo problem; it now follows the verdict ("Try again", "Upload the right document", …). Rows loaded from the server had no error code, so "Ask BIA" on them didn't know the problem. Client-side errors (file type, size, a number that wouldn't save) left the previous code in place, which would have shown an earlier refusal's explanation instead of "Only PDF, JPEG, or PNG files are accepted." `get_signup_progress` and `get_document_status` now word problems through `ocrExplain`, and a checked document with no verdict reads as needing attention, as the screen already asks for it again. **`skipped` (the follow-up from 2.2):** only produced for a slot nothing reads (bills, IEC) or an identity slot uploaded without a number, which the number-first rule prevents, so Profile and BIA can't actually disagree over it; nothing changed. Checked in headless Chrome at 390px with mocked upload responses (nothing reached Cashfree or the database): unreadable and no-verdict rows on Profile, a wrong-document refusal and an outage on the identity replacement box, a `.txt` right after a refusal, and "Ask BIA" answering in the screen's words. 118 unit tests; 44 evals ×3 with all modules and 32 ×2 with `--modules orders`: everything new passes; the two old flakes are logged under Follow-ups.
 
 #### 2.4 Photo check before upload
 
@@ -543,6 +545,7 @@ Notes: —
 
 Newest first. One line per merge, decision or surprise.
 
+- 2026-09-12 · 2.3 merged: one explanation per document verdict on both upload screens and in BIA (`explain_document_issue`). **Wave W5 done.** W6 next: 2.4 photo check (needs your sample photos to tune), 3.1 booking context, 3.4 restricted items (waits on Bombino's lists), 4.1 support cases (writes a migration).
 - 2026-09-12 · 2.2 merged: `get_signup_progress` and `get_document_status`, docStatus card, resume-signup and my-documents buttons. The telemetry unit tests had been writing a fixed-id row to the shared `bia_turns`; fixed. 2.3 is the last W5 package.
 - 2026-09-11 · 2.1 merged: Account Matchmaker (`recommend_account`, `explain_term`, `TAP_SIGNUP`, `?category=` on signup).
 
