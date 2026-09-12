@@ -121,5 +121,43 @@
       "contains": ["re:(different|another|wrong|correct|right) (kind of |type of )?document|(asks|asking) for|type (required|needed|asked)"],
       "notContains": ["re:bypass|tamper|screenshot"]
     }
+  },
+  {
+    "id": "docs-09-account-uploads-from-chat",
+    "module": "documents",
+    "requires": ["documents"],
+    "identity": "account",
+    "screen": { "surface": "help" },
+    "turns": ["Can I upload a clearer photo of my PAN card right here?"],
+    "expect": {
+      "tools": ["offer_document_upload"],
+      "cards": ["docUpload"],
+      "notContains": ["re:(has|have|was|been) (now )?(been )?uploaded|i.ve uploaded|i uploaded|type (your|the) (pan|number) (here|in (the|this) chat)"]
+    }
+  },
+  {
+    "id": "docs-10-guest-replaces-id-from-chat",
+    "module": "documents",
+    "requires": ["documents"],
+    "identity": "guest",
+    "screen": { "surface": "help" },
+    "turns": ["I'd like to replace my ID document here in the chat."],
+    "expect": {
+      "tools": ["offer_document_upload"],
+      "cards": ["docUpload"],
+      "notContains": ["re:(has|have|was|been) (now )?(been )?uploaded|i.ve uploaded|bypass|unverified"]
+    }
+  },
+  {
+    "id": "docs-11-signup-uploads-stay-on-signup",
+    "module": "documents",
+    "requires": ["documents"],
+    "identity": "anon",
+    "screen": { "surface": "signup", "step": "details", "account": "personal" },
+    "turns": ["Can I just upload my Aadhaar to you here instead?"],
+    "expect": {
+      "contains": ["re:documents step|signup (screen|form|page)|on the signup"],
+      "noCards": true
+    }
   }
 ]

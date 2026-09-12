@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 // created — otherwise these tests would write to the shared database.
 delete process.env.SUPABASE_URL;
 delete process.env.SUPABASE_SERVICE_ROLE_KEY;
-const { rateTurn, recordTurn } = await import("./supportTelemetry.js");
+const { isChatUploadOutcome, rateTurn, recordChatUpload, recordTurn } = await import("./supportTelemetry.js");
 
 test("recording a turn without a database resolves quietly", async () => {
   await recordTurn({
@@ -31,4 +31,12 @@ test("recording a turn without a database resolves quietly", async () => {
 
 test("rating without a database reads as not found", async () => {
   assert.equal(await rateTurn("00000000-0000-4000-8000-000000000001", 1, { kind: "anon" }), "not_found");
+});
+
+test("a chat upload is marked only with a known outcome, and never for a signed-out turn", async () => {
+  assert.equal(isChatUploadOutcome("uploaded"), true);
+  assert.equal(isChatUploadOutcome("deleted"), false);
+  const id = "00000000-0000-4000-8000-000000000001";
+  assert.equal(await recordChatUpload(id, "uploaded", { kind: "anon" }), "not_found");
+  assert.equal(await recordChatUpload(id, "refused", { kind: "guest", guestRef: "g1" }), "not_found");
 });

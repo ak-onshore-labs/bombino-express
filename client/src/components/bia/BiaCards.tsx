@@ -1,6 +1,8 @@
 import { ChevronRight, FileText, MapPin, Package, Radar, Truck } from 'lucide-react';
 import type { BiaCard, BiaCardTone, ChecklistCard, DocStatusCard, OrderCard, PickupCard, RateCard } from '@shared/biaCards';
 import { cn } from '@/lib/utils';
+import { CARD, TONE_CLASS } from './cardStyles';
+import { DocUploadCardView } from './DocUploadCard';
 
 /**
  * The cards under a BIA reply (shared/biaCards.ts). Drawn on the chat's dark
@@ -8,25 +10,17 @@ import { cn } from '@/lib/utils';
  * ground rather than StatusBadge itself, which is made for light screens.
  */
 
-const TONE_CLASS: Record<BiaCardTone, string> = {
-  gray: 'bg-white/10 text-white/70',
-  blue: 'bg-sky-400/15 text-sky-200',
-  amber: 'bg-amber-400/15 text-amber-200',
-  green: 'bg-emerald-400/15 text-emerald-200',
-  red: 'bg-red-400/15 text-red-200',
-  orange: 'bg-orange-400/20 text-orange-200',
-};
-
-const CARD = 'w-full rounded-xl border border-white/[0.12] bg-white/[0.05] px-3 py-2.5 text-left';
-
 const inr = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 });
 
 export function BiaCards({
   cards,
   onNavigate,
+  turnId,
 }: {
   cards: BiaCard[];
   onNavigate: (to: string) => void;
+  /** The reply's turn, so an upload from one of its cards can be logged against it. */
+  turnId?: string;
 }): React.JSX.Element | null {
   if (cards.length === 0) return null;
   return (
@@ -43,6 +37,15 @@ export function BiaCards({
             return <ChecklistCardView key={`c-${card.choice}`} card={card} />;
           case 'docStatus':
             return <DocStatusCardView key={`d-${card.scope}`} card={card} />;
+          case 'docUpload':
+            return (
+              <DocUploadCardView
+                key={`u-${card.target}-${card.slot ?? card.documentType}`}
+                card={card}
+                turnId={turnId}
+                onNavigate={onNavigate}
+              />
+            );
           default:
             return null;
         }

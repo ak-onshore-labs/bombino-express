@@ -606,7 +606,7 @@ export function BiaChat({
                           {parsed.text}
                         </p>
                       </div>
-                      <BiaCards cards={cards} onNavigate={onNavigate} />
+                      <BiaCards cards={cards} onNavigate={onNavigate} turnId={msg.turnId} />
                       {ctas.length > 0 && (
                         <CtaButtons ctas={ctas} onNavigate={onNavigate} />
                       )}

@@ -338,9 +338,11 @@ export function nextStepFor(
     case "picked_up":
       return "The parcel is with the rider, on its way to our hub. There it is weighed, the final amount is confirmed, and the tracking number (AWB) is issued.";
     case "awaiting_dropoff": {
+      // Read out whole, two addresses doubled the reply; the Locations button
+      // under it carries them. The model names the areas unless asked for more.
       const where =
         opts.counters.length > 0
-          ? ` Nearest counters: ${opts.counters.join(" | ")}.`
+          ? ` Nearest counters: ${opts.counters.join(" | ")}. Name only their areas; the Locations button has the full addresses, so give an address only if they ask for one.`
           : " The Locations page lists every counter.";
       return opts.isGuest
         ? `Bring the parcel to a Bombino counter and quote the Order ID.${where}`

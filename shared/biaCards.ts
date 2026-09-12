@@ -7,11 +7,12 @@
  * the customer may see: customer status labels (never weighed / settled /
  * ready_for_docket), no ids, no codes.
  *
- * More kinds arrive with later packages: docUpload (2.5), hsn (3.2),
- * draft (3.3), case (4.1). Add the kind here, in biaCardKey and
- * isBiaCard, and its renderer in client/src/components/bia/BiaCards.tsx
- * together.
+ * More kinds arrive with later packages: hsn (3.2), draft (3.3), case (4.1).
+ * Add the kind here, in biaCardKey and isBiaCard, and its renderer in
+ * client/src/components/bia/BiaCards.tsx together.
  */
+
+import { isDocSlot, type DocSlot } from "./accountSpec.js";
 
 /** Same names as the app's status badges (client/src/lib/awbStatus.ts). */
 export type BiaCardTone = "gray" | "blue" | "amber" | "green" | "red" | "orange";
@@ -87,7 +88,49 @@ export interface DocStatusCard {
   items: { label: string; state: "on_file" | "attention" | "missing"; note: string | null }[];
 }
 
-export type BiaCard = OrderCard | PickupCard | RateCard | ChecklistCard | DocStatusCard;
+/**
+ * The identity document types a guest's KYC upload accepts — the same list
+ * as POST /api/kyc/upload's `validDocTypes`.
+ */
+export const KYC_DOCUMENT_TYPES = [
+  "Aadhaar Number",
+  "PAN Number",
+  "Passport Number",
+  "Driving Licence",
+  "GSTIN (Normal)",
+] as const;
+
+export type KycDocumentType = (typeof KYC_DOCUMENT_TYPES)[number];
+
+/**
+ * One document to upload again, right in the chat (server/supportDocuments.ts
+ * §offer_document_upload). BIA's first chat action: the customer picks the
+ * file and taps upload; nothing happens before that.
+ *
+ * The card names the endpoint by kind, never by URL, and the client posts to
+ * that screen's own endpoint, which authorises the caller itself: an account's
+ * documents (`account`), or a guest's identity document (`kyc`).
+ *
+ * No full number is ever in a card. `numberEnding` is the last four of the
+ * number on file; when the upload has to send the whole number, the client
+ * reads it from the account's own document list at upload time, or asks the
+ * customer to type it (`needsNumber`).
+ */
+export interface DocUploadCard {
+  kind: "docUpload";
+  target: "account" | "kyc";
+  /** The account slot; null for a guest's identity document. */
+  slot: DocSlot | null;
+  /** The KYC document type; null for an account slot. */
+  documentType: KycDocumentType | null;
+  /** "Aadhaar Card" */
+  label: string;
+  numberEnding: string | null;
+  /** The customer types the number: none is on file, and this document takes one. */
+  needsNumber: boolean;
+}
+
+export type BiaCard = OrderCard | PickupCard | RateCard | ChecklistCard | DocStatusCard | DocUploadCard;
 
 /** At most this many cards under one reply. */
 export const MAX_BIA_CARDS = 5;
@@ -105,6 +148,8 @@ export function biaCardKey(card: BiaCard): string {
       return `checklist:${card.choice}`;
     case "docStatus":
       return `docStatus:${card.scope}`;
+    case "docUpload":
+      return `docUpload:${card.target}:${card.slot ?? card.documentType}`;
   }
 }
 
@@ -221,6 +266,17 @@ export function isBiaCard(value: unknown): value is BiaCard {
           const i = item as Record<string, unknown>;
           return isStr(i.label) && DOC_STATES.includes(i.state as string) && isStrOrNull(i.note);
         })
+      );
+    case "docUpload":
+      return (
+        ((c.target === "account" && isDocSlot(c.slot) && c.documentType === null) ||
+          (c.target === "kyc" &&
+            c.slot === null &&
+            (KYC_DOCUMENT_TYPES as readonly unknown[]).includes(c.documentType))) &&
+        isStr(c.label) &&
+        // Four characters at most: a card never carries a whole number.
+        (c.numberEnding === null || (isStr(c.numberEnding) && /^[A-Za-z0-9]{4}$/.test(c.numberEnding))) &&
+        typeof c.needsNumber === "boolean"
       );
     default:
       return false;

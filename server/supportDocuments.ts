@@ -21,6 +21,7 @@
 import { getAccountShapeById } from "./appDb.js";
 import { listDocumentsBySignupRef, listDocumentsByUserId } from "./accountDocsDb.js";
 import { listIdentityVerificationsBySignupRef } from "./identityDb.js";
+import { getKycByGuestRef } from "./kycDb.js";
 import { ownerOf } from "./supportOrders.js";
 import type { BiaTool, SupportChatContext, ToolOutcome } from "./supportTypes.js";
 import { accountChoiceLabel, type AccountChoice } from "../shared/accountMatch.js";
@@ -35,7 +36,7 @@ import {
   type CompanyCategory,
   type DocSlot,
 } from "../shared/accountSpec.js";
-import type { DocStatusCard } from "../shared/biaCards.js";
+import { KYC_DOCUMENT_TYPES, type DocStatusCard, type DocUploadCard, type KycDocumentType } from "../shared/biaCards.js";
 import {
   DOCUMENT_ISSUE_NAMES,
   explainDocumentIssue,
@@ -324,9 +325,9 @@ export function executeExplainDocumentIssue(args: { issue?: unknown }, context: 
   const owner = ownerOf(context);
   const where =
     owner?.kind === "account"
-      ? "They replace it on their Profile, under their account documents."
+      ? "They replace it on their Profile, under their account documents, or right here: offer_document_upload puts an upload card in the chat."
       : owner?.kind === "guest"
-        ? "They replace it where they uploaded it: the identity document in the booking form."
+        ? "They replace it where they uploaded it (the identity document in the booking form), or right here: offer_document_upload puts an upload card in the chat."
         : context.signupRef || context.screen?.surface === "signup"
           ? "They replace it on signup's documents step; everything else they uploaded stays."
           : null;
@@ -340,6 +341,125 @@ export function executeExplainDocumentIssue(args: { issue?: unknown }, context: 
   if (issue.button) lines.push(issue.button);
   if (owner?.kind === "account" && context.screen?.surface !== "documents") lines.push("TAP_ACCOUNT_DOCUMENTS");
   return { content: lines.join("\n") };
+}
+
+// ─── offer_document_upload ───────────────────────────────────────────────────
+//
+// BIA's first chat action (2.5). The tool writes nothing: it puts a card under
+// the reply, and the customer picks the file and taps upload. The card posts to
+// the screen's own endpoint, which checks who's calling, so nothing here is a
+// new way in: an account's documents (POST /api/account/documents) or a
+// guest's identity document (POST /api/kyc/upload).
+//
+// A signup's documents stay on signup's documents step. That endpoint wants
+// the phone and an OTP from the last ten minutes, which a chat can't provide.
+
+const KYC_LABELS: Record<KycDocumentType, string> = {
+  "Aadhaar Number": "Aadhaar card",
+  "PAN Number": "PAN card",
+  "Passport Number": "passport",
+  "Driving Licence": "driving licence",
+  "GSTIN (Normal)": "GST certificate",
+};
+
+function isKycDocumentType(value: unknown): value is KycDocumentType {
+  return (KYC_DOCUMENT_TYPES as readonly unknown[]).includes(value);
+}
+
+const UPLOAD_NOTE =
+  "The card under your reply is where they pick the file and upload it. Say that in a sentence. Nothing is uploaded until they tap it, so never say it's done, and never ask them to type an ID number into the chat.";
+
+/** The document slots an account owes, as its own upload endpoint decides them. */
+function requiredForAccount(shapeRow: { account_type: string | null; company_category: string | null } | null): readonly DocSlot[] {
+  if (shapeRow?.account_type !== "company") return requiredDocuments("personal");
+  const raw = shapeRow.company_category;
+  return raw && (COMPANY_CATEGORIES as readonly string[]).includes(raw) ? requiredDocuments("company", raw as CompanyCategory) : [];
+}
+
+export async function executeOfferDocumentUpload(args: { document?: unknown }, context: SupportChatContext): Promise<ToolOutcome> {
+  const owner = ownerOf(context);
+  if (!owner) {
+    return {
+      content:
+        context.signupRef || context.screen?.surface === "signup"
+          ? "A signup's documents are uploaded on signup's documents step, not in the chat: each upload there rides on the phone check that screen does. Everything they've uploaded so far stays."
+          : "They aren't signed in, so there's no account or guest record to upload to from here. If they booked as a guest, they verify their phone on the Ship screen first.",
+    };
+  }
+
+  if (owner.kind === "guest") {
+    try {
+      const kyc = await getKycByGuestRef(owner.guestRef);
+      const documentType: KycDocumentType = kyc && isKycDocumentType(kyc.document_type) ? kyc.document_type : "Aadhaar Number";
+      const card: DocUploadCard = {
+        kind: "docUpload",
+        target: "kyc",
+        slot: null,
+        documentType,
+        label: KYC_LABELS[documentType],
+        numberEnding: lastFour(kyc?.document_no ?? null),
+        needsNumber: true,
+      };
+      return {
+        content: [
+          `Their identity document: ${KYC_LABELS[documentType]}.`,
+          "They type its number on the card, where it goes straight to the upload, not to you.",
+          UPLOAD_NOTE,
+        ].join("\n"),
+        cards: [card],
+      };
+    } catch {
+      return { content: "Their identity document couldn't be looked up just now. They can replace it from the booking form." };
+    }
+  }
+
+  if (!isDocSlot(args.document)) {
+    return { content: "Ask which document they want to upload, then call this again with it." };
+  }
+  const slot = args.document;
+  try {
+    const [shapeRow, documents] = await Promise.all([getAccountShapeById(owner.userId), listDocumentsByUserId(owner.userId)]);
+    const required = requiredForAccount(shapeRow);
+    if (!required.includes(slot)) {
+      const list = required.map((s) => DOC_SLOT_SPECS[s].label).join(", ");
+      return {
+        content: `Their account doesn't take a ${DOC_SLOT_SPECS[slot].label}${list ? `; it needs: ${list}` : ""}. Nothing to upload for that one.`,
+      };
+    }
+    if (slot === "gst_certificate" && !shapeRow?.gstin) {
+      return {
+        content: "Their account has no GST number on file, so a GST certificate can't be checked. Our team adds it.\nTAP_CONTACT_US",
+      };
+    }
+    const row = documents.find((d) => d.doc_slot === slot);
+    const takesNumber = Boolean(DOC_SLOT_SPECS[slot].numberField);
+    const ending = takesNumber ? lastFour(row?.document_no ?? null) : null;
+    const card: DocUploadCard = {
+      kind: "docUpload",
+      target: "account",
+      slot,
+      documentType: null,
+      label: DOC_SLOT_SPECS[slot].label,
+      numberEnding: ending,
+      needsNumber: takesNumber && !ending,
+    };
+    return {
+      content: [
+        `Upload for their account: ${card.label}.`,
+        ending
+          ? `It's checked against the number on file ending ${ending}.`
+          : takesNumber
+            ? "No number is on file for it, so they type it on the card, where it goes straight to the upload, not to you."
+            : "",
+        UPLOAD_NOTE,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      cards: [card],
+    };
+  } catch {
+    return { content: "Their documents couldn't be looked up just now. They can upload it on their Profile.\nTAP_ACCOUNT_DOCUMENTS" };
+  }
 }
 
 // ─── Registration ────────────────────────────────────────────────────────────
@@ -393,5 +513,28 @@ export const DOCUMENT_TOOLS: readonly BiaTool[] = [
       },
     },
     run: async (args, context) => executeExplainDocumentIssue(args, context),
+  },
+  {
+    module: "documents",
+    definition: {
+      type: "function",
+      function: {
+        name: "offer_document_upload",
+        description:
+          "Puts an upload card for one document under your reply, so they can upload or retake it here in the chat. For a signed-in account (name the document) or a guest's identity document (the document is ignored). Uploads nothing itself.",
+        parameters: {
+          type: "object",
+          properties: {
+            document: {
+              type: "string",
+              enum: [...DOC_SLOTS],
+              description: "The account document. For a guest, pass aadhaar_card; their own identity document is used.",
+            },
+          },
+          required: ["document"],
+        },
+      },
+    },
+    run: (args, context) => executeOfferDocumentUpload(args, context),
   },
 ];

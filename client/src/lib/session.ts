@@ -44,6 +44,12 @@ const NOT_AN_EXPIRY = [
   // browser" — the normal state for a visitor — and treating it as an expiry
   // would bounce a guest to the login screen for looking at their own profile.
   '/api/guest/',
+  // The identity upload a guest shares with accounts. Its 401 (code
+  // phone_unverified) is the same "no verified number here" answer, and the
+  // upload box — on the booking form or in BIA's chat — explains it in place.
+  // Taking it as an expiry sent a guest to the login screen mid-upload. An
+  // account whose session really died is still caught by the next request.
+  '/api/kyc/upload',
 ];
 
 function isExpiryPath(url: string): boolean {

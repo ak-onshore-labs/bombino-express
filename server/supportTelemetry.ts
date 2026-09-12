@@ -1,8 +1,9 @@
 /**
- * BIA's turn log (migrations/create_bia_turns.sql): one row per answer, and
- * the customer's thumbs up or down on it.
+ * BIA's turn log (migrations/create_bia_turns.sql): one row per answer, the
+ * customer's thumbs up or down on it, and what came of an upload card it
+ * offered (a `chat_upload:<outcome>` entry added to its tools).
  *
- * Both writes fail soft. A turn that can't be recorded is logged once and
+ * All writes fail soft. A turn that can't be recorded is logged once and
  * forgotten; the customer's reply never waits on it, and a missing table
  * (the migration not run yet) reads exactly like an unreachable database.
  */
@@ -69,6 +70,57 @@ export type RatingOwner =
   | { kind: "account"; userId: string }
   | { kind: "guest"; guestRef: string }
   | { kind: "anon" };
+
+/** What came of an upload from a BIA card (client/src/components/bia/DocUploadCard.tsx). */
+export const CHAT_UPLOAD_OUTCOMES = ["uploaded", "unchecked", "refused", "failed"] as const;
+
+export type ChatUploadOutcome = (typeof CHAT_UPLOAD_OUTCOMES)[number];
+
+export function isChatUploadOutcome(value: unknown): value is ChatUploadOutcome {
+  return (CHAT_UPLOAD_OUTCOMES as readonly unknown[]).includes(value);
+}
+
+/**
+ * Mark a turn's upload card as used: `chat_upload:<outcome>` joins the tools
+ * of the turn that offered it, so the turn log tells uploads from chat apart
+ * from the screens' own. Only an account or a guest can upload, and only on
+ * their own turn; anything else reads "not_found", like a rating.
+ */
+export async function recordChatUpload(
+  turnId: string,
+  outcome: ChatUploadOutcome,
+  owner: RatingOwner
+): Promise<"ok" | "not_found"> {
+  if (!supabase || owner.kind === "anon") return "not_found";
+  try {
+    const ownerColumn = owner.kind === "account" ? "user_id" : "guest_ref";
+    const ownerValue = owner.kind === "account" ? owner.userId : owner.guestRef;
+    const { data, error } = await supabase
+      .from("bia_turns")
+      .select("tools")
+      .eq("id", turnId)
+      .eq(ownerColumn, ownerValue)
+      .maybeSingle();
+    if (error || !data) {
+      if (error) warnOnce("could not mark a chat upload", error.message);
+      return "not_found";
+    }
+    const tools = Array.isArray(data.tools) ? (data.tools as string[]) : [];
+    const { error: updateError } = await supabase
+      .from("bia_turns")
+      .update({ tools: [...tools, `chat_upload:${outcome}`] })
+      .eq("id", turnId)
+      .eq(ownerColumn, ownerValue);
+    if (updateError) {
+      warnOnce("could not mark a chat upload", updateError.message);
+      return "not_found";
+    }
+    return "ok";
+  } catch (err) {
+    warnOnce("could not mark a chat upload", (err as Error).message);
+    return "not_found";
+  }
+}
 
 /**
  * A thumbs up (1) or down (-1) on one of the caller's own turns. "not_found"

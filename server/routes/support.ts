@@ -27,7 +27,7 @@ import { ensureDbUser } from "../routeGuards.js";
 import { parseBiaScreen, type BiaScreen } from "../../shared/biaScreen.js";
 import { handleChat } from "../supportAgent.js";
 import { maskSensitive } from "../supportPrivacy.js";
-import { rateTurn, recordTurn, type RatingOwner } from "../supportTelemetry.js";
+import { isChatUploadOutcome, rateTurn, recordChatUpload, recordTurn, type RatingOwner } from "../supportTelemetry.js";
 import { suggestionsFor } from "../supportOrders.js";
 import { supportChatRateLimit } from "../supportRateLimit.js";
 import {
@@ -252,6 +252,32 @@ export function registerSupportRoutes(app: Express): void {
       const result = await rateTurn(turnId, rating, owner);
       if (result === "ok") res.json({ ok: true });
       else res.status(404).json({ message: "That answer could not be rated." });
+    }
+  );
+
+  // POST /api/support/upload-outcome — what came of an upload from one of the
+  // caller's own BIA upload cards, for the turn log. Body: { turnId, outcome }.
+  // Telemetry only: the upload itself went to the screen's own endpoint.
+  app.post(
+    "/api/support/upload-outcome",
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      const body = req.body as { turnId?: unknown; outcome?: unknown };
+      const turnId = typeof body?.turnId === "string" ? body.turnId.trim() : "";
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(turnId) || !isChatUploadOutcome(body?.outcome)) {
+        res.status(400).json({ message: "turnId and a known outcome are required" });
+        return;
+      }
+      const context = supportContextFor(req, null);
+      const owner: RatingOwner =
+        context.user && context.dbUserId
+          ? { kind: "account", userId: context.dbUserId }
+          : context.guestRef
+            ? { kind: "guest", guestRef: context.guestRef }
+            : { kind: "anon" };
+      const result = await recordChatUpload(turnId, body.outcome, owner);
+      if (result === "ok") res.json({ ok: true });
+      else res.status(404).json({ message: "That answer could not be found." });
     }
   );
 

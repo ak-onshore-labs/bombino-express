@@ -5,6 +5,7 @@ import { ocrErrorCode } from '@shared/errorCatalog';
 import { explainDocumentIssue } from '@shared/ocrExplain';
 import { AskBiaLink } from '@/components/bia/AskBiaLink';
 import { DocumentIssueNote } from '@/components/DocumentIssueNote';
+import { DOCUMENTS_CHANGED_EVENT } from '@/lib/biaEvents';
 import {
   CloudUpload,
   CheckCircle2,
@@ -205,6 +206,8 @@ export function AccountDocuments({
   const slots = requiredDocuments(accountType, category);
   const basePath = endpoint === 'account' ? '/api/account/documents' : '/api/signup/documents';
   const [state, setState] = useState<Record<string, SlotState>>({});
+  /** Bumped when BIA's chat uploads one of this account's documents. */
+  const [reloadKey, setReloadKey] = useState(0);
   // Where "Ask BIA" says the customer is: their account's documents, a guest
   // opening an account, or the documents step of signup.
   const [location] = useLocation();
@@ -264,6 +267,8 @@ export function AccountDocuments({
   useEffect(() => {
     let cancelled = false;
     // A change of phone is a different signup; drop what the last one staged.
+    // (On the account endpoint, `reloadKey` re-runs this after BIA's chat
+    // uploads a document, and the list below is simply read again.)
     setState({});
     void (async () => {
       // Signup only. On the account endpoint there is nothing staged to
@@ -365,7 +370,18 @@ export function AccountDocuments({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phone, basePath, endpoint]);
+  }, [phone, basePath, endpoint, reloadKey]);
+
+  // A document uploaded from BIA's chat (DocUploadCard) lands on the server,
+  // not here: read the account's documents again when one does. Account only —
+  // on signup the load above also resets the identity numbers, and chat never
+  // uploads to a signup anyway.
+  useEffect(() => {
+    if (endpoint !== 'account') return;
+    const onChanged = (): void => setReloadKey((k) => k + 1);
+    window.addEventListener(DOCUMENTS_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(DOCUMENTS_CHANGED_EVENT, onChanged);
+  }, [endpoint]);
 
   // Report upward on every change. The parent gates "create account" on this,
   // and the server refuses the same set independently.
