@@ -35,7 +35,7 @@ The single place to see where the BIA 3.0 build stands.
 | [3.1](#31-booking-context-and-error-explainer) | Booking context and error explainer | R3 | W6 | M · 1 d | 1.4, 1.5 | ✅ | `bia-3/wp3-1` → merged locally (1c085e4) | 2026-09-12 |
 | [3.2](#32-hsn-helper) | HSN helper | R3 | W8 | M · 1 d | 3.3 | ⬜ | `bia-3/wp3-2` | |
 | [3.3](#33-drafts-and-say-it-to-ship) | Drafts and "say it to ship" | R3 | W7 | L · 2 d | 3.1 | ⬜ | `bia-3/wp3-3` | |
-| [3.4](#34-restricted-items-waits-on-content) | Restricted items (waits on content) | R3 | W6 | S · ½ d | 1.5 | ⬜ | `bia-3/wp3-4` | |
+| [3.4](#34-restricted-items-waits-on-content) | Restricted items (waits on content) | R3 | W6 | S · ½ d | 1.5 | ✅ | `bia-3/wp3-4` → merged locally (de6d190); lists wait on Bombino | 2026-09-12 |
 | [4.1](#41-support-cases) | Support cases | R4 | W6 | M · 1 d | 1.3, 1.7 | ⬜ | `bia-3/wp4-1` | |
 | [4.2](#42-ops-cases-tab) | Ops Cases tab | R4 | W7 | L · 1.5 d | 4.1 | ⬜ | `bia-3/wp4-2` | |
 | [4.3](#43-customer-side-of-cases-order-page-links) | Customer side of cases, order-page links | R4 | W8 | M · 1 d | 4.1 | ⬜ | `bia-3/wp4-3` | |
@@ -43,7 +43,7 @@ The single place to see where the BIA 3.0 build stands.
 | [5.2](#52-voice-notes) | Voice notes | R5 | — | M · 1 d | 1.4, 1.6 | ⏭ | — | skipped 2026-09-12 |
 | [5.3](#53-hindi) | Hindi | R5 | — | S · ½ d | 1.5 | ⏭ | — | skipped 2026-09-12 |
 
-**21 packages (3 more skipped) · 21 dev-days · 9 waves.** 14 merged, 7 to go.
+**21 packages (3 more skipped) · 21 dev-days · 9 waves.** 15 merged, 6 to go.
 
 ## Waves
 
@@ -103,6 +103,8 @@ Found along the way; not a package yet. Give one a number and a row above when i
 - [x] ~~**`skipped` on Profile** (for 2.3).~~ Not a real case: `skipped` only comes from slots nothing reads or an identity slot with no number, which the number-first rule prevents. See 2.3's notes.
 - [ ] **KYC card says "In review" for a document with no verdict.** `KycOnFileCard` treats a missing `ocr_status` as "In review", while BIA's `get_my_kyc_status` calls the same row verified. Legacy rows only, but "in review" is wording the KYC rule says customers never see. One-line fix in `KycOnFileCard.tsx` (outside 2.3's files).
 - [x] ~~**Old eval flakes.**~~ `brief-02` fixed in 2.5 (counters' areas only), `anon-07` in 3.1 (tracking needs no sign-in).
+
+- [ ] **Tool buttons can be dropped.** When the model writes a different button, or none, a tool's own button can go missing (seen once in `docs-02`: TAP_RESUME_SIGNUP, 9/10). Error buttons are already kept (1.4); do the same for a tool's primary button.
 
 ## Package checklists
 
@@ -422,19 +424,19 @@ Notes: —
 
 #### 3.4 Restricted items (waits on content)
 
-**Status:** ⬜ · **After:** 1.5
+**Status:** ✅ (code; the lists wait on Bombino) · **After:** 1.5
 
 Answer "can I send this?" only from Bombino's own list.
 
 Build
-- [ ] A loader for `content/bia/restricted/<country>.md` and `can_i_ship(item, country)`.
-- [ ] Found → the rule as written. Not found, or no file → "check with our team" and the contact button. Never a guess.
+- [x] A loader for `content/bia/restricted/<CC>.md` (plus `ALL.md` for every destination) and `can_i_ship(item, country)` in the booking module (`server/supportRestricted.ts`). The file format is in `content/bia/restricted/README.md`: one table, Item | Also called | Rule.
+- [x] Found → the rule as written. Not found, or no file → "our team will confirm before you book" and the contact button. Never a guess.
 
 Done when
-- [ ] With no content files, every answer is "check with our team" (eval)
-- [ ] Switches on once Bombino's lists land
+- [x] With no content files, every answer is "check with our team" (`rest-01`…`rest-04`, 4/4 ×4; plus a unit test with no folder at all)
+- [x] Switches on once Bombino's lists land (unit tests on a fixture folder; end to end with a temporary `US.md`, BIA gave the power-bank rule, then the file was removed). Lists are re-read within a minute; no restart.
 
-Notes: —
+Notes: Matching is whole words on the item or its other names, with plurals folded (battery/batteries, mango/mangoes). Several matches show up to three rules; the rule's own wording decides. The country comes from the question (names, codes, "USA", "UK", "Dubai") or the booking form's destination; India gets "we ship from India to other countries", and a list name can't reach outside its folder. **Deploy:** `content/bia/restricted/` is read from the server's working directory, so production must ship that folder next to `dist/`. **For Bombino:** send the lists in the README's table format, one per destination (US, UK, UAE, Canada, Australia first). 137 unit tests; 62 evals ×3 with all modules (one miss, `docs-02`'s resume button, then 9/10; see Follow-ups) and 39/39 ×2 with `--modules orders`.
 
 ### R4 · Handoff
 
@@ -546,6 +548,7 @@ Notes: —
 
 Newest first. One line per merge, decision or surprise.
 
+- 2026-09-12 · 3.4 merged: `can_i_ship` answers only from `content/bia/restricted/` (format in its README). No lists yet, so every answer is "our team will confirm". W6 left: 4.1.
 - 2026-09-12 · 3.1 merged: the booking form tells BIA its step, destination and product type; "Ask BIA about this step"; `explain_booking_error` and `explain_booking_term`; a step guide in the SCREEN block. Fixed along the way: the `anon-07` tracking flake (budget 6,270 → 6,300, on purpose). W6 left: 3.4, 4.1.
 - 2026-09-12 · 2.5 merged: upload a document from the chat (`offer_document_upload` + docUpload card) for accounts and guests; signups stay on their own screen. Guests are no longer sent to login when an identity upload is refused. **R2 code-complete.** W6 left: 3.1, 3.4, 4.1.
 - 2026-09-12 · **Decision:** 2.4 (photo check), 5.2 (voice notes) and 5.3 (Hindi) dropped. 2.5 now uploads without a photo check and moves to W6; W9 is gone; R5 is nudges only; sample photos are no longer needed. W6 is now 2.5 · 3.1 · 3.4 · 4.1.
