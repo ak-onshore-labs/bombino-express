@@ -10,7 +10,7 @@ The single place to see where the BIA 3.0 build stands.
 ## How to update this file
 
 - **Package sessions don't edit this file.** Several sessions run at once, and parallel edits to one table conflict. The orchestrating session (or Aditya) updates it on `bia-3/main` after each PR merges.
-- Status: ⬜ not started · 🟡 in progress · 🔵 PR open · ✅ merged · ⛔ blocked
+- Status: ⬜ not started · 🟡 in progress · 🔵 PR open · ✅ merged · ⛔ blocked · ⏭ skipped (dropped from the build; kept here for the record)
 - On merge: set ✅, fill in the PR and date, tick the package's checklist below, and write anything surprising under its **Notes**.
 - Change a package's scope here and in the build plan together, or the two drift.
 
@@ -30,8 +30,8 @@ The single place to see where the BIA 3.0 build stands.
 | [2.1](#21-account-matchmaker) | Account Matchmaker | R2 | W5 | M · 1 d | 1.5 | ✅ | `bia-3/wp2-1` → merged locally (5a50de9) | 2026-09-11 |
 | [2.2](#22-signup-progress-and-document-status) | Signup progress and document status | R2 | W5 | M · 1 d | 1.5 | ✅ | `bia-3/wp2-2` → merged locally (ad43d6c) | 2026-09-12 |
 | [2.3](#23-verdict-explainer-on-the-upload-screens) | Verdict explainer on the upload screens | R2 | W5 | S · ½ d | 1.2 | ✅ | `bia-3/wp2-3` → merged locally (f8e6870) | 2026-09-12 |
-| [2.4](#24-photo-check-before-upload) | Photo check before upload | R2 | W6 | M · 1 d | 2.3 | ⬜ | `bia-3/wp2-4` | |
-| [2.5](#25-upload-card-inside-the-chat) | Upload card inside the chat | R2 | W7 | M · 1 d | 2.2, 2.4 | ⬜ | `bia-3/wp2-5` | |
+| [2.4](#24-photo-check-before-upload) | Photo check before upload | R2 | — | M · 1 d | 2.3 | ⏭ | — | skipped 2026-09-12 |
+| [2.5](#25-upload-card-inside-the-chat) | Upload card inside the chat | R2 | W6 | M · 1 d | 2.2, 2.3 | ⬜ | `bia-3/wp2-5` | |
 | [3.1](#31-booking-context-and-error-explainer) | Booking context and error explainer | R3 | W6 | M · 1 d | 1.4, 1.5 | ⬜ | `bia-3/wp3-1` | |
 | [3.2](#32-hsn-helper) | HSN helper | R3 | W8 | M · 1 d | 3.3 | ⬜ | `bia-3/wp3-2` | |
 | [3.3](#33-drafts-and-say-it-to-ship) | Drafts and "say it to ship" | R3 | W7 | L · 2 d | 3.1 | ⬜ | `bia-3/wp3-3` | |
@@ -40,10 +40,10 @@ The single place to see where the BIA 3.0 build stands.
 | [4.2](#42-ops-cases-tab) | Ops Cases tab | R4 | W7 | L · 1.5 d | 4.1 | ⬜ | `bia-3/wp4-2` | |
 | [4.3](#43-customer-side-of-cases-order-page-links) | Customer side of cases, order-page links | R4 | W8 | M · 1 d | 4.1 | ⬜ | `bia-3/wp4-3` | |
 | [5.1](#51-nudges) | Nudges | R5 | W8 | L · 1.5 d | 1.4, 2.2 | ⬜ | `bia-3/wp5-1` | |
-| [5.2](#52-voice-notes) | Voice notes | R5 | W9 | M · 1 d | 1.4, 1.6 | ⬜ | `bia-3/wp5-2` | |
-| [5.3](#53-hindi) | Hindi | R5 | W7 | S · ½ d | 1.5 | ⬜ | `bia-3/wp5-3` | |
+| [5.2](#52-voice-notes) | Voice notes | R5 | — | M · 1 d | 1.4, 1.6 | ⏭ | — | skipped 2026-09-12 |
+| [5.3](#53-hindi) | Hindi | R5 | — | S · ½ d | 1.5 | ⏭ | — | skipped 2026-09-12 |
 
-**24 packages · 23.5 dev-days · 10 waves.**
+**21 packages (3 more skipped) · 21 dev-days · 9 waves.** 12 merged, 9 to go.
 
 ## Waves
 
@@ -57,10 +57,11 @@ Packages in the same wave run in parallel. A package starts only once everything
 | W3 | 1.3 | 1.2 may still be running |
 | W4 | 1.4 · 1.5 · 1.6 | 3 in parallel |
 | W5 | 1.7 · 2.1 · 2.2 · 2.3 | 4 in parallel — **R1 can go live once 1.7 merges** |
-| W6 | 2.4 · 3.1 · 3.4 · 4.1 | 4 in parallel |
-| W7 | 2.5 · 3.3 · 4.2 · 5.3 | 4 in parallel — **R2 can go live once 2.5 merges** |
-| W8 | 3.2 · 4.3 · 5.1 | 3 in parallel — **R3 and R4 can go live once 3.2 and 4.3 merge** |
-| W9 | 5.2 | owns BiaChat after 4.3 — **R5 goes live** |
+| W6 | 2.5 · 3.1 · 3.4 · 4.1 | 4 in parallel — **R2 can go live once 2.5 merges** |
+| W7 | 3.3 · 4.2 | 2 in parallel |
+| W8 | 3.2 · 4.3 · 5.1 | 3 in parallel — **R3, R4 and R5 can go live once 3.2, 4.3 and 5.1 merge** |
+
+2.4, 5.2 and 5.3 were dropped on 2026-09-12. That moved 2.5 up to W6 (it no longer waits on a photo check) and removed W9.
 
 ## Releases
 
@@ -73,7 +74,7 @@ Modules ship dark and go live by adding them to `BIA_MODULES` in production.
 | R2 | Onboarding and documents | Every OCR verdict has a tested explanation; a document can be retaken from chat. | ⬜ |
 | R3 | Booking Copilot | A one-sentence request becomes a correct pre-filled draft across the eval set. | ⬜ |
 | R4 | Handoff | Every escalation is a case ops can see and answer; risky actions link to the order page. | ⬜ |
-| R5 | Proactive and reach | Nudges are capped and switchable; voice and Hindi pass their evals. | ⬜ |
+| R5 | Proactive | Nudges are capped and switchable. (Voice and Hindi were dropped.) | ⬜ |
 
 ## Migrations
 
@@ -91,7 +92,7 @@ Sessions write them; Aditya runs each in Supabase before its package merges.
 
 - [ ] **Bombino content:** restricted items per destination (US, UK, UAE, Canada, Australia first), the volumetric weight rule per service, packing charges by box size, the support WhatsApp number and hours, typical time at each order stage. Needed by 3.4 and 4.1.
 - [ ] **Test identities for evals:** one account per category (personal, corporate, co-courier, e-commerce, FBB), a guest with orders (`9000000091`), a half-finished signup. Check `docs/test-accounts.md` for free numbers first. Needed by 1.1.
-- [ ] **Sample document photos** (20–30, sharp, blurred, glare, cropped; own or team documents, kept out of the repo). Needed by 2.4.
+- [x] ~~**Sample document photos**~~ No longer needed: 2.4 was dropped.
 - [ ] **Scheduler:** point the external scheduler at `POST /api/admin/bia/nudges/sweep` with the retention-sweep secret. Needed by 5.1.
 
 ## Follow-ups
@@ -332,9 +333,9 @@ Notes: **Fixed along the way:** the retry control said "Upload a clearer photo" 
 
 #### 2.4 Photo check before upload
 
-**Status:** ⬜ · **After:** 2.3 · **Owns:** `AccountDocuments.tsx`, `KycUpload.tsx`
+**Status:** ⏭ skipped (2026-09-12, Aditya's call) · **After:** 2.3 · **Owns:** `AccountDocuments.tsx`, `KycUpload.tsx`
 
-Catch blurry, glary or tiny photos on the phone before they cost a Cashfree call.
+Catch blurry, glary or tiny photos on the phone before they cost a Cashfree call. *Dropped: 2.3's explanations already say what a retake needs, and 2.5 uploads without this check. The plan is kept below in case it comes back.*
 
 Build
 - [ ] `client/src/lib/photoCheck.ts`: downscale on a canvas; blur from the variance of the Laplacian; glare from the share of clipped highlights; size from the shorter side. PDFs skip it.
@@ -350,13 +351,13 @@ Notes: —
 
 #### 2.5 Upload card inside the chat
 
-**Status:** ⬜ · **After:** 2.2, 2.4 · **Owns:** `components/bia/BiaChat.tsx`
+**Status:** ⬜ · **After:** 2.2, 2.3 · **Owns:** `components/bia/BiaChat.tsx`
 
 The first chat action: retake and re-upload a document without leaving BIA.
 
 Build
 - [ ] A docUpload card for one slot, posting to the endpoint that screen uses (`/api/signup/documents`, `/api/account/documents`, or `/api/kyc/upload` for guests). Each endpoint authorises the caller itself.
-- [ ] Runs the photo check, then shows the verdict explanation from `ocrExplain`.
+- [ ] Shows the verdict explanation from `ocrExplain` after the upload. (No photo check: 2.4 was dropped.)
 - [ ] Marked as coming from BIA in telemetry.
 
 Done when
@@ -511,9 +512,9 @@ Notes: —
 
 #### 5.2 Voice notes
 
-**Status:** ⬜ · **After:** 1.4, 1.6 · **Owns:** `components/bia/BiaChat.tsx`, `server/routes/support.ts`
+**Status:** ⏭ skipped (2026-09-12, Aditya's call) · **After:** 1.4, 1.6 · **Owns:** `components/bia/BiaChat.tsx`, `server/routes/support.ts`
 
-Hold to talk; BIA gets text the customer has already checked.
+Hold to talk; BIA gets text the customer has already checked. *Dropped; the plan is kept below in case it comes back.*
 
 Build
 - [ ] A mic button (MediaRecorder: webm on Android, mp4 on iOS), 60 seconds at most.
@@ -528,9 +529,9 @@ Notes: —
 
 #### 5.3 Hindi
 
-**Status:** ⬜ · **After:** 1.5 · **Owns:** `server/supportPrompts.ts`
+**Status:** ⏭ skipped (2026-09-12, Aditya's call) · **After:** 1.5 · **Owns:** `server/supportPrompts.ts`
 
-BIA answers in Hindi when the customer writes in Hindi.
+BIA answers in Hindi when the customer writes in Hindi. *Dropped: no Hindi-specific rules or evals. The base prompt's existing LANGUAGE block is unchanged.*
 
 Build
 - [ ] Language rules in the base prompt: Devanagari in, Devanagari out; Hinglish stays Hinglish; names, addresses and codes stay unchanged.
@@ -544,6 +545,8 @@ Notes: —
 ## Log
 
 Newest first. One line per merge, decision or surprise.
+
+- 2026-09-12 · **Decision:** 2.4 (photo check), 5.2 (voice notes) and 5.3 (Hindi) dropped. 2.5 now uploads without a photo check and moves to W6; W9 is gone; R5 is nudges only; sample photos are no longer needed. W6 is now 2.5 · 3.1 · 3.4 · 4.1.
 
 - 2026-09-12 · 2.3 merged: one explanation per document verdict on both upload screens and in BIA (`explain_document_issue`). **Wave W5 done.** W6 next: 2.4 photo check (needs your sample photos to tune), 3.1 booking context, 3.4 restricted items (waits on Bombino's lists), 4.1 support cases (writes a migration).
 - 2026-09-12 · 2.2 merged: `get_signup_progress` and `get_document_status`, docStatus card, resume-signup and my-documents buttons. The telemetry unit tests had been writing a fixed-id row to the shared `bia_turns`; fixed. 2.3 is the last W5 package.
