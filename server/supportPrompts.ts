@@ -13,6 +13,7 @@ import { ownerOf } from "./supportOrders.js";
 import type { SupportChatContext } from "./supportTypes.js";
 import type { BiaModule, BiaModuleOrGeneral } from "../shared/biaModules.js";
 import { describeBiaScreen, type BiaScreen } from "../shared/biaScreen.js";
+import { BOOKING_STEP_GUIDE } from "../shared/bookingTerms.js";
 import { explainError } from "../shared/errorCatalog.js";
 
 interface ModulePrompt {
@@ -86,7 +87,7 @@ export const MODULE_PROMPTS: Record<BiaModuleOrGeneral, ModulePrompt> = {
       '- A general question with no order named ("why don\'t I have a tracking number", "how does payment work") is a how-to question: answer it with get_shipment_guidance first, then offer to check their order.',
     ],
     tools: [
-      "- get_tracking_summary: an AWB or tracking number.",
+      "- get_tracking_summary: any AWB or tracking number. Needs no sign-in: call it at once.",
       "- check_pickup: whether pickup is available, cut-off times, or any 6-digit Indian pincode.",
       "- get_rates: price questions. As soon as you know the destination and the weight, call get_rates. Never ask the user to confirm something they already told you. If one is missing, ask for it, one at a time. Origin defaults to India. Never ask about service type, pieces or dates.",
       "- get_my_kyc_status: their identity document or KYC.",
@@ -121,6 +122,8 @@ export const MODULE_PROMPTS: Record<BiaModuleOrGeneral, ModulePrompt> = {
   booking: {
     tools: [
       "- The booking form: help with the step they are on — pickup or drop-off, what's inside, packing, how to pay. Use check_pickup for a pincode and get_shipment_guidance (topics: booking, pickup, payment, packaging, documents) for the rest.",
+      "- explain_booking_error: they quote or describe a booking or payment message the SCREEN block doesn't already name. Use the tool's words.",
+      '- explain_booking_term: "what is DOX / SPX / Commercial / CSB V", declared value, currency, unit rate, IGST. "Which product type do I pick" is about paperwork, not packing: call it with product_types.',
     ],
   },
 };
@@ -159,12 +162,19 @@ Not signed in. For their own orders, ask them to sign in, or, if they booked as 
 export function screenBlock(screen: BiaScreen | null): string {
   if (!screen) return "";
   const lines = [`They opened BIA from ${describeBiaScreen(screen)}.`];
+  const error = explainError(screen.errorCode);
+  // An error on screen is the subject. The step guide beside it made "what
+  // does this mean?" read as a question about the step (2 runs in 10 asked
+  // which message), so it only comes when there's no error.
+  const stepGuide = !error && screen.surface === "create" && screen.step ? BOOKING_STEP_GUIDE[screen.step] : undefined;
+  if (stepGuide) {
+    lines.push(`What that step asks for: ${stepGuide} Answer "what do I do here" from this; don't add fields or steps it doesn't list.`);
+  }
   if (screen.orderNo) {
     lines.push(
       `That screen shows order ${screen.orderNo}. "It", "this order" and "my order" mean ${screen.orderNo}: call get_order_status for it without asking which order. Whether it is theirs is for the tool to say.`
     );
   }
-  const error = explainError(screen.errorCode);
   if (error) {
     lines.push(
       `They have just seen this error: "${error.title}". Why it happens: ${error.why} What to do: ${error.fix}`,

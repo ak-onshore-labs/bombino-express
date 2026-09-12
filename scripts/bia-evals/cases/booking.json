@@ -1,0 +1,247 @@
+[
+  {
+    "id": "book-01-contract-required",
+    "module": "booking",
+    "identity": "account",
+    "screen": {
+      "surface": "create",
+      "step": "payment",
+      "destination": "US",
+      "productType": "SPX",
+      "errorCode": "CONTRACT_REQUIRED"
+    },
+    "turns": [
+      "I got this error: \"Accept the shipping terms\". What do I do?"
+    ],
+    "expect": {
+      "contains": [
+        "re:terms",
+        "re:(full )?name|sign"
+      ]
+    }
+  },
+  {
+    "id": "book-02-pickup-date-required",
+    "module": "booking",
+    "identity": "account",
+    "screen": {
+      "surface": "create",
+      "step": "invoice",
+      "destination": "GB",
+      "productType": "SPX",
+      "errorCode": "PICKUP_DATE_REQUIRED"
+    },
+    "turns": [
+      "I got this error: \"Choose a pickup date\". What do I do?"
+    ],
+    "expect": {
+      "contains": [
+        "re:date",
+        "re:sender|first step|step 1"
+      ]
+    }
+  },
+  {
+    "id": "book-03-pay-at-dropoff-needs-dropoff",
+    "module": "booking",
+    "identity": "account",
+    "screen": {
+      "surface": "create",
+      "step": "payment",
+      "destination": "AE",
+      "errorCode": "PAY_AT_DROPOFF_NEEDS_DROPOFF"
+    },
+    "turns": [
+      "I got this error: \"Pay at drop-off needs a counter drop-off\". What do I do?"
+    ],
+    "expect": {
+      "contains": [
+        "re:drop.?off",
+        "re:switch|another way|different (way|payment)|choose"
+      ]
+    }
+  },
+  {
+    "id": "book-04-pickup-date-too-early",
+    "module": "booking",
+    "identity": "guest",
+    "screen": {
+      "surface": "create",
+      "step": "sender",
+      "destination": "US",
+      "errorCode": "PICKUP_DATE_TOO_EARLY"
+    },
+    "turns": [
+      "I got this error: \"Today's pickup cut-off has passed\". What do I do?"
+    ],
+    "expect": {
+      "contains": [
+        "re:next (available )?(pickup )?(date|day)|tomorrow|another date|new date|later date",
+        "re:cut.?off"
+      ]
+    }
+  },
+  {
+    "id": "book-05-order-create-failed",
+    "module": "booking",
+    "identity": "account",
+    "screen": {
+      "surface": "create",
+      "step": "payment",
+      "destination": "CA",
+      "productType": "SPX",
+      "errorCode": "ORDER_CREATE_FAILED"
+    },
+    "turns": [
+      "I got this error: \"The booking didn't go through\". What do I do?"
+    ],
+    "expect": {
+      "contains": [
+        "re:try .{0,30}again|book again",
+        "re:nothing (was|has been) booked|not booked|wasn.t booked"
+      ],
+      "buttons": [
+        "TAP_CONTACT_US"
+      ]
+    }
+  },
+  {
+    "id": "book-06-product-type-required",
+    "module": "booking",
+    "identity": "account",
+    "screen": {
+      "surface": "create",
+      "step": "invoice",
+      "destination": "US",
+      "errorCode": "PRODUCT_TYPE_REQUIRED"
+    },
+    "turns": [
+      "I got this error: \"Choose what you're sending\". What do I do?"
+    ],
+    "expect": {
+      "contains": [
+        "re:package step|product type",
+        "re:DOX|SPX|Commercial"
+      ]
+    }
+  },
+  {
+    "id": "book-07-quoted-pay-at-pickup",
+    "module": "booking",
+    "requires": [
+      "booking"
+    ],
+    "identity": "account",
+    "screen": {
+      "surface": "create",
+      "step": "payment",
+      "destination": "US",
+      "productType": "SPX"
+    },
+    "turns": [
+      "The app won't let me pay at pickup, it says I need a doorstep pickup. Why?"
+    ],
+    "expect": {
+      "toolsAny": [
+        "explain_booking_error"
+      ],
+      "contains": [
+        "re:rider|at your door|doorstep"
+      ]
+    }
+  },
+  {
+    "id": "book-08-what-is-csb-v",
+    "module": "booking",
+    "requires": [
+      "booking"
+    ],
+    "identity": "account",
+    "screen": {
+      "surface": "create",
+      "step": "package",
+      "destination": "US"
+    },
+    "turns": [
+      "What does CSB V mean?"
+    ],
+    "expect": {
+      "tools": [
+        "explain_booking_term"
+      ],
+      "contains": [
+        "re:Courier Shipping Bill"
+      ]
+    }
+  },
+  {
+    "id": "book-09-which-product-type-for-gifts",
+    "module": "booking",
+    "requires": [
+      "booking"
+    ],
+    "identity": "guest",
+    "screen": {
+      "surface": "create",
+      "step": "package",
+      "destination": "GB"
+    },
+    "turns": [
+      "I'm sending some clothes to my sister as a gift. Which product type do I pick?"
+    ],
+    "expect": {
+      "contains": [
+        "re:SPX|Package"
+      ],
+      "notContains": [
+        "re:\\bCSB V\\b is (right|the one)|choose CSB V|pick CSB V"
+      ]
+    }
+  },
+  {
+    "id": "book-10-knows-where-its-going",
+    "module": "booking",
+    "requires": [
+      "booking"
+    ],
+    "identity": "account",
+    "screen": {
+      "surface": "create",
+      "step": "invoice",
+      "destination": "AE",
+      "productType": "SPX"
+    },
+    "turns": [
+      "Which currencies can I put the invoice in here?"
+    ],
+    "expect": {
+      "contains": [
+        "re:INR|rupee",
+        "re:AED|dirham|destination.s (own )?currency|United Arab Emirates"
+      ]
+    }
+  },
+  {
+    "id": "book-11-what-to-do-on-sender-step",
+    "module": "booking",
+    "identity": "account",
+    "screen": {
+      "surface": "create",
+      "step": "sender",
+      "destination": "US"
+    },
+    "turns": [
+      "I'm on the sender step of my booking. What do I need to do here?"
+    ],
+    "expect": {
+      "contains": [
+        "re:pickup|drop.?off",
+        "re:name|address|details"
+      ],
+      "notContains": [
+        "re:(enter|give|type) (the |that )?(counter|counter.s) address",
+        "re:identity documents"
+      ]
+    }
+  }
+]

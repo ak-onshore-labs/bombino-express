@@ -62,3 +62,32 @@ test("the description reads as English", () => {
   );
   assert.equal(describeBiaScreen({ surface: "orders" }), "their list of shipments");
 });
+
+test("the booking form may name the destination and product type, and nothing about the people or parcel", () => {
+  const screen = parseBiaScreen({
+    surface: "create",
+    step: "invoice",
+    destination: "US",
+    productType: "CSB V",
+    // What a careless client might add: none of it may pass.
+    senderName: "Ravi Kumar",
+    address: "12 MG Road, Pune",
+    phone: "9000000090",
+    aadhaar: "234123412346",
+    contents: "gold",
+  });
+  assert.deepEqual(screen, { surface: "create", step: "invoice", destination: "US", productType: "CSB V" });
+  assert.equal(
+    describeBiaScreen(screen!),
+    "the booking form (Create Shipment), on the invoice (contents, quantity, value) step, sending to United States as CSB V"
+  );
+});
+
+test("a destination must be a real country other than India, and only on the booking form", () => {
+  for (const destination of ["IN", "ZZ", "EU", "XX", "us", "USA", "United States"]) {
+    assert.equal(parseBiaScreen({ surface: "create", destination })?.destination, undefined, destination);
+  }
+  assert.equal(parseBiaScreen({ surface: "create", destination: "AE" })?.destination, "AE");
+  assert.equal(parseBiaScreen({ surface: "create", productType: "Diamonds" })?.productType, undefined);
+  assert.deepEqual(parseBiaScreen({ surface: "help", destination: "US", productType: "SPX" }), { surface: "help" });
+});

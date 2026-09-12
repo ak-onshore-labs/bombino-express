@@ -10,6 +10,8 @@
  */
 
 import { accountChoiceLabel, isAccountChoice, type AccountChoice } from "./accountMatch.js";
+import { PRODUCT_TYPE_INFO, isProductType, type ProductType } from "./bookingTerms.js";
+import { BOOKABLE_ORIGIN } from "./corridor.js";
 import { isErrorCode, type ErrorCode } from "./errorCatalog.js";
 
 export const BIA_SURFACES = [
@@ -34,6 +36,31 @@ export interface BiaScreen {
   errorCode?: ErrorCode;
   /** Signup only: the account being opened, once chosen (shared/accountMatch.ts). */
   account?: AccountChoice;
+  /**
+   * Booking only: the destination country, as a two-letter code. Nothing else
+   * about the parcel or the people on it is ever sent: no names, addresses,
+   * numbers or contents.
+   */
+  destination?: string;
+  /** Booking only: the product type chosen, once there is one. */
+  productType?: ProductType;
+}
+
+/**
+ * Two-letter codes that name no country: user-assigned ranges (AA, QM–QZ,
+ * XA–XZ except Kosovo's XK, ZZ) and groupings (EU, EZ, UN, QO).
+ */
+const NOT_A_COUNTRY = /^(AA|Q[M-Z]|QO|X[A-JL-Z]|ZZ|EU|EZ|UN)$/;
+
+/** "US" → "United States"; null for anything that isn't a country's code. */
+export function countryName(code: string): string | null {
+  if (!/^[A-Z]{2}$/.test(code) || NOT_A_COUNTRY.test(code)) return null;
+  try {
+    const name = new Intl.DisplayNames(["en"], { type: "region" }).of(code);
+    return name && name !== code ? name : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Steps a surface may report; any other step is dropped. */
@@ -94,12 +121,31 @@ export function parseBiaScreen(raw: unknown): BiaScreen | null {
   }
   if (isErrorCode(r.errorCode)) screen.errorCode = r.errorCode;
   if (r.surface === "signup" && isAccountChoice(r.account)) screen.account = r.account;
+  if (r.surface === "create") {
+    // A real region other than India (where every booking starts).
+    if (typeof r.destination === "string" && r.destination !== BOOKABLE_ORIGIN && countryName(r.destination)) {
+      screen.destination = r.destination;
+    }
+    if (isProductType(r.productType)) screen.productType = r.productType;
+  }
   return screen;
 }
 
-/** "account signup (E-commerce account), on the uploading documents step" */
+/**
+ * "account signup (E-commerce account), on the uploading documents step";
+ * "the booking form (Create Shipment), on the package step, sending to United
+ * States as Package (SPX)"
+ */
 export function describeBiaScreen(screen: BiaScreen): string {
   const base = BIA_SURFACE_LABELS[screen.surface];
   const where = screen.account ? `${base} (${accountChoiceLabel(screen.account)} account)` : base;
-  return screen.step ? `${where}, on the ${STEP_LABELS[screen.step] ?? screen.step} step` : where;
+  const onStep = screen.step ? `${where}, on the ${STEP_LABELS[screen.step] ?? screen.step} step` : where;
+  const to = screen.destination ? countryName(screen.destination) : null;
+  const booking = [
+    to ? `sending to ${to}` : null,
+    screen.productType ? `as ${PRODUCT_TYPE_INFO[screen.productType].title}` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return booking ? `${onStep}, ${booking}` : onStep;
 }

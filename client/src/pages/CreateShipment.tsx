@@ -18,6 +18,7 @@ import {
   X,
   CalendarIcon,
   ShieldCheck,
+  Sparkles,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useLocation } from 'wouter';
@@ -57,6 +58,9 @@ import { lbToKg, inToCm } from '@/lib/mockData';
 import { apiRequest } from '@/lib/queryClient';
 import { parseApiErrorCode, parseApiErrorMessage } from '@/lib/apiError';
 import { AskBiaLink } from '@/components/bia/AskBiaLink';
+import { openBia, usePublishBiaScreen } from '@/lib/biaStore';
+import type { BiaScreen } from '@shared/biaScreen';
+import { PRODUCT_TYPE_INFO, isProductType } from '@shared/bookingTerms';
 import { payForOrder } from '@/lib/razorpay';
 import { PaymentTestModeSwitch } from '@/components/PaymentTestModeSwitch';
 import { cn } from '@/lib/utils';
@@ -403,31 +407,8 @@ const PRODUCT_TYPE_LABEL: Record<string, string> = {
   'CSB V': 'CSB V',
 };
 
-/**
- * What each product type means, for the info sheet.
- *
- * Keyed by the same value the select carries, so the sheet explains exactly
- * the options on offer and no others — a personal customer reading about CSB V
- * is reading about a filing they cannot make.
- */
-const PRODUCT_TYPE_INFO: Record<string, { title: string; body: string }> = {
-  DOX: {
-    title: 'Documents (DOX)',
-    body: 'Standard industry code for shipments containing only paper — no commercial value, no duties.',
-  },
-  SPX: {
-    title: 'Package (SPX)',
-    body: "Small Parcel Express — usually containing physical goods that aren't just paper.",
-  },
-  COMMERCIAL: {
-    title: 'Commercial',
-    body: 'Goods meant for sale or trade. Requires a formal invoice and duty assessment.',
-  },
-  'CSB V': {
-    title: 'CSB V',
-    body: 'Courier Shipping Bill V — a simplified export process for low-value goods usually under ₹5,00,000 sent via courier.',
-  },
-};
+// What each product type means, for the info sheet: PRODUCT_TYPE_INFO in
+// shared/bookingTerms.ts, so BIA's explain_booking_term says the same words.
 
 /**
  * One thing already on file, on the booking gate.
@@ -575,6 +556,8 @@ export default function CreateShipment() {
   const [docketMessage, setDocketMessage] = useState('');
   const [newOrderId, setNewOrderId] = useState('');
   const [submitError, setSubmitError] = useState('');
+  /** The catalogued code behind `submitError`, for "Ask BIA"; null when it has none. */
+  const [submitErrorCode, setSubmitErrorCode] = useState<string | null>(null);
 
   // Pay-now only. The order exists either way by the time this matters — the
   // booking is never held hostage to the gateway — so `unpaid` is a normal
@@ -1215,6 +1198,24 @@ export default function CreateShipment() {
     setShowServiceModal(true);
   };
 
+  // What BIA knows about this booking when it opens, from the support button
+  // or any "Ask BIA" here: the step, where the parcel is going and what kind
+  // of shipment it is. Nothing else — no names, addresses, numbers or contents
+  // (and shared/biaScreen.ts drops anything else on the server regardless).
+  const biaStepIndex = Math.min(currentStep, steps.length) - 1;
+  const biaScreen: Omit<BiaScreen, 'errorCode'> = {
+    surface: 'create',
+    step: showConfirmModal ? 'payment' : BOOKING_STEP_NAMES[biaStepIndex],
+    ...(destinationCountry ? { destination: destinationCountry } : {}),
+    ...(isProductType(productType) ? { productType } : {}),
+  };
+  usePublishBiaScreen(biaScreen);
+  const askBiaAboutStep = (): void =>
+    openBia({
+      screen: biaScreen,
+      seed: `I'm on the ${steps[biaStepIndex].title.toLowerCase()} step of my booking. What do I need to do here?`,
+    });
+
   // Signed out, and not yet committed to booking as a guest.
   //
   // This used to be a wall: "Please login to continue". It is a choice now,
@@ -1702,6 +1703,7 @@ export default function CreateShipment() {
 
   const handleSubmit = () => {
     setSubmitError('');
+    setSubmitErrorCode(null);
     setServiceSelectionError('');
     setFieldErrors({});
     // Both of these are mandatory and neither is a text input, so they report
@@ -1710,6 +1712,7 @@ export default function CreateShipment() {
     // have to hunt a step for it.
     if (!productType.trim()) {
       setSubmitError('Please select a product type');
+      setSubmitErrorCode('PRODUCT_TYPE_REQUIRED');
       setFieldErrors({ productType: true });
       scrollToFirstError();
       return;
@@ -1763,6 +1766,7 @@ export default function CreateShipment() {
     }
     if (pickupRequest === '1' && !pickupDate) {
       setSubmitError('Please go back to step 1 and choose a pickup date');
+      setSubmitErrorCode('PICKUP_DATE_REQUIRED');
       return;
     }
     const weightLb = getWeightLb();
@@ -1956,6 +1960,15 @@ export default function CreateShipment() {
             <ArrowLeft className="w-5 h-5" />
           </button>
           <h1 className="ml-2 font-semibold text-sm">Create Shipment</h1>
+          <button
+            type="button"
+            onClick={askBiaAboutStep}
+            className="ml-auto inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-[#14567C] hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14567C]/40"
+            data-testid="button-ask-bia-step"
+          >
+            <Sparkles className="h-3.5 w-3.5 text-[#F2A123]" aria-hidden />
+            Ask BIA
+          </button>
         </div>
       </header>
 
@@ -1972,6 +1985,16 @@ export default function CreateShipment() {
               <h1 className="text-[26px] font-bold tracking-[-0.02em] text-[lab(34.0831_-9.57756_-27.7093)] leading-tight">Create shipment</h1>
               <p className="text-sm text-muted-foreground mt-1">
                 Step <span className="text-[lab(34.0831_-9.57756_-27.7093)] font-semibold tabular-nums">{currentStep < 4 ? currentStep : steps.length}</span> of <span className="tabular-nums">{steps.length}</span> · {steps[Math.min(currentStep, steps.length) - 1]?.title}
+                <span aria-hidden> · </span>
+                <button
+                  type="button"
+                  onClick={askBiaAboutStep}
+                  className="inline-flex items-center gap-1 font-semibold text-[#14567C] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14567C]/40 rounded"
+                  data-testid="button-ask-bia-step-desktop"
+                >
+                  <Sparkles className="h-3.5 w-3.5 text-[#F2A123]" aria-hidden />
+                  Ask BIA about this step
+                </button>
               </p>
             </div>
 
@@ -3627,7 +3650,7 @@ export default function CreateShipment() {
                 <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
                 <div className="flex flex-col items-start gap-1">
                   <p className="text-xs text-red-600">{submitError}</p>
-                  <AskBiaLink screen={{ surface: 'create', step: BOOKING_STEP_NAMES[currentStep - 1] }} message={submitError} />
+                  <AskBiaLink screen={biaScreen} code={submitErrorCode} message={submitError} />
                 </div>
               </div>
             )}
@@ -3797,7 +3820,7 @@ export default function CreateShipment() {
                     <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
                     <div className="flex flex-col items-start gap-1">
                       <p className="text-xs text-red-600">{submitError}</p>
-                      <AskBiaLink screen={{ surface: 'create', step: BOOKING_STEP_NAMES[currentStep - 1] }} message={submitError} />
+                      <AskBiaLink screen={biaScreen} code={submitErrorCode} message={submitError} />
                     </div>
                   </div>
                 )}
@@ -3843,7 +3866,7 @@ export default function CreateShipment() {
             </div>
             <div className="space-y-4">
               {productTypeOptions.map(({ value }) => {
-                const info = PRODUCT_TYPE_INFO[value];
+                const info = isProductType(value) ? PRODUCT_TYPE_INFO[value] : null;
                 if (!info) return null;
                 return (
                   <div key={value}>
@@ -4256,7 +4279,7 @@ export default function CreateShipment() {
                 <div className="flex flex-col items-start gap-1">
                   <p className="text-xs text-red-600">{paymentError}</p>
                   <AskBiaLink
-                    screen={{ surface: 'create', step: 'payment' }}
+                    screen={{ ...biaScreen, step: 'payment' }}
                     code={lastOrderErrorRef.current?.message === paymentError ? lastOrderErrorRef.current.code : null}
                     message={paymentError}
                   />

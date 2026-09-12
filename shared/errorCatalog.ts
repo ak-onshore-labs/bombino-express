@@ -259,6 +259,13 @@ export const ERROR_CATALOG = {
     why: "A doorstep pickup needs a date for the rider.",
     fix: "Pick a date on the sender step.",
   },
+  // Raised by the booking form itself (CreateShipment §handleSubmit), not the server.
+  PRODUCT_TYPE_REQUIRED: {
+    area: "booking",
+    title: "Choose what you're sending",
+    why: "The product type decides the customs paperwork for the parcel.",
+    fix: "Choose one on the package step: Documents (DOX) for paper only, Package (SPX) for other goods, or Commercial for goods you're selling.",
+  },
   PAY_AT_PICKUP_NEEDS_PICKUP: {
     area: "booking",
     title: "Pay at pickup needs a doorstep pickup",

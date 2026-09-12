@@ -50,10 +50,12 @@ const signedOut: SupportChatContext = {
   screen: null,
 };
 
-// A budget, not a snapshot. BIA 2.0's prompt was 6,257 characters; the only
-// growth since is the code rule telling BIA to look the order up (1.6).
+// A budget, not a snapshot. BIA 2.0's prompt was 6,257 characters; the growth
+// since: the code rule telling BIA to look the order up (1.6), and "needs no
+// sign-in" on get_tracking_summary (3.1: once the modules' tools were added, a
+// signed-out "track <AWB>" was told to sign in 3 runs in 3; 8/8 with the line).
 // Raise it on purpose, never to make a failure go away.
-const PROMPT_BUDGET = 6270;
+const PROMPT_BUDGET = 6300;
 
 test("the default prompt stays within its budget", () => {
   const length = buildSystemPrompt(signedOut, ["orders"]).length;
@@ -76,4 +78,16 @@ test("every turn keeps the hard rules, the buttons rule and the user block", () 
   for (const section of ["HOW BOMBINO WORKS", "HARD RULES", "BUTTONS", "LANGUAGE", "STYLE", "CURRENT USER"]) {
     assert.match(prompt, new RegExp(section));
   }
+});
+
+test("a booking step brings what that step asks for; no other screen does", () => {
+  const sender = screenBlock(parseBiaScreen({ surface: "create", step: "sender", destination: "US" }));
+  assert.match(sender, /sending to United States/);
+  assert.match(sender, /What that step asks for: .*doorstep pickup/);
+  assert.doesNotMatch(screenBlock(parseBiaScreen({ surface: "signup", step: "documents" })), /What that step asks for/);
+  assert.doesNotMatch(screenBlock(parseBiaScreen({ surface: "create" })), /What that step asks for/);
+  // An error on screen is the subject; the step guide stays out of its way.
+  const withError = screenBlock(parseBiaScreen({ surface: "create", step: "sender", errorCode: "PAY_AT_PICKUP_NEEDS_PICKUP" }));
+  assert.match(withError, /They have just seen this error/);
+  assert.doesNotMatch(withError, /What that step asks for/);
 });

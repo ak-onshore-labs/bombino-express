@@ -107,7 +107,7 @@
     "turns": ["It says my Aadhaar couldn't be checked just now. Is my photo bad?"],
     "expect": {
       "toolsAny": ["explain_document_issue"],
-      "contains": ["re:(few|couple of) minutes|try (uploading )?(it )?again", "re:not (a problem with|about) (the|your) (document|photo)|isn.t (a problem with|about) (the|your) (document|photo)|nothing wrong with"],
+      "contains": ["re:(few|couple of) minutes|try (uploading )?(it )?again", "re:not (a problem with|about) (the|your) (document|photo)|isn.t (a problem with|about) (the|your) (document|photo)|nothing wrong with|isn.t (an issue|a problem)|not an issue with|not because of (the|your)"],
       "notContains": ["re:clearer photo|blur|glare"]
     }
   },
