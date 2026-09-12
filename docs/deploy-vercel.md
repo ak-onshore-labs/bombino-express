@@ -73,6 +73,8 @@ this ever moves back to a long-lived host, raise it in `server/routes.ts` and in
 `setDefaultResultOrder("ipv4first")` itself, which covers the same ground for
 anything resolved after the module loads.
 
+**BIA reads files from `content/`.** The app guide (`content/bia/app-guide.md`) and the restricted-items lists are read from disk at runtime, which the function bundler cannot trace, so `vercel.json` lists them in `includeFiles`. A new folder under `content/` is covered by the same glob.
+
 ## Before real users
 
 `sendOtpSms` in `server/otp.ts` logs the code to the server console — there is
