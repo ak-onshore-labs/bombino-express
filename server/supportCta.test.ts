@@ -100,3 +100,12 @@ test("the last tool's buttons stand in only when the reply has none", async () =
   assert.deepEqual(buttons(await finalizeReply("Rates are ...", withFallback)), ["TAP_CREATE_SHIPMENT"]);
   assert.deepEqual(buttons(await finalizeReply("Rates are ...\nTAP_CONTACT_US", withFallback)), ["TAP_CONTACT_US"]);
 });
+
+test("a case's WhatsApp button survives only for a case this turn opened, and only for an owner", async () => {
+  const opened = { ...guest(), ownedCaseNos: new Set(["BIA-1001"]) };
+  assert.equal(await finalizeReply("Case BIA-1001 is open.\nTAP_CASE_WHATSAPP:BIA-1001", opened), "Case BIA-1001 is open.\n\nTAP_CASE_WHATSAPP:BIA-1001");
+  // A number the model made up, or one from another turn, is dropped.
+  assert.equal(await finalizeReply("See TAP_CASE_WHATSAPP:BIA-1002", opened), "See");
+  assert.equal(await finalizeReply("TAP_CASE_WHATSAPP:BIA-1001", { ...anon, ownedCaseNos: new Set(["BIA-1001"]) }), "");
+  assert.equal(await finalizeReply("TAP_CASE_WHATSAPP:BIA-1001", guest()), "");
+});

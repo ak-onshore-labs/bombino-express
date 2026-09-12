@@ -9,6 +9,8 @@
  *   onboarding  choosing an account and signing up (R2).
  *   documents   identity numbers, uploads and their checks (R2).
  *   booking     the Create Shipment form (R3).
+ *   handoff     escalations become support cases ops can see and answer (R4).
+ *               Needs migrations/create_support_cases.sql and the ops Cases tab.
  *
  * Explaining an error the customer has just seen doesn't belong to a module:
  * it comes from the error catalog through the screen context, and works
@@ -17,7 +19,7 @@
 
 import type { BiaSurface } from "./biaScreen.js";
 
-export const BIA_MODULES = ["orders", "onboarding", "documents", "booking"] as const;
+export const BIA_MODULES = ["orders", "onboarding", "documents", "booking", "handoff"] as const;
 
 export type BiaModule = (typeof BIA_MODULES)[number];
 
@@ -62,10 +64,11 @@ export function parseBiaModules(raw: string | undefined | null): BiaModule[] {
 /**
  * The modules that apply to one turn: those enabled, narrowed to the screen's
  * own when it has any. Orders stay in on every screen, since a customer on the
- * booking form can still ask where their last parcel is.
+ * booking form can still ask where their last parcel is, and so does handoff:
+ * a customer can need a person from anywhere.
  */
 export function modulesForScreen(surface: BiaSurface | null | undefined, enabled: readonly BiaModule[]): BiaModule[] {
   const own = surface ? SURFACE_MODULES[surface] : undefined;
   if (!own || own.length === 0) return [...enabled];
-  return enabled.filter((m) => m === "orders" || own.includes(m));
+  return enabled.filter((m) => m === "orders" || m === "handoff" || own.includes(m));
 }

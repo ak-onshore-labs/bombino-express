@@ -7,7 +7,7 @@
  * the customer may see: customer status labels (never weighed / settled /
  * ready_for_docket), no ids, no codes.
  *
- * More kinds arrive with later packages: hsn (3.2), draft (3.3), case (4.1).
+ * More kinds arrive with later packages: hsn (3.2), draft (3.3).
  * Add the kind here, in biaCardKey and isBiaCard, and its renderer in
  * client/src/components/bia/BiaCards.tsx together.
  */
@@ -130,7 +130,23 @@ export interface DocUploadCard {
   needsNumber: boolean;
 }
 
-export type BiaCard = OrderCard | PickupCard | RateCard | ChecklistCard | DocStatusCard | DocUploadCard;
+/**
+ * A support case BIA opened, or found already open (server/supportCases.ts).
+ * Ops answer it from the console's Cases tab; the reply reaches the bell.
+ */
+export interface CaseCard {
+  kind: "case";
+  /** "BIA-1001" */
+  caseNo: string;
+  status: "open" | "answered" | "closed";
+  orderNo: string | null;
+  /** What it's about, in a few words: "Damaged parcel". */
+  topic: string;
+  /** Already open from earlier today, so no second case was made. */
+  existing: boolean;
+}
+
+export type BiaCard = OrderCard | PickupCard | RateCard | ChecklistCard | DocStatusCard | DocUploadCard | CaseCard;
 
 /** At most this many cards under one reply. */
 export const MAX_BIA_CARDS = 5;
@@ -150,6 +166,8 @@ export function biaCardKey(card: BiaCard): string {
       return `docStatus:${card.scope}`;
     case "docUpload":
       return `docUpload:${card.target}:${card.slot ?? card.documentType}`;
+    case "case":
+      return `case:${card.caseNo}`;
   }
 }
 
@@ -277,6 +295,15 @@ export function isBiaCard(value: unknown): value is BiaCard {
         // Four characters at most: a card never carries a whole number.
         (c.numberEnding === null || (isStr(c.numberEnding) && /^[A-Za-z0-9]{4}$/.test(c.numberEnding))) &&
         typeof c.needsNumber === "boolean"
+      );
+    case "case":
+      return (
+        isStr(c.caseNo) &&
+        /^BIA-[0-9]{4,7}$/.test(c.caseNo) &&
+        (c.status === "open" || c.status === "answered" || c.status === "closed") &&
+        (c.orderNo === null || (isStr(c.orderNo) && /^BOM-[0-9]{6,9}$/.test(c.orderNo))) &&
+        isStr(c.topic) &&
+        typeof c.existing === "boolean"
       );
     default:
       return false;

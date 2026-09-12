@@ -30,6 +30,7 @@ import "dotenv/config";
 const modulesArg = process.argv.indexOf("--modules");
 process.env.BIA_MODULES =
   modulesArg > -1 ? (process.argv[modulesArg + 1] ?? "") : "orders,onboarding,documents,booking";
+import { AsyncLocalStorage } from "node:async_hooks";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,10 +45,29 @@ import { parseBiaScreen } from "../shared/biaScreen.js";
 import { buildSystemPrompt } from "../server/supportPrompts.js";
 import { enabledBiaModules, toolsForTurn } from "../server/supportTools.js";
 import { replaceSignupLoader, type SignupRecords } from "../server/supportDocuments.js";
+import { memoryCaseStore, replaceCaseStore, type CaseStore } from "../server/supportCases.js";
 
 /** Staged signups by ref; each case that has one gets its own ref. */
 const stagedSignups = new Map<string, SignupRecords>();
 replaceSignupLoader(async (ref) => stagedSignups.get(ref) ?? { numbers: [], documents: [] });
+
+/**
+ * Support cases (server/supportCases.ts) are kept in memory, never in the
+ * shared database, and each case run gets a store of its own: runs go four at
+ * a time, and one run's open case must not turn another's into "already open".
+ */
+const caseScope = new AsyncLocalStorage<string>();
+const caseStores = new Map<string, ReturnType<typeof memoryCaseStore>>();
+function casesFor(key: string): ReturnType<typeof memoryCaseStore> {
+  let store = caseStores.get(key);
+  if (!store) caseStores.set(key, (store = memoryCaseStore()));
+  return store;
+}
+const scopedCaseStore: CaseStore = {
+  findOpen: (owner, orderNo, since) => casesFor(caseScope.getStore() ?? "_").findOpen(owner, orderNo, since),
+  insert: (c) => casesFor(caseScope.getStore() ?? "_").insert(c),
+};
+replaceCaseStore(scopedCaseStore);
 
 // ─── Case format ─────────────────────────────────────────────────────────────
 
@@ -74,6 +94,8 @@ interface EvalCase {
    * module's tools are withheld on purpose.
    */
   requires?: string[];
+  /** Skipped when any of these modules is on: for behaviour that holds only while one is off. */
+  skipIf?: string[];
   /**
    * A signup under way in this browser, for the signup tools to find. Staged
    * in memory (server/supportDocuments.ts §replaceSignupLoader), never in the
@@ -98,6 +120,16 @@ interface EvalCase {
     cards?: string[];
     /** No cards at all. */
     noCards?: boolean;
+    /** The support cases the run left behind (in memory; see caseScope). */
+    case?: {
+      /** How many cases were opened; 0 for none. */
+      count?: number;
+      /** The latest case's summary, as ops would read it. */
+      summaryContains?: Matcher[];
+      summaryNotContains?: Matcher[];
+      orderNo?: string | null;
+      category?: string;
+    };
   };
 }
 
@@ -213,10 +245,25 @@ interface Turn {
   cards: BiaCard[];
 }
 
-function check(c: EvalCase, last: Turn, secrets: string[]): string[] {
+function check(c: EvalCase, last: Turn, secrets: string[], opened: ReturnType<typeof memoryCaseStore>["cases"] = []): string[] {
   const e = c.expect;
   const { body, buttons } = splitReply(last.reply);
   const fails: string[] = [];
+
+  if (e.case) {
+    const latest = opened[opened.length - 1];
+    if (e.case.count !== undefined && opened.length !== e.case.count) {
+      fails.push(`expected ${e.case.count} case(s), got ${opened.length}`);
+    }
+    if (latest) {
+      for (const m of e.case.summaryContains ?? []) if (!toRegex(m).test(latest.summary)) fails.push(`case summary: expected ${m}`);
+      for (const m of e.case.summaryNotContains ?? []) if (toRegex(m).test(latest.summary)) fails.push(`case summary: did not expect ${m}`);
+      if (e.case.orderNo !== undefined && latest.orderNo !== e.case.orderNo) fails.push(`case order: expected ${e.case.orderNo}, got ${latest.orderNo}`);
+      if (e.case.category !== undefined && latest.category !== e.case.category) fails.push(`case category: expected ${e.case.category}, got ${latest.category}`);
+    } else if ((e.case.summaryContains?.length ?? 0) > 0 || e.case.orderNo !== undefined || e.case.category !== undefined) {
+      fails.push("expected a case to check, but none was opened");
+    }
+  }
 
   for (const t of e.tools ?? []) if (!last.tools.includes(t)) fails.push(`expected tool ${t}`);
   if (e.toolsAny && !e.toolsAny.some((t) => last.tools.includes(t)))
@@ -334,7 +381,11 @@ async function main(): Promise<void> {
   const matching = loadCases(path.join(here, "bia-evals", "cases")).filter(
     (c) => (!moduleFilter || c.module === moduleFilter) && (!caseFilter || c.id.includes(caseFilter))
   );
-  const cases = matching.filter((c) => (c.requires ?? []).every((m) => (modules as string[]).includes(m)));
+  const cases = matching.filter(
+    (c) =>
+      (c.requires ?? []).every((m) => (modules as string[]).includes(m)) &&
+      !(c.skipIf ?? []).some((m) => (modules as string[]).includes(m))
+  );
   const skipped = matching.length - cases.length;
   if (cases.length === 0) {
     console.error(skipped > 0 ? `No cases to run: ${skipped} need a module that is off.` : "No cases match.");
@@ -361,9 +412,10 @@ async function main(): Promise<void> {
       let last: Turn;
       let fails: string[];
       try {
-        last = await runCase(c, identities[c.identity]);
+        const scope = `${c.id}#${run}`;
+        last = await caseScope.run(scope, () => runCase(c, identities[c.identity]));
         const staged = (c.signup?.numbers ?? []).flatMap((n) => idNumberWindows(n.document_no));
-        fails = check(c, last, [...identities[c.identity].secrets, ...staged]);
+        fails = check(c, last, [...identities[c.identity].secrets, ...staged], casesFor(scope).cases);
       } catch (err) {
         last = { reply: "", tools: [], suggestions: [], cards: [] };
         fails = [`threw: ${(err as Error).message}`];

@@ -1,5 +1,5 @@
-import { ChevronRight, FileText, MapPin, Package, Radar, Truck } from 'lucide-react';
-import type { BiaCard, BiaCardTone, ChecklistCard, DocStatusCard, OrderCard, PickupCard, RateCard } from '@shared/biaCards';
+import { ChevronRight, FileText, LifeBuoy, MapPin, Package, Radar, Truck } from 'lucide-react';
+import type { BiaCard, BiaCardTone, CaseCard, ChecklistCard, DocStatusCard, OrderCard, PickupCard, RateCard } from '@shared/biaCards';
 import { cn } from '@/lib/utils';
 import { CARD, TONE_CLASS } from './cardStyles';
 import { DocUploadCardView } from './DocUploadCard';
@@ -46,6 +46,8 @@ export function BiaCards({
                 onNavigate={onNavigate}
               />
             );
+          case 'case':
+            return <CaseCardView key={`case-${card.caseNo}`} card={card} />;
           default:
             return null;
         }
@@ -155,6 +157,34 @@ function ChecklistCardView({ card }: { card: ChecklistCard }): React.JSX.Element
           And these details: <span className="text-white/80">{card.fields.join(', ')}</span>
         </p>
       )}
+    </div>
+  );
+}
+
+const CASE_STATUS: Record<CaseCard['status'], { label: string; tone: BiaCardTone }> = {
+  open: { label: 'Open', tone: 'blue' },
+  answered: { label: 'Answered', tone: 'green' },
+  closed: { label: 'Closed', tone: 'gray' },
+};
+
+function CaseCardView({ card }: { card: CaseCard }): React.JSX.Element {
+  const status = CASE_STATUS[card.status];
+  return (
+    <div className={cn(CARD, 'flex flex-col gap-1.5')} data-testid="bia-card-case">
+      <div className="flex items-center gap-2">
+        <LifeBuoy className="h-4 w-4 shrink-0 text-[#FBAD1F]" aria-hidden />
+        <span className="flex-1 text-sm font-semibold text-white tabular-nums">Case {card.caseNo}</span>
+        <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-medium', TONE_CLASS[status.tone])}>
+          {status.label}
+        </span>
+      </div>
+      <p className="text-xs text-white/80">
+        {card.topic}
+        {card.orderNo ? ` · ${card.orderNo}` : ''}
+      </p>
+      <p className="text-[11px] text-white/55">
+        {card.existing ? 'Already open from earlier. ' : ''}Our team can see this conversation. Quote the case number if you message us.
+      </p>
     </div>
   );
 }

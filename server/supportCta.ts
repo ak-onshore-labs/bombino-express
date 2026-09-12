@@ -15,6 +15,7 @@
 import {
   BIA_BUTTON_TOKEN_RE,
   biaButtonAllowedFor,
+  biaButtonNeedsCase,
   biaButtonNeedsOwnership,
   biaButtonToken,
   parseBiaButton,
@@ -29,6 +30,8 @@ export interface CtaContext {
   owner: OrderOwner | null;
   /** Order numbers a tool already proved the caller owns during this turn. */
   ownedOrderNos: ReadonlySet<string>;
+  /** Support cases this turn opened or found for the caller. A case button needs one. */
+  ownedCaseNos?: ReadonlySet<string>;
   /**
    * The buttons the turn's last tool offered. Used only when the model's reply
    * carries none at all — it drops them often enough that a rate quote would
@@ -95,5 +98,7 @@ async function validateToken(
       if (!order) return null;
     }
   }
+  // Only a case this turn's escalation opened or found: never one the model typed.
+  if (biaButtonNeedsCase(button.name) && !ctx.ownedCaseNos?.has(button.arg)) return null;
   return biaButtonToken(button);
 }

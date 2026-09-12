@@ -5,7 +5,7 @@
 
 import type OpenAI from "openai";
 import type { BiaCard } from "../shared/biaCards.js";
-import type { BiaModuleOrGeneral } from "../shared/biaModules.js";
+import type { BiaModule, BiaModuleOrGeneral } from "../shared/biaModules.js";
 import type { BiaScreen } from "../shared/biaScreen.js";
 
 // ─── Chat API ───────────────────────────────────────────────────────────────
@@ -80,6 +80,16 @@ export interface SupportChatContext {
    * up with ownership checked. Null when the client sent none.
    */
   screen: BiaScreen | null;
+  /**
+   * Set by handleChat for the turn under way, for a tool that needs more than
+   * the session: the modules this turn was offered, and the conversation so
+   * far (identity numbers already masked by supportPrivacy.ts). Only
+   * escalate_support reads them, to open a support case.
+   */
+  modules?: readonly BiaModule[];
+  transcript?: readonly ChatMessage[];
+  /** The id the route minted for this turn's answer, for a case to record. */
+  turnId?: string | null;
 }
 
 // ─── Tool arguments (LLM → executor) ─────────────────────────────────────────
@@ -133,6 +143,8 @@ export interface TrackingSummary {
 export interface ToolOutcome {
   content: string;
   orderNos?: string[];
+  /** Support cases this tool opened or found for the caller, so their WhatsApp button survives. */
+  caseNos?: string[];
   /** Cards for the reply, built from data this tool already checked. */
   cards?: BiaCard[];
 }

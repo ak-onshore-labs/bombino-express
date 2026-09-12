@@ -26,6 +26,10 @@ const FALLBACK_CHAT =
   "I'm having trouble responding right now. Please try again in a moment or use the app menu to contact support.";
 const SUPPORT_CHAT_MAX_TOOL_ITERATIONS = 5;
 
+/** "Can I talk to someone", "customer care", "a real person". */
+export const ASKS_FOR_A_PERSON =
+  /\b(speak|talk|chat)\s+(to|with)\s+(someone|somebody|a\s+(real\s+)?(person|human)|an?\s+(agent|executive)|your\s+(team|staff|support)|support|customer\s+care)\b|\bcustomer\s+care\b|\b(real|actual)\s+(person|human)\b|\bcall\s+me\b/i;
+
 function getOpenAIClient(): OpenAI | null {
   const key = process.env.OPENAI_API_KEY;
   if (!key || typeof key !== "string" || key.trim() === "") return null;
@@ -77,6 +81,9 @@ export async function handleChat(
   // What this turn may use: the enabled modules that fit the screen, and the
   // order tools only for someone whose orders we can look up.
   const { modules, tools } = toolsForTurn(context.screen, enabledBiaModules(), !!ownerOf(context));
+  // What a tool may need beyond the session: this turn's modules, and the
+  // conversation so far (already masked), for a support case.
+  const turnContext: SupportChatContext = { ...context, modules, transcript: messages };
 
   // What the turn log records. Filled in as the turn goes.
   const meta: SupportTurnMeta = { modules: [...modules], tools: [], fallback: false, promptTokens: 0, completionTokens: 0 };
@@ -101,6 +108,7 @@ export async function handleChat(
 
   const owner = ownerOf(context);
   const ownedOrderNos = new Set<string>();
+  const ownedCaseNos = new Set<string>();
   let lastTool: string | null = null;
   let lastToolTokens: string[] = [];
   /** The cards from the latest round of tool calls that produced any. */
@@ -113,6 +121,13 @@ export async function handleChat(
   const screenError = explainError(context.screen?.errorCode);
   const lastUserText = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
   const errorButton = screenError?.button && lastUserText.includes(screenError.title) ? screenError.button : null;
+  /**
+   * Someone asking for a person always leaves with a way to reach one. The
+   * model sometimes says "use the WhatsApp or call buttons" and then leaves
+   * them off; this stands in, like the error button, only when the reply has
+   * no buttons at all.
+   */
+  const personButton = ASKS_FOR_A_PERSON.test(lastUserText) ? "TAP_CONTACT_US" : null;
 
   try {
     for (let iteration = 0; iteration < SUPPORT_CHAT_MAX_TOOL_ITERATIONS; iteration++) {
@@ -138,7 +153,9 @@ export async function handleChat(
         const final = await finalizeReply(message.content, {
           owner,
           ownedOrderNos,
-          fallbackTokens: lastToolTokens.length > 0 ? lastToolTokens : errorButton ? [errorButton] : [],
+          ownedCaseNos,
+          fallbackTokens:
+            lastToolTokens.length > 0 ? lastToolTokens : errorButton ? [errorButton] : personButton ? [personButton] : [],
         });
         // A lookup that found nothing offers no buttons; follow-ups about the
         // thing it did not find would be noise.
@@ -180,8 +197,9 @@ export async function handleChat(
             /* a tracer never breaks a reply */
           }
           // Only what this turn offered runs; a dark module's tool does not.
-          const outcome = await dispatchTool(name, args, context, tools);
+          const outcome = await dispatchTool(name, args, turnContext, tools);
           for (const orderNo of outcome.orderNos ?? []) ownedOrderNos.add(orderNo);
+          for (const caseNo of outcome.caseNos ?? []) ownedCaseNos.add(caseNo);
           return { id: tc.id, outcome };
         })
       );
