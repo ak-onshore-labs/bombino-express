@@ -32,7 +32,7 @@ The single place to see where the BIA 3.0 build stands.
 | [2.3](#23-verdict-explainer-on-the-upload-screens) | Verdict explainer on the upload screens | R2 | W5 | S · ½ d | 1.2 | ✅ | `bia-3/wp2-3` → merged locally (f8e6870) | 2026-09-12 |
 | [2.4](#24-photo-check-before-upload) | Photo check before upload | R2 | — | M · 1 d | 2.3 | ⏭ | — | skipped 2026-09-12 |
 | [2.5](#25-upload-card-inside-the-chat) | Upload card inside the chat | R2 | W6 | M · 1 d | 2.2, 2.3 | ✅ | `bia-3/wp2-5` → merged locally (b9b235b) | 2026-09-12 |
-| [3.1](#31-booking-context-and-error-explainer) | Booking context and error explainer | R3 | W6 | M · 1 d | 1.4, 1.5 | ⬜ | `bia-3/wp3-1` | |
+| [3.1](#31-booking-context-and-error-explainer) | Booking context and error explainer | R3 | W6 | M · 1 d | 1.4, 1.5 | ✅ | `bia-3/wp3-1` → merged locally (1c085e4) | 2026-09-12 |
 | [3.2](#32-hsn-helper) | HSN helper | R3 | W8 | M · 1 d | 3.3 | ⬜ | `bia-3/wp3-2` | |
 | [3.3](#33-drafts-and-say-it-to-ship) | Drafts and "say it to ship" | R3 | W7 | L · 2 d | 3.1 | ⬜ | `bia-3/wp3-3` | |
 | [3.4](#34-restricted-items-waits-on-content) | Restricted items (waits on content) | R3 | W6 | S · ½ d | 1.5 | ⬜ | `bia-3/wp3-4` | |
@@ -43,7 +43,7 @@ The single place to see where the BIA 3.0 build stands.
 | [5.2](#52-voice-notes) | Voice notes | R5 | — | M · 1 d | 1.4, 1.6 | ⏭ | — | skipped 2026-09-12 |
 | [5.3](#53-hindi) | Hindi | R5 | — | S · ½ d | 1.5 | ⏭ | — | skipped 2026-09-12 |
 
-**21 packages (3 more skipped) · 21 dev-days · 9 waves.** 13 merged, 8 to go.
+**21 packages (3 more skipped) · 21 dev-days · 9 waves.** 14 merged, 7 to go.
 
 ## Waves
 
@@ -102,7 +102,7 @@ Found along the way; not a package yet. Give one a number and a row above when i
 - [ ] **Resume signup at the documents step** (from 2.2). "Continue signup" opens the right form on the details step. Signup keeps no form state on the server, so a true resume means saving it (for a guest, the guest profile already covers the details). Touches `Signup.tsx` and the signup routes.
 - [x] ~~**`skipped` on Profile** (for 2.3).~~ Not a real case: `skipped` only comes from slots nothing reads or an identity slot with no number, which the number-first rule prevents. See 2.3's notes.
 - [ ] **KYC card says "In review" for a document with no verdict.** `KycOnFileCard` treats a missing `ocr_status` as "In review", while BIA's `get_my_kyc_status` calls the same row verified. Legacy rows only, but "in review" is wording the KYC rule says customers never see. One-line fix in `KycOnFileCard.tsx` (outside 2.3's files).
-- [ ] **One old eval flake left, about 1 run in 6.** `anon-07-unknown-awb` sometimes asks for the AWB instead of tracking it (all modules on). Predates 2.2. ~~`brief-02` listing the counters~~ fixed in 2.5 (the order tool asks for the counters' areas only).
+- [x] ~~**Old eval flakes.**~~ `brief-02` fixed in 2.5 (counters' areas only), `anon-07` in 3.1 (tracking needs no sign-in).
 
 ## Package checklists
 
@@ -370,19 +370,19 @@ Notes: The tool is `offer_document_upload` (documents module); it writes nothing
 
 #### 3.1 Booking context and error explainer
 
-**Status:** ⬜ · **After:** 1.4, 1.5 · **Owns:** `pages/CreateShipment.tsx`
+**Status:** ✅ · **After:** 1.4, 1.5 · **Owns:** `pages/CreateShipment.tsx`
 
 BIA inside Create Shipment knows the step and what went wrong.
 
 Build
-- [ ] `CreateShipment` passes { surface: create, step: `currentStep`, errorCode }, plus destination and product type, to `openBia`. "Ask BIA" on the step header and next to submit errors.
-- [ ] Booking module: `explain_booking_error` (from the catalog) and a glossary for DOX, SPX, Commercial, CSB V, declared value, currency, unit rate and IGST, reusing `PRODUCT_TYPE_INFO` wording.
+- [x] `CreateShipment` publishes { surface: create, step (`payment` while the pay sheet is open), destination, productType } with `usePublishBiaScreen`, so the support button and every "Ask BIA" on the form carry it; errors add their code. "Ask BIA about this step" in the mobile and desktop headers; the submit-error links now pass a code (the form's own checks gained `PICKUP_DATE_REQUIRED` and a new catalogued `PRODUCT_TYPE_REQUIRED`).
+- [x] Booking module (`server/supportBooking.ts`): `explain_booking_error` (every catalogued booking and payment code) and `explain_booking_term` (the four product types, declared value, currency, unit rate, IGST, plus a `product_types` overview for "which one do I pick"). `PRODUCT_TYPE_INFO` moved to `shared/bookingTerms.ts`; the form's info sheet reads it from there.
 
 Done when
-- [ ] An eval per booking error code: cause, fix and the right button
-- [ ] No ID number or address in the screen payload
+- [x] An eval per booking error code: cause, fix and the right button (`book-01`…`book-06` for the six not already covered; `KYC_REQUIRED`, `PAY_AT_PICKUP_NEEDS_PICKUP` and `PICKUP_PINCODE_NOT_SERVICEABLE` were covered by `ask-*`/`screen-*`). They run without the booking module too, since an error on screen is explained from the catalog.
+- [x] No ID number or address in the screen payload (`parseBiaScreen` keeps only `destination` and `productType` on the booking form, a real country other than India and a known type, and drops names, addresses, phones and numbers (tested). In Chrome the chat request's `screen` was `{"surface":"create","step":"sender","destination":"US"}`.)
 
-Notes: —
+Notes: **Added:** a per-step guide in the SCREEN block (`BOOKING_STEP_GUIDE`). Asked "what do I do here" on the sender step, BIA had made up a field ("enter the counter's address"). The guide steps aside when an error is on screen: next to an error it made "what does this mean?" read as a question about the step, and `screen-03` dropped to 2/10 (10/10 after). **Prompt budget:** with the new tools, a signed-out "track <AWB>" was told to sign in 3 runs in 3 (`anon-07`, the old flake). `get_tracking_summary` now says it needs no sign-in (8/8), and the default prompt's budget went from 6,270 to 6,300 on purpose for that line. Checked in headless Chrome at 390px and 1440px: the header link opens BIA with a step seed, the reply is about that step, and no errors. 130 unit tests; 58/58 evals ×3 with all modules and 39/39 ×2 with `--modules orders`.
 
 #### 3.2 HSN helper
 
@@ -546,6 +546,7 @@ Notes: —
 
 Newest first. One line per merge, decision or surprise.
 
+- 2026-09-12 · 3.1 merged: the booking form tells BIA its step, destination and product type; "Ask BIA about this step"; `explain_booking_error` and `explain_booking_term`; a step guide in the SCREEN block. Fixed along the way: the `anon-07` tracking flake (budget 6,270 → 6,300, on purpose). W6 left: 3.4, 4.1.
 - 2026-09-12 · 2.5 merged: upload a document from the chat (`offer_document_upload` + docUpload card) for accounts and guests; signups stay on their own screen. Guests are no longer sent to login when an identity upload is refused. **R2 code-complete.** W6 left: 3.1, 3.4, 4.1.
 - 2026-09-12 · **Decision:** 2.4 (photo check), 5.2 (voice notes) and 5.3 (Hindi) dropped. 2.5 now uploads without a photo check and moves to W6; W9 is gone; R5 is nudges only; sample photos are no longer needed. W6 is now 2.5 · 3.1 · 3.4 · 4.1.
 
