@@ -36,14 +36,14 @@ The single place to see where the BIA 3.0 build stands.
 | [3.2](#32-hsn-helper) | HSN helper | R3 | W8 | M · 1 d | 3.3 | ⬜ | `bia-3/wp3-2` | |
 | [3.3](#33-drafts-and-say-it-to-ship) | Drafts and "say it to ship" | R3 | W7 | L · 2 d | 3.1 | ⬜ | `bia-3/wp3-3` | |
 | [3.4](#34-restricted-items-waits-on-content) | Restricted items (waits on content) | R3 | W6 | S · ½ d | 1.5 | ✅ | `bia-3/wp3-4` → merged locally (de6d190); lists wait on Bombino | 2026-09-12 |
-| [4.1](#41-support-cases) | Support cases | R4 | W6 | M · 1 d | 1.3, 1.7 | ⬜ | `bia-3/wp4-1` | |
+| [4.1](#41-support-cases) | Support cases | R4 | W6 | M · 1 d | 1.3, 1.7 | ✅ | `bia-3/wp4-1` → merged locally (8010748); **migration not run**, `handoff` off | 2026-09-12 |
 | [4.2](#42-ops-cases-tab) | Ops Cases tab | R4 | W7 | L · 1.5 d | 4.1 | ⬜ | `bia-3/wp4-2` | |
 | [4.3](#43-customer-side-of-cases-order-page-links) | Customer side of cases, order-page links | R4 | W8 | M · 1 d | 4.1 | ⬜ | `bia-3/wp4-3` | |
 | [5.1](#51-nudges) | Nudges | R5 | W8 | L · 1.5 d | 1.4, 2.2 | ⬜ | `bia-3/wp5-1` | |
 | [5.2](#52-voice-notes) | Voice notes | R5 | — | M · 1 d | 1.4, 1.6 | ⏭ | — | skipped 2026-09-12 |
 | [5.3](#53-hindi) | Hindi | R5 | — | S · ½ d | 1.5 | ⏭ | — | skipped 2026-09-12 |
 
-**21 packages (3 more skipped) · 21 dev-days · 9 waves.** 15 merged, 6 to go.
+**21 packages (3 more skipped) · 21 dev-days · 9 waves.** 16 merged, 5 to go.
 
 ## Waves
 
@@ -85,7 +85,7 @@ Sessions write them; Aditya runs each in Supabase before its package merges.
 | `migrations/create_bia_turns.sql` | 1.6 | ✅ | ✅ 2026-09-11 |
 | `migrations/support_sessions_guest_ref.sql` | 1.7 | ✅ | ✅ 2026-09-11 |
 | `migrations/create_bia_drafts.sql` | 3.3 | ⬜ | ⬜ |
-| `migrations/create_support_cases.sql` | 4.1 | ⬜ | ⬜ |
+| `migrations/create_support_cases.sql` | 4.1 | ✅ | ⬜ |
 | `migrations/create_bia_nudges.sql` | 5.1 | ⬜ | ⬜ |
 
 ## Waiting on people
@@ -441,20 +441,20 @@ Notes: Matching is whole words on the item or its other names, with plurals fold
 
 #### 4.1 Support cases
 
-**Status:** ⬜ · **After:** 1.3, 1.7 · **Owns:** `server/routes/support.ts` · **Migration:** `create_support_cases.sql`
+**Status:** ✅ (dark: `handoff` off, migration not run) · **After:** 1.3, 1.7 · **Owns:** `server/routes/support.ts` · **Migration:** `create_support_cases.sql`
 
 Handoff that actually reaches someone: an escalation becomes a case ops can see.
 
 Build
-- [ ] `support_cases`: case number (BIA-1001 onwards), owner, order, category, summary, transcript snapshot, status (open, answered, closed), ops reply, timestamps.
-- [ ] `escalate_support` opens a case (one open case per owner and order in 24 hours), writes a three-line summary with a strict prompt, and returns a case card plus a WhatsApp button with the case number already in the message.
-- [ ] The escalation copy changes to match: our team can see this conversation.
+- [x] `support_cases` (`migrations/create_support_cases.sql`, written, **not run**): case number from a sequence (BIA-1001 onwards), owner (account or guest, never nobody), order, category, summary, transcript snapshot, status (open, answered, closed), ops reply, answered/closed times, the turn that opened it.
+- [x] `escalate_support` opens a case (one open case per owner and order in 24 hours; asking again finds it), writes a three-line summary with a strict prompt (a plain fallback when the model can't be reached), and returns a case card plus a WhatsApp button with the case number already in the message (`TAP_CASE_WHATSAPP`, kept only for a case the same turn opened).
+- [x] The escalation copy changes to match: with `handoff` on, the hard rule "never say you escalated" becomes "a case our team can see; never promise when they'll reply or what they'll decide".
 
 Done when
-- [ ] Eval: a damaged-parcel complaint → case opened, the summary names the order, no promised callback time
-- [ ] Repeating the complaint doesn't open a second case
+- [x] Eval: a damaged-parcel complaint → case opened, the summary names the order, no promised callback time (`case-01`, which checks the in-memory case's order, category and summary)
+- [x] Repeating the complaint doesn't open a second case (`case-02`, `{ count: 1 }`; unit test on the store)
 
-Notes: —
+Notes: **Dark behind a new module, `handoff`:** `escalate_support` is a general tool that's live today, and "our team can see this conversation" would be false until ops have the Cases tab (4.2), so cases only open with `BIA_MODULES` including `handoff`. Off, escalating is exactly what it was (`case-05` checks). Signed-out visitors get the buttons either way, and a case names an order only after `findOrderForOwner` proves it's theirs. **To switch on (R4):** run the migration, ship 4.2 and 4.3, then add `handoff` to `BIA_MODULES`; until the migration runs, escalating logs `[bia] could not open a support case…` once and falls back to the buttons. **Storage** is behind `CaseStore`: the eval runner gives each case run its own in-memory store (AsyncLocalStorage, since runs go four at a time), and the unit tests clear the DB and OpenAI keys first, so nothing reached the shared database. **Fixed along the way:** asking for a person sometimes got "use the WhatsApp or call buttons" with no buttons (7/8 before, and 0/8 once this package reworded the tool description); a request for a person now always leaves with `TAP_CONTACT_US` when the reply has no other button: 8/8 in all four module configs. Case card and the prefilled WhatsApp link were checked in Chrome from a mocked reply (the real path needs the migration). 145 unit tests; evals 40/40 ×2 with `--modules orders`, and with all modules ±`handoff` every miss was OpenAI's rate limit.
 
 #### 4.2 Ops Cases tab
 
@@ -547,6 +547,7 @@ Notes: —
 
 Newest first. One line per merge, decision or surprise.
 
+- 2026-09-12 · 4.1 merged, dark: escalations become support cases once `BIA_MODULES` includes `handoff`; `create_support_cases.sql` written, **not run**. **Wave W6 done.** W7 next: 3.3 drafts (writes `create_bia_drafts.sql`), 4.2 ops Cases tab.
 - 2026-09-12 · 3.4 merged: `can_i_ship` answers only from `content/bia/restricted/` (format in its README). No lists yet, so every answer is "our team will confirm". W6 left: 4.1.
 - 2026-09-12 · 3.1 merged: the booking form tells BIA its step, destination and product type; "Ask BIA about this step"; `explain_booking_error` and `explain_booking_term`; a step guide in the SCREEN block. Fixed along the way: the `anon-07` tracking flake (budget 6,270 → 6,300, on purpose). W6 left: 3.4, 4.1.
 - 2026-09-12 · 2.5 merged: upload a document from the chat (`offer_document_upload` + docUpload card) for accounts and guests; signups stay on their own screen. Guests are no longer sent to login when an identity upload is refused. **R2 code-complete.** W6 left: 3.1, 3.4, 4.1.
