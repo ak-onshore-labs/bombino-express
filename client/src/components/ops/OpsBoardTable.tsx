@@ -1,5 +1,6 @@
 import { Link } from 'wouter';
 import { StatusBadge } from '@/components/StatusBadge';
+import { OpsSenderCell } from '@/components/ops/OpsSenderCell';
 import type { OpsBoardOrder } from '@/hooks/useOpsOrders';
 import {
   formatInr,
@@ -100,18 +101,7 @@ export function OpsBoardTable({
                 </td>
                 <td className="px-4 py-3">{mode}</td>
                 <td className="px-4 py-3">
-                  {order.user_id ? (
-                    <Link
-                      href={`/ops/customers/${order.user_id}`}
-                      className="font-semibold text-foreground hover:underline"
-                      onClick={(event) => event.stopPropagation()}
-                      data-testid={`ops-board-customer-${order.order_no}`}
-                    >
-                      {order.customer_name?.trim() || 'Customer'}
-                    </Link>
-                  ) : (
-                    '—'
-                  )}
+                  <OpsSenderCell order={order} />
                 </td>
                 <td className="px-4 py-3">{consigneeLabel(order)}</td>
                 <td className="px-4 py-3">{agentLabel(order)}</td>

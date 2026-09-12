@@ -1,5 +1,6 @@
 import { Link } from 'wouter';
 import { AlertTriangle, MapPin, Package } from 'lucide-react';
+import { OpsSenderCell } from '@/components/ops/OpsSenderCell';
 import { getOrderStatusLabel } from '@/lib/orderStatus';
 import {
   formatInr,
@@ -45,6 +46,9 @@ export function OpsOrderCard({ order }: { order: OpsBoardOrder }) {
 
       <p className="mt-1.5 text-sm font-semibold text-foreground leading-snug">
         {where || 'Consignee unavailable'}
+      </p>
+      <p className="mt-1 text-xs font-medium text-muted-foreground">
+        <OpsSenderCell order={order} nested />
       </p>
 
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium text-muted-foreground">

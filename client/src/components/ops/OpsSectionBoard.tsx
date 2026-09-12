@@ -51,6 +51,10 @@ const ORDER_CSV_HEADERS = [
   'order_no',
   'status',
   'mode',
+  'sender_type',
+  'sender_name',
+  'sender_phone',
+  'sender_email',
   'consignee_name',
   'consignee_city',
   'agent_name',
@@ -67,10 +71,15 @@ const ORDER_CSV_HEADERS = [
 
 function orderToCsvRow(order: OpsBoardOrder): (string | number)[] {
   const isCod = order.is_cod || order.payment_method === 'cod';
+  const isGuest = !order.user_id;
   return [
     order.order_no,
     getOrderStatusLabel(order.status),
     order.pickup_request === 2 ? 'Drop-off' : 'Pickup',
+    isGuest ? 'guest' : 'account',
+    (isGuest ? order.guest_name : order.customer_name) ?? '',
+    (isGuest ? order.guest_phone : order.customer_phone) ?? '',
+    isGuest ? order.guest_email ?? '' : '',
     order.consignee_name ?? '',
     order.consignee_city ?? '',
     order.agent_id ? order.agent_name || 'Assigned' : 'Unassigned',

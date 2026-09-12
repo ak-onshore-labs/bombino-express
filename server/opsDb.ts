@@ -25,10 +25,10 @@ import { getUserContactsByIds, toOrder, type OrderRow } from "./ordersDb.js";
 const EXPORT_PAGE_SIZE = 1000;
 
 const BOARD_COLUMNS =
-  "id, order_no, user_id, status, created_at, pickup_request, pickup_date, payment_method, payment_status, is_cod, quoted_amount, final_amount, consignee, agent_id, awb_no, metadata";
+  "id, order_no, user_id, guest_ref, guest_name, guest_email, guest_phone, status, created_at, pickup_request, pickup_date, payment_method, payment_status, is_cod, quoted_amount, final_amount, consignee, agent_id, awb_no, metadata";
 
 const DETAIL_COLUMNS =
-  "id, order_no, user_id, status, pickup_request, pickup_date, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, itd_docket_response, metadata, created_at, updated_at";
+  "id, order_no, user_id, guest_ref, guest_name, guest_email, guest_phone, status, pickup_request, pickup_date, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, itd_docket_response, metadata, created_at, updated_at";
 
 function getSupabaseClient() {
   return supabase;
@@ -58,6 +58,11 @@ export type OpsBoardOrder = {
   order_no: string;
   user_id: string | null;
   customer_name: string | null;
+  customer_phone: string | null;
+  guest_ref: string | null;
+  guest_name: string | null;
+  guest_email: string | null;
+  guest_phone: string | null;
   status: string;
   created_at: string;
   pickup_request: number;
@@ -86,6 +91,11 @@ export type OpsOrderDetail = {
   order_no: string;
   user_id: string | null;
   customer_name: string | null;
+  customer_phone: string | null;
+  guest_ref: string | null;
+  guest_name: string | null;
+  guest_email: string | null;
+  guest_phone: string | null;
   status: string;
   pickup_request: number;
   pickup_date: string | null;
@@ -141,7 +151,7 @@ function toNum(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function parseUserId(value: unknown): string | null {
+function parseNullableString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed !== "" ? trimmed : null;
@@ -151,8 +161,13 @@ function mapBoardRow(row: Record<string, unknown>): OpsBoardOrder {
   return {
     id: String(row.id),
     order_no: String(row.order_no),
-    user_id: parseUserId(row.user_id),
+    user_id: parseNullableString(row.user_id),
     customer_name: null,
+    customer_phone: null,
+    guest_ref: parseNullableString(row.guest_ref),
+    guest_name: parseNullableString(row.guest_name),
+    guest_email: parseNullableString(row.guest_email),
+    guest_phone: parseNullableString(row.guest_phone),
     status: String(row.status),
     created_at: String(row.created_at),
     pickup_request: row.pickup_request === 2 ? 2 : 1,
@@ -175,8 +190,13 @@ function mapDetailRow(row: Record<string, unknown>): OpsOrderDetail {
   return {
     id: String(row.id),
     order_no: String(row.order_no),
-    user_id: parseUserId(row.user_id),
+    user_id: parseNullableString(row.user_id),
     customer_name: null,
+    customer_phone: null,
+    guest_ref: parseNullableString(row.guest_ref),
+    guest_name: parseNullableString(row.guest_name),
+    guest_email: parseNullableString(row.guest_email),
+    guest_phone: parseNullableString(row.guest_phone),
     status: String(row.status),
     pickup_request: row.pickup_request === 2 ? 2 : 1,
     pickup_date: (row.pickup_date as string | null) ?? null,
@@ -219,9 +239,13 @@ async function withAgentNames<T extends { agent_id: string | null; agent_name: s
   });
 }
 
-/** Batch-resolve user_id → account-holder full_name. Missing contacts stay null. */
+/** Batch-resolve user_id → account-holder full_name and phone. Missing contacts stay null. */
 async function withCustomerNames<
-  T extends { user_id: string | null; customer_name: string | null },
+  T extends {
+    user_id: string | null;
+    customer_name: string | null;
+    customer_phone: string | null;
+  },
 >(orders: T[]): Promise<T[]> {
   const ids = orders
     .map((order) => order.user_id)
@@ -231,8 +255,14 @@ async function withCustomerNames<
   const contacts = await getUserContactsByIds(ids);
   return orders.map((order) => {
     if (!order.user_id) return order;
-    const name = contacts.get(order.user_id)?.full_name?.trim();
-    return { ...order, customer_name: name ? name : null };
+    const contact = contacts.get(order.user_id);
+    const name = contact?.full_name?.trim();
+    const phone = contact?.phone?.trim();
+    return {
+      ...order,
+      customer_name: name ? name : null,
+      customer_phone: phone ? phone : null,
+    };
   });
 }
 

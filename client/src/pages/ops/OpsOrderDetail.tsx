@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Loader2, LogOut } from 'lucide-react';
 import { Link, useLocation, useParams } from 'wouter';
 import { ActionBar } from '@/components/agent/ActionButtons';
+import { OpsSenderCell } from '@/components/ops/OpsSenderCell';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { OpsCollectPaymentSheet } from '@/components/ops/OpsCollectPaymentSheet';
 import { OpsDropoffOtpSheet } from '@/components/ops/OpsDropoffOtpSheet';
@@ -380,18 +381,17 @@ export default function OpsOrderDetail() {
         {order.user_id ? (
           <Fact
             label="Customer"
-            value={
-              <Link
-                href={`/ops/customers/${order.user_id}`}
-                className="text-[#F2A123] hover:underline"
-                data-testid="ops-order-customer-link"
-              >
-                {order.customer_name?.trim() || 'Customer'}
-              </Link>
-            }
+            value={<OpsSenderCell order={order} context="detail" />}
           />
         ) : (
-          <Fact label="Customer" value={order.customer_name?.trim() || '—'} />
+          <>
+            <Fact
+              label="Sender"
+              value={<OpsSenderCell order={order} context="detail" />}
+            />
+            <Fact label="Sender phone" value={order.guest_phone?.trim() || '—'} />
+            <Fact label="Sender email" value={order.guest_email?.trim() || '—'} />
+          </>
         )}
         <Fact label="Consignee" value={consignee.name} />
         <Fact label="City" value={consignee.city} />

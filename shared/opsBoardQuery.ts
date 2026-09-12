@@ -26,6 +26,10 @@ export type OpsBoardOrderLike = {
   consignee_name: string | null;
   consignee_city: string | null;
   awb_no: string | null;
+  guest_name: string | null;
+  guest_phone: string | null;
+  customer_name: string | null;
+  customer_phone: string | null;
 };
 
 export function matchesOpsSection(
@@ -209,7 +213,16 @@ function bookingCutoffYmd(range: OpsDateRange): string | null {
 export function matchesSearch(order: OpsBoardOrderLike, query: string): boolean {
   const needle = query.trim().toLowerCase();
   if (!needle) return true;
-  const hay = [order.order_no, order.consignee_name, order.consignee_city, order.awb_no]
+  const hay = [
+    order.order_no,
+    order.consignee_name,
+    order.consignee_city,
+    order.awb_no,
+    order.guest_name,
+    order.guest_phone,
+    order.customer_name,
+    order.customer_phone,
+  ]
     .filter((v): v is string => Boolean(v))
     .join(' ')
     .toLowerCase();

@@ -13,6 +13,11 @@ export type OpsBoardOrder = {
   order_no: string;
   user_id: string | null;
   customer_name: string | null;
+  customer_phone: string | null;
+  guest_ref: string | null;
+  guest_name: string | null;
+  guest_email: string | null;
+  guest_phone: string | null;
   status: string;
   created_at: string;
   pickup_request: number;

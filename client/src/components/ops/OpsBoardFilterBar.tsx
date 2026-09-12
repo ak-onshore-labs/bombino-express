@@ -296,10 +296,10 @@ export function OpsBoardFilterBar({
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search order, consignee, or AWB"
+            placeholder="Search order, consignee, sender, or AWB"
             className="h-11 pl-9 rounded-xl bg-white"
             data-testid="ops-section-search"
-            aria-label="Search order, consignee, or AWB"
+            aria-label="Search order, consignee, sender, or AWB"
           />
         </div>
         {config.sort && <SortToggle sort={sort} setSort={setSort} />}
