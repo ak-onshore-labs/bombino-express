@@ -1,9 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { rateTurn, recordTurn } from "./supportTelemetry.js";
 
 // Unit tests run without a database, which is exactly the state before the
-// migration has run: both calls must shrug it off.
+// migration has run: both calls must shrug it off. The Supabase credentials
+// may be in the shell's environment, so they're cleared before the client is
+// created — otherwise these tests would write to the shared database.
+delete process.env.SUPABASE_URL;
+delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+const { rateTurn, recordTurn } = await import("./supportTelemetry.js");
 
 test("recording a turn without a database resolves quietly", async () => {
   await recordTurn({
