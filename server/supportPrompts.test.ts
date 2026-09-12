@@ -54,8 +54,9 @@ const signedOut: SupportChatContext = {
 // since: the code rule telling BIA to look the order up (1.6), and "needs no
 // sign-in" on get_tracking_summary (3.1: once the modules' tools were added, a
 // signed-out "track <AWB>" was told to sign in 3 runs in 3; 8/8 with the line).
+// Then get_app_help (BIA guides through any screen, from content/bia/app-guide.md).
 // Raise it on purpose, never to make a failure go away.
-const PROMPT_BUDGET = 6300;
+const PROMPT_BUDGET = 6400;
 
 test("the default prompt stays within its budget", () => {
   const length = buildSystemPrompt(signedOut, ["orders"]).length;

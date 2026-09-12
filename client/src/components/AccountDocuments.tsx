@@ -205,8 +205,6 @@ export function AccountDocuments({
   const slots = requiredDocuments(accountType, category);
   const basePath = endpoint === 'account' ? '/api/account/documents' : '/api/signup/documents';
   const [state, setState] = useState<Record<string, SlotState>>({});
-  /** Bumped when BIA's chat uploads one of this account's documents. */
-  const [reloadKey, setReloadKey] = useState(0);
   // Where "Ask BIA" says the customer is: their account's documents, a guest
   // opening an account, or the documents step of signup.
   const [location] = useLocation();
@@ -266,8 +264,6 @@ export function AccountDocuments({
   useEffect(() => {
     let cancelled = false;
     // A change of phone is a different signup; drop what the last one staged.
-    // (On the account endpoint, `reloadKey` re-runs this after BIA's chat
-    // uploads a document, and the list below is simply read again.)
     setState({});
     void (async () => {
       // Signup only. On the account endpoint there is nothing staged to
@@ -369,7 +365,7 @@ export function AccountDocuments({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phone, basePath, endpoint, reloadKey]);
+  }, [phone, basePath, endpoint]);
 
 
   // Report upward on every change. The parent gates "create account" on this,

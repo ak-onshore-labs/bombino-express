@@ -12,6 +12,7 @@
  */
 
 import type OpenAI from "openai";
+import { APP_GUIDE_TOOLS } from "./supportAppGuide.js";
 import { BOOKING_TOOLS } from "./supportBooking.js";
 import { DOCUMENT_TOOLS } from "./supportDocuments.js";
 import { GENERAL_TOOLS } from "./supportGeneral.js";
@@ -25,6 +26,7 @@ import type { BiaScreen } from "../shared/biaScreen.js";
 
 export const ALL_TOOLS: readonly BiaTool[] = [
   ...GENERAL_TOOLS,
+  ...APP_GUIDE_TOOLS,
   ...ORDER_TOOLS,
   ...ONBOARDING_TOOLS,
   ...DOCUMENT_TOOLS,

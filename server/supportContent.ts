@@ -55,7 +55,7 @@ export const guidance = {
     "The price at booking is an estimate. At our hub we weigh and measure the parcel and set the final amount. If it's different, we message you, and our team gets in touch about the difference: collecting the balance, or arranging a refund if you've overpaid.",
 
   general:
-    "I can tell you where your order is and what happens next, check pickup at your pincode, find a drop-off counter, quote rates, track an AWB, and explain payments, packing and documents. What do you need?",
+    "I can tell you where your order is and what happens next, check pickup at your pincode, find a drop-off counter, quote rates, track an AWB, explain payments, packing and documents, and show you where anything is in the app. What do you need?",
 } as const;
 
 /**

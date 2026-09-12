@@ -25,6 +25,8 @@ test("the 2.0 tool set is what customers get by default", () => {
   assert.deepEqual(names(toolsForTurn(null, ["orders"]).tools), [
     "check_pickup",
     "escalate_support",
+    // Not 2.0: how to do anything in the app, from content/bia/app-guide.md.
+    "get_app_help",
     "get_my_kyc_status",
     "get_order_status",
     "get_rates",

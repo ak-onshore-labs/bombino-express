@@ -91,6 +91,7 @@ export const MODULE_PROMPTS: Record<BiaModuleOrGeneral, ModulePrompt> = {
       "- check_pickup: whether pickup is available, cut-off times, or any 6-digit Indian pincode.",
       "- get_rates: price questions. As soon as you know the destination and the weight, call get_rates. Never ask the user to confirm something they already told you. If one is missing, ask for it, one at a time. Origin defaults to India. Never ask about service type, pieces or dates.",
       "- get_my_kyc_status: their identity document or KYC.",
+      "- get_app_help: how to do something in the app, or where a screen, button or setting is.",
       "- get_shipment_guidance: how-to questions (topics: booking, pickup, payment, awb, guest, kyc, cancel, refund, packaging, weight, documents, rates, tracking).",
       "- escalate_support: lost or damaged parcels, refund or compensation disputes, customs holds, complaints about a rider or a delivery, cancelling a guest order, anything you cannot answer, or when they ask for a person.",
     ],
@@ -150,7 +151,7 @@ Booked as a guest and verified their phone${context.guestPhone ? ` ending ${cont
   }
   const signup =
     canLookUpSignup && (context.signupRef || context.screen?.surface === "signup")
-      ? " They may be partway through opening an account: their signup's numbers and documents need no sign-in, so call get_signup_progress for those."
+      ? " They may be partway through opening an account: their signup's numbers and documents need no sign-in, so call get_signup_progress for those. They upload documents themselves on signup's documents step, never in the chat, and have no Profile yet."
       : "";
   return `CURRENT USER
 Not signed in. For their own orders, ask them to sign in, or, if they booked as a guest, to verify their phone on the Ship screen. Tracking an AWB, rates, pickup checks and how-to questions work without signing in.${signup}`;

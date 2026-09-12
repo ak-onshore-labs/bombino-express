@@ -1,0 +1,80 @@
+[
+  {
+    "id": "app-01-change-mobile-number",
+    "module": "general",
+    "identity": "account",
+    "screen": { "surface": "help" },
+    "turns": ["How do I change my mobile number?"],
+    "expect": {
+      "tools": ["get_app_help"],
+      "contains": ["re:profile", "re:change number|new number|code"],
+      "notContains": ["re:I('ll| will) (change|update)|I('ve| have) (changed|updated)"]
+    }
+  },
+  {
+    "id": "app-02-shipping-label",
+    "module": "general",
+    "identity": "anon",
+    "screen": { "surface": "help" },
+    "turns": ["Where can I download the shipping label for my parcel?"],
+    "expect": {
+      "tools": ["get_app_help"],
+      "contains": ["re:label", "re:shipment|AWB|tracking"]
+    }
+  },
+  {
+    "id": "app-03-export-orders",
+    "module": "general",
+    "identity": "account",
+    "screen": { "surface": "help" },
+    "turns": ["Can I export all my shipments to a spreadsheet?"],
+    "expect": {
+      "tools": ["get_app_help"],
+      "contains": ["re:export csv|csv"]
+    }
+  },
+  {
+    "id": "app-04-stop-whatsapp",
+    "module": "general",
+    "identity": "account",
+    "screen": { "surface": "help" },
+    "turns": ["How do I stop getting WhatsApp messages from you?"],
+    "expect": {
+      "tools": ["get_app_help"],
+      "contains": ["STOP"]
+    }
+  },
+  {
+    "id": "app-05-turn-off-reminders",
+    "module": "general",
+    "identity": "guest",
+    "screen": { "surface": "help" },
+    "turns": ["How do I turn off the reminders BIA sends me?"],
+    "expect": {
+      "tools": ["get_app_help"],
+      "contains": ["re:reminders from bia|profile"]
+    }
+  },
+  {
+    "id": "app-06-an-unknown-feature-isnt-invented",
+    "module": "general",
+    "identity": "account",
+    "screen": { "surface": "help" },
+    "turns": ["Where is the loyalty points section in the app?"],
+    "expect": {
+      "contains": ["re:not sure|isn.t|doesn.t|don.t (see|have|know)|no loyalty|can.t find"],
+      "notContains": ["re:go to (the )?loyalty|tap (on )?loyalty|open (the )?loyalty|(under|in) (your |the )?(profile|menu|settings)[^.]{0,30}loyalty"]
+    }
+  },
+  {
+    "id": "app-07-what-can-bia-do",
+    "module": "general",
+    "identity": "anon",
+    "screen": { "surface": "help" },
+    "turns": ["Can you book a shipment for me?"],
+    "expect": {
+      "contains": ["re:can.t|cannot|not able"],
+      "notContains": ["re:I('ll| will) book|I('ve| have) booked|booking (is )?confirmed"]
+    }
+  }
+]
