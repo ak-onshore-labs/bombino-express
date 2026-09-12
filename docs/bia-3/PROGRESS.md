@@ -36,14 +36,14 @@ The single place to see where the BIA 3.0 build stands.
 | [3.2](#32-hsn-helper) | HSN helper (suggests, never fills) | R3 | W7 | M · 1 d | 3.1 | ✅ | `bia-3/wp3-2` → merged locally (8d82361) | 2026-09-12 |
 | [3.3](#33-drafts-and-say-it-to-ship) | Drafts and "say it to ship" | R3 | — | L · 2 d | 3.1 | ⏭ | — | skipped 2026-09-12 |
 | [3.4](#34-restricted-items-waits-on-content) | Restricted items (waits on content) | R3 | W6 | S · ½ d | 1.5 | ✅ | `bia-3/wp3-4` → merged locally (de6d190); lists wait on Bombino | 2026-09-12 |
-| [4.1](#41-support-cases) | Support cases | R4 | W6 | M · 1 d | 1.3, 1.7 | ✅ | `bia-3/wp4-1` → merged locally (8010748); **migration not run**, `handoff` off | 2026-09-12 |
-| [4.2](#42-ops-cases-tab) | Ops Cases tab | R4 | W7 | L · 1.5 d | 4.1 | ✅ | `bia-3/wp4-2` → merged locally (9cbd194); needs 4.1's migration | 2026-09-12 |
-| [4.3](#43-customer-side-of-cases-order-page-links) | Customer side of cases, order-page links | R4 | W8 | M · 1 d | 4.1 | ✅ | `bia-3/wp4-3` → merged locally (9556c0c); case replies need `handoff` | 2026-09-12 |
+| [4.1](#41-support-cases) | Support cases | R4 | — | M · 1 d | 1.3, 1.7 | ⏭ | built (8010748), then removed (ab0c9b5) | dropped 2026-09-12 |
+| [4.2](#42-ops-cases-tab) | Ops Cases tab | R4 | — | L · 1.5 d | 4.1 | ⏭ | built (9cbd194), then removed (ab0c9b5) | dropped 2026-09-12 |
+| [4.3](#43-customer-side-of-cases-order-page-links) | Order-page links (the case half dropped) | R4 | W8 | M · 1 d | 3.1 | ✅ | `bia-3/wp4-3` → merged locally (9556c0c); case half removed (ab0c9b5) | 2026-09-12 |
 | [5.1](#51-nudges) | Nudges | R5 | W8 | L · 1.5 d | 1.4, 2.2 | ✅ | `bia-3/wp5-1` → merged locally (8e690f4); **migration not run**, scheduler not pointed | 2026-09-12 |
 | [5.2](#52-voice-notes) | Voice notes | R5 | — | M · 1 d | 1.4, 1.6 | ⏭ | — | skipped 2026-09-12 |
 | [5.3](#53-hindi) | Hindi | R5 | — | S · ½ d | 1.5 | ⏭ | — | skipped 2026-09-12 |
 
-**20 packages (4 more skipped) · 19 dev-days · 9 waves.** 20 merged. **Build complete**; going live is migrations, the scheduler and a merge into `aditya/final-phase`.
+**18 packages (6 more skipped) · 16.5 dev-days · 9 waves.** 18 merged. **Build complete**; going live is the nudges migration (done), the scheduler and a merge into `aditya/final-phase`.
 
 ## Waves
 
@@ -73,8 +73,8 @@ Modules ship dark and go live by adding them to `BIA_MODULES` in production.
 | R1 | Foundations | Any catalogued error opens BIA already explaining it; evals and telemetry run on every change. | 🔵 code complete on `bia-3/main`; needs the two R1 migrations, then a merge into `aditya/final-phase` |
 | R2 | Onboarding and documents | Every OCR verdict has a tested explanation; a document can be retaken from chat. | 🔵 code complete on `bia-3/main` (2.1, 2.2, 2.3, 2.5); goes live with `BIA_MODULES=orders,onboarding,documents` after a merge into `aditya/final-phase` |
 | R3 | Booking help | BIA explains every step, error and term on the booking form, answers "can I send this?" only from Bombino's lists, and suggests HSN codes. It never fills or submits the form. | 🔵 code complete on `bia-3/main` (3.1, 3.2, 3.4); goes live with `booking` in `BIA_MODULES` after a merge into `aditya/final-phase` |
-| R4 | Handoff | Every escalation is a case ops can see and answer; risky actions link to the order page. | 🔵 code complete on `bia-3/main` (4.1, 4.2, 4.3); order-page links go live with `orders`; cases need `create_support_cases.sql`, then `handoff` in `BIA_MODULES` |
-| R5 | Proactive | Nudges are capped and switchable. (Voice and Hindi were dropped.) | 🔵 code complete on `bia-3/main` (5.1); needs `create_bia_nudges.sql` and the daily scheduler call |
+| R4 | Order-page links | When BIA talks about cancelling, a handover code or paying, its button opens that spot on the order page; the customer presses the real button. (Support cases and the ops Cases tab were dropped.) | 🔵 code complete on `bia-3/main` (4.3); goes live with `orders` after a merge into `aditya/final-phase` |
+| R5 | Proactive | Nudges are capped and switchable. (Voice and Hindi were dropped.) | 🔵 code complete on `bia-3/main` (5.1); migration run 2026-09-12; needs the daily scheduler call and a merge into `aditya/final-phase` |
 
 ## Migrations
 
@@ -85,8 +85,9 @@ Sessions write them; Aditya runs each in Supabase before its package merges.
 | `migrations/create_bia_turns.sql` | 1.6 | ✅ | ✅ 2026-09-11 |
 | `migrations/support_sessions_guest_ref.sql` | 1.7 | ✅ | ✅ 2026-09-11 |
 | ~~`migrations/create_bia_drafts.sql`~~ | 3.3 | ⏭ not needed | — |
-| `migrations/create_support_cases.sql` | 4.1 | ✅ | ⬜ |
-| `migrations/create_bia_nudges.sql` | 5.1 | ✅ | ⬜ |
+| ~~`migrations/create_support_cases.sql`~~ | 4.1 | ✅ then removed | ✅ 2026-09-12, before cases were dropped |
+| `migrations/drop_support_cases.sql` | cases dropped | ✅ | ⬜ optional: the table is empty and nothing uses it |
+| `migrations/create_bia_nudges.sql` | 5.1 | ✅ | ✅ 2026-09-12 |
 
 ## Waiting on people
 
@@ -439,9 +440,11 @@ Notes: Matching is whole words on the item or its other names, with plurals fold
 
 ### R4 · Handoff
 
+*Support cases were dropped on 2026-09-12 (Aditya's call: no cases, and no ops replying to customers), after 4.1 and 4.2 had been built and merged. Commit ab0c9b5 removed them, with 4.3's case half. Escalating shows the WhatsApp and call buttons, as before. The plans below are kept for the record.*
+
 #### 4.1 Support cases
 
-**Status:** ✅ (dark: `handoff` off, migration not run) · **After:** 1.3, 1.7 · **Owns:** `server/routes/support.ts` · **Migration:** `create_support_cases.sql`
+**Status:** ⏭ dropped 2026-09-12 (built, then removed in ab0c9b5) · **After:** 1.3, 1.7 · **Owns:** `server/routes/support.ts` · **Migration:** `create_support_cases.sql` (run, then undone by `drop_support_cases.sql`)
 
 Handoff that actually reaches someone: an escalation becomes a case ops can see.
 
@@ -458,7 +461,7 @@ Notes: **Dark behind a new module, `handoff`:** `escalate_support` is a general 
 
 #### 4.2 Ops Cases tab
 
-**Status:** ✅ (needs `create_support_cases.sql`) · **After:** 4.1 · **Owns:** `server/routes/opsCases.ts` (new), `client/src/lib/opsNav.ts`
+**Status:** ⏭ dropped 2026-09-12 (built, then removed in ab0c9b5) · **After:** 4.1 · **Owns:** `server/routes/opsCases.ts` (new), `client/src/lib/opsNav.ts`
 
 Ops can read a case and reply in one place.
 
@@ -476,7 +479,7 @@ Notes: **Additive, to stay out of the ops console's lane:** the routes are a new
 
 #### 4.3 Customer side of cases, order-page links
 
-**Status:** ✅ (case half dark with `handoff`) · **After:** 4.1 · **Owns:** `pages/Notifications.tsx`, `pages/OrderDetails.tsx`, `components/bia/BiaChat.tsx`
+**Status:** ✅ order-page links; the case half (bell → BIA with ops' reply, `get_support_case`) removed in ab0c9b5 · **After:** 3.1 · **Owns:** `pages/Notifications.tsx`, `pages/OrderDetails.tsx`, `components/bia/BiaChat.tsx`
 
 Close the loop for the customer, and send the actions that stay off chat to the right spot on the order page.
 
@@ -547,6 +550,7 @@ Notes: —
 
 Newest first. One line per merge, decision or surprise.
 
+- 2026-09-12 · **Decision:** no support cases, and no ops replying to customers. Removed 4.1's cases, 4.2 (ops Cases tab) and 4.3's case half (ab0c9b5); kept the order-page links, the nudges, and 4.1's net that always gives someone asking for a person the WhatsApp and call buttons. `create_support_cases.sql` had been run; `drop_support_cases.sql` undoes it (optional, the table is empty). The case evals went with them; `escalate.json` checks plain escalation. 173 unit tests; evals `orders` 44/44 ×2, all modules 68/72 ×2 with every miss passing 3/3 on rerun.
 - 2026-09-12 · 5.1 merged: nudges on the bell (failed document, changed amount, pickup tomorrow, a guest's stalled signup, a guest's second booking), once each, one a day, switchable on Profile and the guest profile. **All 20 packages merged.** Left for Aditya: run `create_support_cases.sql` and `create_bia_nudges.sql`, point the scheduler at the sweep, then merge `bia-3/main` into `aditya/final-phase`.
 - 2026-09-12 · 4.3 merged: BIA's order buttons open the cancel button, the handover code or Pay on the order page (live with `orders`); a case reply on the bell opens BIA with ops' words (with `handoff`). **R4 code-complete**; switching it on waits on `create_support_cases.sql`. Left: 5.1.
 - 2026-09-12 · 4.2 merged: ops Cases tab (queue, case detail, reply to the customer's bell, close), additive to the ops console; waits on `create_support_cases.sql` like 4.1. **Wave W7 done.** Left: 4.3, 5.1.
