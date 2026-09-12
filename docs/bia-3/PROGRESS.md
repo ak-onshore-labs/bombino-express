@@ -33,8 +33,8 @@ The single place to see where the BIA 3.0 build stands.
 | [2.4](#24-photo-check-before-upload) | Photo check before upload | R2 | — | M · 1 d | 2.3 | ⏭ | — | skipped 2026-09-12 |
 | [2.5](#25-upload-card-inside-the-chat) | Upload card inside the chat | R2 | W6 | M · 1 d | 2.2, 2.3 | ✅ | `bia-3/wp2-5` → merged locally (b9b235b) | 2026-09-12 |
 | [3.1](#31-booking-context-and-error-explainer) | Booking context and error explainer | R3 | W6 | M · 1 d | 1.4, 1.5 | ✅ | `bia-3/wp3-1` → merged locally (1c085e4) | 2026-09-12 |
-| [3.2](#32-hsn-helper) | HSN helper | R3 | W8 | M · 1 d | 3.3 | ⬜ | `bia-3/wp3-2` | |
-| [3.3](#33-drafts-and-say-it-to-ship) | Drafts and "say it to ship" | R3 | W7 | L · 2 d | 3.1 | ⬜ | `bia-3/wp3-3` | |
+| [3.2](#32-hsn-helper) | HSN helper (suggests, never fills) | R3 | W7 | M · 1 d | 3.1 | ⬜ | `bia-3/wp3-2` | |
+| [3.3](#33-drafts-and-say-it-to-ship) | Drafts and "say it to ship" | R3 | — | L · 2 d | 3.1 | ⏭ | — | skipped 2026-09-12 |
 | [3.4](#34-restricted-items-waits-on-content) | Restricted items (waits on content) | R3 | W6 | S · ½ d | 1.5 | ✅ | `bia-3/wp3-4` → merged locally (de6d190); lists wait on Bombino | 2026-09-12 |
 | [4.1](#41-support-cases) | Support cases | R4 | W6 | M · 1 d | 1.3, 1.7 | ✅ | `bia-3/wp4-1` → merged locally (8010748); **migration not run**, `handoff` off | 2026-09-12 |
 | [4.2](#42-ops-cases-tab) | Ops Cases tab | R4 | W7 | L · 1.5 d | 4.1 | ⬜ | `bia-3/wp4-2` | |
@@ -43,7 +43,7 @@ The single place to see where the BIA 3.0 build stands.
 | [5.2](#52-voice-notes) | Voice notes | R5 | — | M · 1 d | 1.4, 1.6 | ⏭ | — | skipped 2026-09-12 |
 | [5.3](#53-hindi) | Hindi | R5 | — | S · ½ d | 1.5 | ⏭ | — | skipped 2026-09-12 |
 
-**21 packages (3 more skipped) · 21 dev-days · 9 waves.** 16 merged, 5 to go.
+**20 packages (4 more skipped) · 19 dev-days · 9 waves.** 16 merged, 4 to go.
 
 ## Waves
 
@@ -58,10 +58,10 @@ Packages in the same wave run in parallel. A package starts only once everything
 | W4 | 1.4 · 1.5 · 1.6 | 3 in parallel |
 | W5 | 1.7 · 2.1 · 2.2 · 2.3 | 4 in parallel — **R1 can go live once 1.7 merges** |
 | W6 | 2.5 · 3.1 · 3.4 · 4.1 | 4 in parallel — **R2 can go live once 2.5 merges** |
-| W7 | 3.3 · 4.2 | 2 in parallel |
-| W8 | 3.2 · 4.3 · 5.1 | 3 in parallel — **R3, R4 and R5 can go live once 3.2, 4.3 and 5.1 merge** |
+| W7 | 3.2 · 4.2 | 2 in parallel — **R3 can go live once 3.2 merges** |
+| W8 | 4.3 · 5.1 | 2 in parallel — **R4 and R5 can go live once 4.3 and 5.1 merge** |
 
-2.4, 5.2 and 5.3 were dropped on 2026-09-12. That moved 2.5 up to W6 (it no longer waits on a photo check) and removed W9.
+2.4, 5.2 and 5.3 were dropped on 2026-09-12. That moved 2.5 up to W6 (it no longer waits on a photo check) and removed W9. Later that day 3.3 went too (BIA helps on the screens and never fills a form), which moved 3.2 up to W7.
 
 ## Releases
 
@@ -72,7 +72,7 @@ Modules ship dark and go live by adding them to `BIA_MODULES` in production.
 | R0 | Ship BIA 2.0 | Evals pass; nothing leaks; support routes live in their own file. | ⬜ |
 | R1 | Foundations | Any catalogued error opens BIA already explaining it; evals and telemetry run on every change. | 🔵 code complete on `bia-3/main`; needs the two R1 migrations, then a merge into `aditya/final-phase` |
 | R2 | Onboarding and documents | Every OCR verdict has a tested explanation; a document can be retaken from chat. | 🔵 code complete on `bia-3/main` (2.1, 2.2, 2.3, 2.5); goes live with `BIA_MODULES=orders,onboarding,documents` after a merge into `aditya/final-phase` |
-| R3 | Booking Copilot | A one-sentence request becomes a correct pre-filled draft across the eval set. | ⬜ |
+| R3 | Booking help | BIA explains every step, error and term on the booking form, answers "can I send this?" only from Bombino's lists, and suggests HSN codes. It never fills or submits the form. | ⬜ |
 | R4 | Handoff | Every escalation is a case ops can see and answer; risky actions link to the order page. | ⬜ |
 | R5 | Proactive | Nudges are capped and switchable. (Voice and Hindi were dropped.) | ⬜ |
 
@@ -84,7 +84,7 @@ Sessions write them; Aditya runs each in Supabase before its package merges.
 |---|---|---|---|
 | `migrations/create_bia_turns.sql` | 1.6 | ✅ | ✅ 2026-09-11 |
 | `migrations/support_sessions_guest_ref.sql` | 1.7 | ✅ | ✅ 2026-09-11 |
-| `migrations/create_bia_drafts.sql` | 3.3 | ⬜ | ⬜ |
+| ~~`migrations/create_bia_drafts.sql`~~ | 3.3 | ⏭ not needed | — |
 | `migrations/create_support_cases.sql` | 4.1 | ✅ | ⬜ |
 | `migrations/create_bia_nudges.sql` | 5.1 | ⬜ | ⬜ |
 
@@ -387,26 +387,26 @@ Notes: **Added:** a per-step guide in the SCREEN block (`BOOKING_STEP_GUIDE`). A
 
 #### 3.2 HSN helper
 
-**Status:** ⬜ · **After:** 3.3 · **Owns:** `pages/CreateShipment.tsx (HSN field)`
+**Status:** ⬜ · **After:** 3.1 · **Owns:** `pages/CreateShipment.tsx (HSN field: an "Ask BIA" link only)`
 
-Suggest an HSN code the customer can apply with one tap.
+Suggest HSN codes; the customer types the one they choose. **Changed 2026-09-12:** BIA never fills a form field, so there is no "Use this code" button.
 
 Build
 - [ ] Move the lookup in `client/src/lib/hsnData.ts` to `shared/hsn.ts` so the server can use it.
 - [ ] `suggest_hsn(description)`: exact lookup first, then up to three model candidates checked against the known list, with how sure it is.
-- [ ] An hsn card with "Use this code": the sheet emits it and `CreateShipment` sets the field through its own handler.
+- [ ] An hsn card listing the candidates (code and what it covers). The customer copies the one they choose into the HSN field themselves.
 
 Done when
 - [ ] Eval: turmeric powder, cotton kurta, brass idol → sensible candidates; an unknown item → "check with our team"
-- [ ] The field only changes on a tap
+- [ ] Nothing BIA sends changes a form field
 
 Notes: —
 
 #### 3.3 Drafts and "say it to ship"
 
-**Status:** ⬜ · **After:** 3.1 · **Owns:** `pages/CreateShipment.tsx (new hook)`, `server/routes/bia.ts` · **Migration:** `create_bia_drafts.sql`
+**Status:** ⏭ skipped (2026-09-12, Aditya's call) · **After:** 3.1 · **Owns:** `pages/CreateShipment.tsx (new hook)`, `server/routes/bia.ts` · **Migration:** `create_bia_drafts.sql` (not needed)
 
-The second chat action: one sentence becomes a pre-filled booking the customer checks and submits.
+The second chat action: one sentence becomes a pre-filled booking the customer checks and submits. *Dropped: BIA helps on the screens and doesn't ship anything or fill a form for the customer. Re-uploading a document (2.5) is its only chat action. The plan is kept below for the record.*
 
 Build
 - [ ] `bia_drafts`: owner (`user_id` or `guest_ref`), payload, `expires_at` 24 hours out.
@@ -547,7 +547,8 @@ Notes: —
 
 Newest first. One line per merge, decision or surprise.
 
-- 2026-09-12 · 4.1 merged, dark: escalations become support cases once `BIA_MODULES` includes `handoff`; `create_support_cases.sql` written, **not run**. **Wave W6 done.** W7 next: 3.3 drafts (writes `create_bia_drafts.sql`), 4.2 ops Cases tab.
+- 2026-09-12 · **Decision:** BIA won't ship anything or fill forms; it helps on the screens. 3.3 (drafts, "say it to ship") dropped with its migration; 3.2 suggests HSN codes without a "Use this code" button and moves to W7; R3 is booking help. Re-uploading a document (2.5) is BIA's only chat action.
+- 2026-09-12 · 4.1 merged, dark: escalations become support cases once `BIA_MODULES` includes `handoff`; `create_support_cases.sql` written, **not run**. **Wave W6 done.** W7 next: 4.2 ops Cases tab (and 3.2, once 3.3 was dropped).
 - 2026-09-12 · 3.4 merged: `can_i_ship` answers only from `content/bia/restricted/` (format in its README). No lists yet, so every answer is "our team will confirm". W6 left: 4.1.
 - 2026-09-12 · 3.1 merged: the booking form tells BIA its step, destination and product type; "Ask BIA about this step"; `explain_booking_error` and `explain_booking_term`; a step guide in the SCREEN block. Fixed along the way: the `anon-07` tracking flake (budget 6,270 → 6,300, on purpose). W6 left: 3.4, 4.1.
 - 2026-09-12 · 2.5 merged: upload a document from the chat (`offer_document_upload` + docUpload card) for accounts and guests; signups stay on their own screen. Guests are no longer sent to login when an identity upload is refused. **R2 code-complete.** W6 left: 3.1, 3.4, 4.1.

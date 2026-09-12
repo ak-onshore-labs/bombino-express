@@ -7,7 +7,8 @@
  * the customer may see: customer status labels (never weighed / settled /
  * ready_for_docket), no ids, no codes.
  *
- * More kinds arrive with later packages: hsn (3.2), draft (3.3).
+ * One more kind arrives with a later package: hsn (3.2). There is no draft
+ * card: BIA helps on the screens and never fills a form.
  * Add the kind here, in biaCardKey and isBiaCard, and its renderer in
  * client/src/components/bia/BiaCards.tsx together.
  */
