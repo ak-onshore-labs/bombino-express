@@ -103,7 +103,6 @@ Found along the way; not a package yet. Give one a number and a row above when i
 - [x] ~~**`skipped` on Profile** (for 2.3).~~ Not a real case: `skipped` only comes from slots nothing reads or an identity slot with no number, which the number-first rule prevents. See 2.3's notes.
 - [ ] **KYC card says "In review" for a document with no verdict.** `KycOnFileCard` treats a missing `ocr_status` as "In review", while BIA's `get_my_kyc_status` calls the same row verified. Legacy rows only, but "in review" is wording the KYC rule says customers never see. One-line fix in `KycOnFileCard.tsx` (outside 2.3's files).
 - [x] ~~**Old eval flakes.**~~ `brief-02` fixed in 2.5 (counters' areas only), `anon-07` in 3.1 (tracking needs no sign-in).
-
 - [ ] **Tool buttons can be dropped.** When the model writes a different button, or none, a tool's own button can go missing (seen once in `docs-02`: TAP_RESUME_SIGNUP, 9/10). Error buttons are already kept (1.4); do the same for a tool's primary button.
 
 ## Package checklists
