@@ -2,8 +2,9 @@
  * Record every fetch of an identity document through a capability URL,
  * and every authenticated ops view of a document or identity number.
  *
- * See migrations/add_document_access_log.sql and
- * migrations/add_document_access_log_actor.sql.
+ * See migrations/add_document_access_log.sql,
+ * migrations/add_document_access_log_actor.sql, and
+ * migrations/add_document_access_log_guest_ref.sql.
  *
  * Two wrappers share one insert:
  *   logDocumentAccess        — fire-and-forget for capability URLs
@@ -26,8 +27,10 @@ export interface LogAccessInput {
   outcome: AccessOutcome;
   /** Null when the lookup matched nothing. */
   documentId?: string | null;
-  /** Document owner. */
+  /** Document owner when the owner is an account (itd_users). */
   userId?: string | null;
+  /** Document owner when the owner is a guest. Never put this uuid in userId. */
+  guestRef?: string | null;
   /** Viewing staff user. Null on capability-URL fetches. */
   actorUserId?: string | null;
   /** Ops view/download. Null on capability-URL fetches. */
@@ -58,6 +61,7 @@ function buildRow(req: Request, input: LogAccessInput): Record<string, unknown> 
     capability_id: input.capabilityId ? input.capabilityId.slice(0, 128) : null,
     document_id: input.documentId ?? null,
     user_id: input.userId ?? null,
+    guest_ref: input.guestRef ?? null,
     actor_user_id: input.actorUserId ?? null,
     action: input.action ?? null,
     outcome: input.outcome,

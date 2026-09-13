@@ -1,15 +1,18 @@
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { Link, useParams } from 'wouter';
+import { OpsDocumentPreviewOverlay, useOpsDocumentPreview } from '@/components/ops/OpsDocumentPreview';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { OpsOrderCard } from '@/components/ops/OpsOrderCard';
 import { Button } from '@/components/ui/button';
 import {
+  fetchOpsGuestKycFile,
   useOpsGuestDetail,
   useOpsGuestOrders,
   type OpsGuestAccountType,
 } from '@/hooks/useOpsGuests';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { formatIst } from '@/lib/orderDetail';
+import { useAppStore } from '@/lib/store';
 import {
   COMPANY_CATEGORY_SPECS,
   EXTRA_FIELD_SPECS,
@@ -115,8 +118,10 @@ export default function OpsGuestDetail() {
   const params = useParams<{ ref: string }>();
   const ref = params.ref;
   const isMobile = useIsMobile();
+  const canViewKyc = useAppStore((s) => s.user?.role) === 'super_admin';
   const { data, isLoading, isError, error } = useOpsGuestDetail(ref);
   const ordersQuery = useOpsGuestOrders(ref);
+  const { preview, closePreview, openBlob, fileBusy, fileErrors } = useOpsDocumentPreview();
 
   const notFound =
     isError && error instanceof Error && error.message.startsWith('404:');
@@ -220,21 +225,53 @@ export default function OpsGuestDetail() {
                               ? ` · uploaded ${formatIst(shipment.updated_at)}`
                               : ''}
                           </p>
+                          {fileErrors['shipment-kyc'] && (
+                            <p className="text-xs text-red-600 mt-1">{fileErrors['shipment-kyc']}</p>
+                          )}
                         </div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-9 rounded-lg text-xs font-semibold shrink-0"
-                          disabled
-                          data-testid="ops-guest-kyc-view-shipment"
-                        >
-                          View
-                        </Button>
+                        {canViewKyc ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-9 rounded-lg text-xs font-semibold shrink-0"
+                            disabled={!ref || fileBusy === 'shipment-kyc'}
+                            onClick={() =>
+                              void openBlob(
+                                'shipment-kyc',
+                                shipment.original_filename || 'shipment-kyc',
+                                () => fetchOpsGuestKycFile(ref!),
+                              )
+                            }
+                            data-testid="ops-guest-kyc-view-shipment"
+                          >
+                            {fileBusy === 'shipment-kyc' ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              'View'
+                            )}
+                          </Button>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-9 rounded-lg text-xs font-semibold shrink-0"
+                            disabled
+                            data-testid="ops-guest-kyc-view-shipment"
+                          >
+                            View
+                          </Button>
+                        )}
                       </li>
                     </ul>
-                    <p className="text-xs text-muted-foreground mt-3">
-                      Document viewing for guests needs a super-admin account and is coming next.
-                    </p>
+                    {canViewKyc ? (
+                      <p className="text-xs text-muted-foreground mt-3">
+                        Each view is recorded.
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground mt-3">
+                        Document viewing for guests needs a super-admin account.
+                      </p>
+                    )}
                   </>
                 )}
               </section>
@@ -312,6 +349,8 @@ export default function OpsGuestDetail() {
           )}
         </>
       )}
+
+      {preview && <OpsDocumentPreviewOverlay preview={preview} onClose={closePreview} />}
     </OpsShell>
   );
 }

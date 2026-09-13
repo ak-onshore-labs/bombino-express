@@ -62,6 +62,7 @@ import {
   listGuestsForOps,
 } from "../guestProfileDb.js";
 import {
+  getKycFileByGuestRef,
   getKycFileByUserId,
   getKycOpsMetaByGuestRef,
   getKycOpsMetaByUserId,
@@ -248,6 +249,28 @@ async function requireOpsKycActorAndCustomer(
     return null;
   }
   return { customerId: customer.id, actorId };
+}
+
+async function requireOpsKycActorAndGuest(
+  req: Request,
+  res: Response
+): Promise<{ guestRef: string; actorId: string } | null> {
+  const actorId = req.session.dbUserId;
+  if (!actorId) {
+    res.status(401).json({ message: "Not authenticated" });
+    return null;
+  }
+  const parsedRef = guestRefSchema.safeParse(req.params.ref);
+  if (!parsedRef.success) {
+    res.status(404).json({ message: "Guest not found" });
+    return null;
+  }
+  const guest = await getGuestProfile(parsedRef.data);
+  if (!guest) {
+    res.status(404).json({ message: "Guest not found" });
+    return null;
+  }
+  return { guestRef: guest.guest_ref, actorId };
 }
 
 const assignPickupSchema = z.object({
@@ -858,6 +881,53 @@ export function registerOpsRoutes(app: Express): void {
           return;
         }
         console.error("[GET /api/ops/customers/:id/kyc/file] failed:", err);
+        res.status(500).json({ message: "Failed to retrieve document." });
+      }
+    }
+  );
+
+  // GET /api/ops/guests/:ref/kyc/file — shipment KYC image (super_admin, logged)
+  app.get(
+    "/api/ops/guests/:ref/kyc/file",
+    ...opsKycGate,
+    async (req: Request, res: Response) => {
+      const ctx = await requireOpsKycActorAndGuest(req, res);
+      if (!ctx) return;
+
+      try {
+        const doc = await getKycFileByGuestRef(ctx.guestRef);
+        // Runtime user_id is null on a live guest row; the TS type says string.
+        // A set user_id means the guest claimed — refuse as not found.
+        if (!doc || doc.user_id) {
+          logDocumentAccess(req, {
+            source: "kyc",
+            outcome: "not_found",
+            userId: null,
+            guestRef: ctx.guestRef,
+            actorUserId: ctx.actorId,
+            action: "view",
+          });
+          res.status(404).json({ message: "Document not found." });
+          return;
+        }
+
+        await logDocumentAccessOrThrow(req, {
+          source: "kyc",
+          outcome: "served",
+          documentId: doc.id,
+          userId: null,
+          guestRef: ctx.guestRef,
+          actorUserId: ctx.actorId,
+          action: "view",
+          capabilityId: doc.capability_id,
+        });
+        sendOpsDocumentFile(res, doc);
+      } catch (err) {
+        if (err instanceof AuditLogUnavailableError) {
+          res.status(500).json({ message: "Audit unavailable." });
+          return;
+        }
+        console.error("[GET /api/ops/guests/:ref/kyc/file] failed:", err);
         res.status(500).json({ message: "Failed to retrieve document." });
       }
     }

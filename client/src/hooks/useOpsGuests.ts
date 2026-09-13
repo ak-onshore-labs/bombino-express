@@ -122,3 +122,21 @@ export function useOpsGuestOrders(ref: string | undefined) {
     refetchOnMount: 'always',
   });
 }
+
+async function readOk(res: Response): Promise<Response> {
+  if (!res.ok) {
+    const text = (await res.text()) || res.statusText;
+    throw new Error(`${res.status}: ${text}`);
+  }
+  return res;
+}
+
+/** One logged GET — do not cache the blob. */
+export async function fetchOpsGuestKycFile(guestRef: string): Promise<Blob> {
+  const res = await fetch(`/api/ops/guests/${encodeURIComponent(guestRef)}/kyc/file`, {
+    credentials: 'include',
+    cache: 'no-store',
+  });
+  await readOk(res);
+  return res.blob();
+}
