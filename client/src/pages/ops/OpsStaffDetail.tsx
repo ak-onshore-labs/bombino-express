@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { parseApiErrorMessage } from '@/lib/apiError';
 import { cn } from '@/lib/utils';
+import { useOpsStaffUsers, type OpsStaffUser } from '@/hooks/useOpsOrders';
 import {
   useOpsBeatsList,
   useOpsStaffUser,
@@ -43,11 +44,29 @@ function beatsLeftEmpty(
   return names;
 }
 
+/** Beats where every other member is missing from the roster or inactive. */
+function beatsLastActiveMember(
+  riderId: string,
+  beats: readonly OpsBeatSummary[],
+  staff: readonly Pick<OpsStaffUser, 'id' | 'is_active'>[],
+): string[] {
+  const activeIds = new Set(staff.filter((u) => u.is_active).map((u) => u.id));
+  const names: string[] = [];
+  for (const beat of beats) {
+    const memberIds = beat.agents.map((agent) => agent.id);
+    if (!memberIds.includes(riderId)) continue;
+    const otherActive = memberIds.some((id) => id !== riderId && activeIds.has(id));
+    if (!otherActive) names.push(beat.name);
+  }
+  return names;
+}
+
 export default function OpsStaffDetail() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const detail = useOpsStaffUser(id);
   const beatsQuery = useOpsBeatsList();
+  const staffList = useOpsStaffUsers();
   const update = useUpdateStaffUser(id ?? '');
   const setBeats = useSetAgentBeats(id ?? '');
 
@@ -63,6 +82,9 @@ export default function OpsStaffDetail() {
   const [beatsNote, setBeatsNote] = useState('');
   const [emptyBeatNames, setEmptyBeatNames] = useState<string[]>([]);
   const [warnOpen, setWarnOpen] = useState(false);
+  const [deactivateOpen, setDeactivateOpen] = useState(false);
+  const [lastActiveBeatNames, setLastActiveBeatNames] = useState<string[]>([]);
+  const [toggleError, setToggleError] = useState('');
 
   useEffect(() => {
     if (!user) return;
@@ -89,6 +111,14 @@ export default function OpsStaffDetail() {
     }
     return emptyBeatNames.join(', ');
   }, [emptyBeatNames]);
+
+  const lastActiveBeatLabel = useMemo(() => {
+    if (lastActiveBeatNames.length === 1) return lastActiveBeatNames[0];
+    if (lastActiveBeatNames.length === 2) {
+      return `${lastActiveBeatNames[0]} and ${lastActiveBeatNames[1]}`;
+    }
+    return lastActiveBeatNames.join(', ');
+  }, [lastActiveBeatNames]);
 
   const saveProfile = (e: React.FormEvent): void => {
     e.preventDefault();
@@ -154,6 +184,40 @@ export default function OpsStaffDetail() {
     );
     if (beatsError) setBeatsError('');
     if (beatsNote) setBeatsNote('');
+  };
+
+  const activateStaff = (): void => {
+    setToggleError('');
+    update.mutate(
+      { is_active: true },
+      {
+        onError: (err) => {
+          setToggleError(parseApiErrorMessage(err, 'Could not activate this account'));
+        },
+      },
+    );
+  };
+
+  const tryDeactivate = (): void => {
+    if (!user) return;
+    setToggleError('');
+    setLastActiveBeatNames(
+      beatsLastActiveMember(user.id, beats, staffList.data ?? []),
+    );
+    setDeactivateOpen(true);
+  };
+
+  const commitDeactivate = (): void => {
+    setToggleError('');
+    update.mutate(
+      { is_active: false },
+      {
+        onSuccess: () => setDeactivateOpen(false),
+        onError: (err) => {
+          setToggleError(parseApiErrorMessage(err, 'Could not deactivate this account'));
+        },
+      },
+    );
   };
 
   if (!id) {
@@ -224,8 +288,35 @@ export default function OpsStaffDetail() {
           <p className="text-[11px] text-muted-foreground mt-1">
             {user.is_active ? 'Active' : 'Inactive'}
           </p>
+          {(user.role === 'agent' || user.role === 'admin') && (
+            <button
+              type="button"
+              onClick={user.is_active ? tryDeactivate : activateStaff}
+              disabled={update.isPending}
+              className="mt-2 text-[11px] font-bold uppercase tracking-wide text-[#C62828]"
+              data-testid={
+                user.is_active
+                  ? 'button-ops-staff-deactivate'
+                  : 'button-ops-staff-activate'
+              }
+            >
+              {update.isPending && deactivateOpen === false
+                ? 'Saving…'
+                : user.is_active
+                  ? 'Deactivate'
+                  : 'Activate'}
+            </button>
+          )}
         </div>
       </div>
+      {toggleError && (
+        <p
+          className="text-sm font-semibold text-red-600 mb-4"
+          data-testid="error-ops-staff-active"
+        >
+          {toggleError}
+        </p>
+      )}
 
       <form
         onSubmit={saveProfile}
@@ -316,8 +407,9 @@ export default function OpsStaffDetail() {
             Pickup areas
           </h2>
           <p className="text-[11px] text-muted-foreground mb-4">
-            Rounds they run. New jobs in these pincodes WhatsApp them. Anyone can
-            still claim the job if they are off.
+            {user.is_active
+              ? 'Rounds they run. New jobs in these pincodes WhatsApp them. Anyone can still claim the job if they are off.'
+              : 'This rider must be active to change rounds.'}
           </p>
 
           {beatsQuery.isLoading && (
@@ -343,13 +435,14 @@ export default function OpsStaffDetail() {
                     type="button"
                     role="switch"
                     aria-checked={on}
-                    disabled={setBeats.isPending}
+                    disabled={setBeats.isPending || !user.is_active}
                     onClick={() => toggleBeat(beat.id)}
                     className={cn(
                       'h-11 rounded-xl border text-sm font-semibold px-3 text-left',
                       on
                         ? 'border-primary bg-primary text-white'
                         : 'border-[#E2E8F0] bg-[#F3F4F6] text-foreground',
+                      !user.is_active && 'opacity-50',
                     )}
                     data-testid={`button-ops-staff-beat-${beat.id}`}
                   >
@@ -381,7 +474,7 @@ export default function OpsStaffDetail() {
           <Button
             type="button"
             onClick={trySaveBeats}
-            disabled={setBeats.isPending || beatsQuery.isLoading}
+            disabled={setBeats.isPending || beatsQuery.isLoading || !user.is_active}
             className="mt-4 w-full h-12 rounded-xl bg-primary text-white font-bold"
             data-testid="button-ops-save-staff-beats"
           >
@@ -412,6 +505,39 @@ export default function OpsStaffDetail() {
               onClick={() => commitBeats(selectedBeatIds)}
             >
               Continue
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={deactivateOpen} onOpenChange={setDeactivateOpen}>
+        <AlertDialogContent data-testid="dialog-ops-deactivate-staff">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Deactivate this rider?</AlertDialogTitle>
+            <AlertDialogDescription>
+              They can't log in, lose their live session, and get no job
+              alerts. Past jobs and cash stay on their record.
+              {lastActiveBeatNames.length > 0
+                ? ` This is the last active rider on ${lastActiveBeatLabel} — new jobs there will alert all agents.`
+                : ''}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              disabled={update.isPending}
+              data-testid="button-ops-deactivate-cancel"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="button-ops-deactivate-confirm"
+              disabled={update.isPending}
+              onClick={(e) => {
+                e.preventDefault();
+                commitDeactivate();
+              }}
+            >
+              {update.isPending ? 'Deactivating…' : 'Deactivate'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

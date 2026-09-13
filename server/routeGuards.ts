@@ -8,7 +8,7 @@
  */
 
 import type { NextFunction, Request, Response } from "express";
-import { findItdUserIdByCustomerId } from "./appDb.js";
+import { findItdUserIdByCustomerId, getIsActiveById } from "./appDb.js";
 
 export function requireUser(req: Request, res: Response, next: NextFunction): void {
   if (!req.session.user) {
@@ -96,4 +96,38 @@ export async function ensureDbUser(
     console.error("[ensureDbUser] failed:", err);
     next();
   }
+}
+
+/**
+ * Kills a deactivated agent's live session on the next request.
+ *
+ * Non-agents pass through so this can sit on the shared order-actions route.
+ * Customers are never gated here. `is_active` other than explicit false is live.
+ */
+export async function requireActiveAgent(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  if (req.session.user?.role !== "agent") {
+    next();
+    return;
+  }
+
+  const dbUserId = req.session.dbUserId;
+  if (!dbUserId) {
+    res.status(401).json({ message: "Login required" });
+    return;
+  }
+
+  const active = await getIsActiveById(dbUserId);
+  if (active === false) {
+    res.status(403).json({
+      code: "ACCOUNT_DEACTIVATED",
+      message: "This account has been deactivated. Please contact ops.",
+    });
+    return;
+  }
+
+  next();
 }

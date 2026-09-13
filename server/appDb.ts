@@ -358,14 +358,18 @@ export type UpdateStaffUserInput = {
   full_name?: string;
   phone?: string;
   email?: string;
+  is_active?: boolean;
 };
 
 /**
- * Patch a staff account's name / phone / email. Never writes role or is_active.
+ * Patch a staff account's name / phone / email / active flag. Never writes role.
  *
  * Phone is the OTP login key. A new number that already belongs to a different
  * row is `"taken"` (itd_users_phone_key). The rider's own phone is not a
  * collision. When phone changes, username is kept in sync with it.
+ *
+ * `is_active` does not cascade: past jobs (`orders.agent_id`) and cash
+ * (`payments.collected_by`) stay on this id.
  */
 export async function updateStaffUser(
   id: string,
@@ -382,11 +386,13 @@ export async function updateStaffUser(
     phone?: string;
     email?: string;
     username?: string;
+    is_active?: boolean;
     updated_at: string;
   } = { updated_at: new Date().toISOString() };
 
   if (patch.full_name !== undefined) update.full_name = patch.full_name;
   if (patch.email !== undefined) update.email = patch.email;
+  if (patch.is_active !== undefined) update.is_active = patch.is_active;
   if (patch.phone !== undefined && patch.phone !== existing.phone) {
     const owner = await findItdUserIdByPhone(patch.phone);
     if (owner && owner.id !== id) return "taken";
@@ -409,6 +415,28 @@ export async function updateStaffUser(
   }
   if (!data?.id) return "missing";
   return mapStaffUserRow(data);
+}
+
+/**
+ * One-column read for the per-request agent gate. Null means missing/error;
+ * treat anything other than explicit false as active.
+ */
+export async function getIsActiveById(id: string): Promise<boolean | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("itd_users")
+    .select("is_active")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("getIsActiveById", error);
+    return null;
+  }
+  if (!data) return null;
+  return data.is_active !== false;
 }
 
 export type CustomerAccountRow = {
@@ -604,7 +632,7 @@ export async function findActiveAgentById(id: string): Promise<StaffUserRow | nu
   if (!data?.id) return null;
 
   const role = String(data.role ?? "");
-  if (role !== "agent" || data.is_active !== true) return null;
+  if (role !== "agent" || data.is_active === false) return null;
 
   return mapStaffUserRow(data);
 }

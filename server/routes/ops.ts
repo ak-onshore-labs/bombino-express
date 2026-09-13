@@ -112,12 +112,14 @@ const patchStaffSchema = z
         "Enter a valid email"
       )
       .optional(),
+    is_active: z.boolean().optional(),
   })
   .refine(
     (patch) =>
       patch.full_name !== undefined ||
       patch.phone !== undefined ||
-      patch.email !== undefined,
+      patch.email !== undefined ||
+      patch.is_active !== undefined,
     "Nothing to change"
   );
 
@@ -977,11 +979,12 @@ export function registerOpsRoutes(app: Express): void {
     }
   );
 
-  // PATCH /api/ops/users/:id — name / phone / email. Not role, not is_active.
+  // PATCH /api/ops/users/:id — name / phone / email / is_active. Never role.
   app.patch(
     "/api/ops/users/:id",
     requireUser,
     requireRole("admin", "super_admin"),
+    ensureDbUser,
     async (req: Request, res: Response) => {
       const id = staffUserIdSchema.safeParse(req.params.id);
       if (!id.success) {
@@ -995,6 +998,26 @@ export function registerOpsRoutes(app: Express): void {
           message: parsed.error.issues[0]?.message ?? "Invalid request",
         });
         return;
+      }
+
+      if (parsed.data.is_active === false) {
+        if (req.session.dbUserId === id.data) {
+          res.status(400).json({
+            message: "You cannot deactivate your own account.",
+          });
+          return;
+        }
+        const target = await getStaffUserById(id.data);
+        if (!target) {
+          res.status(404).json({ message: "User not found" });
+          return;
+        }
+        if (target.role === "super_admin") {
+          res.status(400).json({
+            message: "A super admin account cannot be deactivated.",
+          });
+          return;
+        }
       }
 
       const updated = await updateStaffUser(id.data, parsed.data);

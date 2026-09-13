@@ -24,7 +24,12 @@ import {
   type AgentPickup,
 } from "../agentDb.js";
 import { availableActions } from "../orderLifecycle.js";
-import { ensureDbUser, requireRole, requireUser } from "../routeGuards.js";
+import {
+  ensureDbUser,
+  requireActiveAgent,
+  requireRole,
+  requireUser,
+} from "../routeGuards.js";
 
 /**
  * Attach the actions the agent may take on each row, so the list screen can
@@ -44,6 +49,7 @@ export function registerAgentRoutes(app: Express): void {
     requireUser,
     requireRole("agent"),
     ensureDbUser,
+    requireActiveAgent,
     async (req: Request, res: Response) => {
       const agentId = req.session.dbUserId;
       if (!agentId) {
@@ -67,6 +73,7 @@ export function registerAgentRoutes(app: Express): void {
     requireUser,
     requireRole("agent"),
     ensureDbUser,
+    requireActiveAgent,
     async (req: Request, res: Response) => {
       const agentId = req.session.dbUserId;
       if (!agentId) {
@@ -108,6 +115,7 @@ export function registerAgentRoutes(app: Express): void {
     requireUser,
     requireRole("agent"),
     ensureDbUser,
+    requireActiveAgent,
     async (req: Request, res: Response) => {
       const agentId = req.session.dbUserId;
       if (!agentId) {
@@ -133,6 +141,7 @@ export function registerAgentRoutes(app: Express): void {
     requireUser,
     requireRole("agent"),
     ensureDbUser,
+    requireActiveAgent,
     async (req: Request, res: Response) => {
       const agentId = req.session.dbUserId;
       if (!agentId) {

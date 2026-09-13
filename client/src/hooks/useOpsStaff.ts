@@ -65,6 +65,7 @@ export function useUpdateStaffUser(id: string) {
       full_name?: string;
       phone?: string;
       email?: string;
+      is_active?: boolean;
     }) => {
       const res = await apiRequest('PATCH', `/api/ops/users/${id}`, body);
       return (await res.json()) as { user: OpsStaffUser };
@@ -72,6 +73,7 @@ export function useUpdateStaffUser(id: string) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: OPS_USERS_KEY });
       void queryClient.invalidateQueries({ queryKey: opsStaffUserKey(id) });
+      void queryClient.invalidateQueries({ queryKey: OPS_BEATS_KEY });
     },
   });
 }

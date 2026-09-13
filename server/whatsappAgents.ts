@@ -56,7 +56,8 @@ async function loadAgents(ids: string[] | null): Promise<WhatsappRecipient[]> {
   let query = client
     .from("itd_users")
     .select("id, full_name, phone, metadata")
-    .eq("role", "agent");
+    .eq("role", "agent")
+    .eq("is_active", true);
 
   if (ids) {
     if (ids.length === 0) return [];
@@ -77,10 +78,35 @@ async function loadAgents(ids: string[] | null): Promise<WhatsappRecipient[]> {
   }));
 }
 
-/** One agent, by id, with the opt-out flag the send path needs. */
+/**
+ * One agent, by id — no is_active filter.
+ *
+ * A just-deactivated rider still holding a live job must hear cancel /
+ * disruption WhatsApp. Roster fan-out uses `loadAgents` (active only).
+ */
 export async function getAgent(agentId: string): Promise<WhatsappRecipient | null> {
-  const agents = await loadAgents([agentId]);
-  return agents[0] ?? null;
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("itd_users")
+    .select("id, full_name, phone, metadata")
+    .eq("role", "agent")
+    .eq("id", agentId)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("getAgent", error);
+    return null;
+  }
+  if (!data?.id) return null;
+
+  return {
+    id: data.id as string,
+    full_name: (data.full_name as string | null) ?? null,
+    phone: (data.phone as string | null) ?? null,
+    optedOut: readOptOut(data.metadata),
+  };
 }
 
 /**

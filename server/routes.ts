@@ -32,6 +32,7 @@ import {
   upsertTrackingEvents,
   updateShipmentTrackingStatus,
   getLastKnownTracking,
+  getStaffUserById,
 } from "./appDb.js";
 import type { ShipmentDocumentKind } from "./appDb.js";
 import {
@@ -79,7 +80,12 @@ import {
   HANDOVER_CODE_PATTERN,
   type HandoverKind,
 } from "./handoverCodes.js";
-import { ensureDbUser, requireRole, requireUser } from "./routeGuards.js";
+import {
+  ensureDbUser,
+  requireActiveAgent,
+  requireRole,
+  requireUser,
+} from "./routeGuards.js";
 import { registerAgentRoutes } from "./routes/agent.js";
 import { registerPaymentRoutes } from "./routes/payments.js";
 import { registerGuestProfileRoutes } from "./routes/guestProfile.js";
@@ -2846,6 +2852,17 @@ export async function registerRoutes(
       return;
     }
 
+    // Staff-only: customers never enter getStaffUserById (role IN staff).
+    // A customer with is_active=false still signs in. Null is_active is active.
+    const staff = await getStaffUserById(existing.id);
+    if (staff && staff.is_active === false) {
+      res.status(403).json({
+        code: "ACCOUNT_DEACTIVATED",
+        message: "This account has been deactivated. Please contact ops.",
+      });
+      return;
+    }
+
     const profile = await getItdUserProfileById(existing.id);
     if (!profile) {
       res.status(502).json({ message: "Could not sign in. Please try again." });
@@ -4435,6 +4452,7 @@ export async function registerRoutes(
     "/api/orders/:id/actions",
     requireUser,
     ensureDbUser,
+    requireActiveAgent,
     async (req: Request, res: Response) => {
       const callerId = req.session.dbUserId;
       if (!callerId) {
