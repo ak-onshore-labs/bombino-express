@@ -12,6 +12,7 @@ import OpsGuestDetail from '@/pages/ops/OpsGuestDetail';
 import OpsUsers from '@/pages/ops/OpsUsers';
 import OpsStaffDetail from '@/pages/ops/OpsStaffDetail';
 import OpsBeats from '@/pages/ops/OpsBeats';
+import OpsPincodeLookup from '@/pages/ops/OpsPincodeLookup';
 import OpsSettings from '@/pages/ops/OpsSettings';
 import NotFound from '@/pages/not-found';
 
@@ -37,6 +38,7 @@ export function OpsRoutes() {
       <Route path="/ops/users" component={OpsUsers} />
       <Route path="/ops/users/:id" component={OpsStaffDetail} />
       <Route path="/ops/beats" component={OpsBeats} />
+      <Route path="/ops/pincodes" component={OpsPincodeLookup} />
       <Route path="/ops/settings" component={OpsSettings} />
       <Route path="/ops/orders/:id" component={OpsOrderDetail} />
       <Route component={NotFound} />

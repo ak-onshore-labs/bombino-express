@@ -9,6 +9,7 @@ import {
   ContactRound,
   Route as RouteIcon,
   LayoutDashboard,
+  MapPin,
   Package,
   Send,
   Settings,
@@ -107,6 +108,14 @@ export const OPS_NAV: readonly OpsNavItem[] = [
     icon: RouteIcon,
     mobile: false,
     mobileMore: true,
+  },
+  {
+    label: 'Pincodes',
+    mobileLabel: 'Pincodes',
+    path: '/ops/pincodes',
+    icon: MapPin,
+    mobile: false,
+    mobileMore: false,
   },
   {
     label: 'Settings',

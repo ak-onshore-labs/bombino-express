@@ -93,6 +93,7 @@ import {
   type OpsOrderDetail,
   type OpsPaymentRange,
 } from "../opsDb.js";
+import { buildPincodeReport } from "../pincodeReport.js";
 import { requireRole, requireUser, ensureDbUser } from "../routeGuards.js";
 import {
   AuditLogUnavailableError,
@@ -1262,6 +1263,31 @@ export function registerOpsRoutes(app: Express): void {
     }
   );
 
+
+  // ── Pincode lookup ────────────────────────────────────────────────────────
+  //
+  // Uncollapsed ops report for one pincode: every active round it sits on,
+  // the customer-facing resolved answer (same getCoverage() booking reads),
+  // and who would be WhatsApped — including the honest "all riders" fallback.
+  // Uncovered is a 200 with the report, not a 404.
+
+  const pincodeParamSchema = z.string().regex(/^\d{6}$/, "Pincodes are six digits");
+
+  app.get(
+    "/api/ops/pincodes/:pincode",
+    requireUser,
+    requireRole("admin", "super_admin"),
+    async (req: Request, res: Response) => {
+      const parsed = pincodeParamSchema.safeParse(req.params.pincode);
+      if (!parsed.success) {
+        res.status(400).json({ message: "Pincodes are six digits" });
+        return;
+      }
+
+      const report = await buildPincodeReport(parsed.data);
+      res.json(report);
+    }
+  );
 
   // ── Pickup beats ──────────────────────────────────────────────────────────
   //

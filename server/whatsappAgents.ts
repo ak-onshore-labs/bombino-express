@@ -141,3 +141,51 @@ export async function listAgentsForPincode(
   // nothing.
   return onBeat.length > 0 ? onBeat : loadAgents(null);
 }
+
+/**
+ * Who would be told about a pickup here — for the ops lookup, not for sending.
+ *
+ * `listAgentsForPincode` loads every agent in the country when the beats
+ * cannot answer. That is the right notify behaviour and the wrong thing to
+ * dump on a lookup screen. This wrapper keeps the listed riders when the
+ * beats named them, and otherwise returns `mode: "all"` with an empty list
+ * so the UI can say "all active riders" instead of lying with "no riders".
+ *
+ * `reason` is filled in by the pincode-report assembler (rounds + coverage
+ * source distinguish uncovered / unstaffed / unreachable). A demoted-only
+ * roster is already `unstaffed` here, matching the notify fall-through.
+ */
+export type FanoutMode = "listed" | "all";
+export type FanoutReason = "uncovered" | "unstaffed" | "unreachable";
+
+export interface FanoutAgent {
+  id: string;
+  full_name: string | null;
+  phone: string | null;
+}
+
+export async function describeFanoutForPincode(pincode: string): Promise<{
+  mode: FanoutMode;
+  reason: FanoutReason | null;
+  agents: FanoutAgent[];
+}> {
+  const ids = await listAgentIdsForPincode(pincode);
+  if (ids === null) {
+    return { mode: "all", reason: null, agents: [] };
+  }
+
+  const onBeat = await loadAgents(ids);
+  if (onBeat.length === 0) {
+    return { mode: "all", reason: "unstaffed", agents: [] };
+  }
+
+  return {
+    mode: "listed",
+    reason: null,
+    agents: onBeat.map((agent) => ({
+      id: agent.id,
+      full_name: agent.full_name,
+      phone: agent.phone,
+    })),
+  };
+}

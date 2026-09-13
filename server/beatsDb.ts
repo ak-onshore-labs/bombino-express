@@ -572,3 +572,75 @@ export async function beatNamesByAgent(
   }
   return byAgent;
 }
+
+/**
+ * Every active round that collects from `pincode`, uncollapsed.
+ *
+ * The booking coverage map reconciles overlapping beats into one city, one
+ * remark and the latest cutoff. Ops looking a pincode up need the rounds
+ * themselves — 400077 sits in three Andheri beats — so this is a fresh query,
+ * not a read of that cache.
+ *
+ * `null` is a DB miss (caller treats it as unreachable). `[]` is a real
+ * answer: no active beat covers this code.
+ */
+export interface PincodeBeatRow {
+  beat_id: string;
+  name: string;
+  hub: string;
+  cutoff_hour: number;
+  city: string;
+  area: string;
+  remark: BeatRemark;
+}
+
+export async function listBeatsForPincode(
+  pincode: string
+): Promise<PincodeBeatRow[] | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("pickup_beat_pincodes")
+    .select(
+      "beat_id, city, area, remark, pickup_beats!inner(id, name, hub, cutoff_hour, is_active)"
+    )
+    .eq("pincode", pincode)
+    .eq("pickup_beats.is_active", true);
+
+  if (error) {
+    logSupabaseError("listBeatsForPincode", error);
+    return null;
+  }
+
+  type Row = {
+    beat_id: string;
+    city: string;
+    area: string;
+    remark: string;
+    pickup_beats:
+      | { id: string; name: string; hub: string; cutoff_hour: number }
+      | { id: string; name: string; hub: string; cutoff_hour: number }[]
+      | null;
+  };
+
+  const rows: PincodeBeatRow[] = [];
+  for (const row of (data ?? []) as unknown as Row[]) {
+    const beat = firstOf(row.pickup_beats);
+    if (!beat) continue;
+    rows.push({
+      beat_id: row.beat_id,
+      name: beat.name,
+      hub: beat.hub,
+      cutoff_hour: beat.cutoff_hour,
+      city: row.city,
+      area: row.area,
+      remark: row.remark === "out_of_city" ? "out_of_city" : "ok",
+    });
+  }
+
+  rows.sort(
+    (a, b) => a.hub.localeCompare(b.hub) || a.name.localeCompare(b.name)
+  );
+  return rows;
+}
