@@ -2,14 +2,12 @@
  * Pickup beats — the ops console over rider coverage.
  *
  * The form is deliberately ops' own hand-over block, in their order: the round,
- * its cut-off, its serviceable pincodes, and the pickup boys who run it. That
- * block has arrived by email a dozen times in the same shape; the spreadsheet
- * attached to it never has, which is why the paste box takes a list on any
- * separator instead of asking for a format.
+ * its cut-off, its serviceable pincodes, and the pickup boys who run it.
  *
- * Editing a beat changes what customers are offered at booking, so nothing here
- * saves implicitly: the pincode box and the rider list each have their own
- * save, and each says how many rows it wrote.
+ * The pincode table is the source of truth for this round: city, area, and the
+ * out-of-city flag are edited per row. Paste only appends new codes. Nothing
+ * here saves implicitly — Add stages rows locally; Save posts the complete
+ * table. Riders have their own save.
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -27,6 +25,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { OPS_PINCODES_KEY } from '@/hooks/useOpsPincodeLookup';
+import { PICKUP_COVERAGE_KEY } from '@/hooks/usePickupCoverage';
 import { parseApiErrorMessage } from '@/lib/apiError';
 import { apiRequest } from '@/lib/queryClient';
 import { cn } from '@/lib/utils';
@@ -66,6 +66,7 @@ type StaffUser = {
 };
 
 const inputClass = 'h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl mt-2';
+const cellInputClass = 'h-9 bg-[#F3F4F6] border border-[#E2E8F0] rounded-lg px-2 text-sm w-full';
 
 /** Every hour a rider might plausibly stop. Labelled the way the clock reads. */
 const CUTOFF_HOURS = Array.from({ length: 15 }, (_, i) => i + 8);
@@ -107,7 +108,8 @@ export default function OpsBeats() {
   const [hub, setHub] = useState('');
   const [cutoff, setCutoff] = useState('17');
 
-  // Editor
+  // Editor — the table is the list; the textarea only stages codes to add.
+  const [rows, setRows] = useState<BeatPincode[]>([]);
   const [pincodeText, setPincodeText] = useState('');
   const [pincodeCity, setPincodeCity] = useState('');
   const [editorError, setEditorError] = useState('');
@@ -157,23 +159,17 @@ export default function OpsBeats() {
   );
 
   // Load the selected beat into the editor. Keyed on the beat's own id so
-  // switching beats replaces the box rather than appending to it.
+  // switching beats replaces the table rather than appending to it.
   useEffect(() => {
     if (!detail.data) return;
-    setPincodeText(detail.data.pincodes.map((p) => p.pincode).join('\n'));
+    setRows(detail.data.pincodes.map((p) => ({ ...p })));
+    setPincodeText('');
     setPincodeCity(detail.data.pincodes[0]?.city ?? '');
     setEditorError('');
     setSavedNote('');
   }, [detail.data]);
 
   const parsed = useMemo(() => parsePincodes(pincodeText), [pincodeText]);
-
-  /** Keep the city and area a pincode already had; only new codes need filling in. */
-  const existingByPincode = useMemo(() => {
-    const map = new Map<string, BeatPincode>();
-    for (const row of detail.data?.pincodes ?? []) map.set(row.pincode, row);
-    return map;
-  }, [detail.data]);
 
   const create = useMutation({
     mutationFn: async (body: { slug: string; name: string; hub: string; cutoff_hour: number }) => {
@@ -200,6 +196,9 @@ export default function OpsBeats() {
       setEditorError('');
       setSavedNote(`Saved ${count} pincode${count === 1 ? '' : 's'}.`);
       void queryClient.invalidateQueries({ queryKey: BEATS_KEY });
+      void queryClient.invalidateQueries({ queryKey: [...BEATS_KEY, selectedId] });
+      void queryClient.invalidateQueries({ queryKey: PICKUP_COVERAGE_KEY });
+      void queryClient.invalidateQueries({ queryKey: OPS_PINCODES_KEY });
     },
     onError: (err) => setEditorError(parseApiErrorMessage(err, 'Could not save the pincodes')),
   });
@@ -265,8 +264,19 @@ export default function OpsBeats() {
     create.mutate({ slug, name: beatName, hub: beatHub, cutoff_hour: Number(cutoff) });
   };
 
-  const submitPincodes = (): void => {
-    if (!selectedId) return;
+  const patchRow = (pincode: string, patch: Partial<BeatPincode>): void => {
+    setRows((prev) => prev.map((row) => (row.pincode === pincode ? { ...row, ...patch } : row)));
+    if (editorError) setEditorError('');
+    if (savedNote) setSavedNote('');
+  };
+
+  const removeRow = (pincode: string): void => {
+    setRows((prev) => prev.filter((row) => row.pincode !== pincode));
+    if (editorError) setEditorError('');
+    if (savedNote) setSavedNote('');
+  };
+
+  const addPincodes = (): void => {
     setEditorError('');
     setSavedNote('');
 
@@ -279,26 +289,62 @@ export default function OpsBeats() {
       return;
     }
 
+    if (parsed.valid.length === 0) {
+      setEditorError('Paste at least one six-digit pincode.');
+      return;
+    }
+
     const city = pincodeCity.trim();
     if (!city) {
       setEditorError('Name the city a customer here would give — it is what they are shown.');
       return;
     }
 
-    savePincodes.mutate(
-      parsed.valid.map((pincode) => {
-        const existing = existingByPincode.get(pincode);
-        return {
-          pincode,
-          // A code that was already on the beat keeps the locality and the
-          // surcharge flag it had; re-pasting a list must not silently clear
-          // Kolkata's out-of-city marks.
-          city: existing?.city ?? city,
-          area: existing?.area ?? '',
-          remark: existing?.remark ?? 'ok',
-        };
-      })
-    );
+    const have = new Set(rows.map((row) => row.pincode));
+    const added: BeatPincode[] = [];
+    for (const pincode of parsed.valid) {
+      if (have.has(pincode)) continue;
+      have.add(pincode);
+      added.push({ pincode, city, area: '', remark: 'ok' });
+    }
+
+    if (added.length === 0) {
+      setEditorError('Those pincodes are already on this round.');
+      return;
+    }
+
+    setRows((prev) => [...prev, ...added]);
+    setPincodeText('');
+  };
+
+  const submitPincodes = (): void => {
+    if (!selectedId) return;
+    setEditorError('');
+    setSavedNote('');
+
+    const payload = rows.map((row) => ({
+      pincode: row.pincode,
+      city: row.city.trim(),
+      area: row.area.trim(),
+      remark: row.remark,
+    }));
+
+    const missingCity = payload.find((row) => !row.city);
+    if (missingCity) {
+      setEditorError(
+        `${missingCity.pincode} needs the city a customer there would give — it is what they are shown.`
+      );
+      return;
+    }
+
+    if (payload.length === 0) {
+      const confirmed = window.confirm(
+        'This takes every pincode off this round. Customers here will no longer be offered pickup.'
+      );
+      if (!confirmed) return;
+    }
+
+    savePincodes.mutate(payload);
   };
 
   const toggleAgent = (agentId: string): void => {
@@ -472,6 +518,103 @@ export default function OpsBeats() {
 
           <div className="mb-4">
             <Label className="text-sm font-medium">Pickup serviceable pincodes</Label>
+            <p className="text-[11px] text-muted-foreground mt-1 mb-2">
+              {rows.length} pincode{rows.length === 1 ? '' : 's'} on this round. Save still
+              required.
+            </p>
+            {rows.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4" data-testid="ops-beat-pincode-empty">
+                No pincodes on this round yet. Add some below.
+              </p>
+            ) : (
+              <div
+                className="rounded-xl border border-border overflow-x-auto max-h-[28rem] overflow-y-auto"
+                data-testid="ops-beat-pincode-table"
+              >
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-white">
+                    <tr className="text-left text-xs font-semibold text-muted-foreground border-b border-border">
+                      <th className="px-3 py-2">Pincode</th>
+                      <th className="px-3 py-2">City</th>
+                      <th className="px-3 py-2">Area</th>
+                      <th className="px-3 py-2">
+                        Remark
+                        <span className="block font-normal normal-case tracking-normal mt-0.5">
+                          Out of city = extra charge confirmed at weigh
+                        </span>
+                      </th>
+                      <th className="px-3 py-2 w-[1%]" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => (
+                      <tr
+                        key={row.pincode}
+                        className="border-b border-border last:border-b-0"
+                        data-testid={`ops-beat-pincode-row-${row.pincode}`}
+                      >
+                        <td className="px-3 py-2 font-mono tabular-nums text-foreground">
+                          {row.pincode}
+                        </td>
+                        <td className="px-3 py-2 min-w-[8rem]">
+                          <Input
+                            value={row.city}
+                            onChange={(e) => patchRow(row.pincode, { city: e.target.value })}
+                            className={cellInputClass}
+                            aria-label={`City for ${row.pincode}`}
+                            data-testid={`input-ops-beat-city-${row.pincode}`}
+                          />
+                        </td>
+                        <td className="px-3 py-2 min-w-[8rem]">
+                          <Input
+                            value={row.area}
+                            onChange={(e) => patchRow(row.pincode, { area: e.target.value })}
+                            className={cellInputClass}
+                            aria-label={`Area for ${row.pincode}`}
+                            data-testid={`input-ops-beat-area-${row.pincode}`}
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={row.remark === 'out_of_city'}
+                            onClick={() =>
+                              patchRow(row.pincode, {
+                                remark: row.remark === 'out_of_city' ? 'ok' : 'out_of_city',
+                              })
+                            }
+                            className={cn(
+                              'h-9 rounded-lg border text-xs font-semibold px-3 whitespace-nowrap',
+                              row.remark === 'out_of_city'
+                                ? 'border-amber-300 bg-amber-50 text-amber-900'
+                                : 'border-[#E2E8F0] bg-[#F3F4F6] text-foreground'
+                            )}
+                            data-testid={`button-ops-beat-remark-${row.pincode}`}
+                          >
+                            {row.remark === 'out_of_city' ? 'Out of city' : 'OK'}
+                          </button>
+                        </td>
+                        <td className="px-3 py-2">
+                          <button
+                            type="button"
+                            onClick={() => removeRow(row.pincode)}
+                            className="text-xs font-semibold text-muted-foreground underline whitespace-nowrap"
+                            data-testid={`button-ops-beat-remove-${row.pincode}`}
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="mb-4">
+            <Label className="text-sm font-medium">Add pincodes</Label>
             <Textarea
               value={pincodeText}
               onChange={(e) => {
@@ -479,13 +622,14 @@ export default function OpsBeats() {
                 if (editorError) setEditorError('');
                 if (savedNote) setSavedNote('');
               }}
-              rows={8}
+              rows={4}
               placeholder={'400060\n400062\n400063'}
               className="mt-2 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl font-mono text-sm"
               data-testid="input-ops-beat-pincodes"
             />
             <p className="text-[11px] text-muted-foreground mt-1.5">
-              Paste them however they arrived — commas, spaces or one per line all work.{' '}
+              Adds to this round. Does not replace the table. Save still required. Paste them
+              however they arrived — commas, spaces or one per line all work.{' '}
               {parsed.valid.length} pincode{parsed.valid.length === 1 ? '' : 's'}
               {parsed.invalid.length > 0 && `, ${parsed.invalid.length} not recognised`}.
             </p>
@@ -504,11 +648,21 @@ export default function OpsBeats() {
               data-testid="input-ops-beat-city"
             />
             <p className="text-[11px] text-muted-foreground mt-1.5">
-              What a customer here would call their city, which is not always the hub's —
-              a round out of Andheri that reaches Thane should say Thane. Codes already on
-              this beat keep the city they have.
+              What a customer here would call their city, which is not always the hub&apos;s — a
+              round out of Andheri that reaches Thane should say Thane. Codes already on this beat
+              keep the city they have.
             </p>
           </div>
+
+          <Button
+            type="button"
+            onClick={addPincodes}
+            variant="outline"
+            className="w-full h-12 rounded-xl font-bold mb-3"
+            data-testid="button-ops-add-pincodes"
+          >
+            Add pincodes
+          </Button>
 
           <Button
             type="button"
