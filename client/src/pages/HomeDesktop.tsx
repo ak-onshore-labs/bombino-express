@@ -18,6 +18,7 @@ import { StatusBadge } from '@/components/StatusBadge';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 import { type DisplayRow } from '@/lib/shipmentRows';
 import { useNotifications, useOrderHistory } from '@/hooks/useCustomerOrders';
+import { useSupportContacts } from '@/hooks/useSupportContacts';
 
 /** The subset of a notification this page renders. */
 interface HomeNotificationRow {
@@ -348,6 +349,7 @@ function StatsBand() {
 
 // ─── Support widget (right rail) ───
 function SupportWidget() {
+  const { waHref, telHref, officeLabel, whatsappLabel } = useSupportContacts();
   return (
     <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] overflow-hidden">
       <div className="px-5 pt-5 pb-3 flex items-center justify-between">
@@ -359,7 +361,7 @@ function SupportWidget() {
       </div>
       <div className="px-5 pb-5 space-y-2">
         <a
-          href="https://api.whatsapp.com/send?phone=917045999553"
+          href={waHref}
           target="_blank"
           rel="noopener noreferrer"
           className="group flex items-center gap-3 p-3 rounded-xl border border-[#E2E8F0] hover:border-emerald-200 hover:bg-emerald-50/50 transition-colors"
@@ -370,12 +372,12 @@ function SupportWidget() {
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-semibold leading-tight text-foreground">WhatsApp</p>
-            <p className="text-[11px] text-muted-foreground mt-0.5 tabular-nums">+91 70459 99553</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5 tabular-nums">{whatsappLabel}</p>
           </div>
           <ChevronRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-emerald-600 transition-colors" />
         </a>
         <a
-          href="tel:+912266400000"
+          href={telHref}
           className="group flex items-center gap-3 p-3 rounded-xl border border-[#E2E8F0] hover:border-[lab(34.0831_-9.57756_-27.7093)]/30 hover:bg-[#F8F9FA] transition-colors"
           data-testid="button-call-desktop"
         >
@@ -384,7 +386,7 @@ function SupportWidget() {
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-semibold leading-tight text-foreground">Call us</p>
-            <p className="text-[11px] text-muted-foreground mt-0.5 tabular-nums">+91 22 6640 0000</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5 tabular-nums">{officeLabel}</p>
           </div>
           <ChevronRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
         </a>

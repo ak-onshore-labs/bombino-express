@@ -21,6 +21,7 @@ import type { TrackingEvent } from '@/lib/mockData';
 import { getStatusLabel, getStatusColor, isAwbStatusFinal } from '@/lib/awbStatus';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
+import { useSupportContacts } from '@/hooks/useSupportContacts';
 import {
   base64ToPdfFile,
   canSharePdfFile,
@@ -313,6 +314,7 @@ function ActionRow({
   onDownloadDocument: (kind: ShipmentDocumentKind) => void;
   documents: ShipmentDocumentKind[];
 }) {
+  const { waHref, telHref } = useSupportContacts();
   const available = SHIPMENT_DOCUMENT_ORDER.filter((k) => documents.includes(k));
 
   return (
@@ -339,7 +341,7 @@ function ActionRow({
         })}
         <div className="flex-1" />
         <a
-          href="https://api.whatsapp.com/send?phone=917045999553"
+          href={waHref}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-2 h-10 px-3.5 rounded-lg border border-border text-sm font-medium text-foreground hover:border-emerald-200 hover:bg-emerald-50/40 transition-colors"
@@ -349,7 +351,7 @@ function ActionRow({
           WhatsApp
         </a>
         <a
-          href="tel:+912266400000"
+          href={telHref}
           className="inline-flex items-center gap-2 h-10 px-3.5 rounded-lg border border-border text-sm font-medium text-foreground hover:border-foreground/30 hover:bg-muted/60 transition-colors"
           data-testid="button-call"
         >
@@ -365,6 +367,7 @@ function ActionRow({
 export default function ShipmentDetails() {
   const [, params] = useRoute('/shipment/:awb');
   const [, setLocation] = useLocation();
+  const { waHref } = useSupportContacts();
   const [copied, setCopied] = useState(false);
   const [pdfDataUrl, setPdfDataUrl] = useState<string | null>(null);
   const [pdfTitle, setPdfTitle] = useState('Shipment Label');
@@ -700,7 +703,7 @@ export default function ShipmentDetails() {
                 Please contact support for details on this shipment.
               </p>
               <a
-                href="https://api.whatsapp.com/send?phone=917045999553"
+                href={waHref}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 mt-2 text-xs font-semibold text-red-700 hover:underline"

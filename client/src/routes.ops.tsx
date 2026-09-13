@@ -7,9 +7,12 @@ import OpsTransactions from '@/pages/ops/OpsTransactions';
 import OpsOrderDetail from '@/pages/ops/OpsOrderDetail';
 import OpsCustomers from '@/pages/ops/OpsCustomers';
 import OpsCustomerDetail from '@/pages/ops/OpsCustomerDetail';
+import OpsGuests from '@/pages/ops/OpsGuests';
+import OpsGuestDetail from '@/pages/ops/OpsGuestDetail';
 import OpsUsers from '@/pages/ops/OpsUsers';
 import OpsStaffDetail from '@/pages/ops/OpsStaffDetail';
 import OpsBeats from '@/pages/ops/OpsBeats';
+import OpsSettings from '@/pages/ops/OpsSettings';
 import NotFound from '@/pages/not-found';
 
 /**
@@ -29,9 +32,12 @@ export function OpsRoutes() {
       <Route path="/ops/transactions" component={OpsTransactions} />
       <Route path="/ops/customers" component={OpsCustomers} />
       <Route path="/ops/customers/:id" component={OpsCustomerDetail} />
+      <Route path="/ops/guests" component={OpsGuests} />
+      <Route path="/ops/guests/:ref" component={OpsGuestDetail} />
       <Route path="/ops/users" component={OpsUsers} />
       <Route path="/ops/users/:id" component={OpsStaffDetail} />
       <Route path="/ops/beats" component={OpsBeats} />
+      <Route path="/ops/settings" component={OpsSettings} />
       <Route path="/ops/orders/:id" component={OpsOrderDetail} />
       <Route component={NotFound} />
     </Switch>

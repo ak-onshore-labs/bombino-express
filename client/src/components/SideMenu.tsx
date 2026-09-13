@@ -8,6 +8,7 @@ import { GuestSignOutDialog } from '@/components/GuestSignOutDialog';
 import { AccountSignOutDialog } from '@/components/AccountSignOutDialog';
 import bombinoLogo from '@/assets/bombino-logo.png';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
+import { useSupportContacts } from '@/hooks/useSupportContacts';
 
 interface SideMenuProps {
   isOpen: boolean;
@@ -32,6 +33,7 @@ export function SideMenu({ isOpen, onClose }: SideMenuProps) {
    * is most likely to come looking for what they filled in.
    */
   const { data: guestProfile } = useGuestProfile({ enabled: !isLoggedIn });
+  const { waHref, telHref } = useSupportContacts();
   // The menu stays open behind the confirmation, so "Stay signed in" lands
   // back where they were rather than on a closed menu.
   const [signOutOpen, setSignOutOpen] = useState(false);
@@ -193,7 +195,7 @@ export function SideMenu({ isOpen, onClose }: SideMenuProps) {
             <div className="border-t border-border my-4" />
 
             <a
-              href="https://api.whatsapp.com/send?phone=917045999553"
+              href={waHref}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted active:scale-[0.98] transition-all"
@@ -206,7 +208,7 @@ export function SideMenu({ isOpen, onClose }: SideMenuProps) {
             </a>
 
             <a
-              href="tel:+912266400000"
+              href={telHref}
               className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted active:scale-[0.98] transition-all"
               data-testid="link-call"
             >

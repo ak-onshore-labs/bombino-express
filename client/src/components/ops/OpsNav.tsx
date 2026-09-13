@@ -8,8 +8,9 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { OPS_NAV, isOpsMoreActive, isOpsNavActive } from '@/lib/opsNav';
+import { OPS_NAV, isOpsMoreActive, isOpsNavActive, isOpsNavVisible } from '@/lib/opsNav';
 import { cn } from '@/lib/utils';
+import { useAppStore } from '@/lib/store';
 
 /**
  * Ops mobile bottom navigation — Dash / Pickups / Drops / Sent / More.
@@ -18,9 +19,10 @@ import { cn } from '@/lib/utils';
 export function OpsNav() {
   const [location] = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
+  const role = useAppStore((s) => s.user?.role);
 
   const items: TabItem[] = [
-    ...OPS_NAV.filter((item) => item.mobile).map((item) => ({
+    ...OPS_NAV.filter((item) => item.mobile && isOpsNavVisible(item, role)).map((item) => ({
       icon: item.icon,
       label: item.mobileLabel,
       path: item.path,
@@ -33,7 +35,9 @@ export function OpsNav() {
     },
   ];
 
-  const moreItems = OPS_NAV.filter((item) => item.mobileMore);
+  const moreItems = OPS_NAV.filter(
+    (item) => item.mobileMore && isOpsNavVisible(item, role),
+  );
 
   return (
     <>

@@ -36,15 +36,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { formatInr } from '@/lib/orderDetail';
 import { useCancellations, type CancellationRow } from '@/hooks/useCustomerOrders';
+import { useSupportContacts } from '@/hooks/useSupportContacts';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 
 const BRAND_NAVY = 'lab(34.0831 -9.57756 -27.7093)';
-
-// Same numbers the side menu and Home already carry — one support identity,
-// not a second one invented for this panel.
-const SUPPORT_PHONE_HREF = 'tel:+912266400000';
-const SUPPORT_PHONE_LABEL = '+91 22 6640 0000';
-const SUPPORT_WHATSAPP_HREF = 'https://api.whatsapp.com/send?phone=917045999553';
 
 function niceDateTime(value: string | null): string {
   if (!value) return '';
@@ -240,6 +235,7 @@ function Group({ title, hint, rows }: { title: string; hint: string; rows: Cance
  * is not there.
  */
 function ContactTeam() {
+  const { telHref, officeLabel, waHref } = useSupportContacts();
   return (
     <section
       className="mt-8 rounded-xl border border-border bg-white p-4"
@@ -255,7 +251,7 @@ function ContactTeam() {
 
       <div className="mt-4 space-y-2">
         <a
-          href={SUPPORT_PHONE_HREF}
+          href={telHref}
           className="flex items-center gap-3 rounded-lg border border-border p-3 hover:bg-muted/50 transition-colors"
           data-testid="link-call-support"
         >
@@ -265,13 +261,13 @@ function ContactTeam() {
           <span className="min-w-0">
             <span className="block text-sm font-medium text-foreground">Call support</span>
             <span className="block text-xs text-muted-foreground tabular-nums mt-0.5">
-              {SUPPORT_PHONE_LABEL} · Mon–Sat, 9 AM – 7 PM
+              {officeLabel} · Mon–Sat, 9 AM – 7 PM
             </span>
           </span>
         </a>
 
         <a
-          href={SUPPORT_WHATSAPP_HREF}
+          href={waHref}
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center gap-3 rounded-lg border border-border p-3 hover:bg-muted/50 transition-colors"

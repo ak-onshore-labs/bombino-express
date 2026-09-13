@@ -110,6 +110,101 @@ export async function getGuestProfile(guestRef: string): Promise<GuestProfileRow
   return (data as unknown as GuestProfileRow | null) ?? null;
 }
 
+const OPS_GUEST_LIST_LIMIT = 200;
+const OPS_GUEST_LIST_COLUMNS =
+  "guest_ref, full_name, phone, email, account_type, created_at";
+
+export type OpsGuestAccountTypeFilter = "personal" | "company" | "unset";
+
+export type ListGuestsForOpsInput = {
+  q?: string;
+  account_type?: OpsGuestAccountTypeFilter;
+  limit?: number;
+};
+
+export type OpsGuestListRow = {
+  guest_ref: string;
+  full_name: string | null;
+  phone: string;
+  email: string | null;
+  /** Null until they choose — do not coerce to personal. */
+  account_type: "personal" | "company" | null;
+  created_at: string;
+};
+
+/** Strip PostgREST `.or()` metacharacters so a typed name cannot break the filter. */
+function sanitizeGuestSearch(raw: string): string {
+  return raw.trim().slice(0, 80).replace(/[,()"\\]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function escapeIlikePattern(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+}
+
+function mapOpsGuestListRow(row: Record<string, unknown>): OpsGuestListRow | null {
+  const guestRef = typeof row.guest_ref === "string" ? row.guest_ref : "";
+  if (!guestRef) return null;
+  const accountType = row.account_type;
+  return {
+    guest_ref: guestRef,
+    full_name: typeof row.full_name === "string" ? row.full_name : null,
+    phone: typeof row.phone === "string" ? row.phone : "",
+    email: typeof row.email === "string" ? row.email : null,
+    account_type:
+      accountType === "personal" || accountType === "company" ? accountType : null,
+    created_at: String(row.created_at ?? ""),
+  };
+}
+
+/**
+ * Ops guest directory. PostgREST — no RPC. Newest 200 matching search + type.
+ * Does not dedupe by phone: one number can have several refs.
+ */
+export async function listGuestsForOps(
+  input: ListGuestsForOpsInput = {}
+): Promise<OpsGuestListRow[] | null> {
+  const client = getClient();
+  if (!client) return null;
+
+  const limit = Math.min(Math.max(input.limit ?? OPS_GUEST_LIST_LIMIT, 1), OPS_GUEST_LIST_LIMIT);
+  const q = typeof input.q === "string" ? sanitizeGuestSearch(input.q) : "";
+  const compact = q.replace(/[\s-]/g, "");
+
+  let query = client
+    .from("guest_profiles")
+    .select(OPS_GUEST_LIST_COLUMNS)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (input.account_type === "personal" || input.account_type === "company") {
+    query = query.eq("account_type", input.account_type);
+  } else if (input.account_type === "unset") {
+    query = query.is("account_type", null);
+  }
+
+  if (q !== "") {
+    if (/^\d{10}$/.test(compact)) {
+      query = query.eq("phone", compact);
+    } else {
+      const pattern = `%${escapeIlikePattern(q)}%`;
+      query = query.or(`full_name.ilike."${pattern}",phone.ilike."${pattern}"`);
+    }
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    logError("listGuestsForOps", error);
+    return null;
+  }
+
+  const rows: OpsGuestListRow[] = [];
+  for (const row of data ?? []) {
+    const mapped = mapOpsGuestListRow(row as Record<string, unknown>);
+    if (mapped) rows.push(mapped);
+  }
+  return rows;
+}
+
 /**
  * Create or update the row for this ref.
  *

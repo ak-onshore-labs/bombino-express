@@ -57,16 +57,34 @@ import {
   listIdentityOpsMetaByUserId,
   type IdentityKind,
 } from "../identityDb.js";
-import { getKycFileByUserId, getKycOpsMetaByUserId, kycExistsForUserIds } from "../kycDb.js";
+import {
+  getGuestProfile,
+  listGuestsForOps,
+} from "../guestProfileDb.js";
+import {
+  getKycFileByUserId,
+  getKycOpsMetaByGuestRef,
+  getKycOpsMetaByUserId,
+  kycExistsForGuestRefs,
+  kycExistsForUserIds,
+} from "../kycDb.js";
 import { notifyOrderTransition } from "../notify.js";
 import { availableActions } from "../orderLifecycle.js";
-import { insertOrderEvent } from "../ordersDb.js";
+import { getUserContactsByIds, insertOrderEvent } from "../ordersDb.js";
+import {
+  SETTINGS,
+  isSettingKey,
+  listAllSettings,
+  setSetting,
+} from "../settingsDb.js";
 import {
   assignPickup,
   countOrdersForOpsCustomers,
+  countOrdersForOpsGuests,
   getOrderByIdForOps,
   listAllOrdersForOps,
   listOpsOrdersByCustomer,
+  listOpsOrdersByGuestRef,
   listOpsOrdersForExport,
   listOpsPayments,
   listOrderEventsForOps,
@@ -179,7 +197,13 @@ const customersListQuerySchema = z.object({
   kyc: z.enum(["on_file", "none"]).optional(),
 });
 
+const guestsListQuerySchema = z.object({
+  q: z.string().max(80).optional(),
+  account_type: z.enum(["personal", "company", "unset"]).optional(),
+});
+
 const customerIdSchema = z.string().uuid();
+const guestRefSchema = z.string().uuid();
 
 const identityKindSchema = z.enum(["aadhaar", "pan", "gstin"]);
 
@@ -653,6 +677,134 @@ export function registerOpsRoutes(app: Express): void {
       }
 
       const orders = await listOpsOrdersByCustomer(customer.id);
+      if (orders === null) {
+        res.status(502).json({ message: "Could not load orders" });
+        return;
+      }
+
+      res.json({ orders });
+    }
+  );
+
+  // GET /api/ops/guests — guest directory (meta + KYC-on-file, no numbers)
+  app.get(
+    "/api/ops/guests",
+    requireUser,
+    requireRole("admin", "super_admin"),
+    async (req: Request, res: Response) => {
+      const parsed = guestsListQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        res.status(400).json({
+          message: parsed.error.issues[0]?.message ?? "Invalid query",
+        });
+        return;
+      }
+
+      const rows = await listGuestsForOps({
+        q: parsed.data.q,
+        account_type: parsed.data.account_type,
+      });
+      if (rows === null) {
+        res.status(502).json({ message: "Could not load guests" });
+        return;
+      }
+
+      const pageRefs = rows.map((row) => row.guest_ref);
+      const [shipmentByRef, orderCounts] = await Promise.all([
+        kycExistsForGuestRefs(pageRefs),
+        countOrdersForOpsGuests(pageRefs),
+      ]);
+      if (shipmentByRef === null || orderCounts === null) {
+        res.status(502).json({ message: "Could not load guests" });
+        return;
+      }
+
+      res.json({
+        guests: rows.map((row) => {
+          const kyc_on_file = shipmentByRef.has(row.guest_ref);
+          return {
+            guest_ref: row.guest_ref,
+            full_name: row.full_name,
+            phone: row.phone,
+            email: row.email,
+            account_type: row.account_type,
+            created_at: row.created_at,
+            kyc_on_file,
+            order_count: orderCounts.get(row.guest_ref) ?? 0,
+          };
+        }),
+      });
+    }
+  );
+
+  // GET /api/ops/guests/:ref — one guest + KYC meta (no numbers / bytes)
+  app.get(
+    "/api/ops/guests/:ref",
+    requireUser,
+    requireRole("admin", "super_admin"),
+    async (req: Request, res: Response) => {
+      const parsedRef = guestRefSchema.safeParse(req.params.ref);
+      if (!parsedRef.success) {
+        res.status(404).json({ message: "Guest not found" });
+        return;
+      }
+
+      const guest = await getGuestProfile(parsedRef.data);
+      if (!guest) {
+        res.status(404).json({ message: "Guest not found" });
+        return;
+      }
+
+      const shipmentKyc = await getKycOpsMetaByGuestRef(guest.guest_ref);
+
+      res.json({
+        guest: {
+          guest_ref: guest.guest_ref,
+          full_name: guest.full_name,
+          phone: guest.phone,
+          email: guest.email,
+          account_type: guest.account_type,
+          company_category: guest.company_category,
+          company_name: guest.company_name,
+          gstin: guest.account_type === "company" ? guest.gstin : null,
+          gstin_verified_name:
+            guest.account_type === "company" ? guest.gstin_verified_name : null,
+          contact_person: guest.contact_person,
+          address_line_1: guest.address_line_1,
+          pincode: guest.pincode,
+          city: guest.city,
+          state: guest.state,
+          hub_id: guest.hub_id,
+          extras: guest.extras,
+          created_at: guest.created_at,
+        },
+        kyc: {
+          on_file: shipmentKyc !== null,
+          shipment_kyc: shipmentKyc,
+        },
+      });
+    }
+  );
+
+  // GET /api/ops/guests/:ref/orders — this guest's unclaimed bookings
+  app.get(
+    "/api/ops/guests/:ref/orders",
+    requireUser,
+    requireRole("admin", "super_admin"),
+    async (req: Request, res: Response) => {
+      const parsedRef = guestRefSchema.safeParse(req.params.ref);
+      if (!parsedRef.success) {
+        res.status(404).json({ message: "Guest not found" });
+        return;
+      }
+
+      const guest = await getGuestProfile(parsedRef.data);
+      if (!guest) {
+        res.status(404).json({ message: "Guest not found" });
+        return;
+      }
+
+      const orders = await listOpsOrdersByGuestRef(guest.guest_ref);
       if (orders === null) {
         res.status(502).json({ message: "Could not load orders" });
         return;
@@ -1289,6 +1441,99 @@ export function registerOpsRoutes(app: Express): void {
         phone: created.phone,
         full_name: created.full_name,
         role: created.role,
+      });
+    }
+  );
+
+  const opsSettingsGate = [
+    requireUser,
+    ensureDbUser,
+    requireRole("super_admin"),
+  ] as const;
+
+  // GET /api/ops/settings — every registry key + last-write audit. Super_admin.
+  app.get(
+    "/api/ops/settings",
+    ...opsSettingsGate,
+    async (_req: Request, res: Response) => {
+      const rows = await listAllSettings();
+      const actorIds = rows
+        .map((row) => row.updated_by)
+        .filter((id): id is string => Boolean(id));
+      const contacts = await getUserContactsByIds(actorIds);
+
+      res.json({
+        settings: rows.map((row) => ({
+          key: row.key,
+          value: row.value,
+          updated_at: row.updated_at,
+          updated_by: row.updated_by,
+          updated_by_name: row.updated_by
+            ? (contacts.get(row.updated_by)?.full_name ?? null)
+            : null,
+        })),
+      });
+    }
+  );
+
+  const patchSettingSchema = z.object({
+    key: z.string().min(1),
+    value: z.unknown(),
+  });
+
+  // PATCH /api/ops/settings — one key. Super_admin. updated_by = dbUserId.
+  app.patch(
+    "/api/ops/settings",
+    ...opsSettingsGate,
+    async (req: Request, res: Response) => {
+      const parsed = patchSettingSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          message: parsed.error.issues[0]?.message ?? "Invalid request",
+        });
+        return;
+      }
+
+      const { key, value } = parsed.data;
+      if (!isSettingKey(key)) {
+        res.status(400).json({ message: "Unknown setting." });
+        return;
+      }
+
+      const valueParsed = SETTINGS[key].schema.safeParse(value);
+      if (!valueParsed.success) {
+        res.status(400).json({
+          message: valueParsed.error.issues[0]?.message ?? "Invalid value",
+        });
+        return;
+      }
+
+      const actorId = req.session.dbUserId;
+      if (!actorId) {
+        res.status(401).json({ message: "Login required" });
+        return;
+      }
+
+      const updated = await setSetting(key, valueParsed.data, actorId);
+      if (!updated) {
+        res.status(502).json({ message: "Could not save setting" });
+        return;
+      }
+
+      const contacts = await getUserContactsByIds(
+        updated.updated_by ? [updated.updated_by] : []
+      );
+
+      res.json({
+        setting: {
+          key: updated.key,
+          value: updated.value,
+          updated_at: updated.updated_at,
+          updated_by: updated.updated_by,
+          updated_by_name: updated.updated_by
+            ? (contacts.get(updated.updated_by)?.full_name ?? null)
+            : null,
+        },
       });
     }
   );

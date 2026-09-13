@@ -45,6 +45,7 @@ import { BottomNav } from '@/components/BottomNav';
 import { KycUpload } from '@/components/KycUpload';
 import { KycOnFileCard } from '@/components/KycOnFileCard';
 import { useKycOnFile } from '@/hooks/useKycOnFile';
+import { useSupportContacts } from '@/hooks/useSupportContacts';
 import { AccountDocuments } from '@/components/AccountDocuments';
 import {
   publishVerificationState,
@@ -65,6 +66,7 @@ export default function Profile() {
   const [, setLocation] = useLocation();
   const { isLoggedIn, user, login } = useAppStore();
   const { toast } = useToast();
+  const { waHref, telHref, officeLabel } = useSupportContacts();
   const [profile, setProfile] = useState<any>(null);
   const [signOutOpen, setSignOutOpen] = useState(false);
   const [unlinkOpen, setUnlinkOpen] = useState(false);
@@ -442,7 +444,7 @@ export default function Profile() {
                 <p className="text-xs text-muted-foreground">
                   Would rather hand these over in person?{' '}
                   <a
-                    href="https://api.whatsapp.com/send?phone=917045999553"
+                    href={waHref}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="font-semibold text-primary underline underline-offset-2"
@@ -481,7 +483,7 @@ export default function Profile() {
             {/* Support card */}
             <div className="bg-white rounded-2xl border border-border divide-y divide-[#E2E8F0] shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
               <a
-                href="https://api.whatsapp.com/send?phone=917045999553"
+                href={waHref}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-3 p-4 hover:bg-background transition-colors rounded-t-2xl"
@@ -496,7 +498,7 @@ export default function Profile() {
                 </div>
               </a>
               <a
-                href="tel:+912266400000"
+                href={telHref}
                 className="flex items-center gap-3 p-4 hover:bg-background transition-colors rounded-b-2xl"
                 data-testid="link-profile-call"
               >
@@ -505,7 +507,7 @@ export default function Profile() {
                 </div>
                 <div className="flex-1">
                   <p className="font-medium text-sm text-foreground">Call Support</p>
-                  <p className="text-xs text-muted-foreground">+91 22 6640 0000</p>
+                  <p className="text-xs text-muted-foreground">{officeLabel}</p>
                 </div>
               </a>
             </div>

@@ -24,6 +24,7 @@ import { docketItem, type OrderConsignee } from '@/lib/orderDetail';
 import { HandoverOtpSheet, type HandoverOtpKind } from '@/components/agent/HandoverOtpSheet';
 import { useAvailablePickups, useMyPickups, useOrderAction } from '@/hooks/useAgentPickups';
 import type { AgentPickup } from '@/hooks/useAgentPickups';
+import { useSupportContacts } from '@/hooks/useSupportContacts';
 
 /**
  * One job, as a single white sheet under a navy bar carrying its number.
@@ -49,9 +50,6 @@ import type { AgentPickup } from '@/hooks/useAgentPickups';
  * than letting the redirect swallow it. Everything else that vanishes (a
  * cancellation, a job taken back) still redirects.
  */
-
-/** The office, for the `Problem` button. No endpoint behind it, by design. */
-const OFFICE_PHONE = '+912266400000';
 
 /**
  * The two actions that need a code, and which handover each one checks.
@@ -89,6 +87,7 @@ export default function PickupDetail() {
   const mine = useMyPickups();
   const available = useAvailablePickups();
   const action = useOrderAction();
+  const { telHref } = useSupportContacts();
   const today = todayInIst();
 
   const entry =
@@ -256,7 +255,7 @@ export default function PickupDetail() {
                   onAction={handleAction}
                   trailing={
                     <a
-                      href={`tel:${OFFICE_PHONE}`}
+                      href={telHref}
                       className="w-full h-full flex items-center justify-center border border-[#CBD5E1]! bg-white text-[19px] font-semibold text-[#1B2A41]"
                       data-testid="button-problem"
                     >

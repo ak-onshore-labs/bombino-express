@@ -69,6 +69,7 @@ import {
   orderDetailKey,
   useCustomerOrderDetail,
 } from '@/hooks/useCustomerOrders';
+import { useSupportContacts } from '@/hooks/useSupportContacts';
 
 const BRAND_NAVY = 'lab(34.0831 -9.57756 -27.7093)';
 
@@ -263,6 +264,7 @@ export default function OrderDetails() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { telHref } = useSupportContacts();
   const [copied, setCopied] = useState(false);
 
   const orderNo = params?.orderNo ? decodeURIComponent(params.orderNo) : '';
@@ -936,7 +938,7 @@ export default function OrderDetails() {
                   'Our team could not cancel this order. It is still going ahead as booked.'}
               </p>
               <a
-                href="tel:+912266400000"
+                href={telHref}
                 className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-red-900 underline underline-offset-2"
               >
                 <Phone className="w-3 h-3" />

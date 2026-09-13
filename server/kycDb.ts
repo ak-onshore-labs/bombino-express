@@ -272,6 +272,33 @@ export async function kycExistsForUserIds(userIds: string[]): Promise<Set<string
   return found;
 }
 
+/**
+ * Ops guest directory — existence only. Selects `guest_ref` and never reads
+ * encrypted columns (document_no / file_data) or capability_id.
+ */
+export async function kycExistsForGuestRefs(guestRefs: string[]): Promise<Set<string> | null> {
+  const found = new Set<string>();
+  if (guestRefs.length === 0) return found;
+
+  const client = getClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("kyc_documents")
+    .select("guest_ref")
+    .in("guest_ref", guestRefs);
+
+  if (error) {
+    logError("kycExistsForGuestRefs", error);
+    return null;
+  }
+
+  for (const row of data ?? []) {
+    if (typeof row.guest_ref === "string") found.add(row.guest_ref);
+  }
+  return found;
+}
+
 export type KycOpsMeta = {
   document_type: string;
   ocr_status: string | null;
@@ -283,6 +310,25 @@ export type KycOpsMeta = {
 
 const OPS_KYC_COLUMNS =
   "document_type, ocr_status, original_filename, mime_type, file_size_bytes, updated_at";
+
+function mapKycOpsMeta(data: {
+  document_type?: unknown;
+  ocr_status?: unknown;
+  original_filename?: unknown;
+  mime_type?: unknown;
+  file_size_bytes?: unknown;
+  updated_at?: unknown;
+}): KycOpsMeta {
+  return {
+    document_type: String(data.document_type ?? ""),
+    ocr_status: typeof data.ocr_status === "string" ? data.ocr_status : null,
+    original_filename: String(data.original_filename ?? ""),
+    mime_type: String(data.mime_type ?? ""),
+    file_size_bytes:
+      typeof data.file_size_bytes === "number" ? data.file_size_bytes : 0,
+    updated_at: String(data.updated_at ?? ""),
+  };
+}
 
 /** Shipment KYC meta for ops. No document_no, file_data, or capability_id. */
 export async function getKycOpsMetaByUserId(userId: string): Promise<KycOpsMeta | null> {
@@ -301,13 +347,25 @@ export async function getKycOpsMetaByUserId(userId: string): Promise<KycOpsMeta 
   }
   if (!data) return null;
 
-  return {
-    document_type: String(data.document_type ?? ""),
-    ocr_status: typeof data.ocr_status === "string" ? data.ocr_status : null,
-    original_filename: String(data.original_filename ?? ""),
-    mime_type: String(data.mime_type ?? ""),
-    file_size_bytes:
-      typeof data.file_size_bytes === "number" ? data.file_size_bytes : 0,
-    updated_at: String(data.updated_at ?? ""),
-  };
+  return mapKycOpsMeta(data);
+}
+
+/** Shipment KYC meta for a guest. Same columns as getKycOpsMetaByUserId. */
+export async function getKycOpsMetaByGuestRef(guestRef: string): Promise<KycOpsMeta | null> {
+  const client = getClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("kyc_documents")
+    .select(OPS_KYC_COLUMNS)
+    .eq("guest_ref", guestRef)
+    .maybeSingle();
+
+  if (error) {
+    logError("getKycOpsMetaByGuestRef", error);
+    return null;
+  }
+  if (!data) return null;
+
+  return mapKycOpsMeta(data);
 }

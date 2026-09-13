@@ -16,6 +16,7 @@ import { COUNTRY_LIST, COUNTRY_MAP, isBookableCorridor } from '@/lib/countryData
 import { lbToKg, kgToLb } from '@/lib/mockData';
 import { apiRequest } from '@/lib/queryClient';
 import { cn } from '@/lib/utils';
+import { useSupportContacts } from '@/hooks/useSupportContacts';
 
 interface RateParams {
   product_code: string;
@@ -189,6 +190,7 @@ function CountryCombobox({ value, onValueChange }: CountryComboboxProps) {
 export default function Rates() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [, setLocation] = useLocation();
+  const { waHref, telHref } = useSupportContacts();
 
   const [weightUnit, setWeightUnit] = useState<'lb' | 'kg'>('kg');
   const [weight, setWeight] = useState('2');
@@ -362,7 +364,7 @@ export default function Rates() {
                     </p>
                     <div className="flex gap-2 mt-3">
                       <a
-                        href="https://api.whatsapp.com/send?phone=917045999553"
+                        href={waHref}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex-1 flex items-center justify-center gap-2 h-10 rounded-lg bg-green-600 text-white text-xs font-medium hover:bg-green-700 active:scale-[0.98] transition-colors"
@@ -371,7 +373,7 @@ export default function Rates() {
                         WhatsApp
                       </a>
                       <a
-                        href="tel:+912266400000"
+                        href={telHref}
                         className="flex-1 flex items-center justify-center gap-2 h-10 rounded-lg border border-amber-300 bg-white text-amber-950 text-xs font-medium hover:bg-amber-100/80 active:scale-[0.98] transition-colors"
                       >
                         <Phone className="w-4 h-4" aria-hidden />

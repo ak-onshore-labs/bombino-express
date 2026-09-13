@@ -10,6 +10,7 @@ import { StaggerItem } from '@/components/motion/Stagger';
 import { useCollections } from '@/hooks/useAgentPickups';
 import { useAppStore } from '@/lib/store';
 import { formatCutoffHour } from '@shared/pickupPincodes';
+import { useSupportContacts } from '@/hooks/useSupportContacts';
 
 /**
  * Who the agent is, what they are carrying, and the way out.
@@ -240,6 +241,7 @@ export default function Profile() {
   const { user } = useAppStore();
   const logout = useLogout();
   const { data: collections } = useCollections();
+  const { telHref, waHref, officeLabel, whatsappLabel } = useSupportContacts();
 
   const [profile, setProfile] = useState<AgentProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -459,22 +461,22 @@ export default function Profile() {
               <BandHeader label="If something is wrong" testId="band-help" />
               <JobCard>
                 <a
-                  href="tel:+912266400000"
+                  href={telHref}
                   className="flex items-center justify-between gap-4 h-[64px] px-4 border-b border-[#E8EDF2]!"
                   data-testid="link-profile-call-office"
                 >
                   <span className="text-[17px] font-semibold text-[#1B2A41]">Call the office</span>
-                  <span className="text-[15px] font-medium text-[#64748B]">022 6640 0000</span>
+                  <span className="text-[15px] font-medium text-[#64748B]">{officeLabel}</span>
                 </a>
                 <a
-                  href="https://api.whatsapp.com/send?phone=917045999553"
+                  href={waHref}
                   target="_blank"
                   rel="noreferrer"
                   className="flex items-center justify-between gap-4 h-[64px] px-4"
                   data-testid="link-profile-whatsapp"
                 >
                   <span className="text-[17px] font-semibold text-[#1B2A41]">WhatsApp support</span>
-                  <span className="text-[15px] font-medium text-[#64748B]">+91 70459 99553</span>
+                  <span className="text-[15px] font-medium text-[#64748B]">{whatsappLabel}</span>
                 </a>
               </JobCard>
             </section>

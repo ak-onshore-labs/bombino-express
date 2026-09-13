@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import { parseAssistantMessage } from "@/lib/supportMessage";
 import { useAppStore } from "@/lib/store";
+import { useSupportContacts } from "@/hooks/useSupportContacts";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -44,6 +45,7 @@ export default function Support() {
   const [, setLocation] = useLocation();
   const isLoggedIn = useAppStore((s) => s.isLoggedIn);
   const logout = useAppStore((s) => s.logout);
+  const { waHref, telHref } = useSupportContacts();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [input, setInput] = useState("");
@@ -403,7 +405,7 @@ export default function Support() {
                       {parsed.cta === "contact_us" && (
                         <div className="flex gap-2">
                           <a
-                            href="https://api.whatsapp.com/send?phone=917045999553"
+                            href={waHref}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex-1 flex items-center justify-center gap-2 rounded-xl py-2 px-3 text-sm font-medium text-white"
@@ -412,7 +414,7 @@ export default function Support() {
                             WhatsApp Us
                           </a>
                           <a
-                            href="tel:+912266400000"
+                            href={telHref}
                             className="flex-1 flex items-center justify-center gap-2 rounded-xl py-2 px-3 text-sm font-medium border border-amber-400/40 text-amber-100/90 bg-amber-500/10"
                           >
                             <Phone className="w-3.5 h-3.5 shrink-0" aria-hidden />

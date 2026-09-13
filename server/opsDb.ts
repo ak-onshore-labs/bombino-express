@@ -343,6 +343,28 @@ export async function listOpsOrdersByCustomer(
   return withBoardNames((data ?? []).map((row) => mapBoardRow(row as Record<string, unknown>)));
 }
 
+/** Unclaimed guest orders — guest_ref match and user_id still null. */
+export async function listOpsOrdersByGuestRef(
+  guestRef: string
+): Promise<OpsBoardOrder[] | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("orders")
+    .select(BOARD_COLUMNS)
+    .eq("guest_ref", guestRef)
+    .is("user_id", null)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    logSupabaseError("listOpsOrdersByGuestRef", error);
+    return null;
+  }
+
+  return withBoardNames((data ?? []).map((row) => mapBoardRow(row as Record<string, unknown>)));
+}
+
 /** Grouped order counts for a page of registered customer ids. */
 export async function countOrdersForOpsCustomers(
   userIds: string[]
@@ -368,6 +390,35 @@ export async function countOrdersForOpsCustomers(
     if (typeof rec.user_id !== "string") continue;
     const n = typeof rec.order_count === "number" ? rec.order_count : Number(rec.order_count);
     if (Number.isFinite(n)) counts.set(rec.user_id, n);
+  }
+  return counts;
+}
+
+/** Unclaimed order counts for a page of guest refs. Grouped in JS — no RPC. */
+export async function countOrdersForOpsGuests(
+  guestRefs: string[]
+): Promise<Map<string, number> | null> {
+  const counts = new Map<string, number>();
+  if (guestRefs.length === 0) return counts;
+
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("orders")
+    .select("guest_ref")
+    .in("guest_ref", guestRefs)
+    .is("user_id", null);
+
+  if (error) {
+    logSupabaseError("countOrdersForOpsGuests", error);
+    return null;
+  }
+
+  for (const row of data ?? []) {
+    const ref = (row as { guest_ref?: unknown }).guest_ref;
+    if (typeof ref !== "string") continue;
+    counts.set(ref, (counts.get(ref) ?? 0) + 1);
   }
   return counts;
 }

@@ -13,6 +13,7 @@ import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 import { type DisplayRow } from '@/lib/shipmentRows';
 import { useNotifications, useOrderHistory } from '@/hooks/useCustomerOrders';
 import { useGuestProfile } from '@/hooks/useGuestProfile';
+import { useSupportContacts } from '@/hooks/useSupportContacts';
 import { GuestOrders } from '@/components/GuestOrders';
 import HomeDesktop from '@/pages/HomeDesktop';
 
@@ -99,6 +100,7 @@ function HomeMobile() {
   const [trackingNumber, setTrackingNumber] = useState('');
   const [, setLocation] = useLocation();
   const { isLoggedIn, user } = useAppStore();
+  const { waHref, telHref } = useSupportContacts();
   // Home is where someone looks for "where is my parcel", so a guest's orders
   // belong here as well as on /orders, rather than only behind the profile link.
   const { data: guestProfile } = useGuestProfile({ enabled: !isLoggedIn });
@@ -260,7 +262,7 @@ function HomeMobile() {
             {/* Support Pills - refined */}
             <div className="flex gap-3" data-testid="zone-support">
               <a
-                href="https://api.whatsapp.com/send?phone=917045999553"
+                href={waHref}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex-1 flex items-center justify-center gap-2 h-11 rounded-xl bg-white border border-border text-green-700 text-sm font-medium shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:border-green-200 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] active:scale-[0.98] transition-all"
@@ -270,7 +272,7 @@ function HomeMobile() {
                 WhatsApp
               </a>
               <a
-                href="tel:+912266400000"
+                href={telHref}
                 className="flex-1 flex items-center justify-center gap-2 h-11 rounded-xl bg-white border border-border text-foreground text-sm font-medium shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:border-primary/20 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] active:scale-[0.98] transition-all"
                 data-testid="button-call-home"
               >

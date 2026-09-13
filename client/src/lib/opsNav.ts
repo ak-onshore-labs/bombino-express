@@ -11,7 +11,9 @@ import {
   LayoutDashboard,
   Package,
   Send,
+  Settings,
   Truck,
+  UserRound,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -26,6 +28,8 @@ export type OpsNavItem = {
   mobile: boolean;
   /** In the mobile More sheet — not on the bar. */
   mobileMore: boolean;
+  /** Hidden unless the session role is super_admin. Cosmetic — the API is the lock. */
+  superAdminOnly?: boolean;
 };
 
 export const OPS_NAV: readonly OpsNavItem[] = [
@@ -79,6 +83,14 @@ export const OPS_NAV: readonly OpsNavItem[] = [
     mobileMore: false,
   },
   {
+    label: 'Guests',
+    mobileLabel: 'Guests',
+    path: '/ops/guests',
+    icon: UserRound,
+    mobile: false,
+    mobileMore: false,
+  },
+  {
     label: 'Users',
     mobileLabel: 'Users',
     path: '/ops/users',
@@ -96,6 +108,15 @@ export const OPS_NAV: readonly OpsNavItem[] = [
     mobile: false,
     mobileMore: true,
   },
+  {
+    label: 'Settings',
+    mobileLabel: 'Settings',
+    path: '/ops/settings',
+    icon: Settings,
+    mobile: false,
+    mobileMore: true,
+    superAdminOnly: true,
+  },
 ];
 
 /** Prefix match, but `/ops/orders/:id` does not light any section tab. */
@@ -108,4 +129,11 @@ export function isOpsMoreActive(location: string): boolean {
   return OPS_NAV.some(
     (item) => item.mobileMore && isOpsNavActive(location, item.path),
   );
+}
+
+export function isOpsNavVisible(
+  item: OpsNavItem,
+  role: string | undefined,
+): boolean {
+  return !item.superAdminOnly || role === 'super_admin';
 }

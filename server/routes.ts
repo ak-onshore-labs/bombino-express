@@ -95,6 +95,7 @@ import { getLatestGuestRefForPhone, upsertGuestProfile } from "./guestProfileDb.
 import { registerWhatsappRoutes } from "./routes/whatsapp.js";
 import { registerWhatsappScheduleRoutes } from "./routes/whatsappSchedule.js";
 import { registerOpsRoutes } from "./routes/ops.js";
+import { listPublicSettings } from "./settingsDb.js";
 import {
   handleGenerateDocket,
   handleMarkDispatched,
@@ -292,6 +293,17 @@ export async function registerRoutes(
   // users. Admin/super_admin gated inside the module; writes go through the
   // uniform action endpoint below.
   registerOpsRoutes(app);
+
+  // GET /api/settings — public bag. No session.
+  //
+  // Home support pills render for signed-out visitors, so this cannot sit
+  // behind requireUser or even requireUserOrGuest. The handler asks
+  // listPublicSettings(), which iterates the registry's visibility:'public'
+  // keys only — it never selects the whole table. S2 flags cannot appear here.
+  app.get("/api/settings", async (_req: Request, res: Response) => {
+    const settings = await listPublicSettings();
+    res.json(settings);
+  });
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 

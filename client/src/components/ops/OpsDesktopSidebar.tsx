@@ -4,7 +4,7 @@ import { Link, useLocation } from 'wouter';
 import bombinoLogo from '@/assets/bombino-logo.png';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
-import { OPS_NAV, isOpsNavActive } from '@/lib/opsNav';
+import { OPS_NAV, isOpsNavActive, isOpsNavVisible } from '@/lib/opsNav';
 
 function NavItem({
   icon: Icon,
@@ -121,7 +121,8 @@ export function OpsDesktopSidebar() {
         <p className="px-5 mb-2 mt-1 text-[10px] font-semibold tracking-widest text-white/25 uppercase">
           Operations
         </p>
-        {OPS_NAV.map(({ label, icon, path }) => (
+        {OPS_NAV.filter((item) => isOpsNavVisible(item, user?.role)).map(
+          ({ label, icon, path }) => (
           <NavItem
             key={path}
             icon={icon}
