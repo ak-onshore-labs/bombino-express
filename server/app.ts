@@ -332,8 +332,15 @@ export async function createApp(): Promise<{ app: Express; httpServer: Server }>
 
   const sessionStore = await buildSessionStore();
 
+  // Sessions on the API only. Every route that reads one is under /api; the
+  // page shell, Vite's module requests in dev and static files in production
+  // don't. Mounted on "/", a signed-in browser's first dev load paid a store
+  // read and a rolling write for each of ~250 modules, queued through a
+  // two-connection pool: half a minute of blank page after every restart. The
+  // cookie's path is still "/", so nothing about signing in changes.
   if (sessionStore) {
     app.use(
+      "/api",
       session({
         store: sessionStore,
         secret: process.env.SESSION_SECRET ?? "dev-secret",
@@ -353,7 +360,7 @@ export async function createApp(): Promise<{ app: Express; httpServer: Server }>
     // on the next request to a different container, which looks like a bug in
     // the login page rather than a missing service. The cookie always works.
     console.log("[session] no server store available — using signed cookies");
-    app.use(cookieBackedSession());
+    app.use("/api", cookieBackedSession());
   }
 
   // Before anything can serve a request. Identity documents cannot be written

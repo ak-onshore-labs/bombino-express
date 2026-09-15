@@ -13,6 +13,9 @@ export async function setupVite(server: Server, app: Express) {
     middlewareMode: true,
     hmr: { server, path: "/vite-hmr" },
     allowedHosts: true as const,
+    // The only piece of vite.config.ts's `server` block kept: start compiling
+    // the client at boot so the first page load isn't a 30-second blank.
+    warmup: viteConfig.server?.warmup,
   };
 
   const vite = await createViteServer({
