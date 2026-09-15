@@ -159,6 +159,7 @@ import {
 } from "../shared/kyc.js";
 import {
   bypassedOcr,
+  isOcrBypassed,
   ocrTypeForDocSlot,
   ACCOUNT_SLOT_FOR_KYC_TYPE,
   ocrTypeForKycDocumentType,
@@ -933,7 +934,10 @@ export async function registerRoutes(
       typeof req.body?.aadhaar_number === "string"
         ? req.body.aadhaar_number.replace(/\s/g, "")
         : "";
-    if (!isValidAadhaarNumber(aadhaar)) {
+    // TEMPORARY: with OCR_BYPASS=1 (no document checks until Cashfree production
+    // credentials are in) only the 12 digits are required; the 0/1 prefix and
+    // Verhoeff rules come back when the flag goes. See shared/aadhaar.ts.
+    if (!isValidAadhaarNumber(aadhaar, { checkDigits: !isOcrBypassed() })) {
       res.status(400).json({ message: "Enter a valid 12-digit Aadhaar number", code: "AADHAAR_INVALID" });
       return;
     }
@@ -1399,6 +1403,13 @@ export async function registerRoutes(
     const rows = await listDocumentsBySignupRef(signupRef);
     res.set("Cache-Control", "no-store");
     res.json({
+      // TEMPORARY: false while OCR_BYPASS=1, so the form asks only for 12 digits
+      // (shared/aadhaar.ts §validateAadhaar), matching the server.
+      aadhaar_check_digits: !isOcrBypassed(),
+      // TEMPORARY: false while IDENTITY_BYPASS=gstin. With no portal lookup to
+      // run, the form saves the GST number by itself instead of asking for a
+      // "Verify" click, and the certificate uploads straight away.
+      gstin_lookup: !isIdentityBypassed("gstin"),
       documents: rows.map((row) => ({
         doc_slot: row.doc_slot,
         capability_id: row.capability_id,
@@ -2131,6 +2142,8 @@ export async function registerRoutes(
       const rows = await listDocumentsByUserId(req.session.dbUserId);
       res.set("Cache-Control", "no-store");
       res.json({
+        // TEMPORARY: see GET /api/signup/documents.
+        aadhaar_check_digits: !isOcrBypassed(),
         documents: rows.map((row) => ({
           doc_slot: row.doc_slot,
           capability_id: row.capability_id,

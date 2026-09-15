@@ -221,6 +221,13 @@ export function AccountDocuments({
   const fileInputs = useRef<Record<string, HTMLInputElement | null>>({});
   /** A file chosen before its number was valid; uploaded as soon as it is. */
   const pendingFiles = useRef<Record<string, File | null>>({});
+  /** TEMPORARY: false while the server has document checks off (shared/aadhaar.ts). */
+  const aadhaarCheckDigits = useRef(true);
+  /**
+   * TEMPORARY: false while the server skips the GST portal (IDENTITY_BYPASS).
+   * The GST number is then saved as part of the upload, with no Verify step.
+   */
+  const [gstinLookup, setGstinLookup] = useState(true);
 
   const getSlot = useCallback(
     (slot: DocSlot): SlotState => state[slot] ?? EMPTY_SLOT,
@@ -314,6 +321,8 @@ export function AccountDocuments({
         );
         if (!res.ok) return;
         const body = (await res.json()) as {
+          aadhaar_check_digits?: boolean;
+          gstin_lookup?: boolean;
           documents: Array<{
             doc_slot: string;
             document_no: string | null;
@@ -322,6 +331,8 @@ export function AccountDocuments({
           }>;
         };
         if (cancelled) return;
+        aadhaarCheckDigits.current = body.aadhaar_check_digits !== false;
+        setGstinLookup(body.gstin_lookup !== false);
         setState((prev) => {
           const next = { ...prev };
           for (const doc of body.documents) {
@@ -405,7 +416,7 @@ export function AccountDocuments({
     const field = DOC_SLOT_SPECS[slot].numberField;
     if (!field) return { ok: true };
     if (slot === 'aadhaar_card') {
-      const verdict = validateAadhaar(value);
+      const verdict = validateAadhaar(value, { checkDigits: aadhaarCheckDigits.current });
       return { ok: verdict.valid, message: verdict.message };
     }
     return field.pattern.test(value) ? { ok: true } : { ok: false, message: field.error };
@@ -645,6 +656,21 @@ export function AccountDocuments({
       return;
     }
 
+    // TEMPORARY: with the GST portal lookup off there is nothing to wait for.
+    // Save the GST number from the details step and send the file in one go.
+    if (
+      slot === 'gst_certificate' &&
+      !gstinLookup &&
+      endpoint === 'signup' &&
+      !getSlot(slot).numberRecorded &&
+      gstin.trim().length === 15
+    ) {
+      patchSlot(slot, { status: 'uploading', fileName: file.name, error: '', errorCode: null });
+      const recorded = await recordNumber(slot, gstin.trim().toUpperCase());
+      if (recorded) await performUpload(slot, file, recorded);
+      return;
+    }
+
     if (!isReadyToUpload(slot)) {
       // Held until the number lands. The server would refuse this file now —
       // it judges a document against the recorded number, and there is none.
@@ -776,7 +802,13 @@ export function AccountDocuments({
                   className="h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl font-mono tracking-wider text-muted-foreground"
                   data-testid="doc-number-gst_certificate"
                 />
-                {locked ? (
+                {!gstinLookup && endpoint === 'signup' ? (
+                  // TEMPORARY: no portal lookup, so no Verify step either.
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    {locked ? 'Saved.' : 'Saved with the certificate when you upload it.'} To change the number,
+                    go back a step.
+                  </p>
+                ) : locked ? (
                   <p className="text-[10px] text-muted-foreground mt-1 inline-flex items-center gap-1.5">
                     <CheckCircle2 className="w-3 h-3 text-green-600" />
                     Verified on the GST portal — now upload the certificate.
@@ -869,7 +901,9 @@ export function AccountDocuments({
                     {s.fileName}
                   </p>
                   <p className="text-[10px] text-muted-foreground text-center px-1">
-                    Enter a valid {spec.numberField?.label} to upload
+                    {isGst
+                      ? 'Uploads once the GST number is verified above'
+                      : `Uploads by itself once the ${spec.numberField?.label ?? 'number'} above is filled in`}
                   </p>
                 </>
               )}
