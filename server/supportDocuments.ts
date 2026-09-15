@@ -36,6 +36,14 @@ import {
   type DocSlot,
 } from "../shared/accountSpec.js";
 import type { DocStatusCard } from "../shared/biaCards.js";
+import { isAccountReviewEnabled } from "./accountApplications.js";
+import { getLatestApplicationByPhone, toCustomerView } from "./accountApplicationsDb.js";
+import {
+  APPLICATION_FIELD_LABELS,
+  APPLICATION_STATUS_COPY,
+  isApplicationField,
+  type CustomerApplicationView,
+} from "../shared/applicationStatus.js";
 import {
   DOCUMENT_ISSUE_NAMES,
   explainDocumentIssue,
@@ -51,6 +59,8 @@ export type DocSetShape = AccountChoice | "company";
 export interface SlotRecord {
   doc_slot: string;
   ocr_status: string | null;
+  /** Set when a Bombino reviewer verified it by hand. */
+  ocr_verified_at?: string | null;
 }
 
 export interface NumberRecord {
@@ -116,6 +126,7 @@ function itemFor(slot: DocSlot, row: SlotRecord | undefined): DocItem {
   // Bills, letters and the IEC certificate are on file by being there.
   if (!isVerifiedDocSlot(slot)) return { slot, label, state: "on_file", note: null, fix: null };
   if (row.ocr_status === "match") return { slot, label, state: "on_file", note: "Matches the number given", fix: null };
+  if (row.ocr_verified_at) return { slot, label, state: "on_file", note: "Checked by the Bombino team", fix: null };
   // The same words the upload screen shows for this verdict. A checked
   // document with no verdict at all predates the checks; the screen asks for
   // it again, so this does too.
@@ -217,9 +228,48 @@ export function replaceSignupLoader(loader: SignupLoader | null): void {
   loadSignup = loader ?? loadFromDatabase;
 }
 
+/**
+ * Account review: a finished signup is an application with the Bombino team,
+ * not an account. Where it stands comes first, because it is what "where does
+ * my signup stand?" means once they have pressed the last button.
+ */
+export function describeApplication(app: CustomerApplicationView): string {
+  const copy = APPLICATION_STATUS_COPY[app.status];
+  const lines = [`Their signup is finished and is an application with the Bombino team. Status: ${copy.title}. ${copy.body}`];
+  if (app.status === "changes_requested" && app.requested_changes) {
+    const c = app.requested_changes;
+    const items = [
+      ...c.fields.map((f) => (isApplicationField(f) ? APPLICATION_FIELD_LABELS[f] : f)),
+      ...c.slots.map((s) => `${isDocSlot(s) ? DOC_SLOT_SPECS[s].label : s} (upload again)`),
+    ];
+    if (c.note) lines.push(`The team's note, to quote word for word: "${c.note}"`);
+    if (items.length > 0) lines.push(`What to change: ${items.join(", ")}.`);
+    lines.push("They make the change from My Profile (Make the change), which reopens signup filled in, then send it again.");
+  }
+  if (app.status === "rejected" && app.decision_note) {
+    lines.push(`The team's reason, to quote word for word: "${app.decision_note}". They can still book as a guest, or apply again from My Profile.`);
+  }
+  if (app.status === "approved") {
+    lines.push("They sign in again with their mobile number to use the account; their login details were emailed to them.");
+  }
+  if (app.status === "submitted" || app.status === "in_review") {
+    lines.push("There is no set time. You can't speed it up or approve it; don't promise a date. They can book as a guest meanwhile, and those bookings move into the account.");
+  }
+  if (app.status !== "approved") lines.push("TAP_GUEST_PROFILE");
+  return lines.join("\n");
+}
+
 export async function executeGetSignupProgress(context: SupportChatContext): Promise<ToolOutcome> {
   if (ownerOf(context)?.kind === "account") {
     return { content: "They already have an account. For its documents, call get_document_status." };
+  }
+  if (isAccountReviewEnabled() && context.guestPhone) {
+    try {
+      const app = await getLatestApplicationByPhone(context.guestPhone);
+      if (app) return { content: describeApplication(toCustomerView(app)) };
+    } catch {
+      // Fall through to the documents, which are still worth answering with.
+    }
   }
   const signupRef = context.signupRef ?? null;
   if (!signupRef) {

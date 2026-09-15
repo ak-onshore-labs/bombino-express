@@ -150,7 +150,7 @@ function sanitizeContentFilename(name: string): string {
   return name.replace(/"/g, "");
 }
 
-function sendOpsDocumentFile(
+export function sendOpsDocumentFile(
   res: Response,
   doc: { mime_type: string; file_data: string; original_filename: string }
 ): void {

@@ -15,6 +15,7 @@ import { type DisplayRow } from '@/lib/shipmentRows';
 import { useNotifications, useOrderHistory } from '@/hooks/useCustomerOrders';
 import { useGuestProfile } from '@/hooks/useGuestProfile';
 import { GuestOrders } from '@/components/GuestOrders';
+import { ApplicationStatusCard } from '@/components/ApplicationStatusCard';
 import HomeDesktop from '@/pages/HomeDesktop';
 
 function HomeShipmentsSkeleton() {
@@ -208,6 +209,12 @@ function HomeMobile() {
             Above the sign-in prompt deliberately: what they already have with
             us outranks an invitation to open an account. Capped at three —
             Home is a starting point, and the full list is one tap away. */}
+        {/* Account review: where their account stands, above everything else
+            that is theirs — it is the reason they are still a guest. */}
+        {!isLoggedIn && guestProfile?.application && (
+          <ApplicationStatusCard application={guestProfile.application} phone={guestProfile.phone} compact />
+        )}
+
         {!isLoggedIn && guestProfile && guestProfile.orders.length > 0 && (
           <GuestOrders orders={guestProfile.orders} limit={3} showViewAll />
         )}

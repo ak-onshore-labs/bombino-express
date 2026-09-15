@@ -16,7 +16,9 @@ import { AccountDocuments } from '@/components/AccountDocuments';
 import { ContractSignature } from '@/components/ContractSignature';
 import { AuthShell } from '@/components/auth/AuthShell';
 import { useAppStore, type AuthUser } from '@/lib/store';
-import { useGuestProfile } from '@/hooks/useGuestProfile';
+import { invalidateGuestProfile, useGuestProfile } from '@/hooks/useGuestProfile';
+import { useQueryClient } from '@tanstack/react-query';
+import type { CustomerApplicationView } from '@shared/applicationStatus';
 import { apiRequest } from '@/lib/queryClient';
 import { parseApiErrorCode, parseApiErrorMessage } from '@/lib/apiError';
 import { AskBiaLink } from '@/components/bia/AskBiaLink';
@@ -143,6 +145,28 @@ export default function Signup() {
 
   // Both paths
   const [email, setEmail] = useState('');
+
+  /**
+   * Account review: finishing signup files an application for the Bombino
+   * team rather than opening the account. Asked once, so the last button and
+   * the copy around it say what will actually happen. The server decides
+   * either way — an old answer here only mislabels a button.
+   */
+  const queryClient = useQueryClient();
+  const [reviewEnabled, setReviewEnabled] = useState(false);
+  const [submittedApplication, setSubmittedApplication] = useState<CustomerApplicationView | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/signup/application', { credentials: 'include', cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { enabled?: boolean } | null) => {
+        if (!cancelled && body?.enabled) setReviewEnabled(true);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /**
    * What the guest already told us, carried into the account they are opening.
@@ -511,8 +535,17 @@ export default function Signup() {
               contract_accepted: true,
               contract_signed_name: contractSignedName.trim(),
             });
-      const user = (await res.json()) as AuthUser;
-      login(user);
+      const body = (await res.json()) as
+        | AuthUser
+        | { status: 'application_submitted'; application: CustomerApplicationView };
+      // Account review: no account yet. They are a guest on this number until
+      // the Bombino team opens it, and the profile now carries the application.
+      if ('status' in body && body.status === 'application_submitted') {
+        invalidateGuestProfile(queryClient);
+        setSubmittedApplication(body.application);
+        return;
+      }
+      login(body as AuthUser);
       setLocation(redirect || '/home');
     } catch (err) {
       // The one failure that is not a detail to correct here: the OTP that
@@ -573,7 +606,9 @@ export default function Signup() {
         ? 'Verify & continue'
         : step === 'documents'
           ? 'Continue'
-          : 'Confirm & create account';
+          : reviewEnabled
+            ? 'Confirm & send to Bombino'
+            : 'Confirm & create account';
 
   const stepIndex =
     step === 'account_type'
@@ -604,9 +639,50 @@ export default function Signup() {
       // one is checked with an authority. The rest are matched against the
       // document uploaded beside them. See server/cashfreeIdentity.ts.
       'Enter each number and upload the document that carries it.'
+    ) : reviewEnabled ? (
+      'Check your details and sign the contract. The Bombino team then sets up your account.'
     ) : (
       'Check your details, then sign the contract to open the account.'
     );
+
+  // Account review: sent. They can use the app as a guest straight away.
+  if (submittedApplication) {
+    return (
+      <AuthShell
+        title="Application sent"
+        subtitle="The Bombino team is setting up your account."
+        onBack={() => setLocation('/home')}
+        testId="screen-signup-submitted"
+        headerAction={<AskBiaTopButton className="md:inline-flex" />}
+      >
+        <div className="space-y-4" data-testid="signup-application-submitted">
+          <p className="text-sm leading-relaxed text-foreground">
+            We'll email <span className="font-semibold">{email.trim()}</span> when your account is open, with your
+            login details.
+          </p>
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            In the meantime you can book shipments as a guest with +91 {phone}. They move into your account when
+            it opens.
+          </p>
+          <Button
+            onClick={() => setLocation('/create')}
+            className="h-12 w-full rounded-xl text-base font-semibold"
+            data-testid="button-submitted-book"
+          >
+            Book a shipment
+          </Button>
+          <button
+            type="button"
+            onClick={() => setLocation('/guest-profile')}
+            className="w-full text-center text-sm font-semibold text-[#2F4468] underline underline-offset-4"
+            data-testid="button-submitted-profile"
+          >
+            See my application
+          </button>
+        </div>
+      </AuthShell>
+    );
+  }
 
   const fieldLabelClass = 'text-sm font-medium text-[lab(34.0831_-9.57756_-27.7093)]';
   const fieldClass = 'pl-10 h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl';

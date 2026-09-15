@@ -5,18 +5,23 @@ import bombinoLogo from '@/assets/bombino-logo.png';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
 import { OPS_NAV, isOpsNavActive } from '@/lib/opsNav';
+import { useOpsNavBadges } from '@/hooks/useOpsNavBadges';
 
 function NavItem({
   icon: Icon,
   label,
   path,
   active,
+  badge = 0,
 }: {
   icon: ComponentType<{ className?: string }>;
   label: string;
   path: string;
   active: boolean;
+  /** New since this person last opened the section; hidden at 0. */
+  badge?: number;
 }) {
+  const slug = label.toLowerCase().replace(/\s+/g, '-');
   return (
     <Link
       href={path}
@@ -26,7 +31,7 @@ function NavItem({
           ? 'bg-[#F2A123]/[0.12] text-white'
           : 'text-white/50 hover:bg-white/[0.06] hover:text-white/80'
       )}
-      data-testid={`ops-sidebar-${label.toLowerCase().replace(/\s+/g, '-')}`}
+      data-testid={`ops-sidebar-${slug}`}
     >
       <Icon
         className={cn(
@@ -37,6 +42,15 @@ function NavItem({
       <span className={cn('text-sm leading-none', active ? 'font-semibold' : 'font-medium')}>
         {label}
       </span>
+      {badge > 0 && (
+        <span
+          className="ml-auto min-w-[20px] h-5 px-1.5 rounded-full bg-[#F2A123] text-[11px] font-bold text-[#1B2A41] grid place-items-center tabular-nums"
+          aria-label={`${badge} new`}
+          data-testid={`ops-sidebar-badge-${slug}`}
+        >
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
     </Link>
   );
 }
@@ -55,6 +69,7 @@ function roleLabel(role: string | undefined): string {
 export function OpsDesktopSidebar() {
   const [location, setLocation] = useLocation();
   const { user, logout } = useAppStore();
+  const badges = useOpsNavBadges();
 
   const initials = useMemo(() => {
     if (user?.fullName?.trim()) {
@@ -128,6 +143,7 @@ export function OpsDesktopSidebar() {
             label={label}
             path={path}
             active={isOpsNavActive(location, path)}
+            badge={badges[path]}
           />
         ))}
       </nav>

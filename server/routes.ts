@@ -80,12 +80,16 @@ import { registerPaymentRoutes } from "./routes/payments.js";
 import { registerGuestProfileRoutes } from "./routes/guestProfile.js";
 import { registerSupportRoutes } from "./routes/support.js";
 import { seedSignupDocumentFromGuestKyc } from "./guestKycMirror.js";
+import { mirrorAadhaarToKyc } from "./kycMirror.js";
 import { deleteGuestProfilesFor } from "./guestProfileDb.js";
 import { getLatestGuestRefForPhone, upsertGuestProfile } from "./guestProfileDb.js";
 import { registerWhatsappRoutes } from "./routes/whatsapp.js";
 import { registerWhatsappScheduleRoutes } from "./routes/whatsappSchedule.js";
 import { registerOpsRoutes } from "./routes/ops.js";
 import { registerBiaRoutes } from "./routes/bia.js";
+import { registerAccountApplicationRoutes } from "./routes/accountApplications.js";
+import { fileApplication, isAccountReviewEnabled } from "./accountApplications.js";
+import { getLatestApplicationByPhone, toCustomerView } from "./accountApplicationsDb.js";
 import {
   handleGenerateDocket,
   handleMarkDispatched,
@@ -280,6 +284,8 @@ export async function registerRoutes(
   registerOpsRoutes(app);
   // BIA's nudges: the daily sweep and each customer's switches (BIA 3.0, 5.1).
   registerBiaRoutes(app);
+  // Account review: the customer's application status and the ops queue.
+  registerAccountApplicationRoutes(app);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
@@ -1333,6 +1339,9 @@ export async function registerRoutes(
             // The form tells the customer when a document went in unverified,
             // so "Uploaded" never over-promises.
             ocr: { status: ocr.status, message: ocr.message },
+            // With account review on, the Bombino team checks every document by
+            // hand, so one Cashfree couldn't read still lets signup go on.
+            staff_review: isAccountReviewEnabled(),
           });
         });
       } catch (err) {
@@ -1403,6 +1412,9 @@ export async function registerRoutes(
     const rows = await listDocumentsBySignupRef(signupRef);
     res.set("Cache-Control", "no-store");
     res.json({
+      // See POST: with account review on, a document Cashfree couldn't read is
+      // left to the Bombino team rather than holding signup up.
+      staff_review: isAccountReviewEnabled(),
       // TEMPORARY: false while OCR_BYPASS=1, so the form asks only for 12 digits
       // (shared/aadhaar.ts §validateAadhaar), matching the server.
       aadhaar_check_digits: !isOcrBypassed(),
@@ -1422,7 +1434,7 @@ export async function registerRoutes(
         file_size_bytes: row.file_size_bytes,
         updated_at: row.updated_at,
         // The form marks an unverified identity document as still outstanding,
-        // because account creation will refuse it.
+        // because account creation will refuse it (unless staff_review).
         ocr_status: row.ocr_status,
       })),
     });
@@ -1759,34 +1771,6 @@ export async function registerRoutes(
     return { userId: null, guestRef: ref };
   }
 
-  async function mirrorAadhaarToKyc(
-    owner: { userId: string; guestRef?: null } | { userId: null; guestRef: string },
-    aadhaar: { document_no: string | null; original_filename: string; mime_type: string; file_size_bytes: number; file_data: string } | null,
-    tag: string
-  ): Promise<void> {
-    // NOT NULL on kyc_documents.document_no — a slot without a typed number
-    // cannot be mirrored, and the Aadhaar slot always asks for one.
-    if (!aadhaar?.document_no) return;
-
-    const mirrored = await upsertKycDocument({
-      user_id: owner.userId,
-      guest_ref: owner.guestRef ?? null,
-      capability_id: crypto.randomUUID(),
-      document_type: "Aadhaar Number",
-      document_no: aadhaar.document_no,
-      original_filename: aadhaar.original_filename,
-      mime_type: aadhaar.mime_type,
-      file_size_bytes: aadhaar.file_size_bytes,
-      file_data: aadhaar.file_data,
-    });
-    if (!mirrored) {
-      console.error(
-        `[${tag}] KYC mirror failed for`,
-        owner.userId ? `user ${owner.userId}` : `guest ${owner.guestRef}`
-      );
-    }
-  }
-
   /**
    * Refuse the account until every compelled document is present and verified.
    *
@@ -1869,7 +1853,14 @@ export async function registerRoutes(
     // banner and the docket guard cannot answer differently. Note the GST
     // certificate IS covered: Cashfree has no OCR type for one, but
     // server/gstCertificate.ts reads it and writes a real verdict.
-    if (unverified.length > 0) {
+    //
+    // Except with account review on. Cashfree is then only the first layer:
+    // the Bombino team opens and verifies every document by hand before the
+    // account opens (no approval without it, server/accountApproval.ts), so a
+    // scan Cashfree couldn't read goes through to them instead of stopping the
+    // customer here. Mismatched, wrong or tampered documents never get this far:
+    // those uploads are refused outright.
+    if (unverified.length > 0 && !isAccountReviewEnabled()) {
       res.status(422).json({
         message:
           `We could not verify your ${unverified
@@ -1951,6 +1942,51 @@ export async function registerRoutes(
       // is evidence alongside the timestamp rather than proof on its own.
       contract_accepted_ip: req.ip ?? null,
     };
+  }
+
+  /**
+   * The end of signup under account review: file the application and answer
+   * with it. The customer stays a guest on this number until the Bombino team
+   * approves it (server/accountApproval.ts).
+   *
+   * `signupRef` is always present here: assertDocumentsStaged has just found
+   * the documents under it.
+   */
+  async function respondWithApplication(
+    req: Request,
+    res: Response,
+    input: {
+      phone: string;
+      accountType: "personal" | "company";
+      category: CompanyCategory | null;
+      details: Parameters<typeof fileApplication>[1]["details"];
+      contract_signed_name: string;
+    }
+  ): Promise<void> {
+    const signupRef = req.session.signupRef;
+    if (!signupRef) {
+      res.status(400).json({ message: "Your signup has expired. Please start again.", code: PHONE_UNVERIFIED });
+      return;
+    }
+    const filed = await fileApplication(req, {
+      phone: input.phone,
+      signupRef,
+      accountType: input.accountType,
+      category: input.category,
+      details: input.details,
+      contract: contractColumns(req, input.contract_signed_name),
+    });
+    if (!filed.ok) {
+      res.status(filed.status).json({ message: filed.message, code: filed.code });
+      return;
+    }
+    req.session.save((err) => {
+      if (err) console.error("[signup/application] session save error:", err);
+      res.status(202).json({
+        status: "application_submitted" as const,
+        application: toCustomerView(filed.value.row),
+      });
+    });
   }
 
   /** Move the staged documents onto the new account; never fatal to signup. */
@@ -2354,6 +2390,19 @@ export async function registerRoutes(
     const staged = await assertDocumentsStaged(req, res, "personal", null, phone);
     if (!staged) return;
 
+    // Account review: everything above has passed, so file it for the Bombino
+    // team instead of opening the account here. See server/accountApplications.ts.
+    if (isAccountReviewEnabled()) {
+      await respondWithApplication(req, res, {
+        phone,
+        accountType: "personal",
+        category: null,
+        details: { full_name, email },
+        contract_signed_name,
+      });
+      return;
+    }
+
     const itdCustomerId = `local-${crypto.randomUUID()}`;
     const row = await upsertItdUserAndReturnId({
       itd_customer_id: itdCustomerId,
@@ -2545,6 +2594,31 @@ export async function registerRoutes(
 
     const staged = await assertDocumentsStaged(req, res, "company", company_category, phone);
     if (!staged) return;
+
+    // Account review: file it instead. No ITD add_customer either — the team
+    // creates the customer in ITD by hand, and calling it here as well would
+    // register the company twice.
+    if (isAccountReviewEnabled()) {
+      await respondWithApplication(req, res, {
+        phone,
+        accountType: "company",
+        category: company_category,
+        details: {
+          email,
+          company_name,
+          gstin,
+          contact_person,
+          address,
+          pincode,
+          city,
+          state,
+          hub_id,
+          ...extras.values,
+        },
+        contract_signed_name,
+      });
+      return;
+    }
 
     const itdCustomerId = `local-${crypto.randomUUID()}`;
     const row = await upsertItdUserAndReturnId({
@@ -2856,9 +2930,15 @@ export async function registerRoutes(
         req.session.guestRef = guestRef;
         req.session.guestPhone = phone;
 
+        // An applicant waiting on the Bombino team signs in as exactly this: a
+        // guest. Their application rides along so the app can say where it is.
+        const application = isAccountReviewEnabled() ? await getLatestApplicationByPhone(phone) : null;
         req.session.save((err) => {
           if (err) console.error("[phone/continue] guest session save error:", err);
-          res.json({ status: "guest" as const });
+          res.json({
+            status: "guest" as const,
+            application: application ? toCustomerView(application) : null,
+          });
         });
         return;
       }
@@ -2882,6 +2962,14 @@ export async function registerRoutes(
 
     let user = toSessionUser(profile);
     req.session.dbUserId = existing.id;
+
+    // A guest booking that landed while the Bombino team was approving this
+    // account was filed under the guest ref after approval had already moved
+    // the rest. Claiming again is idempotent and finds nothing in the ordinary
+    // case: a number with an account cannot book as a guest.
+    void claimGuestOrdersForUser(phone, existing.id).catch((err) =>
+      console.error("[phone/continue] late guest-order claim failed:", err)
+    );
 
     // Accounts linked to ITD get a live ITD token here. Without this the
     // session would look valid but ITD-backed routes would either 401

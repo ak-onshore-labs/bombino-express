@@ -16,11 +16,17 @@ import { cn } from '@/lib/utils';
 export function OpsShell({
   title,
   subtitle,
+  eyebrow,
+  actions,
   wide = false,
   children,
 }: {
   title: string;
   subtitle?: string;
+  /** Above the title: a way back to the list a detail page came from. */
+  eyebrow?: React.ReactNode;
+  /** Beside the title, on the right: page-level buttons (settings, export). */
+  actions?: React.ReactNode;
   wide?: boolean;
   children: React.ReactNode;
 }) {
@@ -40,12 +46,18 @@ export function OpsShell({
 
   const heading = (
     <div className="mb-4">
-      <h1 className="text-2xl font-extrabold tracking-tight text-foreground leading-tight">
-        {title}
-      </h1>
-      <p className="text-sm font-medium text-muted-foreground mt-0.5">
-        {subtitle ?? user?.fullName ?? 'Operations'}
-      </p>
+      {eyebrow && <div className="mb-2">{eyebrow}</div>}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-extrabold tracking-tight text-foreground leading-tight">
+            {title}
+          </h1>
+          <p className="text-sm font-medium text-muted-foreground mt-0.5">
+            {subtitle ?? user?.fullName ?? 'Operations'}
+          </p>
+        </div>
+        {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+      </div>
     </div>
   );
 

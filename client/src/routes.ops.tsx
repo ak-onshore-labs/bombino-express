@@ -9,6 +9,8 @@ import OpsCustomers from '@/pages/ops/OpsCustomers';
 import OpsCustomerDetail from '@/pages/ops/OpsCustomerDetail';
 import OpsUsers from '@/pages/ops/OpsUsers';
 import OpsBeats from '@/pages/ops/OpsBeats';
+import OpsApplications from '@/pages/ops/OpsApplications';
+import OpsApplicationDetail from '@/pages/ops/OpsApplicationDetail';
 import NotFound from '@/pages/not-found';
 
 /**
@@ -28,6 +30,8 @@ export function OpsRoutes() {
       <Route path="/ops/transactions" component={OpsTransactions} />
       <Route path="/ops/customers" component={OpsCustomers} />
       <Route path="/ops/customers/:id" component={OpsCustomerDetail} />
+      <Route path="/ops/applications" component={OpsApplications} />
+      <Route path="/ops/applications/:id" component={OpsApplicationDetail} />
       <Route path="/ops/users" component={OpsUsers} />
       <Route path="/ops/beats" component={OpsBeats} />
       <Route path="/ops/orders/:id" component={OpsOrderDetail} />

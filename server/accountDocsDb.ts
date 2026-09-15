@@ -11,6 +11,7 @@ import {
   type AccountKind,
   type CompanyCategory,
   type DocSlot,
+  type DocumentVerdict,
 } from "../shared/accountSpec.js";
 import type { OcrResult } from "./cashfreeOcr.js";
 
@@ -68,6 +69,9 @@ export type AccountDocumentRow = {
   ocr_quality_checks: Record<string, boolean | null> | null;
   ocr_fraud_checks: Record<string, boolean | null> | null;
   ocr_checked_at: string | null;
+  /** A Bombino reviewer verified it by hand (application review). Cleared on re-upload. */
+  ocr_verified_by: string | null;
+  ocr_verified_at: string | null;
 };
 
 /**
@@ -81,7 +85,7 @@ export type AccountDocumentMeta = Omit<
 >;
 
 const META_COLUMNS =
-  "id, user_id, signup_ref, doc_slot, document_no, capability_id, original_filename, mime_type, file_size_bytes, created_at, updated_at, ocr_status, ocr_verification_id, ocr_reference_id, ocr_checked_at";
+  "id, user_id, signup_ref, doc_slot, document_no, capability_id, original_filename, mime_type, file_size_bytes, created_at, updated_at, ocr_status, ocr_verification_id, ocr_reference_id, ocr_checked_at, ocr_verified_by, ocr_verified_at";
 
 function getClient() {
   if (!supabase) {
@@ -161,6 +165,10 @@ export async function upsertAccountDocument(
     file_data: encryptField(input.file_data),
     updated_at: now,
     ...(input.ocr ?? {}),
+    // A new file is a new document: whatever a reviewer vouched for was the
+    // old one, so the staff check starts again.
+    ocr_verified_by: null,
+    ocr_verified_at: null,
   };
 
   if (existing) {
@@ -231,6 +239,28 @@ export async function listDocumentsByUserId(userId: string): Promise<AccountDocu
     return [];
   }
   return ((data ?? []) as AccountDocumentMeta[]).map(decodeMeta);
+}
+
+/**
+ * A Bombino reviewer opened this document and vouches for it (application
+ * review). Cashfree's verdict in `ocr_status` is left as it was: it is the
+ * first layer, shown to the reviewer, not replaced by this.
+ *
+ * False when the write fails, most often because
+ * migrations/add_manual_document_verification.sql hasn't run yet.
+ */
+export async function markDocumentVerifiedManually(documentId: string, actorId: string): Promise<boolean> {
+  const client = getClient();
+  if (!client) return false;
+  const { error } = await client
+    .from("account_documents")
+    .update({ ocr_verified_by: actorId, ocr_verified_at: new Date().toISOString() })
+    .eq("id", documentId);
+  if (error) {
+    logError("markDocumentVerifiedManually", error);
+    return false;
+  }
+  return true;
 }
 
 export async function getAccountDocumentByCapabilityId(
@@ -305,14 +335,14 @@ export async function getAccountDocumentByUserIdAndSlot(
  */
 export async function listDocumentVerdictsForUserIds(
   userIds: readonly string[]
-): Promise<Map<string, { doc_slot: string; ocr_status: string | null }[]>> {
-  const byUser = new Map<string, { doc_slot: string; ocr_status: string | null }[]>();
+): Promise<Map<string, DocumentVerdict[]>> {
+  const byUser = new Map<string, DocumentVerdict[]>();
   const client = getClient();
   if (!client || userIds.length === 0) return byUser;
 
   const { data, error } = await client
     .from("account_documents")
-    .select("user_id, doc_slot, ocr_status")
+    .select("user_id, doc_slot, ocr_status, ocr_verified_at")
     .in("user_id", [...userIds]);
 
   if (error) {
@@ -324,11 +354,17 @@ export async function listDocumentVerdictsForUserIds(
     user_id: string | null;
     doc_slot: string;
     ocr_status: string | null;
+    ocr_verified_at: string | null;
   }[]) {
     if (!row.user_id) continue;
+    const verdict: DocumentVerdict = {
+      doc_slot: row.doc_slot,
+      ocr_status: row.ocr_status,
+      ocr_verified_at: row.ocr_verified_at,
+    };
     const list = byUser.get(row.user_id);
-    if (list) list.push({ doc_slot: row.doc_slot, ocr_status: row.ocr_status });
-    else byUser.set(row.user_id, [{ doc_slot: row.doc_slot, ocr_status: row.ocr_status }]);
+    if (list) list.push(verdict);
+    else byUser.set(row.user_id, [verdict]);
   }
   return byUser;
 }

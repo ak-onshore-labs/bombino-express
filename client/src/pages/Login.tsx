@@ -21,6 +21,8 @@ import { useAppStore, type AuthUser } from '@/lib/store';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateGuestProfile, useGuestProfile } from '@/hooks/useGuestProfile';
+import { ApplicationStatusCard } from '@/components/ApplicationStatusCard';
+import { isOpenApplicationStatus } from '@shared/applicationStatus';
 import {
   SHADOW_STATUS_META,
   formatGuestPhone,
@@ -141,8 +143,18 @@ export default function Login() {
    * `signup_otp` is someone part-way through signup whose phone verification
    * ran out — they were never signed in, so the session copy would be a lie,
    * and they need a fresh code rather than a sign-in.
+   * `account_ready` is an applicant whose account the Bombino team has just
+   * opened (account review): good news, and the first sign-in to it.
    */
-  const reason = params.get('reason') === 'signup_otp' ? 'signup_otp' : expired ? 'session' : null;
+  const reasonParam = params.get('reason');
+  const reason =
+    reasonParam === 'signup_otp'
+      ? 'signup_otp'
+      : reasonParam === 'account_ready'
+        ? 'account_ready'
+        : expired
+          ? 'session'
+          : null;
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -328,7 +340,19 @@ export default function Login() {
         ) : null
       }
     >
-      {reason && (
+      {reason === 'account_ready' && (
+        <div
+          className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3"
+          role="status"
+          data-testid="notice-account-ready"
+        >
+          <p className="text-sm font-semibold text-emerald-900">Your account is ready</p>
+          <p className="text-xs text-emerald-800 mt-0.5 leading-relaxed">
+            Sign in with your mobile number to use it. Your guest bookings are already in it.
+          </p>
+        </div>
+      )}
+      {reason && reason !== 'account_ready' && (
         <div
           className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3"
           role="status"
@@ -439,6 +463,12 @@ export default function Login() {
             </p>
           </div>
 
+          {/* An applicant waiting on the Bombino team is a guest until then;
+              this says where their account stands. */}
+          {guestProfile?.application && (
+            <ApplicationStatusCard application={guestProfile.application} phone={phone} compact />
+          )}
+
           {/* Guest first, because it is what this number already is. Opening an
               account is the bigger commitment and sits underneath as the
               quieter option, not as a wall in front of the parcel. */}
@@ -450,14 +480,16 @@ export default function Login() {
             Continue as guest
           </Button>
 
-          <button
-            type="button"
-            onClick={goToSignup}
-            className="w-full text-center text-sm font-semibold text-[#2F4468] underline underline-offset-4"
-            data-testid="button-guest-create-account"
-          >
-            Create an account instead
-          </button>
+          {!(guestProfile?.application && isOpenApplicationStatus(guestProfile.application.status)) && (
+            <button
+              type="button"
+              onClick={goToSignup}
+              className="w-full text-center text-sm font-semibold text-[#2F4468] underline underline-offset-4"
+              data-testid="button-guest-create-account"
+            >
+              Create an account instead
+            </button>
+          )}
         </div>
       )}
 

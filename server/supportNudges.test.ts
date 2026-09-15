@@ -129,6 +129,27 @@ test("a guest's quiet signup after a day, and a guest's third booking with no ac
   assert.deepEqual(due[1].owner, { kind: "guest", guestRef: "g4" });
 });
 
+test("account review: an applicant's signup is finished, and an account is on its way", () => {
+  const due = nudgesFrom(
+    snapshot({
+      signups: [
+        { guestRef: "g1", lastActivityAt: hoursAgo(30) },
+        { guestRef: "g2", lastActivityAt: hoursAgo(30) },
+      ],
+      guestOrders: [
+        order({ id: "a", user_id: null, guest_ref: "g3", guest_phone: "9000000007" }),
+        order({ id: "b", user_id: null, guest_ref: "g3", guest_phone: "9000000007" }),
+      ],
+      // g1 filed an application; 9000000007 filed one under an older ref.
+      applicants: { refs: new Set(["g1"]), phones: new Set(["9000000007"]) },
+    })
+  );
+  assert.deepEqual(
+    due.map((n) => `${n.kind}:${n.subject}`),
+    ["signup_stuck:g2"]
+  );
+});
+
 test("no nudge is marketing: about their own things, in plain words", () => {
   const due = nudgesFrom(
     snapshot({

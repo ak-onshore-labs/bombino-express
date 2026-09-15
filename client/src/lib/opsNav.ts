@@ -1,7 +1,7 @@
 /**
  * Ops console destinations — one list so the desktop rail and mobile bar
  * cannot drift. The mobile bar holds four primary tabs plus More; destinations
- * with `mobileMore` live in the More sheet (Transactions, Users).
+ * with `mobileMore` live in the More sheet (Transactions, Applications, Users, Beats).
  */
 
 import type { LucideIcon } from 'lucide-react';
@@ -12,6 +12,7 @@ import {
   Package,
   Send,
   Truck,
+  UserPlus,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -77,6 +78,17 @@ export const OPS_NAV: readonly OpsNavItem[] = [
     icon: ContactRound,
     mobile: false,
     mobileMore: false,
+  },
+  {
+    // Account review: new accounts waiting for the Bombino team to open them.
+    // A desk task (reading documents, creating the customer in ITD), so it sits
+    // in the More sheet on a phone rather than on the four-tab bar.
+    label: 'Applications',
+    mobileLabel: 'Applications',
+    path: '/ops/applications',
+    icon: UserPlus,
+    mobile: false,
+    mobileMore: true,
   },
   {
     label: 'Users',

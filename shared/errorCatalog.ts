@@ -240,6 +240,39 @@ export const ERROR_CATALOG = {
     button: "TAP_CONTACT_US",
   },
 
+  // ── Account applications (account review) ────────────────────────────────
+  APPLICATION_IN_REVIEW: {
+    area: "signup",
+    title: "Your application is being reviewed",
+    why: "Someone on the Bombino team is reading it right now, so it can't be changed while they do.",
+    fix: "Wait for their decision. If they need a change, they'll say what, and you can make it then.",
+  },
+  APPLICATION_OPEN: {
+    area: "signup",
+    title: "You already have an application open",
+    why: "Each mobile number can have one account application at a time.",
+    fix: "Refresh to see it on My Profile.",
+  },
+  APPLICATION_UNAVAILABLE: {
+    area: "signup",
+    title: "Your application couldn't be sent",
+    why: "Something failed on our side while saving it. Everything you entered and uploaded is still saved.",
+    fix: "Try again in a moment. If it keeps failing, contact support.",
+    button: "TAP_CONTACT_US",
+  },
+  NO_OPEN_APPLICATION: {
+    area: "signup",
+    title: "There's no open application",
+    why: "It has already been decided or withdrawn.",
+    fix: "Check My Profile for where it stands.",
+  },
+  APPLICATION_STATE_CHANGED: {
+    area: "signup",
+    title: "Your application just changed",
+    why: "The Bombino team acted on it while you were on this screen.",
+    fix: "Refresh to see where it stands now.",
+  },
+
   // ── Booking ───────────────────────────────────────────────────────────────
   KYC_REQUIRED: {
     area: "booking",
@@ -415,6 +448,15 @@ export const UNCATALOGUED_CODES = [
   "CODE_ISSUE_FAILED",
   "FORBIDDEN",
   "INVALID_AGENT",
+  // Ops console: marking an application's document verified by hand.
+  "ALREADY_VERIFIED",
+  "DOCUMENT_NOT_UPLOADED",
+  "VERIFY_UNAVAILABLE",
+  // Ops console: who is emailed about new applications.
+  "INVALID_EMAILS",
+  "MAIL_FAILED",
+  "NO_RECIPIENTS",
+  "SETTINGS_UNAVAILABLE",
   "INVALID_PAYLOAD",
   "INVALID_REQUEST",
   "NO_HANDOVER_DUE",

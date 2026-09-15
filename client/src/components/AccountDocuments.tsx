@@ -104,9 +104,15 @@ const OCR_ACCEPTED = new Set(['match', 'bypassed']);
  * Keyed on isVerifiedDocSlot rather than isOcrCheckedSlot so the GST
  * certificate counts: Cashfree has no OCR type for one, but it is read all the
  * same (server/gstCertificate.ts) and the server gates on it.
+ *
+ * `staffReview` (signup with account review on): the Bombino team verifies
+ * every document by hand before the account opens, so any stored document is
+ * enough here, Cashfree's first-layer verdict notwithstanding. A document that
+ * contradicted its number was refused at upload and is never stored.
  */
-function isSlotVerified(slot: string, ocrStatus: string | null | undefined): boolean {
+function isSlotVerified(slot: string, ocrStatus: string | null | undefined, staffReview = false): boolean {
   if (!isVerifiedDocSlot(slot)) return true;
+  if (staffReview) return true;
   return OCR_ACCEPTED.has(ocrStatus ?? '');
 }
 
@@ -221,6 +227,8 @@ export function AccountDocuments({
   const fileInputs = useRef<Record<string, HTMLInputElement | null>>({});
   /** A file chosen before its number was valid; uploaded as soon as it is. */
   const pendingFiles = useRef<Record<string, File | null>>({});
+  /** Signup with account review on: the team checks each document by hand (see isSlotVerified). */
+  const staffReview = useRef(false);
   /** TEMPORARY: false while the server has document checks off (shared/aadhaar.ts). */
   const aadhaarCheckDigits = useRef(true);
   /**
@@ -321,6 +329,7 @@ export function AccountDocuments({
         );
         if (!res.ok) return;
         const body = (await res.json()) as {
+          staff_review?: boolean;
           aadhaar_check_digits?: boolean;
           gstin_lookup?: boolean;
           documents: Array<{
@@ -331,6 +340,7 @@ export function AccountDocuments({
           }>;
         };
         if (cancelled) return;
+        staffReview.current = endpoint === 'signup' && body.staff_review === true;
         aadhaarCheckDigits.current = body.aadhaar_check_digits !== false;
         setGstinLookup(body.gstin_lookup !== false);
         setState((prev) => {
@@ -350,7 +360,7 @@ export function AccountDocuments({
             // verified documents — hiding them would show an empty form to
             // someone who has already finished, and report them as missing.
             if (endpoint === 'signup' && isVerifiedDocSlot(doc.doc_slot)) continue;
-            const verified = isSlotVerified(doc.doc_slot, doc.ocr_status);
+            const verified = isSlotVerified(doc.doc_slot, doc.ocr_status, staffReview.current);
             next[doc.doc_slot] = {
               ...(next[doc.doc_slot] ?? EMPTY_SLOT),
               status: verified ? 'success' : 'unverified',
@@ -455,8 +465,10 @@ export function AccountDocuments({
       }
       const body = (await res.json().catch(() => ({}))) as {
         ocr?: { status?: string; message?: string };
+        staff_review?: boolean;
       };
-      const verified = isSlotVerified(slot, body.ocr?.status);
+      if (endpoint === 'signup' && typeof body.staff_review === 'boolean') staffReview.current = body.staff_review;
+      const verified = isSlotVerified(slot, body.ocr?.status, staffReview.current);
       patchSlot(slot, {
         status: verified ? 'success' : 'unverified',
         fileName: file.name,

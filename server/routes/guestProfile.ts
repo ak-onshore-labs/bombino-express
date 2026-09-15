@@ -35,6 +35,9 @@ import {
 import { listDocumentsBySignupRef } from "../accountDocsDb.js";
 import { seedSignupDocumentFromGuestKyc } from "../guestKycMirror.js";
 import { INDIA_HUBS } from "../../shared/hubs.js";
+import { getLatestApplicationByPhone, toCustomerView } from "../accountApplicationsDb.js";
+import { isAccountReviewEnabled } from "../accountApplications.js";
+import type { CustomerApplicationView } from "../../shared/applicationStatus.js";
 import {
   getGuestKycSummary,
   getGuestProfile,
@@ -103,6 +106,11 @@ type GuestProfileResponse = {
   };
   kyc: { status: "verified" | "in_review"; summary: string } | null;
   orders: Awaited<ReturnType<typeof listGuestOrders>>;
+  /**
+   * The account application on this number, open or the last decided one
+   * (account review, server/accountApplications.ts). Null when there is none.
+   */
+  application: CustomerApplicationView | null;
 };
 
 async function buildProfile(guest: { ref: string; phone: string }): Promise<GuestProfileResponse> {
@@ -110,11 +118,14 @@ async function buildProfile(guest: { ref: string; phone: string }): Promise<Gues
   // matrix — see server/guestKycMirror.ts.
   await seedSignupDocumentFromGuestKyc(guest.ref);
 
-  const [profile, kyc, orders, staged] = await Promise.all([
+  const [profile, kyc, orders, staged, application] = await Promise.all([
     getGuestProfile(guest.ref),
     getGuestKycSummary(guest.ref),
     listGuestOrders(guest.ref),
     listDocumentsBySignupRef(guest.ref),
+    // Only asked with review on: before its migration has run the table does
+    // not exist, and every guest screen would log the failure.
+    isAccountReviewEnabled() ? getLatestApplicationByPhone(guest.phone) : Promise.resolve(null),
   ]);
 
   // The stored profile wins, then whatever the newest booking declared. A
@@ -169,6 +180,7 @@ async function buildProfile(guest: { ref: string; phone: string }): Promise<Gues
         }
       : null,
     orders,
+    application: application ? toCustomerView(application) : null,
   };
 }
 

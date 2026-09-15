@@ -157,14 +157,17 @@ async function readJson<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** The latest 200 orders — the boards' list, and what the nav's pills count. */
+export async function fetchOpsOrders(): Promise<OpsBoardOrder[]> {
+  const res = await fetch('/api/ops/orders', { credentials: 'include' });
+  const data = await readJson<{ orders: OpsBoardOrder[] }>(res);
+  return data.orders;
+}
+
 export function useOpsOrders() {
   return useQuery({
     queryKey: OPS_ORDERS_KEY,
-    queryFn: async () => {
-      const res = await fetch('/api/ops/orders', { credentials: 'include' });
-      const data = await readJson<{ orders: OpsBoardOrder[] }>(res);
-      return data.orders;
-    },
+    queryFn: fetchOpsOrders,
     retry: false,
     refetchOnMount: 'always',
   });

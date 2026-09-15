@@ -27,6 +27,7 @@ import { DOC_SLOT_SPECS, isDocSlot, isVerifiedDocSlot } from "../shared/accountS
 import { NUDGE_KINDS, isNudgeKind, type NudgeKind, type NudgeNotificationData } from "../shared/biaNudges.js";
 import { todayInIst } from "../shared/istTime.js";
 import { explainDocumentIssue } from "../shared/ocrExplain.js";
+import { isAccountReviewEnabled } from "./accountApplications.js";
 
 export type NudgeOwner = { kind: "account"; userId: string } | { kind: "guest"; guestRef: string };
 
@@ -89,6 +90,12 @@ export interface NudgeSnapshot {
   phonesWithAccount: ReadonlySet<string>;
   /** Guests with a signup under way, and when they last touched it. */
   signups: { guestRef: string; lastActivityAt: string }[];
+  /**
+   * Account review: everyone who has filed an application, by ref and phone.
+   * Their signup is finished, not stuck, and an account is already on its way,
+   * so neither signup_stuck nor guest_account is theirs. Absent with review off.
+   */
+  applicants?: { refs: ReadonlySet<string>; phones: ReadonlySet<string> };
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -201,6 +208,7 @@ export function nudgesFrom(s: NudgeSnapshot): Nudge[] {
 
   // A guest's signup, untouched for a day and not yet given up on.
   for (const su of s.signups) {
+    if (s.applicants?.refs.has(su.guestRef)) continue;
     const t = Date.parse(su.lastActivityAt);
     if (!Number.isFinite(t) || s.nowMs - t < SIGNUP_QUIET_MS || s.nowMs - t > SIGNUP_GIVE_UP_MS) continue;
     out.push({
@@ -222,6 +230,8 @@ export function nudgesFrom(s: NudgeSnapshot): Nudge[] {
   for (const [guestRef, orders] of Array.from(byGuest)) {
     if (orders.length < 2) continue;
     if (orders.some((o) => o.guest_phone && s.phonesWithAccount.has(o.guest_phone))) continue;
+    if (s.applicants?.refs.has(guestRef)) continue;
+    if (orders.some((o) => o.guest_phone && s.applicants?.phones.has(o.guest_phone))) continue;
     out.push({
       owner: { kind: "guest", guestRef },
       kind: "guest_account",
@@ -560,6 +570,13 @@ export async function loadNudgeSnapshot(now: Date = new Date()): Promise<NudgeSn
         ]);
   const guests = new Set([...profiles, ...booked].map((r) => r.guest_ref));
 
+  const applications = isAccountReviewEnabled()
+    ? await rows<{ signup_ref: string; phone: string }>(
+        "account applications",
+        db.from("account_applications").select("signup_ref, phone")
+      )
+    : [];
+
   return {
     today,
     nowMs,
@@ -570,5 +587,9 @@ export async function loadNudgeSnapshot(now: Date = new Date()): Promise<NudgeSn
     guestOrders,
     phonesWithAccount: new Set(accounts.map((a) => a.phone)),
     signups: refs.filter((r) => guests.has(r)).map((guestRef) => ({ guestRef, lastActivityAt: last.get(guestRef)! })),
+    applicants: {
+      refs: new Set(applications.map((a) => a.signup_ref)),
+      phones: new Set(applications.map((a) => a.phone)),
+    },
   };
 }

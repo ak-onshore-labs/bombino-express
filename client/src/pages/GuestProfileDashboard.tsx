@@ -18,6 +18,8 @@ import { StateBlock } from '@/components/StateBlock';
 import { ProfileProgressTracker } from '@/components/ProfileProgressTracker';
 import { GuestOrders } from '@/components/GuestOrders';
 import { NudgePrefs } from '@/components/bia/NudgePrefs';
+import { ApplicationStatusCard } from '@/components/ApplicationStatusCard';
+import { isOpenApplicationStatus } from '@shared/applicationStatus';
 import {
   ACCOUNT_TYPE_LABEL,
   shadowProfileProgress,
@@ -107,6 +109,13 @@ export default function GuestProfileDashboard(): React.JSX.Element {
   );
   const detailsDone = typedPending.length === 0;
   const orders = guestProfile.orders;
+  const application = guestProfile.application ?? null;
+  /**
+   * Account review: an application with the Bombino team. Opening a second
+   * one is not a thing to offer, so the card below takes the account button's
+   * place until it is decided.
+   */
+  const applicationOpen = application !== null && isOpenApplicationStatus(application.status);
 
   /**
    * Into the real signup, with what we already know.
@@ -127,6 +136,8 @@ export default function GuestProfileDashboard(): React.JSX.Element {
   return (
     <GuestShell onBack={() => setLocation('/home')}>
       <div className="space-y-4 px-4 py-4">
+        {application && <ApplicationStatusCard application={application} phone={guestProfile.phone} />}
+
         {/* One card, one ask.
             The action lives with the list of gaps rather than in a card of its
             own repeating the same sentence, and the label follows the state:
@@ -137,7 +148,7 @@ export default function GuestProfileDashboard(): React.JSX.Element {
           profile={guestProfile}
           footer={
             <>
-              {detailsDone ? (
+              {applicationOpen ? null : detailsDone ? (
                 <>
                   <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
                     Every detail we can ask for here is answered. Opening an account
