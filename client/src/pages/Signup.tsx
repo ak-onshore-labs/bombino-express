@@ -20,6 +20,7 @@ import { useGuestProfile } from '@/hooks/useGuestProfile';
 import { apiRequest } from '@/lib/queryClient';
 import { parseApiErrorCode, parseApiErrorMessage } from '@/lib/apiError';
 import { AskBiaLink } from '@/components/bia/AskBiaLink';
+import { AskBiaTopButton } from '@/components/bia/AskBiaTopButton';
 import { usePublishBiaScreen } from '@/lib/biaStore';
 import type { BiaScreen } from '@shared/biaScreen';
 import { usePincodeLookup } from '@/hooks/usePincodeLookup';
@@ -618,6 +619,9 @@ export default function Signup() {
       step={stepIndex}
       totalSteps={TOTAL_STEPS}
       testId="screen-signup"
+      // BIA already knows the step and account (usePublishBiaScreen above).
+      // Shown at every width: signup has no sidebar, where desktop keeps BIA.
+      headerAction={<AskBiaTopButton className="md:inline-flex" />}
       beforeCard={
         // Shown from the details step onward so the answer stays visible and
         // correctable. It is no longer where the choice is MADE — that is step

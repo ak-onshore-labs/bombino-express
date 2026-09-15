@@ -18,6 +18,8 @@ interface AuthShellProps {
   totalSteps?: number;
   /** Sits above the card, where the account-type toggle belongs. */
   beforeCard?: ReactNode;
+  /** Right end of the header bar, after the step counter (e.g. Ask BIA). */
+  headerAction?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
   testId?: string;
@@ -44,6 +46,7 @@ export function AuthShell({
   step,
   totalSteps,
   beforeCard,
+  headerAction,
   children,
   footer,
   testId,
@@ -68,13 +71,18 @@ export function AuthShell({
               flow has three, and losing the sense of how far along you are was
               the one thing worth keeping — so it stays, in plain muted text
               rather than the docket-style "01 / 03". */}
-          {showProgress && (
-            <span
-              className="ml-auto text-xs text-muted-foreground tabular-nums"
-              aria-label={`Step ${step} of ${totalSteps}`}
-            >
-              Step {step} of {totalSteps}
-            </span>
+          {(showProgress || headerAction) && (
+            <div className="ml-auto flex items-center gap-3">
+              {showProgress && (
+                <span
+                  className="text-xs text-muted-foreground tabular-nums"
+                  aria-label={`Step ${step} of ${totalSteps}`}
+                >
+                  Step {step} of {totalSteps}
+                </span>
+              )}
+              {headerAction}
+            </div>
           )}
         </div>
       </header>
