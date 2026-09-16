@@ -55,7 +55,7 @@ export function Header({ onMenuClick }: HeaderProps) {
       }
       right={
         <div className="flex items-center gap-1 -mr-2">
-        {!onHome && <AskBiaTopButton />}
+        {!onHome && <AskBiaTopButton withLabel />}
         <Link
           href="/notifications"
           className="relative p-2 rounded-xl hover:bg-muted active:scale-95 transition-all"
