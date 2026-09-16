@@ -54,8 +54,16 @@ async function buildAll() {
     bundle: true,
     format: "cjs",
     outfile: "dist/index.cjs",
+    // The bundle is CommonJS, where `import.meta` flattens to an empty object.
+    // server/gstCertificate.ts calls createRequire(import.meta.url) at module
+    // scope, so without this substitution the built server throws
+    // ERR_INVALID_ARG_VALUE on require, before it reads a single env var.
+    banner: {
+      js: 'const __import_meta_url = require("node:url").pathToFileURL(__filename).href;',
+    },
     define: {
       "process.env.NODE_ENV": '"production"',
+      "import.meta.url": "__import_meta_url",
     },
     minify: true,
     external: externals,
