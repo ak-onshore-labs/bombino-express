@@ -1030,14 +1030,22 @@ input[type="date"] {
   isolation: isolate;
 }
 
+/* The sweep is one band slid across with a transform. It used to be a
+   repeating background moved by background-position: the next tile's band
+   parked, still, in the button's left quarter for the pause between sweeps,
+   then jumped when the loop restarted. A transform also runs off the main
+   thread, so it stays smooth while the page is busy. */
 .bia-top-btn::before {
   content: "";
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.55) 50%, transparent 70%);
-  background-size: 250% 100%;
-  animation: bia-top-sweep 2.8s ease-in-out infinite;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 60%;
+  background: linear-gradient(100deg, transparent 0%, rgba(255, 255, 255, 0.5) 50%, transparent 100%);
+  transform: translateX(-100%);
+  animation: bia-top-sweep 2.8s cubic-bezier(0.45, 0, 0.25, 1) infinite;
+  will-change: transform;
   z-index: 0;
   pointer-events: none;
 }
@@ -1052,9 +1060,11 @@ input[type="date"] {
   50% { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7), 0 2px 16px rgba(242, 161, 35, 0.65); }
 }
 
+/* -100% to 170% of the band's own width: from wholly off the left edge to
+   wholly off the right one, then off-screen for the rest of the loop. */
 @keyframes bia-top-sweep {
-  0% { background-position: 150% 0; }
-  60%, 100% { background-position: -100% 0; }
+  0% { transform: translateX(-100%); }
+  55%, 100% { transform: translateX(170%); }
 }
 
 /* A question BIA put in the typing box for the customer to send. */
