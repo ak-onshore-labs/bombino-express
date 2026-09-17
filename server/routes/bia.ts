@@ -10,47 +10,34 @@
  * Self-registering: `registerBiaRoutes(app)` is called from `routes.ts`.
  */
 
-import crypto from "crypto";
 import type { Express, Request, Response } from "express";
-import { ensureDbUser } from "../routeGuards.js";
+import { asyncRoutes, ensureDbUser } from "../routeGuards.js";
+import { requireCronSecret } from "../cronAuth.js";
+import { OWNER_PROFILES, ownerFrom } from "../sessionOwner.js";
 import { loadNudgeSnapshot, nudgeStore, runNudgeSweep, type NudgeOwner } from "../supportNudges.js";
 import { NUDGE_SPECS, isNudgeKind, nudgeKindsFor } from "../../shared/biaNudges.js";
 
 const NOT_SET_UP = "Nudges aren't set up yet: migrations/create_bia_nudges.sql hasn't been run.";
 
-function schedulerAuthorised(req: Request): boolean {
-  const expected = process.env.WA_CRON_SECRET;
-  if (!expected) return false;
-  const header = req.header("authorization") ?? "";
-  const presented = header.startsWith("Bearer ") ? header.slice(7) : "";
-  // Length check first: timingSafeEqual throws on a length mismatch.
-  return presented.length === expected.length && crypto.timingSafeEqual(Buffer.from(presented), Buffer.from(expected));
-}
-
 /** Whose switches these are: the signed-in account, else the guest this session verified. */
 export function nudgeOwnerFor(req: Request): NudgeOwner | null {
-  if (req.session.user && req.session.dbUserId) return { kind: "account", userId: req.session.dbUserId };
-  if (req.session.guestRef && req.session.guestPhone) return { kind: "guest", guestRef: req.session.guestRef };
-  if (req.session.signupRef && req.session.signupPhone) return { kind: "guest", guestRef: req.session.signupRef };
-  return null;
+  const owner = ownerFrom(req, OWNER_PROFILES.nudges);
+  if (!owner) return null;
+  return owner.kind === "account"
+    ? { kind: "account", userId: owner.userId }
+    : { kind: "guest", guestRef: owner.guestRef };
 }
 
 export function registerBiaRoutes(app: Express): void {
+  // Rejections reach the error middleware instead of hanging the request.
+  const routes = asyncRoutes(app);
   /**
    * Daily, from the same external scheduler as the WhatsApp digest and the
    * retention sweep (07:00 IST is a good time: "pickup tomorrow" reads well in
    * the morning). Safe to repeat: a nudge already sent is never sent again,
    * and nobody gets more than one a day.
    */
-  app.post("/api/admin/bia/nudges/sweep", async (req: Request, res: Response) => {
-    if (!process.env.WA_CRON_SECRET) {
-      res.status(503).json({ message: "Scheduler secret is not configured." });
-      return;
-    }
-    if (!schedulerAuthorised(req)) {
-      res.status(401).json({ message: "Unauthorized" });
-      return;
-    }
+  routes.post("/api/admin/bia/nudges/sweep", requireCronSecret, async (_req: Request, res: Response) => {
     let snapshot;
     try {
       snapshot = await loadNudgeSnapshot();
@@ -72,7 +59,7 @@ export function registerBiaRoutes(app: Express): void {
   });
 
   // GET /api/bia/nudges/prefs — { kinds: [{ kind, label, hint, on }], available }
-  app.get("/api/bia/nudges/prefs", ensureDbUser, async (req: Request, res: Response) => {
+  routes.get("/api/bia/nudges/prefs", ensureDbUser, async (req: Request, res: Response) => {
     const owner = nudgeOwnerFor(req);
     if (!owner) {
       res.status(401).json({ message: "Not authenticated" });
@@ -94,7 +81,7 @@ export function registerBiaRoutes(app: Express): void {
   });
 
   // PUT /api/bia/nudges/prefs — { kind, on }
-  app.put("/api/bia/nudges/prefs", ensureDbUser, async (req: Request, res: Response) => {
+  routes.put("/api/bia/nudges/prefs", ensureDbUser, async (req: Request, res: Response) => {
     const owner = nudgeOwnerFor(req);
     if (!owner) {
       res.status(401).json({ message: "Not authenticated" });

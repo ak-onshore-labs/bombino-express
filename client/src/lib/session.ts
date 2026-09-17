@@ -57,6 +57,29 @@ function isExpiryPath(url: string): boolean {
 }
 
 /**
+ * Sign out on purpose: tell the server, clear the store, go to sign-in.
+ *
+ * Five shells and boards had this same three-step body inline. Session
+ * teardown is security-relevant, so it belongs beside `handleSessionExpired`
+ * — which is the same idea for a session that died on its own.
+ *
+ * The network call is best effort: if it fails the cookie may outlive the tab,
+ * but refusing to sign out locally because the server was unreachable is worse.
+ */
+export async function signOutAndRedirect(
+  navigate: (path: string) => void,
+  to = '/login',
+): Promise<void> {
+  try {
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+  } catch {
+    // Ignore network failure — still clear the local session.
+  }
+  useAppStore.getState().logout();
+  navigate(to);
+}
+
+/**
  * True once a sign-out is under way.
  *
  * A dead session usually surfaces as several parallel 401s — a screen firing

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { MAX_UPLOAD_BYTES, isAllowedUploadType } from '@shared/upload';
 import { CloudUpload, CheckCircle2, XCircle, Loader2, FileText } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { publishKycOnFile, type KycOnFile } from '@/hooks/useKycOnFile';
@@ -98,8 +99,6 @@ const DOC_TYPE_KEYS = Object.keys(DOC_TYPES);
  */
 const KYC_BIA_SCREEN: Omit<BiaScreen, 'errorCode'> = { surface: 'create', step: 'sender' };
 
-const ALLOWED_MIME_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png']);
-const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB — must match kycUpload in server/routes.ts
 
 function StatusPill({ status }: { status: UploadStatus }) {
   const config: Record<UploadStatus, { label: string; className: string }> = {
@@ -331,7 +330,7 @@ export function KycUpload({
   }
 
   async function handleFileSelect(file: File): Promise<void> {
-    if (!ALLOWED_MIME_TYPES.has(file.type)) {
+    if (!isAllowedUploadType(file.type)) {
       // The code is cleared too: one left from an earlier refusal would explain
       // the wrong problem in place of this message.
       setUploadErrorCode(null);
@@ -339,7 +338,7 @@ export function KycUpload({
       setUploadStatus('error');
       return;
     }
-    if (file.size > MAX_FILE_SIZE) {
+    if (file.size > MAX_UPLOAD_BYTES) {
       setUploadErrorCode(null);
       setUploadError('File must be under 4MB.');
       setUploadStatus('error');

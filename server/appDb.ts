@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { CreateShipmentResponse } from "./itd.js";
 import { supabase } from "./supabaseClient.js";
+import { dbClient, logDbError, type DbError } from "./db/client.js";
 import type { ChatMessage } from "./supportTypes.js";
 import type { CompanyCategory } from "../shared/accountSpec.js";
 
@@ -65,21 +66,10 @@ type ShipmentInsert = {
   itd_response: CreateShipmentResponse;
 };
 
-function logSupabaseError(operation: string, error: { message?: string; code?: string } | null): void {
-  console.error("[appDb] supabase operation failed (non-fatal):", {
-    operation,
-    message: error?.message,
-    code: error?.code,
-  });
-}
+const logSupabaseError = (operation: string, error: DbError): void =>
+  logDbError("appDb", operation, error);
 
-function getSupabaseClient() {
-  if (!supabase) {
-    console.error("[appDb] supabase client is not configured");
-    return null;
-  }
-  return supabase;
-}
+const getSupabaseClient = () => dbClient("appDb");
 
 export async function findItdUserIdByCustomerId(
   itdCustomerId: string

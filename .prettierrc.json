@@ -1,0 +1,14 @@
+{
+  "printWidth": 110,
+  "singleQuote": true,
+  "trailingComma": "all",
+  "semi": true,
+  "arrowParens": "always",
+  "overrides": [
+    {
+      "files": ["server/**/*.ts", "shared/**/*.ts", "api/**/*.ts", "scripts/**/*.ts", "script/**/*.ts"],
+      "options": { "singleQuote": false }
+    },
+    { "files": ["*.md"], "options": { "printWidth": 88, "proseWrap": "preserve" } }
+  ]
+}

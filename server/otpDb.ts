@@ -1,22 +1,12 @@
 import { supabase } from "./supabaseClient.js";
+import { dbClient, logDbError, type DbError } from "./db/client.js";
 
 export type OtpPurpose = "signup_personal" | "signup_company" | "login" | "auth";
 
-function logSupabaseError(operation: string, error: { message?: string; code?: string } | null): void {
-  console.error("[otpDb] supabase operation failed (non-fatal):", {
-    operation,
-    message: error?.message,
-    code: error?.code,
-  });
-}
+const logSupabaseError = (operation: string, error: DbError): void =>
+  logDbError("otpDb", operation, error);
 
-function getSupabaseClient() {
-  if (!supabase) {
-    console.error("[otpDb] supabase client is not configured");
-    return null;
-  }
-  return supabase;
-}
+const getSupabaseClient = () => dbClient("otpDb");
 
 export async function countRecentRequests(phone: string, windowMinutes: number): Promise<number | null> {
   const client = getSupabaseClient();

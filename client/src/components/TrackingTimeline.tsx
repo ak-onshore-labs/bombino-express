@@ -1,4 +1,4 @@
-import { TrackingEvent } from '@/lib/mockData';
+import { TrackingEvent } from '@/lib/trackingTypes';
 import { format } from 'date-fns';
 
 interface TrackingTimelineProps {

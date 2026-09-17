@@ -7,8 +7,58 @@
  * verbatim move.
  */
 
-import type { NextFunction, Request, Response } from "express";
+import type { Express, NextFunction, Request, RequestHandler, Response } from "express";
 import { findItdUserIdByCustomerId } from "./appDb.js";
+
+/**
+ * An async handler whose rejection reaches the error middleware.
+ *
+ * Express 4 does not await a handler: a rejected promise is nobody's, so the
+ * request hangs until the client gives up and — since Node 15 — the unhandled
+ * rejection takes the process with it. On Vercel that is every other request in
+ * the same container.
+ *
+ * Wrap any `async` handler that calls something which throws rather than
+ * returning null: ITD, Razorpay, nodemailer, crypto. `server/app.ts` turns what
+ * arrives into a 500 JSON body.
+ */
+export function asyncRoute(handler: RequestHandler): RequestHandler {
+  return function wrapped(req: Request, res: Response, next: NextFunction): void {
+    void Promise.resolve(handler(req, res, next)).catch(next);
+  };
+}
+
+/**
+ * Every route a module mounts, with `asyncRoute` already applied.
+ *
+ *   const routes = asyncRoutes(app);
+ *   routes.get("/api/thing", requireUser, async (req, res) => { ... });
+ *
+ * One line per module instead of a wrapper around every handler, so a route
+ * added later cannot forget it.
+ */
+export type AsyncRouter = {
+  get(path: string, ...handlers: RequestHandler[]): void;
+  post(path: string, ...handlers: RequestHandler[]): void;
+  put(path: string, ...handlers: RequestHandler[]): void;
+  patch(path: string, ...handlers: RequestHandler[]): void;
+  delete(path: string, ...handlers: RequestHandler[]): void;
+};
+
+export function asyncRoutes(app: Express): AsyncRouter {
+  const mount =
+    (verb: keyof AsyncRouter) =>
+    (path: string, ...handlers: RequestHandler[]): void => {
+      app[verb](path, ...handlers.map(asyncRoute));
+    };
+  return {
+    get: mount("get"),
+    post: mount("post"),
+    put: mount("put"),
+    patch: mount("patch"),
+    delete: mount("delete"),
+  };
+}
 
 export function requireUser(req: Request, res: Response, next: NextFunction): void {
   if (!req.session.user) {
@@ -63,6 +113,20 @@ export function requireRole(...roles: string[]) {
     next();
   };
 }
+
+/**
+ * The ops console's gates, as two values instead of twenty spellings.
+ *
+ * `requireUser` first, so a missing session is a 401 rather than a 403.
+ * `super_admin` is listed explicitly because `requireRole("admin")` is an exact
+ * match, not a rank.
+ *
+ * `opsDbGate` is the same with `ensureDbUser`, for handlers that need the row
+ * id — recording who approved something, or who looked at a document.
+ */
+export const opsGate = [requireUser, requireRole("admin", "super_admin")] as const;
+
+export const opsDbGate = [requireUser, ensureDbUser, requireRole("admin", "super_admin")] as const;
 
 export async function ensureDbUser(
   req: Request,

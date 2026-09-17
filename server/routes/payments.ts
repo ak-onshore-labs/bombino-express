@@ -39,7 +39,8 @@
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import { notifyPaymentFailed, notifyPaymentReceived } from "../notify.js";
-import { ensureDbUser, requireUserOrGuest } from "../routeGuards.js";
+import { asyncRoutes, ensureDbUser, requireUserOrGuest } from "../routeGuards.js";
+import { OWNER_PROFILES, ownerFrom } from "../sessionOwner.js";
 import { getOrderById, getUserContactsByIds, insertOrderEvent } from "../ordersDb.js";
 import {
   attachRazorpayOrderId,
@@ -86,9 +87,11 @@ export type PaymentCaller = { userId: string; guestRef: null } | { userId: null;
 export function paymentCallerFrom(req: {
   session: { dbUserId?: string; guestRef?: string };
 }): PaymentCaller | null {
-  if (req.session.dbUserId) return { userId: req.session.dbUserId, guestRef: null };
-  if (req.session.guestRef) return { userId: null, guestRef: req.session.guestRef };
-  return null;
+  const owner = ownerFrom(req, OWNER_PROFILES.payment);
+  if (!owner) return null;
+  return owner.kind === "account"
+    ? { userId: owner.userId, guestRef: null }
+    : { userId: null, guestRef: owner.guestRef };
 }
 
 /** Does this order belong to the caller? */
@@ -135,6 +138,8 @@ async function loadPayableOrder(
 }
 
 export function registerPaymentRoutes(app: Express): void {
+  // Rejections reach the error middleware instead of hanging the request.
+  const routes = asyncRoutes(app);
   // ── GET /api/payments/config ────────────────────────────────────────────
   //
   // What the client may offer, decided here rather than guessed there. Two
@@ -144,7 +149,7 @@ export function registerPaymentRoutes(app: Express): void {
   // booked without an account. `requireUser` here 401'd every guest, and the
   // client's session interceptor read that 401 as an expired session and signed
   // them out mid-payment.
-  app.get("/api/payments/config", requireUserOrGuest, (_req: Request, res: Response) => {
+  routes.get("/api/payments/config", requireUserOrGuest, (_req: Request, res: Response) => {
     res.json({
       gateway_configured: isRazorpayConfigured(),
       test_mode: isPaymentsTestModeEnabled(),
@@ -160,7 +165,7 @@ export function registerPaymentRoutes(app: Express): void {
   // Same guards as the real thing — session, ownership, pay-now, not cancelled,
   // not already paid — because a bypass with weaker checks is a bypass someone
   // finds. What it skips is only the money.
-  app.post(
+  routes.post(
     "/api/payments/test/settle",
     requireUserOrGuest,
     ensureDbUser,
@@ -267,7 +272,7 @@ export function registerPaymentRoutes(app: Express): void {
   // a customer who dismisses the modal and taps Pay again simply gets a fresh
   // one. Every id we open is kept on the order so `/verify` can refuse a
   // gateway order we never created.
-  app.post(
+  routes.post(
     "/api/payments/razorpay/order",
     requireUserOrGuest,
     ensureDbUser,
@@ -382,7 +387,7 @@ export function registerPaymentRoutes(app: Express): void {
   // The browser's return path. Success here is a convenience — the webhook
   // would have recorded the same payment anyway — so every failure below is
   // safe to report honestly to the customer.
-  app.post(
+  routes.post(
     "/api/payments/razorpay/verify",
     requireUserOrGuest,
     ensureDbUser,
@@ -584,7 +589,7 @@ export function registerPaymentRoutes(app: Express): void {
   // again". So a payload we understood but could not act on returns 500 to
   // earn a retry, while a payload we can never act on returns 200 — retrying
   // it forever would only bury the real failures.
-  app.post("/api/payments/razorpay/webhook", async (req: Request, res: Response) => {
+  routes.post("/api/payments/razorpay/webhook", async (req: Request, res: Response) => {
     const signature = req.header("x-razorpay-signature");
     const raw = req.rawBody;
 

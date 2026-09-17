@@ -1,4 +1,5 @@
 import { useMemo, type ComponentType } from 'react';
+import { signOutAndRedirect } from '@/lib/session';
 import { LogOut, User } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import bombinoLogo from '@/assets/bombino-logo.png';
@@ -68,7 +69,7 @@ function roleLabel(role: string | undefined): string {
  */
 export function OpsDesktopSidebar() {
   const [location, setLocation] = useLocation();
-  const { user, logout } = useAppStore();
+  const user = useAppStore((s) => s.user);
   const badges = useOpsNavBadges();
 
   const initials = useMemo(() => {
@@ -86,15 +87,7 @@ export function OpsDesktopSidebar() {
     return 'O';
   }, [user?.fullName]);
 
-  const handleLogout = async (): Promise<void> => {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
-    } catch {
-      // Ignore network failure — still clear the local session.
-    }
-    logout();
-    setLocation('/login');
-  };
+  const handleLogout = (): Promise<void> => signOutAndRedirect(setLocation);
 
   return (
     <div

@@ -1,23 +1,13 @@
 import { supabase } from "./supabaseClient.js";
+import { dbClient, logDbError, type DbError } from "./db/client.js";
 import type { Order } from "../shared/orderContract.js";
 
 type Json = Record<string, unknown> | unknown[] | null;
 
-function logSupabaseError(operation: string, error: { message?: string; code?: string } | null): void {
-  console.error("[ordersDb] supabase operation failed (non-fatal):", {
-    operation,
-    message: error?.message,
-    code: error?.code,
-  });
-}
+const logSupabaseError = (operation: string, error: DbError): void =>
+  logDbError("ordersDb", operation, error);
 
-function getSupabaseClient() {
-  if (!supabase) {
-    console.error("[ordersDb] supabase client is not configured");
-    return null;
-  }
-  return supabase;
-}
+const getSupabaseClient = () => dbClient("ordersDb");
 
 export type PickupRequest = 1 | 2;
 export type PaymentMethod = "pay_now" | "pay_at_pickup" | "pay_at_dropoff" | "cod";

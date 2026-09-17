@@ -452,6 +452,12 @@ export const UNCATALOGUED_CODES = [
   "ALREADY_VERIFIED",
   "DOCUMENT_NOT_UPLOADED",
   "VERIFY_UNAVAILABLE",
+  // Ops console: reviewing an application, and opening the account after it.
+  "ITD_LOGIN_LINKED_ELSEWHERE",
+  "NOTE_TOO_LONG",
+  "NOTHING_REQUESTED",
+  "UNKNOWN_DOCUMENT",
+  "UNKNOWN_FIELD",
   // Ops console: who is emailed about new applications.
   "INVALID_EMAILS",
   "MAIL_FAILED",

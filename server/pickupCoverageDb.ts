@@ -20,6 +20,7 @@
  */
 
 import { supabase } from "./supabaseClient.js";
+import { dbClient, logDbError, type DbError } from "./db/client.js";
 import {
   STATIC_COVERAGE,
   buildCoverage,
@@ -42,24 +43,10 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 
 let cached: { coverage: Coverage; at: number } | null = null;
 
-function logSupabaseError(
-  operation: string,
-  error: { message?: string; code?: string } | null
-): void {
-  console.error("[pickupCoverageDb] supabase operation failed:", {
-    operation,
-    message: error?.message,
-    code: error?.code,
-  });
-}
+const logSupabaseError = (operation: string, error: DbError): void =>
+  logDbError("pickupCoverageDb", operation, error);
 
-function getSupabaseClient() {
-  if (!supabase) {
-    console.error("[pickupCoverageDb] supabase client is not configured");
-    return null;
-  }
-  return supabase;
-}
+const getSupabaseClient = () => dbClient("pickupCoverageDb");
 
 /** The shape the embed returns: a pincode row with its beat's cutoff attached. */
 type PincodeRow = {

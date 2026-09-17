@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiRequest } from '@/lib/queryClient';
+import { apiRequest, readJson } from '@/lib/queryClient';
 import type { ApplicationStatus, OpsApplicationAction, RequestedChanges } from '@shared/applicationStatus';
 
 /** One row of the queue — server/routes/accountApplications.ts §queueItem. */
@@ -77,14 +77,6 @@ export type OpsApplicationDetail = {
 export type OpsApplicationFilter = 'open' | 'all' | ApplicationStatus;
 
 export const OPS_APPLICATIONS_KEY = ['/api/ops/applications'] as const;
-
-async function readJson<T>(res: Response): Promise<T> {
-  if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
-  }
-  return (await res.json()) as T;
-}
 
 export function useOpsApplications(filter: OpsApplicationFilter) {
   return useQuery({
@@ -212,10 +204,19 @@ export function useTestOpsApplicationAlerts() {
   });
 }
 
-/** One logged GET — do not cache the blob. */
-export async function fetchOpsApplicationDocumentFile(id: string, slot: string): Promise<Blob> {
+/**
+ * One logged GET — do not cache the blob. `download` tells the server this is a
+ * copy being kept, which it records as a download rather than a view.
+ */
+export async function fetchOpsApplicationDocumentFile(
+  id: string,
+  slot: string,
+  download = false,
+): Promise<Blob> {
   const res = await fetch(
-    `/api/ops/applications/${encodeURIComponent(id)}/documents/${encodeURIComponent(slot)}/file`,
+    `/api/ops/applications/${encodeURIComponent(id)}/documents/${encodeURIComponent(slot)}/file${
+      download ? '?download=1' : ''
+    }`,
     { credentials: 'include', cache: 'no-store' },
   );
   if (!res.ok) {

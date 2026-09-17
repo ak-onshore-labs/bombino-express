@@ -14,6 +14,7 @@
  */
 
 import { supabase } from "./supabaseClient.js";
+import { dbClient, logDbError, type DbError } from "./db/client.js";
 
 /** Postgres unique_violation — the concurrent-writer signal, not an error. */
 const UNIQUE_VIOLATION = "23505";
@@ -26,24 +27,10 @@ export type WhatsappStatus =
   | "failed"
   | "skipped";
 
-function logSupabaseError(
-  operation: string,
-  error: { message?: string; code?: string } | null
-): void {
-  console.error("[whatsappDb] supabase operation failed (non-fatal):", {
-    operation,
-    message: error?.message,
-    code: error?.code,
-  });
-}
+const logSupabaseError = (operation: string, error: DbError): void =>
+  logDbError("whatsappDb", operation, error);
 
-function getSupabaseClient() {
-  if (!supabase) {
-    console.error("[whatsappDb] supabase client is not configured");
-    return null;
-  }
-  return supabase;
-}
+const getSupabaseClient = () => dbClient("whatsappDb");
 
 /**
  * Claim the right to send one message.

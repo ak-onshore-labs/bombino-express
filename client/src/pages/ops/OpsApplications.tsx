@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { OpsAccessRequired } from '@/components/ops/OpsAccessRequired';
+import { isForbiddenError } from '@/lib/apiError';
 import { Link } from 'wouter';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import { OpsShell } from '@/components/ops/OpsShell';
@@ -112,7 +114,8 @@ export default function OpsApplications() {
         </div>
       )}
 
-      {list.isError && (
+      {list.isError && isForbiddenError(list.error) && <OpsAccessRequired what="the application queue" />}
+      {list.isError && !isForbiddenError(list.error) && (
         <p className="text-sm text-red-600 py-8 text-center" data-testid="ops-applications-error">
           Could not load applications. Try refreshing.
         </p>

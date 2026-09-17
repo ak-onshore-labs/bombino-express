@@ -15,6 +15,7 @@
  */
 
 import { supabase } from "./supabaseClient.js";
+import { dbClient, logDbError, type DbError } from "./db/client.js";
 import { toOrder, type OrderRow } from "./ordersDb.js";
 import type { Order } from "../shared/orderContract.js";
 
@@ -24,24 +25,10 @@ const ORDER_COLUMNS =
 /** Postgres unique_violation — the concurrent-writer signal, not an error. */
 const UNIQUE_VIOLATION = "23505";
 
-function logSupabaseError(
-  operation: string,
-  error: { message?: string; code?: string } | null
-): void {
-  console.error("[paymentsDb] supabase operation failed (non-fatal):", {
-    operation,
-    message: error?.message,
-    code: error?.code,
-  });
-}
+const logSupabaseError = (operation: string, error: DbError): void =>
+  logDbError("paymentsDb", operation, error);
 
-function getSupabaseClient() {
-  if (!supabase) {
-    console.error("[paymentsDb] supabase client is not configured");
-    return null;
-  }
-  return supabase;
-}
+const getSupabaseClient = () => dbClient("paymentsDb");
 
 export type GatewayPaymentRow = {
   id: string;

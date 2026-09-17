@@ -14,15 +14,23 @@ import {
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-/** Every server file that answers requests with `{ message, code }`. */
+/**
+ * Every server file that answers requests with `{ message, code }`.
+ *
+ * Scanned, not listed: a hand-written list goes stale the moment a handler
+ * moves to a new module — which is exactly what happened when the lifecycle
+ * arms were lifted out of `routes.ts` into `orderActions.ts`.
+ */
 function serverSources(): { file: string; text: string }[] {
+  const isSource = (f: string): boolean => f.endsWith(".ts") && !f.endsWith(".test.ts");
   const files = [
-    "server/routes.ts",
-    "server/routeGuards.ts",
-    "server/opsActions.ts",
+    ...fs
+      .readdirSync(path.join(root, "server"))
+      .filter(isSource)
+      .map((f) => `server/${f}`),
     ...fs
       .readdirSync(path.join(root, "server/routes"))
-      .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
+      .filter(isSource)
       .map((f) => `server/routes/${f}`),
   ];
   return files.map((file) => ({ file, text: fs.readFileSync(path.join(root, file), "utf8") }));
@@ -35,9 +43,11 @@ function serverSources(): { file: string; text: string }[] {
  */
 function codesIn(text: string): string[] {
   const found = new Set<string>();
-  for (const m of text.matchAll(/\bcode:\s*"([A-Za-z_]+)"/g)) found.add(m[1]);
+  // Upper case only: `code: "en"` in a WhatsApp template is a language tag.
+  for (const m of text.matchAll(/\bcode:\s*"([A-Z][A-Z0-9_]*)"/g)) found.add(m[1]);
   for (const m of text.matchAll(/\bcode:\s*([A-Z][A-Z0-9_]+)\s*[,}\n]/g)) {
-    const def = text.match(new RegExp(`const ${m[1]}\\s*=\\s*"([A-Za-z_]+)"`));
+    // Also upper case: `const LANGUAGE_CODE = "en"` is not an error code.
+    const def = text.match(new RegExp(`const ${m[1]}\\s*=\\s*"([A-Z][A-Z0-9_]*)"`));
     if (def) found.add(def[1]);
   }
   return [...found];

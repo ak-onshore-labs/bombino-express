@@ -5,7 +5,7 @@ import type {
   OpsBoardSection,
   OpsBoardSort,
 } from '@shared/opsBoardQuery';
-import { apiRequest } from '@/lib/queryClient';
+import { apiRequest, readJson } from '@/lib/queryClient';
 import { parseApiErrorMessage } from '@/lib/apiError';
 
 export type OpsBoardOrder = {
@@ -147,14 +147,6 @@ export type OpsStaffUser = {
 
 export function opsOrderDetailKey(id: string) {
   return ['/api/ops/orders', id] as const;
-}
-
-async function readJson<T>(res: Response): Promise<T> {
-  if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
-  }
-  return (await res.json()) as T;
 }
 
 /** The latest 200 orders — the boards' list, and what the nav's pills count. */

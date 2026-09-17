@@ -10,6 +10,18 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+/**
+ * A fetch Response turned into JSON, or an Error whose message is
+ * `"<status>: <body>"` — the shape `parseApiErrorMessage` and every
+ * `error.message.startsWith('403:')` check already expect.
+ *
+ * Three hooks had a private copy of this, and two pages re-inlined it.
+ */
+export async function readJson<T>(res: Response): Promise<T> {
+  await throwIfResNotOk(res);
+  return (await res.json()) as T;
+}
+
 export async function apiRequest(
   method: string,
   url: string,

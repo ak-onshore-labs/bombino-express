@@ -32,6 +32,7 @@
 
 import crypto from "crypto";
 import { supabase } from "./supabaseClient.js";
+import { dbClient, logDbError, type DbError } from "./db/client.js";
 
 export type HandoverKind = "pickup" | "hub" | "dropoff";
 
@@ -69,24 +70,10 @@ export type VerifyResult =
   | { ok: true }
   | { ok: false; reason: "no_code" | "locked" | "mismatch" | "error"; attemptsLeft: number };
 
-function getSupabaseClient() {
-  if (!supabase) {
-    console.error("[handoverCodes] supabase client is not configured");
-    return null;
-  }
-  return supabase;
-}
+const logSupabaseError = (operation: string, error: DbError): void =>
+  logDbError("handoverCodes", operation, error);
 
-function logSupabaseError(
-  operation: string,
-  error: { message?: string; code?: string } | null
-): void {
-  console.error("[handoverCodes] supabase operation failed:", {
-    operation,
-    message: error?.message,
-    code: error?.code,
-  });
-}
+const getSupabaseClient = () => dbClient("handoverCodes");
 
 /**
  * Four digits, uniformly distributed, including leading zeros.

@@ -23,26 +23,13 @@
 
 import { listAgentIdsForPincode } from "./pickupCoverageDb.js";
 import { supabase } from "./supabaseClient.js";
+import { dbClient, logDbError, type DbError } from "./db/client.js";
 import type { WhatsappRecipient } from "./whatsappDb.js";
 
-function logSupabaseError(
-  operation: string,
-  error: { message?: string; code?: string } | null
-): void {
-  console.error("[whatsappAgents] supabase operation failed (non-fatal):", {
-    operation,
-    message: error?.message,
-    code: error?.code,
-  });
-}
+const logSupabaseError = (operation: string, error: DbError): void =>
+  logDbError("whatsappAgents", operation, error);
 
-function getSupabaseClient() {
-  if (!supabase) {
-    console.error("[whatsappAgents] supabase client is not configured");
-    return null;
-  }
-  return supabase;
-}
+const getSupabaseClient = () => dbClient("whatsappAgents");
 
 function readOptOut(metadata: unknown): boolean {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return false;

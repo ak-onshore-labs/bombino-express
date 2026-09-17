@@ -17,6 +17,7 @@
  */
 
 import { supabase } from "./supabaseClient.js";
+import { dbClient, logDbError, type DbError } from "./db/client.js";
 import { toOrder, type OrderRow } from "./ordersDb.js";
 import type { Order, OrderStatus } from "../shared/orderContract.js";
 
@@ -60,24 +61,10 @@ function toAgentPickup(row: OrderRow & { origin_address?: PickupAddress | null }
   };
 }
 
-function logSupabaseError(
-  operation: string,
-  error: { message?: string; code?: string } | null
-): void {
-  console.error("[agentDb] supabase operation failed:", {
-    operation,
-    message: error?.message,
-    code: error?.code,
-  });
-}
+const logSupabaseError = (operation: string, error: DbError): void =>
+  logDbError("agentDb", operation, error);
 
-function getSupabaseClient() {
-  if (!supabase) {
-    console.error("[agentDb] supabase client is not configured");
-    return null;
-  }
-  return supabase;
-}
+const getSupabaseClient = () => dbClient("agentDb");
 
 /**
  * Jobs nobody has claimed. Oldest first — the queue is FIFO so a pickup cannot

@@ -1,10 +1,10 @@
 node_modules
 .cursor
-.env
-.env.development
-.env.production
-client/.env.development
-client/.env.production
+# Every .env, including hand-made backups like .env.bak.1789567575 — the bare
+# ".env" line used to match only that exact name.
+.env*
+!.env.example
+client/.env*
 dist
 docs/whatsapp.env
 # Vendor API notes pasted with live bearer tokens / session cookies in them

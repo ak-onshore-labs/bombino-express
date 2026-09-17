@@ -23,7 +23,7 @@ const SAYS_AADHAAR = /\b(aa?dh?aa?r|uidai|uid)\b/i;
 /** Five letters, four digits, a letter: nothing else in the app looks like it. */
 const PAN = /\b[a-z]{5}\d{4}([a-z])\b/gi;
 /** A bank account number, when the message says that is what it is. */
-const ACCOUNT_NUMBER = /\b((?:a\/c|acct|account)(?:\s*(?:no\.?|number|#))?\s*[:\-]?\s*)\d{5,14}(\d{4})\b/gi;
+const ACCOUNT_NUMBER = /\b((?:a\/c|acct|account)(?:\s*(?:no\.?|number|#))?\s*[:-]?\s*)\d{5,14}(\d{4})\b/gi;
 
 export function maskSensitive(text: string): string {
   let out = text.replace(GROUPED_AADHAAR, (_m, last: string) => `${MASK}${last}`);

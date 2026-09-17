@@ -6,6 +6,7 @@
  */
 
 import { supabase } from "./supabaseClient.js";
+import { dbClient, logDbError, type DbError } from "./db/client.js";
 import {
   cancellationState,
   readCancellationRequest,
@@ -30,13 +31,10 @@ const BOARD_COLUMNS =
 const DETAIL_COLUMNS =
   "id, order_no, user_id, status, pickup_request, pickup_date, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, itd_docket_response, metadata, created_at, updated_at";
 
-function getSupabaseClient() {
-  return supabase;
-}
+const logSupabaseError = (operation: string, error: DbError): void =>
+  logDbError("opsDb", operation, error);
 
-function logSupabaseError(op: string, error: { message?: string; code?: string } | null): void {
-  console.error(`[opsDb] ${op} failed:`, error?.code, error?.message);
-}
+const getSupabaseClient = () => dbClient("opsDb");
 
 function consigneeField(
   consignee: unknown,

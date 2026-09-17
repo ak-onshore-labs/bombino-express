@@ -16,7 +16,7 @@
 
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
-import { requireRole, requireUser, ensureDbUser } from "../routeGuards.js";
+import { opsDbGate } from "../routeGuards.js";
 import {
   findApplicationDuplicates,
   getApplicationById,
@@ -48,7 +48,7 @@ import {
 } from "../accountDocsDb.js";
 import { getItdUserProfileById } from "../appDb.js";
 import { AuditLogUnavailableError, logDocumentAccessOrThrow } from "../documentAccessLog.js";
-import { sendOpsDocumentFile } from "./ops.js";
+import { sendDocumentFile, wantsDownload } from "../documentResponse.js";
 import { maskNumber } from "../accountEmails.js";
 import {
   COMPANY_CATEGORY_SPECS,
@@ -73,8 +73,6 @@ import {
 function guestPhoneFrom(req: Request): string | null {
   return req.session.guestPhone ?? req.session.signupPhone ?? null;
 }
-
-const opsGate = [requireUser, ensureDbUser, requireRole("admin", "super_admin")] as const;
 
 /** One row of the queue. */
 function queueItem(row: ApplicationRow) {
@@ -135,12 +133,12 @@ export function registerAccountApplicationRoutes(app: Express): void {
 
   // Who is emailed when an application arrives. Registered before
   // /api/ops/applications/:id so "settings" is never read as an id.
-  app.get("/api/ops/settings/application-alerts", ...opsGate, async (_req: Request, res: Response) => {
+  app.get("/api/ops/settings/application-alerts", ...opsDbGate, async (_req: Request, res: Response) => {
     const recipients = await getApplicationAlertRecipients();
     res.json({ ...recipients, sender: mailSender() });
   });
 
-  app.put("/api/ops/settings/application-alerts", ...opsGate, async (req: Request, res: Response) => {
+  app.put("/api/ops/settings/application-alerts", ...opsDbGate, async (req: Request, res: Response) => {
     const actorId = req.session.dbUserId;
     if (!actorId) {
       res.status(401).json({ message: "Not authenticated" });
@@ -163,7 +161,7 @@ export function registerAccountApplicationRoutes(app: Express): void {
     res.json({ ...result.value, sender: mailSender() });
   });
 
-  app.post("/api/ops/settings/application-alerts/test", ...opsGate, async (_req: Request, res: Response) => {
+  app.post("/api/ops/settings/application-alerts/test", ...opsDbGate, async (_req: Request, res: Response) => {
     const { emails } = await getApplicationAlertRecipients();
     if (emails.length === 0) {
       res.status(400).json({ message: "Add an address first.", code: "NO_RECIPIENTS" });
@@ -178,7 +176,7 @@ export function registerAccountApplicationRoutes(app: Express): void {
   });
 
   // GET /api/ops/applications?status=open|all|<status>
-  app.get("/api/ops/applications", ...opsGate, async (req: Request, res: Response) => {
+  app.get("/api/ops/applications", ...opsDbGate, async (req: Request, res: Response) => {
     const raw = typeof req.query.status === "string" ? req.query.status : "open";
     let statuses: ApplicationStatus[] | undefined;
     if (raw === "open") statuses = [...OPEN_APPLICATION_STATUSES];
@@ -193,7 +191,7 @@ export function registerAccountApplicationRoutes(app: Express): void {
   });
 
   // GET /api/ops/applications/:id — everything a reviewer needs to decide.
-  app.get("/api/ops/applications/:id", ...opsGate, async (req: Request, res: Response) => {
+  app.get("/api/ops/applications/:id", ...opsDbGate, async (req: Request, res: Response) => {
     const row = await getApplicationById(req.params.id);
     if (!row) {
       res.status(404).json({ message: "Application not found." });
@@ -262,13 +260,14 @@ export function registerAccountApplicationRoutes(app: Express): void {
   });
 
   // GET /api/ops/applications/:id/documents/:slot/file — any ops reviewer, logged.
-  app.get("/api/ops/applications/:id/documents/:slot/file", ...opsGate, async (req: Request, res: Response) => {
+  app.get("/api/ops/applications/:id/documents/:slot/file", ...opsDbGate, async (req: Request, res: Response) => {
     const row = await getApplicationById(req.params.id);
     const slot = req.params.slot;
     if (!row || !isDocSlot(slot)) {
       res.status(404).json({ message: "Document not found." });
       return;
     }
+    const download = wantsDownload(req);
     try {
       const doc = row.user_id
         ? await getUserDocumentWithFile(row.user_id, slot)
@@ -283,10 +282,10 @@ export function registerAccountApplicationRoutes(app: Express): void {
         documentId: doc.id,
         userId: row.user_id,
         actorUserId: req.session.dbUserId ?? null,
-        action: "view",
+        action: download ? "download" : "view",
         capabilityId: doc.capability_id,
       });
-      sendOpsDocumentFile(res, doc);
+      sendDocumentFile(res, doc, download ? "attachment" : "inline");
     } catch (err) {
       if (err instanceof AuditLogUnavailableError) {
         res.status(500).json({ message: "Audit unavailable." });
@@ -300,7 +299,7 @@ export function registerAccountApplicationRoutes(app: Express): void {
   // POST /api/ops/applications/:id/documents/:slot/verify — a reviewer has
   // looked at the document and vouches for it. Logged in the history with
   // Cashfree's earlier result.
-  app.post("/api/ops/applications/:id/documents/:slot/verify", ...opsGate, async (req: Request, res: Response) => {
+  app.post("/api/ops/applications/:id/documents/:slot/verify", ...opsDbGate, async (req: Request, res: Response) => {
     const actorId = req.session.dbUserId;
     if (!actorId) {
       res.status(401).json({ message: "Not authenticated" });
@@ -355,7 +354,7 @@ export function registerAccountApplicationRoutes(app: Express): void {
   });
 
   // POST /api/ops/applications/:id/actions  { action, ...payload }
-  app.post("/api/ops/applications/:id/actions", ...opsGate, async (req: Request, res: Response) => {
+  app.post("/api/ops/applications/:id/actions", ...opsDbGate, async (req: Request, res: Response) => {
     const actorId = req.session.dbUserId;
     if (!actorId) {
       res.status(401).json({ message: "Not authenticated" });
@@ -500,7 +499,7 @@ export function registerAccountApplicationRoutes(app: Express): void {
   });
 
   // PUT /api/ops/customers/:id/itd-credentials — a new ITD login for an account.
-  app.put("/api/ops/customers/:id/itd-credentials", ...opsGate, async (req: Request, res: Response) => {
+  app.put("/api/ops/customers/:id/itd-credentials", ...opsDbGate, async (req: Request, res: Response) => {
     const parsed = approveSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid request" });

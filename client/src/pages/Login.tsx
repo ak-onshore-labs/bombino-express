@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { isIndianMobile } from '@shared/contact';
 import {
   Loader2,
   Mail,
@@ -194,7 +195,7 @@ export default function Login() {
   };
 
   const handleSendOtp = (): void => {
-    if (!/^\d{10}$/.test(phone.trim())) {
+    if (!isIndianMobile(phone.trim())) {
       setError('Enter a valid 10-digit phone number');
       phoneRef.current?.focus();
       return;

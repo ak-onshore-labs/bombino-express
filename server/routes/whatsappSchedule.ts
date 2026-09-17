@@ -25,7 +25,7 @@
  */
 
 import type { Express, Request, Response } from "express";
-import crypto from "crypto";
+import { cronSecretPresented } from "../cronAuth.js";
 import { supabase } from "../supabaseClient.js";
 import { toOrder, type OrderRow } from "../ordersDb.js";
 import type { Order } from "../../shared/orderContract.js";
@@ -40,16 +40,6 @@ const JOB_COLUMNS =
   "id, order_no, user_id, status, pickup_request, pickup_date, origin_address_id, " +
   "consignee, items, booked_weight, quoted_amount, payment_method, payment_status, is_cod, " +
   "agent_id, actual_weight, final_amount, awb_no, metadata, created_at, updated_at";
-
-function authorised(req: Request): boolean {
-  const expected = process.env.WA_CRON_SECRET;
-  if (!expected) return false;
-
-  const header = req.header("authorization") ?? "";
-  const presented = header.startsWith("Bearer ") ? header.slice(7) : "";
-  if (presented.length !== expected.length) return false;
-  return crypto.timingSafeEqual(Buffer.from(presented), Buffer.from(expected));
-}
 
 /**
  * Every claimed, not-yet-started job for a date.
@@ -126,7 +116,7 @@ async function sendDailyDigest(date: string): Promise<number> {
 
 export function registerWhatsappScheduleRoutes(app: Express): void {
   app.post("/api/internal/wa/agent-schedule", async (req: Request, res: Response) => {
-    if (!authorised(req)) {
+    if (!cronSecretPresented(req)) {
       // 404, not 401. An internal endpoint that confirms it exists is an
       // internal endpoint somebody will start guessing at.
       res.status(404).json({ message: "Not found" });

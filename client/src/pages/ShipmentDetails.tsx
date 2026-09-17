@@ -18,7 +18,7 @@ import { formatDistanceToNow, format, parseISO, isValid } from 'date-fns';
 import { BottomNav } from '@/components/BottomNav';
 import { StatusBadge } from '@/components/StatusBadge';
 import { TrackingTimeline } from '@/components/TrackingTimeline';
-import type { TrackingEvent } from '@/lib/mockData';
+import type { TrackingEvent } from '@/lib/trackingTypes';
 import { getStatusLabel, getStatusColor, isAwbStatusFinal } from '@/lib/awbStatus';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';

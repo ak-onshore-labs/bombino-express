@@ -1,10 +1,14 @@
 {
   "include": ["client/src/**/*", "shared/**/*", "server/**/*", "scripts/bia-eval.ts"],
-  "exclude": ["node_modules", "build", "dist", "**/*.test.ts"],
+  "exclude": ["node_modules", "build", "dist"],
   "compilerOptions": {
     "incremental": true,
     "tsBuildInfoFile": "./node_modules/typescript/tsbuildinfo",
     "noEmit": true,
+    // Node 20 runs the server and Vite compiles the client: both are ES2022.
+    // Without this, tsc assumed ES3 and rejected top-level await and Set
+    // iteration in the test files the moment they were type-checked.
+    "target": "ES2022",
     "module": "ESNext",
     "strict": true,
     "lib": ["esnext", "dom", "dom.iterable"],

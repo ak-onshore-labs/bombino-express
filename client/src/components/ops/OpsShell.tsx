@@ -1,4 +1,5 @@
 import type * as React from 'react';
+import { signOutAndRedirect } from '@/lib/session';
 import { LogOut } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { useAppStore } from '@/lib/store';
@@ -32,17 +33,9 @@ export function OpsShell({
 }) {
   const isMobile = useIsMobile();
   const [, setLocation] = useLocation();
-  const { user, logout } = useAppStore();
+  const user = useAppStore((s) => s.user);
 
-  const handleLogout = async (): Promise<void> => {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
-    } catch {
-      // Ignore network failure — still clear the local session.
-    }
-    logout();
-    setLocation('/login');
-  };
+  const handleLogout = (): Promise<void> => signOutAndRedirect(setLocation);
 
   const heading = (
     <div className="mb-4">

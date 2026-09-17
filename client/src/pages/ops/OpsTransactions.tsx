@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react';
+import { OpsAccessRequired } from '@/components/ops/OpsAccessRequired';
+import { isForbiddenError } from '@/lib/apiError';
 import { Link } from 'wouter';
 import { Download, Loader2, Search } from 'lucide-react';
 import { nowInIst } from '@shared/istTime';
@@ -55,7 +57,7 @@ export default function OpsTransactions() {
   const [range, setRange] = useState<OpsPaymentRange>('today');
   const [query, setQuery] = useState('');
   const [exporting, setExporting] = useState(false);
-  const { data, isLoading, isError } = useOpsPayments(range);
+  const { data, isLoading, isError, error } = useOpsPayments(range);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -142,7 +144,8 @@ export default function OpsTransactions() {
         </div>
       )}
 
-      {isError && (
+      {isError && isForbiddenError(error) && <OpsAccessRequired what="the payments ledger" />}
+      {isError && !isForbiddenError(error) && (
         <p className="text-sm text-red-600 py-8 text-center" data-testid="ops-ledger-error">
           Could not load payments. Try refreshing.
         </p>

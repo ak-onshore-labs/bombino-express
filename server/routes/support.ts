@@ -24,6 +24,7 @@ import {
 } from "../appDb.js";
 import { refreshItdTokenIfNeeded } from "../itdTokenRefresh.js";
 import { ensureDbUser } from "../routeGuards.js";
+import { OWNER_PROFILES, ownerFrom } from "../sessionOwner.js";
 import { parseBiaScreen, type BiaScreen } from "../../shared/biaScreen.js";
 import { handleChat } from "../supportAgent.js";
 import { enabledBiaModules, toolsForTurn } from "../supportTools.js";
@@ -72,10 +73,9 @@ export function registerSupportRoutes(app: Express): void {
    * before that the guest calls fail soft and the chat keeps it in the tab.
    */
   function sessionOwnerFor(req: Request): SupportSessionOwner | null {
-    const dbUserId = req.session.dbUserId ?? null;
-    if (req.session.user && dbUserId) return { userId: dbUserId };
-    if (req.session.guestRef) return { guestRef: req.session.guestRef };
-    return null;
+    const owner = ownerFrom(req, OWNER_PROFILES.supportSession);
+    if (!owner) return null;
+    return owner.kind === "account" ? { userId: owner.userId } : { guestRef: owner.guestRef };
   }
 
   // POST /api/support/chat — guest and logged-in. Body: { messages, sessionId?, screen? };

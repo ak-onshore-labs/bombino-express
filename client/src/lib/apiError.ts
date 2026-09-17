@@ -29,3 +29,26 @@ export function parseApiErrorCode(err: unknown): string | null {
     return null;
   }
 }
+
+/**
+ * The HTTP status a thrown fetch error carries, when it has one.
+ *
+ * Every client fetch path throws `Error("<status>: <body>")` (see
+ * `readJson` / `throwIfResNotOk` in lib/queryClient.ts), so the status is
+ * recoverable without threading a second value through React Query.
+ */
+export function apiErrorStatus(err: unknown): number | null {
+  if (!(err instanceof Error)) return null;
+  const match = /^(\d{3}):/.exec(err.message);
+  return match ? Number(match[1]) : null;
+}
+
+/** A signed-in staff member without the role this screen needs. */
+export function isForbiddenError(err: unknown): boolean {
+  return apiErrorStatus(err) === 403;
+}
+
+/** The record is not there — usually a stale link, not a fault. */
+export function isNotFoundError(err: unknown): boolean {
+  return apiErrorStatus(err) === 404;
+}

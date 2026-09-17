@@ -10,6 +10,8 @@
  * keep anyone out of anything.
  */
 
+import { isRole, roleSatisfies } from '@shared/orderContract';
+
 export type Surface = 'customer' | 'agent' | 'ops';
 
 /** Where each role goes on login, and when it hits a surface it doesn't own. */
@@ -38,7 +40,7 @@ export function surfaceForPath(path: string): Surface {
 
 export function surfaceForRole(role: string | undefined): Surface {
   if (role === 'agent') return 'agent';
-  if (role === 'admin' || role === 'super_admin') return 'ops';
+  if (isRole(role) && roleSatisfies(role, 'admin')) return 'ops';
   return 'customer';
 }
 

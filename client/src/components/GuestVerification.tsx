@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { isIndianMobile } from '@shared/contact';
 import { Loader2, ShieldCheck, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -117,7 +118,7 @@ export function GuestVerification({
   };
 
   const handleSendOtp = (): void => {
-    if (!/^\d{10}$/.test(phone.trim())) {
+    if (!isIndianMobile(phone.trim())) {
       setError('Enter a valid 10-digit phone number');
       phoneRef.current?.focus();
       return;

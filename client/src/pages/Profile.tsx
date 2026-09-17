@@ -11,6 +11,8 @@ import {
   Calendar,
 } from 'lucide-react';
 import { useLocation } from 'wouter';
+import { useRefreshUserProfile, useUserProfile } from '@/hooks/useUserProfile';
+import { isIndianMobile } from '@shared/contact';
 import { useAppStore } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import {
@@ -67,7 +69,8 @@ export default function Profile() {
   const [, setLocation] = useLocation();
   const { isLoggedIn, user, login } = useAppStore();
   const { toast } = useToast();
-  const [profile, setProfile] = useState<any>(null);
+  const { data: profile } = useUserProfile(isLoggedIn);
+  const refreshProfile = useRefreshUserProfile();
   const [signOutOpen, setSignOutOpen] = useState(false);
   const [unlinkOpen, setUnlinkOpen] = useState(false);
   const [isUnlinking, setIsUnlinking] = useState(false);
@@ -96,24 +99,6 @@ export default function Profile() {
   const queryClient = useQueryClient();
   const { data: verification } = useVerificationState({ enabled: isLoggedIn });
   const [, setOutstandingDocs] = useState<DocSlot[]>([]);
-
-  useEffect(() => {
-    if (!isLoggedIn) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch('/api/user/profile', { credentials: 'include' });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!cancelled) setProfile(data);
-      } catch {
-        // silent fallback to Zustand
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isLoggedIn]);
 
   if (!isLoggedIn) {
     return (
@@ -169,7 +154,7 @@ export default function Profile() {
     setIsUnlinking(true);
     try {
       await apiRequest('POST', '/api/user/phone/unlink', {});
-      setProfile((prev: any) => (prev ? { ...prev, phone: null } : prev));
+      void refreshProfile();
       setUnlinkOpen(false);
       toast({
         title: 'Mobile number unlinked',
@@ -199,7 +184,7 @@ export default function Profile() {
   };
 
   const handleSendChangeOtp = async () => {
-    if (!/^\d{10}$/.test(newPhone.trim())) {
+    if (!isIndianMobile(newPhone.trim())) {
       setChangeError('Enter a valid 10-digit phone number');
       return;
     }
@@ -246,7 +231,7 @@ export default function Profile() {
         phone: newPhone.trim(),
         ...(requiresPassword ? { password: changePassword } : {}),
       });
-      setProfile((prev: any) => (prev ? { ...prev, phone: newPhone.trim() } : prev));
+      void refreshProfile();
       setChangeOpen(false);
       toast({
         title: 'Mobile number updated',
@@ -279,7 +264,7 @@ export default function Profile() {
     setUsernameError('');
     try {
       await apiRequest('PATCH', '/api/user/profile', { username: next });
-      setProfile((prev: any) => (prev ? { ...prev, username: next } : prev));
+      void refreshProfile();
       // The store feeds the header and anything else reading the session user,
       // so it has to move with the profile response.
       if (user) login({ ...user, username: next });

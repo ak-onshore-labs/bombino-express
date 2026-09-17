@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { isIndianMobile } from '@shared/contact';
 import { User, Mail, Phone, Building2, Loader2, ShieldCheck, UserRound, MapPin, ArrowRight } from 'lucide-react';
 import { useLocation, Link } from 'wouter';
 import { Button } from '@/components/ui/button';
@@ -392,7 +393,7 @@ export default function Signup() {
 
   const validateDetails = (): boolean => {
     const nextErrors: Record<string, string> = {};
-    if (!/^\d{10}$/.test(phone.trim())) nextErrors.phone = 'Enter a valid 10-digit phone number';
+    if (!isIndianMobile(phone.trim())) nextErrors.phone = 'Enter a valid 10-digit phone number';
     if (!EMAIL_PATTERN.test(email.trim())) nextErrors.email = 'Enter a valid email';
 
     if (accountType === 'personal') {
@@ -476,7 +477,7 @@ export default function Signup() {
    */
   const handlePhoneVerificationExpired = (): void => {
     const search = new URLSearchParams({ reason: 'signup_otp' });
-    if (/^\d{10}$/.test(phone.trim())) search.set('phone', phone.trim());
+    if (isIndianMobile(phone.trim())) search.set('phone', phone.trim());
     if (redirect) search.set('redirect', redirect);
     setLocation(`/login?${search.toString()}`);
   };

@@ -26,6 +26,7 @@ if (typeof setDefaultResultOrder === "function") {
 import express, { type Express, type Request, Response, NextFunction } from "express";
 import session from "express-session";
 import cookieSession from "cookie-session";
+import { installProcessGuards } from "./processGuards.js";
 import { registerRoutes } from "./routes.js";
 import { assertDatabaseUrl, getPgPoolConfig } from "./pgPoolConfig.js";
 import { warnIfPaymentsTestModeEnabled } from "./paymentsTestMode.js";
@@ -316,6 +317,9 @@ function cookieBackedSession(): express.RequestHandler {
  * that is fine — it exists so the signature holds for both hosts.
  */
 export async function createApp(): Promise<{ app: Express; httpServer: Server }> {
+  // Both entrypoints build the app through here, so the net goes on here too.
+  installProcessGuards();
+
   const app = express();
   // Behind Vercel's proxy (and any other), so req.protocol and the secure
   // cookie flag read the forwarded headers rather than the socket.
