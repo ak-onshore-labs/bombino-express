@@ -43,7 +43,9 @@ async function loadAgents(ids: string[] | null): Promise<WhatsappRecipient[]> {
   let query = client
     .from("itd_users")
     .select("id, full_name, phone, metadata")
-    .eq("role", "agent");
+    .eq("role", "agent")
+    // A deactivated rider has left: no new-job alerts, no morning digest.
+    .eq("is_active", true);
 
   if (ids) {
     if (ids.length === 0) return [];

@@ -10,8 +10,8 @@
  *                 CDN does that — and never listens.
  *
  * Nothing here touches the filesystem or binds a socket, so it is safe in both.
- * `createApp` is async because the session store has to resolve Redis first,
- * and callers must await it before handling a request.
+ * `createApp` is async because the session store has to connect to Postgres
+ * first, and callers must await it before handling a request.
  */
 
 import "dotenv/config";
@@ -37,39 +37,11 @@ import { warnIfDocketAtBookingEnabled } from "./docketAtBooking.js";
 import { warnIfMailerMissing } from "./mailer.js";
 import { isAccountReviewEnabled } from "./accountApplications.js";
 import { assertFieldCryptoConfigured } from "./fieldCrypto.js";
+import { supabase } from "./supabaseClient.js";
 import { createServer, type Server } from "http";
 
 
 // ─── Session + Auth ───────────────────────────────────────────────────────────
-const REDIS_READY_WAIT_MS = 5000; // > redis socket.connectTimeout (3000)
-
-async function waitForRedisReady(
-  client: {
-    isReady: boolean;
-    isOpen: boolean;
-    on(event: "ready", listener: () => void): void;
-    off(event: "ready", listener: () => void): void;
-  },
-  timeoutMs = REDIS_READY_WAIT_MS
-): Promise<boolean> {
-  if (client.isReady) return true;
-
-  return new Promise((resolve) => {
-    const onReady = () => {
-      cleanup();
-      resolve(true);
-    };
-    const timer = setTimeout(() => {
-      cleanup();
-      resolve(false);
-    }, timeoutMs);
-    const cleanup = () => {
-      clearTimeout(timer);
-      client.off("ready", onReady);
-    };
-    client.on("ready", onReady);
-  });
-}
 
 function makeSessionStoreFailOpen(base: session.Store): session.Store {
   base.on("error", (err: Error) =>
@@ -136,8 +108,9 @@ async function buildPgSessionStore(): Promise<session.Store | undefined> {
       getPgPoolConfig({
         // A serverless container handles one request at a time and is frozen
         // between them; a big pool would just hold connections open against
-        // Supabase for nothing.
-        max: 2,
+        // Supabase for nothing. A long-lived server (Railway) reads the store on
+        // every API request from every user, so it gets a few more.
+        max: isServerless() ? 2 : 5,
         idleTimeoutMillis: 10_000,
       })
     );
@@ -153,9 +126,10 @@ async function buildPgSessionStore(): Promise<session.Store | undefined> {
       pool,
       tableName: "session",
       createTableIfMissing: true,
-      // Cleaning up expired rows on a serverless boot is wasted work — one
-      // container in ten thousand would run it. Do it in SQL if it ever matters.
-      pruneSessionInterval: false,
+      // Expired rows are deleted hourly by the long-lived server. Serverless
+      // containers are frozen between requests, so they leave it to that — a
+      // prune timer there would fire at random, if at all.
+      pruneSessionInterval: isServerless() ? false : 60 * 60,
     });
 
     console.log("[session] using PostgresStore");
@@ -166,35 +140,55 @@ async function buildPgSessionStore(): Promise<session.Store | undefined> {
   }
 }
 
+/** One cheap read through the same client every route uses, capped at 3s. */
+async function databaseReachable(): Promise<boolean> {
+  if (!supabase) return false;
+  const probe = supabase.from("itd_users").select("id").limit(1);
+  const timeout = new Promise<{ error: Error }>((resolve) =>
+    setTimeout(() => resolve({ error: new Error("timeout") }), 3000)
+  );
+  const { error } = await Promise.race([probe, timeout]);
+  return !error;
+}
+
+/** Vercel sets VERCEL=1 in every function; Railway and local runs never do. */
+function isServerless(): boolean {
+  return !!process.env.VERCEL;
+}
+
+/**
+ * The key that signs every session cookie.
+ *
+ * In development a fixed fallback is convenient. In production it would mean
+ * anyone who has read this repository can forge a session for any user, so
+ * the server refuses to start rather than run with it.
+ */
+function sessionSecret(): string {
+  const secret = process.env.SESSION_SECRET?.trim();
+  if (secret) return secret;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("SESSION_SECRET must be set in production — refusing to start.");
+  }
+  return "dev-secret";
+}
+
+/**
+ * Sessions live in Postgres — the database the app already has. There is no
+ * Redis any more.
+ *
+ * If Postgres can't be reached: a long-lived production server refuses to
+ * boot, because the only thing left is the signed-cookie store, whose payload
+ * the browser can read. Development and serverless fall back to it.
+ */
 async function buildSessionStore(): Promise<session.Store | undefined> {
-  if (!process.env.REDIS_URL) {
-    return buildPgSessionStore();
+  const store = await buildPgSessionStore();
+  if (!store && process.env.NODE_ENV === "production" && !isServerless()) {
+    throw new Error(
+      "Could not open the Postgres session store (check DATABASE_URL) — refusing to start " +
+        "rather than keep sessions in browser-readable cookies."
+    );
   }
-
-  try {
-    const { RedisStore } = await import("connect-redis");
-    const { default: client } = await import("./redisClient.js");
-
-    const ready = await waitForRedisReady(client);
-    if (!ready) {
-      // A REDIS_URL that does not answer is the common case on a fresh deploy —
-      // `redis://localhost:6379` copied out of .env.example, pointing at a
-      // machine that is not there. Fall through to Postgres rather than to
-      // MemoryStore, which would silently break every login.
-      console.warn(
-        `[session] Redis not ready within ${REDIS_READY_WAIT_MS}ms ` +
-          `(isOpen=${client.isOpen}, isReady=${client.isReady}) — falling back to Postgres`
-      );
-      return buildPgSessionStore();
-    }
-
-    const baseStore = new RedisStore({ client });
-    console.log("[session] using RedisStore");
-    return makeSessionStoreFailOpen(baseStore);
-  } catch (e) {
-    console.warn("[session] RedisStore init failed, falling back to Postgres:", e);
-    return buildPgSessionStore();
-  }
+  return store;
 }
 
 declare module "http" {
@@ -230,10 +224,15 @@ function requestLogger(req: Request, res: Response, next: NextFunction) {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (path === "/api/support/chat") {
-        logLine += " :: [redacted]";
-      } else if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+      // Reply bodies carry customers' phones, addresses, amounts — and, on the
+      // ops identity route, a decrypted Aadhaar or PAN. They go to the log in
+      // development only; production logs the line above and nothing more.
+      if (process.env.NODE_ENV !== "production") {
+        if (path === "/api/support/chat") {
+          logLine += " :: [redacted]";
+        } else if (capturedJsonResponse) {
+          logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+        }
       }
       log(logLine);
     }
@@ -246,9 +245,8 @@ function requestLogger(req: Request, res: Response, next: NextFunction) {
  * Sessions with no server behind them: the whole session rides in a signed
  * cookie.
  *
- * The last resort, and on a serverless host usually the right one. Redis and
- * Postgres both have to be reachable and correctly credentialed; a cookie has
- * to be nothing. Since Vercel hands each request to whichever container it
+ * The last resort, and on a serverless host usually the right one. Postgres has
+ * to be reachable and correctly credentialed; a cookie has to be nothing. Since Vercel hands each request to whichever container it
  * likes, a store that needs neither is the only one that cannot silently
  * degrade into "signed in, then bounced back to the login page".
  *
@@ -257,8 +255,9 @@ function requestLogger(req: Request, res: Response, next: NextFunction) {
  *   · The payload is signed, not encrypted. The browser can read it. That is
  *     fine for a user id and a role; it means an ITD bearer token in
  *     `itdToken` would be readable too, which is why this is the fallback and
- *     not the default — an environment with real ITD logins should give Redis
- *     or Postgres a working URL and get a server-side store.
+ *     not the default — an environment with real ITD logins should give
+ *     Postgres a working URL and get a server-side store. A long-lived
+ *     production server refuses to boot without one (see buildSessionStore).
  *   · Cookies cap at ~4KB. The session here is a user record and two ids, well
  *     inside that.
  *
@@ -271,7 +270,7 @@ function requestLogger(req: Request, res: Response, next: NextFunction) {
 function cookieBackedSession(): express.RequestHandler {
   const inner = cookieSession({
     name: "bombino.sid",
-    keys: [process.env.SESSION_SECRET ?? "dev-secret"],
+    keys: [sessionSecret()],
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
@@ -336,6 +335,14 @@ export async function createApp(): Promise<{ app: Express; httpServer: Server }>
   app.use(express.urlencoded({ extended: false }));
   app.use(requestLogger);
 
+  // Liveness for the host's healthcheck. Registered before the session
+  // middleware so a probe never touches the store. `db` is a real round trip,
+  // so a deploy whose database is unreachable never takes traffic.
+  app.get("/api/health", async (_req: Request, res: Response) => {
+    const db = await databaseReachable();
+    res.status(db ? 200 : 503).json({ ok: db, db });
+  });
+
   const sessionStore = await buildSessionStore();
 
   // Sessions on the API only. Every route that reads one is under /api; the
@@ -349,7 +356,7 @@ export async function createApp(): Promise<{ app: Express; httpServer: Server }>
       "/api",
       session({
         store: sessionStore,
-        secret: process.env.SESSION_SECRET ?? "dev-secret",
+        secret: sessionSecret(),
         resave: false,
         saveUninitialized: false,
         rolling: true,
@@ -362,7 +369,7 @@ export async function createApp(): Promise<{ app: Express; httpServer: Server }>
       }),
     );
   } else {
-    // No Redis, no Postgres. MemoryStore would "work" and then lose the session
+    // No Postgres. MemoryStore would "work" and then lose the session
     // on the next request to a different container, which looks like a bug in
     // the login page rather than a missing service. The cookie always works.
     console.log("[session] no server store available — using signed cookies");

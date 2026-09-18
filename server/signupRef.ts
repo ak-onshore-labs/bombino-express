@@ -93,20 +93,47 @@ export function signupRefForReading(req: Request, phone: string | undefined): st
  */
 export const PHONE_UNVERIFIED = "phone_unverified";
 
+/**
+ * Record, on THIS session, that the caller just proved `phone` with a code.
+ * Called wherever a code is spent successfully.
+ */
+export function markPhoneVerified(req: Request, phone: string): void {
+  req.session.verifiedPhone = phone;
+  req.session.verifiedPhoneAt = Date.now();
+}
+
+/**
+ * Did this browser prove `phone` within the verification window?
+ *
+ * A verification used to be looked up by number alone ("was this number
+ * verified in the last ten minutes?"), so while a customer was signing up a
+ * second browser could stage documents, open an account, or link an ITD login
+ * on their number. The stamp lives in the server-side session, so only the
+ * browser that typed the code carries it. The code row must also still read
+ * as spent recently — belt and braces against a stamp outliving its code.
+ */
+export async function isPhoneVerifiedHere(req: Request, phone: string): Promise<boolean> {
+  const at = req.session.verifiedPhoneAt;
+  if (req.session.verifiedPhone !== phone || typeof at !== "number") return false;
+  if (Date.now() - at > OTP_VERIFICATION_WINDOW_MINUTES * 60_000) return false;
+  return hasRecentVerification(phone, "auth", OTP_VERIFICATION_WINDOW_MINUTES);
+}
+
 export async function assertPhoneVerified(
   phone: unknown,
   res: Response,
+  req: Request,
   /**
-   * The request, when a live guest session may stand in for a fresh OTP.
+   * Whether a live guest session may stand in for a fresh OTP.
    *
-   * Only passed by routes a returning guest reaches from their profile
-   * rather than mid-signup. `session.guestRef` can only have been minted by
-   * an OTP on `session.guestPhone`, so it proves the same number — what it
-   * does not carry is the ten-minute freshness, and for a customer filling
-   * in their own profile over several visits that window is the wrong rule.
-   * Signup's own calls omit this and stay strict.
+   * Only for routes a returning guest reaches from their profile rather than
+   * mid-signup. `session.guestRef` can only have been minted by an OTP on
+   * `session.guestPhone`, so it proves the same number — what it does not
+   * carry is the ten-minute freshness, and for a customer filling in their
+   * own profile over several visits that window is the wrong rule. Signup's
+   * own calls leave this off and stay strict.
    */
-  req?: Request
+  options: { allowSessionGuest?: boolean } = {}
 ): Promise<string | null> {
   const parsed = phoneSchema.safeParse(phone);
   if (!parsed.success) {
@@ -116,15 +143,11 @@ export async function assertPhoneVerified(
     return null;
   }
 
-  if (req?.session.guestRef && req.session.guestPhone === parsed.data) {
+  if (options.allowSessionGuest && req.session.guestRef && req.session.guestPhone === parsed.data) {
     return parsed.data;
   }
 
-  const verified = await hasRecentVerification(
-    parsed.data,
-    "auth",
-    OTP_VERIFICATION_WINDOW_MINUTES
-  );
+  const verified = await isPhoneVerifiedHere(req, parsed.data);
   if (!verified) {
     res.status(400).json({
       message: `Your phone verification has expired. Please request a new code.`,

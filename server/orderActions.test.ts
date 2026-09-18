@@ -84,17 +84,17 @@ test("each collection point only takes the money it is for", async () => {
   assert.equal(atDoor?.code, "PAYMENT_METHOD_MISMATCH");
   assert.match(atDoor?.message ?? "", /pay-at-pickup/);
 
-  // Ops at the counter, on an order due at the door.
+  // Ops at the counter never collects cash on delivery — nothing is ours to take.
   const atCounter = refusal(
     await handleCollectPayment({
-      order: order({ payment_method: "pay_at_pickup" }),
+      order: order({ payment_method: "cod", is_cod: true }),
       callerId: CALLER,
       role: "admin",
       payload: { amount: 100, collection_mode: "cash" },
     })
   );
   assert.equal(atCounter?.code, "PAYMENT_METHOD_MISMATCH");
-  assert.match(atCounter?.message ?? "", /pay-at-drop-off/);
+  assert.match(atCounter?.message ?? "", /Cash on delivery/);
 });
 
 test("how the money moved is required, and the amount must be real", async () => {

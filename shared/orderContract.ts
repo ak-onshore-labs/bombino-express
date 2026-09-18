@@ -366,17 +366,19 @@ export function isInternalOnlyStatus(status: OrderStatus): boolean {
  * The single helper both lanes use to answer "may this order advance toward a
  * docket?".
  *
- * STUB — M3 owns the real implementation (reconciliation against `payments`
- * rows and the reprice delta). The signature is fixed here so A5 and M3 can be
- * written against it in parallel.
+ * `payment_status` is recomputed from the payments held against the amount due
+ * on every money event, the reweigh included (`reconcilePaymentStatus` in
+ * server/paymentsDb.ts), so this only has to read it:
  *
- * Returns false for everything except COD, which passes by design and must
- * never block a docket (§4, Flow C). Erring closed means a premature caller
- * gets a refusal rather than a wrongly-dispatched parcel.
+ *   · COD passes by design and must never block a docket (§4, Flow C).
+ *   · `paid` — what we hold covers what is due.
+ *   · `refund_due` — we hold more than is due (weighed lighter, Flow D). The
+ *     refund is flagged for accounts and the order settles and ships.
+ *   · Anything else — pending, partially paid, failed — is money still owed.
  */
 export function isPaymentSatisfied(order: Order): boolean {
   if (order.is_cod || order.payment_method === 'cod') return true;
-  return order.payment_status === 'paid';
+  return order.payment_status === 'paid' || order.payment_status === 'refund_due';
 }
 
 /**

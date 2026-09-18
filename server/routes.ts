@@ -80,6 +80,8 @@ import {
   handleMarkDispatched,
   handleSettle,
   handleWeigh,
+  itdRateAtWeight,
+  itdRatesLoginFor,
 } from "./opsActions.js";
 import { isIndiaHubId } from "../shared/hubs.js";
 import {
@@ -127,6 +129,8 @@ import {
 import {
   PHONE_UNVERIFIED,
   assertPhoneVerified,
+  isPhoneVerifiedHere,
+  markPhoneVerified,
   signupRefForPhone,
   signupRefForReading,
 } from "./signupRef.js";
@@ -147,13 +151,11 @@ import {
   deliverOtp,
   OTP_TTL_MINUTES,
   OTP_MAX_REQUESTS_PER_HOUR,
-  OTP_VERIFICATION_WINDOW_MINUTES,
 } from "./otp.js";
 import type { OtpPurpose } from "./otpDb.js";
 import {
   countRecentRequests,
   insertOtpCode,
-  hasRecentVerification,
 } from "./otpDb.js";
 import { consumeOtp, verifyOtp } from "./otpVerify.js";
 import { decryptPassword, encryptPassword, isEncryptionConfigured } from "./crypto.js";
@@ -359,17 +361,6 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/debug/session", (req, res) => {
-    res.json({
-      hasSession: !!req.session,
-      hasItdToken: !!req.session.itdToken,
-      hasUser: !!req.session.user,
-      hasDbUserId: !!req.session.dbUserId,
-      sessionID: req.sessionID,
-      cookieSettings: req.session.cookie,
-    });
-  });
-
   // POST /api/auth/logout — destroy session
   app.post("/api/auth/logout", (req: Request, res: Response) => {
     req.session.destroy((err) => {
@@ -459,6 +450,7 @@ export async function registerRoutes(
       res.status(result.status).json({ message: result.message, code: result.code });
       return;
     }
+    if (purpose === "auth") markPhoneVerified(req, phone);
     res.json({ verified: true });
   });
 
@@ -501,7 +493,7 @@ export async function registerRoutes(
     // parcel can easily reach more than ten minutes after the OTP — and being
     // refused sight of a contract you are about to sign is the wrong failure.
     // The session ref proves the same number; nothing here is written.
-    const phone = await assertPhoneVerified(req.body?.phone, res, req);
+    const phone = await assertPhoneVerified(req.body?.phone, res, req, { allowSessionGuest: true });
     if (!phone) return;
 
     const signedName =
@@ -603,7 +595,7 @@ export async function registerRoutes(
    * this phone it deletes nothing and says so.
    */
   app.post("/api/signup/identity/reset", async (req: Request, res: Response) => {
-    const phone = await assertPhoneVerified(req.body?.phone, res);
+    const phone = await assertPhoneVerified(req.body?.phone, res, req);
     if (!phone) return;
 
     // Deliberately the reading form, which does not mint a ref. Arriving at
@@ -651,7 +643,7 @@ export async function registerRoutes(
    * does not prove the card is theirs. See server/cashfreeIdentity.ts.
    */
   app.post("/api/signup/identity/aadhaar", async (req: Request, res: Response) => {
-    const phone = await assertPhoneVerified(req.body?.phone, res);
+    const phone = await assertPhoneVerified(req.body?.phone, res, req);
     if (!phone) return;
 
     const aadhaar =
@@ -713,7 +705,7 @@ export async function registerRoutes(
    * it to, and storing it would suggest a check that does not happen.
    */
   app.post("/api/signup/identity/pan", async (req: Request, res: Response) => {
-    const phone = await assertPhoneVerified(req.body?.phone, res);
+    const phone = await assertPhoneVerified(req.body?.phone, res, req);
     if (!phone) return;
 
     const pan = typeof req.body?.pan === "string" ? req.body.pan.trim().toUpperCase() : "";
@@ -748,7 +740,7 @@ export async function registerRoutes(
     // `req` is passed so a guest completing their profile can verify a GSTIN
     // without a fresh SMS. Everything below is unchanged: shape and checksum
     // first, then the registry, then the name match.
-    const phone = await assertPhoneVerified(req.body?.phone, res, req);
+    const phone = await assertPhoneVerified(req.body?.phone, res, req, { allowSessionGuest: true });
     if (!phone) return;
 
     const gstin = typeof req.body?.gstin === "string" ? req.body.gstin.trim().toUpperCase() : "";
@@ -962,7 +954,7 @@ export async function registerRoutes(
     "/api/signup/documents",
     kycUpload.single("file"),
     async (req: Request, res: Response) => {
-      const phone = await assertPhoneVerified(req.body?.phone, res);
+      const phone = await assertPhoneVerified(req.body?.phone, res, req);
       if (!phone) return;
 
       if (!req.file) {
@@ -1520,7 +1512,7 @@ export async function registerRoutes(
 
     // "auth" — the unified entry point issues one code before it knows whether
     // the number ends in a sign-in, a link, or this. See otpPurposeSchema.
-    const verified = await hasRecentVerification(phone, "auth", OTP_VERIFICATION_WINDOW_MINUTES);
+    const verified = await isPhoneVerifiedHere(req, phone);
     if (!verified) {
       res.status(400).json({
         message: "Your phone verification has expired. Please request a new code.",
@@ -1706,7 +1698,7 @@ export async function registerRoutes(
       return;
     }
 
-    const verified = await hasRecentVerification(phone, "auth", OTP_VERIFICATION_WINDOW_MINUTES);
+    const verified = await isPhoneVerifiedHere(req, phone);
     if (!verified) {
       res.status(400).json({
         message: "Your phone verification has expired. Please request a new code.",
@@ -1972,14 +1964,15 @@ export async function registerRoutes(
       return;
     }
 
-    // Spend it now. That leaves hasRecentVerification(phone, "auth", …) true
-    // for the next few minutes, which is what authorises the document upload
-    // and the booking that follow. No session is created.
+    // Spend it now, and stamp THIS session with the proof. That is what
+    // authorises the document upload and the booking that follow, for the
+    // next few minutes and from this browser only.
     const spent = await consumeOtp(phone, "auth", code);
     if (!spent.ok) {
       res.status(spent.status).json({ message: spent.message, code: spent.code });
       return;
     }
+    markPhoneVerified(req, phone);
 
     // Bind this browser to the number it just proved, and to nothing else.
     //
@@ -2057,6 +2050,7 @@ export async function registerRoutes(
       res.status(otp.status).json({ message: otp.message, code: otp.code });
       return;
     }
+    markPhoneVerified(req, phone);
 
     const existing = await findItdUserIdByPhone(phone);
     if (!existing) {
@@ -2161,7 +2155,7 @@ export async function registerRoutes(
     }
     const { phone, email, password } = parsed.data;
 
-    const verified = await hasRecentVerification(phone, "auth", OTP_VERIFICATION_WINDOW_MINUTES);
+    const verified = await isPhoneVerifiedHere(req, phone);
     if (!verified) {
       res.status(400).json({ message: "Please verify your phone number first" });
       return;
@@ -2456,11 +2450,7 @@ export async function registerRoutes(
         return;
       }
 
-      const verified = await hasRecentVerification(
-        phone,
-        "auth",
-        OTP_VERIFICATION_WINDOW_MINUTES
-      );
+      const verified = await isPhoneVerifiedHere(req, phone);
       if (!verified) {
         res.status(400).json({ message: "Please verify your new number first" });
         return;
@@ -3076,8 +3066,15 @@ export async function registerRoutes(
       pickup_request: z.union([z.literal(1), z.literal(2)]),
       pickup_date: z.string().trim().min(1).optional().nullable(),
       payment_method: z.enum(PAYMENT_METHODS),
-      booked_weight: z.number().optional().nullable(),
-      quoted_amount: z.number().optional().nullable(),
+      // Positive, and a sane parcel. The amount is only the browser's claim —
+      // the server asks ITD for the real price below and books at that.
+      booked_weight: z
+        .number()
+        .positive("Weight must be greater than zero")
+        .max(1000, "Weight looks wrong — check the unit")
+        .optional()
+        .nullable(),
+      quoted_amount: z.number().positive("Amount must be greater than zero").optional().nullable(),
       /**
        * The shipping contract, signed on the sender step of a guest booking.
        *
@@ -3217,7 +3214,7 @@ export async function registerRoutes(
       const verified =
         !!guestPhone &&
         (stagedForThisPhone ||
-          (await hasRecentVerification(guestPhone, "auth", OTP_VERIFICATION_WINDOW_MINUTES)));
+          (await isPhoneVerifiedHere(req, guestPhone)));
 
       if (!verified) {
         res.status(401).json({
@@ -3330,6 +3327,30 @@ export async function registerRoutes(
     const isPickup = body.pickup_request === 1;
     const status = isPickup ? "pickup_requested" : "awaiting_dropoff";
 
+    // The price is ours to set, not the browser's. Ask ITD for the selected
+    // service at the booked weight — the same lookup the hub reprices with —
+    // and book at that. When ITD can't answer, the browser's amount is kept
+    // but marked unverified: it can't be charged online, and the hub won't
+    // scale it into a final price (server/opsActions.ts).
+    const itdQuote = body.booked_weight
+      ? await itdRateAtWeight(
+          {
+            items: body.items,
+            consignee: body.consignee,
+            origin: { city: body.origin_address.city, pincode: body.origin_address.pincode ?? null },
+            login: await itdRatesLoginFor(req.session.dbUserId ?? null),
+          },
+          body.booked_weight
+        )
+      : null;
+    const quotedAmount = itdQuote ? itdQuote.total : (body.quoted_amount ?? null);
+    if (itdQuote && body.quoted_amount != null && Math.abs(itdQuote.total - body.quoted_amount) > 1) {
+      console.warn("[orders] booking quote differs from ITD — booking at ITD's price", {
+        client: body.quoted_amount,
+        itd: itdQuote.total,
+      });
+    }
+
     // Stamp the account's verification state onto the order.
     //
     // Booking is deliberately not blocked by it — an unverified customer can
@@ -3365,12 +3386,16 @@ export async function registerRoutes(
       consignee: body.consignee,
       items: body.items,
       booked_weight: body.booked_weight ?? null,
-      quoted_amount: body.quoted_amount ?? null,
+      quoted_amount: quotedAmount,
       packaging_required: body.packaging_required ?? false,
       payment_method: body.payment_method,
       is_cod: body.payment_method === "cod",
       metadata: {
         kyc_verified: bookingKyc.verified,
+        quote_verified: !!itdQuote,
+        ...(itdQuote && body.quoted_amount != null && itdQuote.total !== body.quoted_amount
+          ? { client_quoted_amount: body.quoted_amount }
+          : {}),
         // The guest's acceptance, kept with the shipment it authorised. An
         // account's lives on itd_users; a guest has no row of their own to
         // carry it, and the order is the thing the terms are about.

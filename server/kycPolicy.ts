@@ -22,15 +22,13 @@ import {
   type CompanyCategory,
   type DocSlot,
 } from "../shared/accountSpec.js";
-import { OTP_VERIFICATION_WINDOW_MINUTES } from "./otp.js";
-import { hasRecentVerification } from "./otpDb.js";
 import { findItdUserIdByPhone } from "./appDb.js";
 import { getKycByGuestRef, getKycByUserId } from "./kycDb.js";
 import { listDocumentsBySignupRef } from "./accountDocsDb.js";
 import { seedSignupDocumentFromGuestKyc } from "./guestKycMirror.js";
 import { isAccountReviewEnabled } from "./accountApplications.js";
 import { IDENTITY_KIND_BY_SLOT, recordedIdentityNumbers } from "./identityChecks.js";
-import { signupRefForPhone } from "./signupRef.js";
+import { isPhoneVerifiedHere, signupRefForPhone } from "./signupRef.js";
 
 /**
  * The KYC document behind an order, whoever booked it.
@@ -96,7 +94,7 @@ export async function resolveKycOwner(
     typeof req.body?.phone === "string" ? req.body.phone.trim() : req.session.signupPhone;
   if (!claimed) return null;
 
-  const verified = await hasRecentVerification(claimed, "auth", OTP_VERIFICATION_WINDOW_MINUTES);
+  const verified = await isPhoneVerifiedHere(req, claimed);
   if (!verified) return null;
 
   // A number with an account is not a guest, however it got here. Refusing

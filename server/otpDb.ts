@@ -80,32 +80,69 @@ export async function getLatestOtpForVerify(
   return data;
 }
 
-export async function incrementAttempts(id: string, currentAttempts: number): Promise<void> {
+/**
+ * Claims the next attempt on a code and returns its number (1 for the first
+ * try), or null if the database could not be reached.
+ *
+ * A compare-and-swap, because supabase-js has no atomic increment: the update
+ * only lands if `attempts` still holds the value just read, and a loser re-reads
+ * and tries again. Ten guesses sent at once therefore get ten distinct numbers.
+ * The old read-then-write let every one of them write the same `n + 1`, so a
+ * burst of guesses was counted as one or two and the 5-try ceiling could be
+ * outrun.
+ */
+export async function claimAttempt(id: string): Promise<number | null> {
   const client = getSupabaseClient();
-  if (!client) return;
+  if (!client) return null;
 
-  const { error } = await client
-    .from("otp_codes")
-    .update({ attempts: currentAttempts + 1 })
-    .eq("id", id);
+  for (let tries = 0; tries < 50; tries++) {
+    const { data: row, error: readError } = await client
+      .from("otp_codes")
+      .select("attempts")
+      .eq("id", id)
+      .single();
+    if (readError || !row) {
+      if (readError) logSupabaseError("claimAttempt:read", readError);
+      return null;
+    }
 
-  if (error) {
-    logSupabaseError("incrementAttempts", error);
+    const current = row.attempts as number;
+    const { data: won, error: writeError } = await client
+      .from("otp_codes")
+      .update({ attempts: current + 1 })
+      .eq("id", id)
+      .eq("attempts", current)
+      .select("id");
+    if (writeError) {
+      logSupabaseError("claimAttempt:write", writeError);
+      return null;
+    }
+    if (won && won.length === 1) return current + 1;
   }
+  console.error("[otpDb] claimAttempt: gave up after 50 contended tries", { id });
+  return null;
 }
 
-export async function markConsumed(id: string): Promise<void> {
+/**
+ * Spends a code. Returns false if it was already spent — by a parallel request
+ * presenting the same right code — so only one of them signs in.
+ */
+export async function markConsumed(id: string): Promise<boolean> {
   const client = getSupabaseClient();
-  if (!client) return;
+  if (!client) return false;
 
-  const { error } = await client
+  const { data, error } = await client
     .from("otp_codes")
     .update({ consumed_at: new Date().toISOString() })
-    .eq("id", id);
+    .eq("id", id)
+    .is("consumed_at", null)
+    .select("id");
 
   if (error) {
     logSupabaseError("markConsumed", error);
+    return false;
   }
+  return (data ?? []).length === 1;
 }
 
 export async function hasRecentVerification(

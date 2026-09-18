@@ -58,5 +58,13 @@ declare module "express-session" {
     guestRef?: string;
     /** The verified number that guestRef was minted against. */
     guestPhone?: string;
+    /**
+     * The number this browser last proved with a code, and when (ms epoch).
+     * What signup, identity staging, guest booking and ITD linking check —
+     * a verification belongs to the browser that typed the code, not to
+     * anyone who knows the number. See isPhoneVerifiedHere in signupRef.ts.
+     */
+    verifiedPhone?: string;
+    verifiedPhoneAt?: number;
   }
 }

@@ -11,7 +11,8 @@ from the phase docs and should be confirmed.
 `open-items.md` (running list, older), `schema-state.md` (schema as of 10 Aug),
 `../../whatsapp-bombino-checklist.md` (WhatsApp, in detail),
 `../../deploy-vercel.md` (if it ever moves to Vercel),
-`../../kyc-retention.md`, `../../bia-3/PROGRESS.md` (BIA 3.0).
+`../../kyc-retention.md`, `../../bia-3/PROGRESS.md` (BIA 3.0),
+`deploy-runbook.md` (the Railway cutover from `ai-feature`, step by step), `test-report.md`.
 
 **Where it runs:** Railway. The WhatsApp webhook is already registered on
 `bombino-express-production-9e11.up.railway.app`, so the production domain and
@@ -41,11 +42,11 @@ on. **Check the boot log after the production deploy: it should print none.**
 
 | | Variable | Required | Note |
 |---|---|---|---|
-| [ ] | `SESSION_SECRET` | yes | Random, 32+ bytes. Unset falls back to a literal in this repo: every session forgeable |
+| [ ] | `SESSION_SECRET` | yes | Random, 32+ bytes. The server refuses to start without it in production |
 | [ ] | `ENCRYPTION_KEY` | yes | 64 hex characters. Server refuses to boot without it. **Back it up outside Railway: losing it loses every stored identity document** |
 | [ ] | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | yes | Production project |
 | [ ] | `DATABASE_URL` | yes | Supabase pooler URI. The one in `.env` failed pooler auth on 10 Aug (`schema-state.md` §5); confirm the production one connects |
-| [ ] | `REDIS_URL` | recommended | Session store. Without it, sessions live in one process's memory and a restart signs everyone out |
+| [ ] | Remove `REDIS_URL` | — | No Redis any more: sessions are in Postgres (`session` table). Delete the Railway Redis service once the rollback window closes (`deploy-runbook.md`) |
 | [ ] | `PUBLIC_URL` | yes | The deployed origin. ITD fetches KYC documents from it; must be internet-reachable |
 | [ ] | `ITD_COMPANY_ID`, `ITD_EMAIL`, `ITD_PASSWORD`, `ITD_CUSTOMER_CODE`, `ITD_API_COMPANY_ID` | yes | Production ITD credentials. There is no ITD sandbox: every docket is real |
 | [ ] | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` | for pay-now | Live keys. Unset: pay-now answers 503, the other three methods still work |
@@ -103,8 +104,6 @@ development, every migration has to be run there, in dependency order (see
 **SMS fallback for the login code**
 - [ ] Provider chosen, TRAI DLT registration, sender ID, OTP template registered, then wire the one marked gap in `server/sms.ts` *(checked: still unwired)*. Until then a customer whose WhatsApp is on another number cannot sign in
 
-**Redis**
-- [ ] A Redis instance for sessions (`REDIS_URL`)
 
 ## 5. Scheduled jobs (Railway cron)
 

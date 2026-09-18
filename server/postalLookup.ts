@@ -1,9 +1,8 @@
-import redisClient from "./redisClient.js";
-
 const INDIA_PINCODE_URL = "https://api.postalpincode.in/pincode";
 const ZIPPOTAM_BASE_URL = "https://api.zippopotam.us";
 const UPSTREAM_TIMEOUT_MS = 4000;
-const CACHE_TTL_SECONDS = 60 * 60 * 24 * 30;
+const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const CACHE_MAX_ENTRIES = 5000;
 
 export interface PostalLookupResult {
   found: boolean;
@@ -37,32 +36,54 @@ function cacheKey(country: string, code: string): string {
   return `postal:${country}:${code}`;
 }
 
-async function readCache(key: string): Promise<PostalLookupResult | null> {
-  try {
-    const cached = await redisClient.get(key);
-    if (!cached) return null;
-    const parsed = JSON.parse(cached) as PostalLookupResult;
-    if (
-      typeof parsed.found === "boolean" &&
-      typeof parsed.city === "string" &&
-      typeof parsed.state === "string"
-    ) {
-      return parsed;
+/**
+ * A bounded TTL cache held in this process. It only saves repeat calls to the
+ * public postal APIs, so losing it on a restart costs one upstream call per
+ * pincode — not worth a Redis instance. Map iteration order is insertion
+ * order, so the first key is the oldest and is the one evicted at the cap.
+ */
+export class TtlCache<V> {
+  private entries = new Map<string, { value: V; expiresAt: number }>();
+
+  constructor(
+    private readonly ttlMs: number,
+    private readonly maxEntries: number
+  ) {}
+
+  get(key: string, now = Date.now()): V | null {
+    const hit = this.entries.get(key);
+    if (!hit) return null;
+    if (hit.expiresAt <= now) {
+      this.entries.delete(key);
+      return null;
     }
-    return null;
-  } catch (err) {
-    console.warn("[postalLookup] Redis read failed:", err);
-    return null;
+    return hit.value;
   }
+
+  set(key: string, value: V, now = Date.now()): void {
+    this.entries.delete(key);
+    this.entries.set(key, { value, expiresAt: now + this.ttlMs });
+    while (this.entries.size > this.maxEntries) {
+      const oldest = this.entries.keys().next().value;
+      if (oldest === undefined) break;
+      this.entries.delete(oldest);
+    }
+  }
+
+  size(): number {
+    return this.entries.size;
+  }
+}
+
+const cache = new TtlCache<PostalLookupResult>(CACHE_TTL_MS, CACHE_MAX_ENTRIES);
+
+async function readCache(key: string): Promise<PostalLookupResult | null> {
+  return cache.get(key);
 }
 
 async function writeCache(key: string, result: PostalLookupResult): Promise<void> {
   if (!result.found) return;
-  try {
-    await redisClient.setEx(key, CACHE_TTL_SECONDS, JSON.stringify(result));
-  } catch (err) {
-    console.warn("[postalLookup] Redis write failed:", err);
-  }
+  cache.set(key, result);
 }
 
 async function fetchIndiaFromUpstream(code: string): Promise<PostalLookupResult> {

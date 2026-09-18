@@ -61,6 +61,7 @@ import {
   verifyWebhookSignature,
 } from "../razorpay.js";
 import { isPaymentsTestModeEnabled } from "../paymentsTestMode.js";
+import { isQuoteVerified } from "../opsActions.js";
 import type { Order } from "../../shared/orderContract.js";
 
 /** The amount we are currently asking for. Reprice at the hub can move it. */
@@ -314,6 +315,18 @@ export function registerPaymentRoutes(app: Express): void {
         res.status(409).json({
           message: "This order is already paid.",
           code: "ALREADY_PAID",
+        });
+        return;
+      }
+
+      // A booking amount the server could not check against ITD came from the
+      // browser; charging it would let a tampered request pay ₹1. Pay at
+      // pickup / drop-off still works — that money is taken after weighing.
+      if (!isQuoteVerified(order)) {
+        res.status(409).json({
+          message:
+            "We couldn't confirm this shipment's price online. Choose pay at pickup or drop-off, or contact us.",
+          code: "NO_AMOUNT_DUE",
         });
         return;
       }

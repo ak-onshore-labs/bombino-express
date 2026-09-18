@@ -21,9 +21,11 @@ import { z } from "zod";
 import {
   advanceOrderStatus,
   claimPickup,
+  claimOrderRow,
   recordCollectedPayment,
   transitionOrderStatus,
 } from "./agentDb.js";
+import { reconcilePaymentStatus } from "./paymentsDb.js";
 import {
   HANDOVER_CODE_PATTERN,
   burnCodeForOverride,
@@ -370,14 +372,20 @@ export async function handleCollectPayment(input: {
     };
   }
 
-  const expectedMethod = atPickup ? "pay_at_pickup" : "pay_at_dropoff";
-  if (input.order.payment_method !== expectedMethod) {
+  // At the door only a pay-at-pickup order is collected. At the hub, after
+  // weighing, ops collects whatever is still owed on any non-COD order: the
+  // drop-off counter payment, or the difference on a prepaid parcel that came
+  // in heavier than booked.
+  const methodOk = atPickup
+    ? input.order.payment_method === "pay_at_pickup"
+    : input.order.payment_method !== "cod" && !input.order.is_cod;
+  if (!methodOk) {
     return {
       error: {
         status: 400,
         message: atPickup
           ? "This order is not marked pay-at-pickup."
-          : "This order is not marked pay-at-drop-off.",
+          : "Cash on delivery is not collected by us.",
         code: "PAYMENT_METHOD_MISMATCH",
       },
     };
@@ -407,12 +415,28 @@ export async function handleCollectPayment(input: {
     };
   }
 
+  // A double tap sends two identical collections. Both pass the "still owed"
+  // guard — it read the same row — and both would insert a payment. Claiming
+  // the row by the `updated_at` we read lets exactly one through; the other is
+  // told the order has moved.
+  if (!(await claimOrderRow(input.order.id, input.order.updated_at))) {
+    return {
+      error: {
+        status: 409,
+        message: "This payment has already been recorded. Refresh to see it.",
+        code: "ORDER_STATE_CHANGED",
+      },
+    };
+  }
+
   const result = await recordCollectedPayment({
     order_id: input.order.id,
     user_id: input.order.user_id,
     guest_ref: input.order.guest_ref ?? null,
     amount: paymentBody.data.amount,
-    method: expectedMethod,
+    // Where the money was taken, not how the order was booked: a prepaid
+    // order's reweigh difference paid at the hub is a counter collection.
+    method: atPickup ? "pay_at_pickup" : "pay_at_dropoff",
     status: "collected",
     collection_mode: paymentBody.data.collection_mode,
     collected_by: input.callerId,
@@ -521,12 +545,12 @@ export async function handleCancel(input: {
 }): Promise<AgentActionResult> {
   // Ops only — `orderLifecycle.ts` gives the customer no `cancel` row, so a
   // customer reaching here has already been refused by `findTransition`.
-  const updated = await transitionOrderStatus({
+  const moved = await transitionOrderStatus({
     orderId: input.order.id,
     expectedFrom: input.expectedFrom,
     to: input.to,
   });
-  if (!updated) {
+  if (!moved) {
     return {
       error: {
         status: 409,
@@ -535,6 +559,10 @@ export async function handleCancel(input: {
       },
     };
   }
+  // Money already taken on a cancelled order is owed back: flag `refund_due`
+  // for accounts. Without this a prepaid cancellation went on reading `paid`.
+  const reconciled = await reconcilePaymentStatus(input.order.id);
+  const updated = reconciled ? { ...moved, payment_status: reconciled.payment_status } : moved;
 
   const request = readCancellationRequest(input.order);
   if (request) {

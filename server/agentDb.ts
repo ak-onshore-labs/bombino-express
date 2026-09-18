@@ -19,6 +19,7 @@
 import { supabase } from "./supabaseClient.js";
 import { dbClient, logDbError, type DbError } from "./db/client.js";
 import { toOrder, type OrderRow } from "./ordersDb.js";
+import { reconcilePaymentStatus } from "./paymentsDb.js";
 import type { Order, OrderStatus } from "../shared/orderContract.js";
 
 const ORDER_COLUMNS =
@@ -280,6 +281,31 @@ export type CollectionRow = {
 };
 
 /**
+ * Optimistic lock on an order row: bumps `updated_at` only if it still holds
+ * the value the caller read. True means this caller now holds the row for the
+ * write it is about to make; false means someone else changed it first.
+ */
+export async function claimOrderRow(orderId: string, readUpdatedAt: string): Promise<boolean> {
+  const client = getSupabaseClient();
+  // No database: let the write that follows fail and report it as the write
+  // failure it is, rather than as a race that never happened.
+  if (!client) return true;
+
+  const { data, error } = await client
+    .from("orders")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", orderId)
+    .eq("updated_at", readUpdatedAt)
+    .select("id");
+
+  if (error) {
+    logSupabaseError("claimOrderRow", error);
+    return false;
+  }
+  return (data ?? []).length === 1;
+}
+
+/**
  * Record cash taken at the door.
  *
  * Two writes that ought to be one transaction — the `payments` row and the
@@ -324,29 +350,15 @@ export async function recordCollectedPayment(
     return null;
   }
 
-  // Guarded so a concurrent A4 webhook that already marked this paid is not
-  // stomped back to a lesser state.
-  const { data: order, error: orderError } = await client
-    .from("orders")
-    .update({ payment_status: "paid", updated_at: new Date().toISOString() })
-    .eq("id", input.order_id)
-    .neq("payment_status", "paid")
-    .select(ORDER_COLUMNS)
-    .maybeSingle();
-
-  if (orderError) {
-    // The money is recorded; only the flag is stale. Loud, because it needs
-    // reconciling by hand.
-    console.error(
-      "[agentDb] payment recorded but orders.payment_status not updated — reconcile manually:",
-      { order_id: input.order_id, payment_id: payment.id, error: orderError.message }
-    );
-  }
+  // The flag comes from everything held against what is due, so ₹1 of ₹900
+  // reads `partially_paid` and keeps the order from settling. It used to be
+  // set to `paid` whatever the amount.
+  const order = await reconcilePaymentStatus(input.order_id);
 
   return {
     paymentId: payment.id as string,
     txnId: (payment.txn_id as string | null) ?? null,
-    order: order ? toOrder(order as unknown as OrderRow) : null,
+    order,
   };
 }
 

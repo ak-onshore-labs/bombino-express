@@ -21,6 +21,7 @@ import {
 } from "../shared/opsBoardQuery.js";
 import { nowInIst, startOfIstDayIso } from "../shared/istTime.js";
 import { getUserContactsByIds, toOrder, type OrderRow } from "./ordersDb.js";
+import { reconcilePaymentStatus } from "./paymentsDb.js";
 
 /** PostgREST default max-rows is ~1000; page past that so export never truncates. */
 const EXPORT_PAGE_SIZE = 1000;
@@ -459,7 +460,13 @@ export async function applyWeighResult(input: {
   }
   if (!data) return null;
 
-  return toOrder(data as unknown as OrderRow & { metadata?: unknown });
+  // The price just changed, so what we hold may no longer match what is due:
+  // a prepaid parcel that came in heavier now owes the difference and must
+  // not settle until it is collected; one that came in lighter is owed a
+  // refund. Recompute the flag here — it used to stay `paid` either way.
+  const weighed = toOrder(data as unknown as OrderRow & { metadata?: unknown });
+  const reconciled = await reconcilePaymentStatus(input.orderId);
+  return reconciled ? { ...weighed, payment_status: reconciled.payment_status } : weighed;
 }
 
 export type MockDocketResponse = {

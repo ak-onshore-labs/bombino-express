@@ -202,10 +202,45 @@ export async function verifyCode(input: {
     return { ok: false, reason: "no_code", attemptsLeft: 0 };
   }
 
-  const attempts = Number(data.attempts ?? 0);
-  if (attempts >= HANDOVER_MAX_ATTEMPTS) {
-    return { ok: false, reason: "locked", attemptsLeft: 0 };
+  // Claim a numbered attempt BEFORE comparing, right guess or wrong. The old
+  // order — read the count, compare, then bump it with a guarded write — let a
+  // burst of parallel guesses all read the same count and all be compared,
+  // while the guard dropped every bump but one: ten wrong guesses cost one
+  // attempt. A compare-and-swap claim gives each guess its own number, so the
+  // sixth is refused however the requests are timed.
+  let attempts = Number(data.attempts ?? 0);
+  let claimed = false;
+  for (let tries = 0; tries < 50 && !claimed; tries++) {
+    if (attempts >= HANDOVER_MAX_ATTEMPTS) {
+      return { ok: false, reason: "locked", attemptsLeft: 0 };
+    }
+    const { data: won, error: claimError } = await client
+      .from("order_handover_codes")
+      .update({ attempts: attempts + 1, updated_at: new Date().toISOString() })
+      .eq("id", data.id)
+      .eq("attempts", attempts)
+      .select("id");
+    if (claimError) {
+      logSupabaseError("verifyCode:claim", claimError);
+      return { ok: false, reason: "error", attemptsLeft: 0 };
+    }
+    if (won && won.length === 1) {
+      claimed = true;
+      break;
+    }
+    const { data: fresh, error: rereadError } = await client
+      .from("order_handover_codes")
+      .select("attempts")
+      .eq("id", data.id)
+      .single();
+    if (rereadError || !fresh) {
+      if (rereadError) logSupabaseError("verifyCode:reread", rereadError);
+      return { ok: false, reason: "error", attemptsLeft: 0 };
+    }
+    attempts = Number(fresh.attempts ?? 0);
   }
+  if (!claimed) return { ok: false, reason: "error", attemptsLeft: 0 };
+  // `attempts` is now the count before this guess; this guess is attempts + 1.
 
   // Compare in constant time. The window is small and the secret is four
   // digits, but a timing-variable compare on a credential is the kind of thing
@@ -224,15 +259,6 @@ export async function verifyCode(input: {
     crypto.timingSafeEqual(Buffer.from(submitted), Buffer.from(expected));
 
   if (!matches) {
-    const { error: bumpError } = await client
-      .from("order_handover_codes")
-      .update({ attempts: attempts + 1, updated_at: new Date().toISOString() })
-      .eq("id", data.id)
-      // Re-assert the count we read, so two simultaneous wrong guesses cost
-      // two attempts rather than one.
-      .eq("attempts", attempts);
-    if (bumpError) logSupabaseError("verifyCode:bump", bumpError);
-
     return {
       ok: false,
       reason: "mismatch",
