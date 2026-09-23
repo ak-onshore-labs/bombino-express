@@ -69,6 +69,7 @@ import { seedSignupDocumentFromGuestKyc } from "./guestKycMirror.js";
 import { mirrorAadhaarToKyc } from "./kycMirror.js";
 import { getLatestGuestRefForPhone, upsertGuestProfile } from "./guestProfileDb.js";
 import { itdLinkFailure } from "./itdLinkError.js";
+import { applicationToFix, assertFixedSlotsReplaced, FIX_NOT_OPEN_MESSAGE, mergeFixBody } from "./applicationFix.js";
 import { registerWhatsappRoutes } from "./routes/whatsapp.js";
 import { registerWhatsappScheduleRoutes } from "./routes/whatsappSchedule.js";
 import { registerOpsRoutes } from "./routes/ops.js";
@@ -1093,7 +1094,11 @@ export async function registerRoutes(
   // GET /api/signup/documents — what this signup has staged so far
   app.get("/api/signup/documents", async (req: Request, res: Response) => {
     const phone = typeof req.query.phone === "string" ? req.query.phone : undefined;
-    const signupRef = signupRefForReading(req, phone);
+    // A guest fixing a sent-back application reads that application's files
+    // (applicationToFix points the session at its ref).
+    const signupRef =
+      signupRefForReading(req, phone) ??
+      ((await applicationToFix(req, phone)) ? req.session.signupRef ?? null : null);
     if (!signupRef) {
       res.set("Cache-Control", "no-store");
       res.json({ documents: [] });
@@ -1490,7 +1495,14 @@ export async function registerRoutes(
 
   // POST /api/auth/signup/personal
   app.post("/api/auth/signup/personal", async (req: Request, res: Response) => {
-    const parsed = signupPersonalSchema.safeParse(req.body);
+    // `fix: true` resends an application the team sent back, changing only
+    // what they asked about (server/applicationFix.ts).
+    const fixing = req.body?.fix === true ? await applicationToFix(req, req.body?.phone) : null;
+    if (req.body?.fix === true && (!fixing || fixing.account_type !== "personal")) {
+      res.status(409).json({ message: FIX_NOT_OPEN_MESSAGE, code: "APPLICATION_NOT_AWAITING_CHANGES" });
+      return;
+    }
+    const parsed = signupPersonalSchema.safeParse(fixing ? mergeFixBody(fixing, req.body) : req.body);
     if (!parsed.success) {
       res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid request" });
       return;
@@ -1513,7 +1525,8 @@ export async function registerRoutes(
 
     // "auth" — the unified entry point issues one code before it knows whether
     // the number ends in a sign-in, a link, or this. See otpPurposeSchema.
-    const verified = await isPhoneVerifiedHere(req, phone);
+    // A fix is proved by the guest session instead (applicationToFix above).
+    const verified = fixing !== null || (await isPhoneVerifiedHere(req, phone));
     if (!verified) {
       res.status(400).json({
         message: "Your phone verification has expired. Please request a new code.",
@@ -1521,6 +1534,7 @@ export async function registerRoutes(
       });
       return;
     }
+    if (fixing && !(await assertFixedSlotsReplaced(fixing, res))) return;
 
     // Aadhaar and PAN both, before the account exists — the numbers are a
     // precondition of opening it, and so is the document set. In that order,
@@ -1541,6 +1555,7 @@ export async function registerRoutes(
         category: null,
         details: { full_name, email },
         contract_signed_name,
+        keepContractOf: fixing,
       });
       return;
     }
@@ -1652,7 +1667,13 @@ export async function registerRoutes(
 
   // POST /api/auth/signup/company
   app.post("/api/auth/signup/company", async (req: Request, res: Response) => {
-    const parsed = signupCompanySchema.safeParse(req.body);
+    // `fix: true`: see /api/auth/signup/personal.
+    const fixing = req.body?.fix === true ? await applicationToFix(req, req.body?.phone) : null;
+    if (req.body?.fix === true && (!fixing || fixing.account_type !== "company")) {
+      res.status(409).json({ message: FIX_NOT_OPEN_MESSAGE, code: "APPLICATION_NOT_AWAITING_CHANGES" });
+      return;
+    }
+    const parsed = signupCompanySchema.safeParse(fixing ? mergeFixBody(fixing, req.body) : req.body);
     if (!parsed.success) {
       res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid request" });
       return;
@@ -1699,7 +1720,7 @@ export async function registerRoutes(
       return;
     }
 
-    const verified = await isPhoneVerifiedHere(req, phone);
+    const verified = fixing !== null || (await isPhoneVerifiedHere(req, phone));
     if (!verified) {
       res.status(400).json({
         message: "Your phone verification has expired. Please request a new code.",
@@ -1707,6 +1728,7 @@ export async function registerRoutes(
       });
       return;
     }
+    if (fixing && !(await assertFixedSlotsReplaced(fixing, res))) return;
 
     const categorySpec = COMPANY_CATEGORY_SPECS[company_category];
 
@@ -1758,6 +1780,7 @@ export async function registerRoutes(
           ...extras.values,
         },
         contract_signed_name,
+        keepContractOf: fixing,
       });
       return;
     }

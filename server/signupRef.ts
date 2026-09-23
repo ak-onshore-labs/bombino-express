@@ -20,6 +20,7 @@ import { OTP_VERIFICATION_WINDOW_MINUTES } from "./otp.js";
 import { hasRecentVerification } from "./otpDb.js";
 import { deleteAllSignupDocuments } from "./accountDocsDb.js";
 import { deleteIdentityVerificationsBySignupRef } from "./identityDb.js";
+import { applicationToFix } from "./applicationFix.js";
 
 const phoneSchema = z.string().trim().regex(INDIAN_MOBILE_PATTERN, INDIAN_MOBILE_MESSAGE);
 
@@ -148,6 +149,10 @@ export async function assertPhoneVerified(
   }
 
   const verified = await isPhoneVerifiedHere(req, parsed.data);
+  // A guest fixing the application the team sent back: the guest session is
+  // the proof, and it points staging at that application's own files. See
+  // server/applicationFix.ts.
+  if (!verified && (await applicationToFix(req, parsed.data))) return parsed.data;
   if (!verified) {
     res.status(400).json({
       message: `Your phone verification has expired. Please request a new code.`,

@@ -127,6 +127,13 @@ interface AccountDocumentsProps {
   onPhoneUnverified?: () => void;
   /** Fires after any successful upload, with whatever the endpoint returned. */
   onUploaded?: (body: unknown) => void;
+  /**
+   * Fixing an application the Bombino team sent back: only these slots, the
+   * ones the team asked for. Each starts empty and has to be uploaded again,
+   * and nothing else on file is touched: no identity reset, so a PAN the team
+   * accepted stays exactly as it was while the Aadhaar is replaced.
+   */
+  replaceOnly?: readonly DocSlot[];
 }
 
 /**
@@ -160,8 +167,9 @@ export function AccountDocuments({
   highlight,
   onPhoneUnverified,
   onUploaded,
+  replaceOnly,
 }: AccountDocumentsProps): React.JSX.Element {
-  const slots = requiredDocuments(accountType, category);
+  const slots = replaceOnly ?? requiredDocuments(accountType, category);
   const basePath = endpoint === 'account' ? '/api/account/documents' : '/api/signup/documents';
   const [state, setState] = useState<Record<string, SlotState>>({});
   // Where "Ask BIA" says the customer is: their account's documents, a guest
@@ -238,7 +246,9 @@ export function AccountDocuments({
       // discard, the documents on screen are the customer's own, and
       // /api/signup/identity/* would refuse a request with no verified phone
       // behind it.
-      if (endpoint === 'signup') {
+      // Not when fixing a sent-back application: the reset would throw away
+      // every number the team already accepted along with the one they didn't.
+      if (endpoint === 'signup' && !replaceOnly) {
         try {
           const reset = await fetch('/api/signup/identity/reset', {
             method: 'POST',
@@ -302,6 +312,9 @@ export function AccountDocuments({
             // A slot already being worked on locally wins — the in-flight
             // upload is newer than whatever this response describes.
             if (next[doc.doc_slot]?.status === 'uploading') continue;
+            // Fixing: the slots on screen are the ones the team asked to see
+            // again, so the file on record is exactly what they must replace.
+            if (replaceOnly) continue;
             // The reset above deleted every slot that carries a number, so
             // anything still here is one that does not. Guarded anyway: a
             // failed reset must not resurrect a number-bearing slot whose
@@ -663,8 +676,10 @@ export function AccountDocuments({
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
-        {slots.length} document{slots.length === 1 ? '' : 's'} required. PDF, JPEG, or PNG · max 4MB
-        each.
+        {replaceOnly
+          ? `Upload ${slots.length === 1 ? 'this document' : `these ${slots.length} documents`} again.`
+          : `${slots.length} document${slots.length === 1 ? '' : 's'} required.`}{' '}
+        PDF, JPEG, or PNG · max 4MB each.
       </p>
 
       {slots.map((slot) => (

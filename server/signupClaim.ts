@@ -20,7 +20,7 @@ import type { CompanyCategory } from "../shared/accountSpec.js";
 import { CONTRACT_VERSION } from "../shared/contract.js";
 import { fileApplication } from "./accountApplications.js";
 import { PHONE_UNVERIFIED } from "./signupRef.js";
-import { toCustomerView } from "./accountApplicationsDb.js";
+import { toCustomerView, type ApplicationRow } from "./accountApplicationsDb.js";
 import { claimSignupDocuments } from "./accountDocsDb.js";
 import { claimSignupIdentityVerifications } from "./identityDb.js";
 import { claimGuestOrdersForUser } from "./ordersDb.js";
@@ -63,6 +63,12 @@ export async function respondWithApplication(
     category: CompanyCategory | null;
     details: Parameters<typeof fileApplication>[1]["details"];
     contract_signed_name: string;
+    /**
+     * A fix of an application the team sent back (server/applicationFix.ts):
+     * the contract it was filed with stands, with its original time and IP,
+     * because nothing was signed again.
+     */
+    keepContractOf?: ApplicationRow | null;
   }
 ): Promise<void> {
   const signupRef = req.session.signupRef;
@@ -76,7 +82,14 @@ export async function respondWithApplication(
     accountType: input.accountType,
     category: input.category,
     details: input.details,
-    contract: contractColumns(req, input.contract_signed_name),
+    contract: input.keepContractOf
+      ? {
+          contract_signed_name: input.keepContractOf.contract_signed_name,
+          contract_version: input.keepContractOf.contract_version,
+          contract_accepted_at: input.keepContractOf.contract_accepted_at,
+          contract_accepted_ip: input.keepContractOf.contract_accepted_ip,
+        }
+      : contractColumns(req, input.contract_signed_name),
   });
   if (!filed.ok) {
     res.status(filed.status).json({ message: filed.message, code: filed.code });

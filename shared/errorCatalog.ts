@@ -45,6 +45,19 @@ export const ERROR_CATALOG = {
     why: "A one-time code proves the number is yours. That proof only lasts a few minutes, so it can run out if a step takes a while.",
     fix: "Request a new code, enter it, and carry on.",
   },
+  // ── Fixing an application the Bombino team sent back ──────────────────────
+  APPLICATION_NOT_AWAITING_CHANGES: {
+    area: "signup",
+    title: "Your application isn't waiting on a change",
+    why: "The team may have picked it up again, or it was withdrawn, approved or declined in the meantime.",
+    fix: "Open My Profile to see where it stands now.",
+  },
+  DOCUMENTS_NOT_REPLACED: {
+    area: "signup",
+    title: "A document still needs uploading again",
+    why: "The team asked for a new copy, and the one on file is still the one they saw.",
+    fix: "Upload the document named in the message on the Update your application screen, then send your changes.",
+  },
   // ── Linking a Bombino login from before the app ───────────────────────────
   ITD_LOGIN_FAILED: {
     area: "auth",
