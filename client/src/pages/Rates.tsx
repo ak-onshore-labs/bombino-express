@@ -295,7 +295,7 @@ export default function Rates() {
                 const isBest = idx === 0;
                 const displayName = service.code || service.internal_api_service_code || 'Service';
                 const letter = displayName.trim().charAt(0).toUpperCase() || '?';
-                const gstTotal = service.cgst + service.sgst;
+                const gstTotal = service.gst_total;
                 const open = !!expandedById[service.id];
                 const weightStr = service.weight?.trim() || String(shipmentMeta.weightKg);
                 const itemizedEmpty = itemizedChargesEmpty(service);
@@ -326,7 +326,7 @@ export default function Rates() {
                         <p className="text-[13px] font-semibold text-[lab(34.0831_-9.57756_-27.7093)] leading-snug md:text-base">{displayName}</p>
                         <div className="mt-0.5 flex flex-wrap items-center gap-2">
                           <span className="text-[11px] text-muted-foreground font-mono md:text-xs">
-                            {weightStr} kg chargeable
+                            {service.weight ? `${weightStr} kg chargeable` : `Priced for ${weightStr} kg`}
                           </span>
                           {isBest && (
                             <span
@@ -406,7 +406,7 @@ export default function Rates() {
                           {gstTotal !== 0 && (
                             <div className="flex justify-between gap-3 text-[11px] md:text-xs">
                               <span className="text-muted-foreground">
-                                GST ({service.gst_per || '0'}%)
+                                {service.gst_per ? `GST (${service.gst_per}%)` : 'GST'}
                               </span>
                               <span className="font-medium tabular-nums font-mono">{formatInr(gstTotal)}</span>
                             </div>

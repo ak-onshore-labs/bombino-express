@@ -3929,7 +3929,7 @@ export default function CreateShipment() {
                     const isBest = idx === 0;
                     const displayName = service.code || service.internal_api_service_code || 'Service';
                     const letter = displayName.trim().charAt(0).toUpperCase() || '?';
-                    const gstTotal = service.cgst + service.sgst;
+                    const gstTotal = service.gst_total;
                     const open = !!expandedById[service.id];
                     const weightStr =
                       service.weight?.trim() || String(getWeightKg().toFixed(2));
@@ -3981,7 +3981,7 @@ export default function CreateShipment() {
                             </p>
                             <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                               <span className="text-[11px] text-muted-foreground">
-                                {weightStr} kg chargeable
+                                {service.weight ? `${weightStr} kg chargeable` : `Priced for ${weightStr} kg`}
                               </span>
                               {isBest ? (
                                 <span
@@ -4074,7 +4074,7 @@ export default function CreateShipment() {
                               {gstTotal !== 0 ? (
                                 <div className="flex justify-between gap-3 text-[11px]">
                                   <span className="text-muted-foreground">
-                                    GST ({service.gst_per || '0'}%)
+                                    {service.gst_per ? `GST (${service.gst_per}%)` : 'GST'}
                                   </span>
                                   <span className="font-medium tabular-nums">{formatInr(gstTotal)}</span>
                                 </div>

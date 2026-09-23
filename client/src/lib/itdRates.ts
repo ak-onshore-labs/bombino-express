@@ -33,12 +33,17 @@ export interface ITDRateRow {
   fsc: number;
   cgst: number;
   sgst: number;
+  igst: number;
+  /** CGST + SGST + IGST: ITD charges one pair or the other, never says which. */
+  gst_total: number;
   other_charges: number;
   chrage_apply_data?: Record<string, ITDChargeApplyEntry>;
   sub_total: number;
   total: number;
   per_kg: number;
+  /** ITD's chargeable weight in kg; empty when it didn't work one out (it sends 0). */
   weight: string;
+  /** The GST rate, from ITD or worked out from the amounts (ITD usually omits it). */
   gst_per: string;
   internal_api_service_code?: string;
 }
@@ -67,20 +72,41 @@ export function normalizeRateRow(raw: unknown): ITDRateRow | null {
   } else {
     chrage = undefined;
   }
+  const cgst = num(r.cgst);
+  const sgst = num(r.sgst);
+  const igst = num(r.igst);
+  const gstTotal = cgst + sgst + igst;
+  const total = num(r.total);
+  const subTotal = num(r.sub_total);
+  // ITD sends the tax as amounts and no rate, so "GST (0%)" sat beside a real
+  // ₹66.24. The rate is the tax over what it was charged on.
+  const taxable = subTotal > 0 ? subTotal : total - gstTotal;
+  const givenPer = str(r.gst_per).trim();
+  const gstPer =
+    givenPer && Number(givenPer) > 0
+      ? givenPer
+      : gstTotal > 0 && taxable > 0
+        ? String(Math.round((gstTotal / taxable) * 100))
+        : '';
+  // ITD answers weight 0 on the rate card: it has not worked a chargeable
+  // weight out, and "0 kg chargeable" was showing as though it had.
+  const weight = num(r.weight) > 0 ? str(r.weight).trim() : '';
   return {
     id: id || code,
     code: code || id,
     rate: num(r.rate),
     fsc: num(r.fsc),
-    cgst: num(r.cgst),
-    sgst: num(r.sgst),
+    cgst,
+    sgst,
+    igst,
+    gst_total: gstTotal,
     other_charges: num(r.other_charges),
     chrage_apply_data: chrage as ITDRateRow['chrage_apply_data'],
-    sub_total: num(r.sub_total),
-    total: num(r.total),
+    sub_total: subTotal,
+    total,
     per_kg: num(r.per_kg),
-    weight: str(r.weight),
-    gst_per: str(r.gst_per),
+    weight,
+    gst_per: gstPer,
     internal_api_service_code:
       typeof r.internal_api_service_code === 'string' ? r.internal_api_service_code : undefined,
   };
