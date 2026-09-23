@@ -495,6 +495,16 @@ export const ORDER_PAYMENT_META: Record<string, { label: string; badge: string }
   failed: { label: 'Payment failed', badge: 'bg-red-50 text-red-700 border-red-200' },
 };
 
+/**
+ * Signed and sent, and waiting on the Bombino team rather than on them.
+ * `changes_requested` is left out: that one is back with the customer, who
+ * re-signs when they resend.
+ */
+function applicationWithTeam(profile: GuestProfile): boolean {
+  const status = profile.application?.status;
+  return status === 'submitted' || status === 'in_review';
+}
+
 function present(value: string | null | undefined): string | null {
   const trimmed = (value ?? '').trim();
   return trimmed.length > 0 ? trimmed : null;
@@ -557,10 +567,13 @@ function rawValue(profile: GuestProfile, key: ShadowProfileFieldKey): string | n
         ? null
         : `${provided.length} of ${required.length} uploaded`;
     }
-    // Always outstanding here. A guest with an account is not a guest, and
-    // this endpoint refuses a signed-in session outright.
+    // A guest with an account is not a guest, and this endpoint refuses a
+    // signed-in session outright, so the account is never open here. What
+    // can be true is that they have signed the contract and sent it: the
+    // application is then with the Bombino team, and asking them to sign it
+    // again would contradict the card above.
     case 'account':
-      return null;
+      return applicationWithTeam(profile) ? 'Sent · with the Bombino team' : null;
     default:
       return profile.extras?.[key] ?? null;
   }
@@ -587,7 +600,7 @@ function statusFor(
     // for the customer to do, and not a claim that anyone checked it.
     return unverified.length > 0 ? 'in_review' : 'verified';
   }
-  if (key === 'account') return 'pending';
+  if (key === 'account') return applicationWithTeam(profile) ? 'in_review' : 'pending';
   if (!value) return 'pending';
   if (key === 'phone') return 'verified';
   if (key === 'gstin') return 'verified';

@@ -68,6 +68,7 @@ import { registerSupportRoutes } from "./routes/support.js";
 import { seedSignupDocumentFromGuestKyc } from "./guestKycMirror.js";
 import { mirrorAadhaarToKyc } from "./kycMirror.js";
 import { getLatestGuestRefForPhone, upsertGuestProfile } from "./guestProfileDb.js";
+import { itdLinkFailure } from "./itdLinkError.js";
 import { registerWhatsappRoutes } from "./routes/whatsapp.js";
 import { registerWhatsappScheduleRoutes } from "./routes/whatsappSchedule.js";
 import { registerOpsRoutes } from "./routes/ops.js";
@@ -2186,8 +2187,12 @@ export async function registerRoutes(
       itdUser = result.user;
       itdToken = result.token;
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Could not verify those credentials";
-      res.status(401).json({ message });
+      // ITD's wording goes to the log; the customer gets one of two plain
+      // answers (server/itdLinkError.ts).
+      const raw = err instanceof Error ? err.message : String(err);
+      const failure = itdLinkFailure(raw);
+      console.warn(`[link/itd] ITD login failed (${failure.code}): ${raw}`);
+      res.status(failure.status).json({ message: failure.message, code: failure.code });
       return;
     }
 
@@ -3441,11 +3446,15 @@ export async function registerRoutes(
       //
       // Best-effort: the order is placed and paid for either way, and a failed
       // bookkeeping write must not turn a successful booking into a 500.
+      //
+      // A blank field is left out rather than written as null: upsert skips
+      // undefined columns, so a booking without a sender email cannot wipe the
+      // one the profile or an account application already saved.
       void upsertGuestProfile({
         guest_ref: guestRef,
         phone: guestPhone!,
-        full_name: body.origin_address.full_name || null,
-        email: body.origin_address.email || null,
+        full_name: body.origin_address.full_name || undefined,
+        email: body.origin_address.email || undefined,
       }).catch((err) => console.error("[orders] guest profile upsert failed:", err));
     }
 

@@ -45,6 +45,20 @@ export const ERROR_CATALOG = {
     why: "A one-time code proves the number is yours. That proof only lasts a few minutes, so it can run out if a step takes a while.",
     fix: "Request a new code, enter it, and carry on.",
   },
+  // ── Linking a Bombino login from before the app ───────────────────────────
+  ITD_LOGIN_FAILED: {
+    area: "auth",
+    title: "That email and password didn't match",
+    why: "Linking checks them with Bombino's booking system, and it didn't recognise this pair.",
+    fix: "Check the email and password you use on the Bombino portal and try again. Forgotten them? Contact support. Or go back and tap “No, I'm new here” to open a new account.",
+    button: "TAP_CONTACT_US",
+  },
+  ITD_UNAVAILABLE: {
+    area: "auth",
+    title: "Bombino's system couldn't be reached",
+    why: "Linking checks your login with Bombino's booking system, and it didn't answer in time.",
+    fix: "Wait a minute and try again. Nothing was saved, so you can start the same way.",
+  },
   OTP_RATE_LIMITED: {
     area: "auth",
     title: "Too many codes requested",
