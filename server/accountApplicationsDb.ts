@@ -205,6 +205,29 @@ export async function listOpenApplicationRefs(): Promise<Set<string>> {
   return new Set((data ?? []).map((row) => (row as { signup_ref: string }).signup_ref));
 }
 
+/**
+ * Whether these staged files are an open application's.
+ *
+ * Asked before anything deletes a signup ref's rows. Answers true when it
+ * cannot tell, for the same reason as above: keeping a row by mistake costs
+ * nothing, deleting an application's documents out from under the Bombino
+ * team strands it.
+ */
+export async function isOpenApplicationRef(signupRef: string): Promise<boolean> {
+  const client = getClient();
+  if (!client) return true;
+  const { count, error } = await client
+    .from("account_applications")
+    .select("id", { count: "exact", head: true })
+    .eq("signup_ref", signupRef)
+    .in("status", [...OPEN_APPLICATION_STATUSES]);
+  if (error) {
+    logError("isOpenApplicationRef", error);
+    return true;
+  }
+  return (count ?? 0) > 0;
+}
+
 /** Rejected or withdrawn before the cutoff: their personal data has served its purpose. */
 export async function listClosedApplicationsBefore(cutoffIso: string): Promise<ApplicationRow[]> {
   const client = getClient();

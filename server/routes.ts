@@ -76,7 +76,7 @@ import { registerOpsRoutes } from "./routes/ops.js";
 import { registerBiaRoutes } from "./routes/bia.js";
 import { registerAccountApplicationRoutes } from "./routes/accountApplications.js";
 import { isAccountReviewEnabled } from "./accountApplications.js";
-import { getLatestApplicationByPhone, toCustomerView } from "./accountApplicationsDb.js";
+import { getLatestApplicationByPhone, isOpenApplicationRef, toCustomerView } from "./accountApplicationsDb.js";
 import {
   handleGenerateDocket,
   handleMarkDispatched,
@@ -606,6 +606,16 @@ export async function registerRoutes(
     const signupRef = signupRefForReading(req, phone);
     if (!signupRef) {
       res.json({ cleared: false });
+      return;
+    }
+
+    // These are an open application's files: the ones the Bombino team is
+    // reviewing, or has sent back. Wiping them here once deleted a PAN the team
+    // had accepted, and the resend then failed on a number nobody could see was
+    // gone. Same person (the phone is proved), so there is nothing to hide
+    // from them either. Each new upload still replaces its own slot.
+    if (await isOpenApplicationRef(signupRef)) {
+      res.json({ cleared: false, kept_for_application: true });
       return;
     }
 

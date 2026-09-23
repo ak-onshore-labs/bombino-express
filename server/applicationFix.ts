@@ -18,7 +18,17 @@ import type { Request, Response } from "express";
 import { isAccountReviewEnabled } from "./accountApplications.js";
 import { getOpenApplicationByPhone, listApplicationEvents, type ApplicationRow } from "./accountApplicationsDb.js";
 import { listDocumentsBySignupRef } from "./accountDocsDb.js";
-import { DOC_SLOT_SPECS, isDocSlot } from "../shared/accountSpec.js";
+import {
+  DOC_SLOT_SPECS,
+  isCompanyCategory,
+  isDocSlot,
+  requiredDocuments,
+  requiredIdentityChecks,
+  type DocSlot,
+  type VerifiedDocSlot,
+} from "../shared/accountSpec.js";
+import { listIdentityVerificationsBySignupRef } from "./identityDb.js";
+import { IDENTITY_KIND_BY_SLOT } from "./identityChecks.js";
 
 /**
  * The application this session may fix for `phone`, or null.
@@ -74,7 +84,7 @@ export function mergeFixBody(app: ApplicationRow, body: Record<string, unknown>)
  * asked. A file counts as new if it was saved after the team sent the
  * application back.
  */
-export async function slotsNotReplaced(app: ApplicationRow): Promise<string[]> {
+export async function slotsNotReplaced(app: ApplicationRow): Promise<DocSlot[]> {
   const asked = (app.requested_changes?.slots ?? []).filter(isDocSlot);
   if (asked.length === 0) return [];
   // When the team asked: the latest changes_requested event. The row's own
@@ -89,7 +99,7 @@ export async function slotsNotReplaced(app: ApplicationRow): Promise<string[]> {
   const fresh = new Set(
     docs.filter((d) => new Date(d.updated_at).getTime() > since).map((d) => d.doc_slot),
   );
-  return asked.filter((slot) => !fresh.has(slot)).map((slot) => DOC_SLOT_SPECS[slot].label);
+  return asked.filter((slot) => !fresh.has(slot));
 }
 
 export const FIX_NOT_OPEN_MESSAGE =
@@ -100,8 +110,48 @@ export async function assertFixedSlotsReplaced(app: ApplicationRow, res: Respons
   const missing = await slotsNotReplaced(app);
   if (missing.length === 0) return true;
   res.status(422).json({
-    message: `Please upload again: ${missing.join(", ")}.`,
+    message: `Please upload again: ${missing.map((slot) => DOC_SLOT_SPECS[slot].label).join(", ")}.`,
     code: "DOCUMENTS_NOT_REPLACED",
   });
   return false;
+}
+
+export interface FixNeeds {
+  /** Documents the team asked to see again and that haven't been uploaded since. */
+  asked: DocSlot[];
+  /** Asked for, and already uploaded again since the team asked. */
+  replaced: DocSlot[];
+  /**
+   * Documents the application must have and doesn't: never uploaded, lost,
+   * or on file without the number it was checked against. The resend fails on
+   * these whether the team ticked them or not, so the customer is shown them.
+   */
+  missing: DocSlot[];
+}
+
+/** What the fix screen has to ask for, from what is actually on file. */
+export async function fixNeeds(app: ApplicationRow): Promise<FixNeeds> {
+  const category = isCompanyCategory(app.company_category) ? app.company_category : null;
+  const required = requiredDocuments(app.account_type, category);
+  const [docs, identities, pending] = await Promise.all([
+    listDocumentsBySignupRef(app.signup_ref),
+    listIdentityVerificationsBySignupRef(app.signup_ref),
+    slotsNotReplaced(app),
+  ]);
+  const onFile = new Set(docs.map((d) => d.doc_slot));
+  const numbers = new Set(identities.map((i) => i.kind));
+  // The numbers the resend insists on: the same list signup's
+  // assertIdentityVerified checks, so this screen and that refusal agree.
+  const numberRequired = new Set<DocSlot>(requiredIdentityChecks(app.account_type, category));
+  const missing = required.filter(
+    (slot) =>
+      !onFile.has(slot) ||
+      (numberRequired.has(slot) && !numbers.has(IDENTITY_KIND_BY_SLOT[slot as VerifiedDocSlot])),
+  );
+  const asked = (app.requested_changes?.slots ?? []).filter(isDocSlot);
+  return {
+    asked: pending,
+    replaced: asked.filter((slot) => !pending.includes(slot) && !missing.includes(slot)),
+    missing: [...missing],
+  };
 }

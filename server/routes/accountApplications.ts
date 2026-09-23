@@ -50,6 +50,7 @@ import { getItdUserProfileById } from "../appDb.js";
 import { AuditLogUnavailableError, logDocumentAccessOrThrow } from "../documentAccessLog.js";
 import { sendDocumentFile, wantsDownload } from "../documentResponse.js";
 import { maskNumber } from "../accountEmails.js";
+import { applicationToFix, fixNeeds, FIX_NOT_OPEN_MESSAGE } from "../applicationFix.js";
 import {
   COMPANY_CATEGORY_SPECS,
   DOC_SLOT_SPECS,
@@ -112,6 +113,23 @@ export function registerAccountApplicationRoutes(app: Express): void {
     }
     const row = await getLatestApplicationByPhone(phone);
     res.json({ enabled: isAccountReviewEnabled(), application: row ? toCustomerView(row) : null });
+  });
+
+  /**
+   * GET /api/signup/application/fix — what fixing a sent-back application
+   * needs from what is on file right now: the documents the team asked for,
+   * and any the application must have but doesn't (lost, never uploaded, or
+   * missing the number it was checked against). The fix screen asks for both.
+   */
+  app.get("/api/signup/application/fix", async (req: Request, res: Response) => {
+    const phone = guestPhoneFrom(req);
+    const fixing = phone && !req.session.user ? await applicationToFix(req, phone) : null;
+    res.set("Cache-Control", "no-store");
+    if (!fixing) {
+      res.status(409).json({ message: FIX_NOT_OPEN_MESSAGE, code: "APPLICATION_NOT_AWAITING_CHANGES" });
+      return;
+    }
+    res.json(await fixNeeds(fixing));
   });
 
   // POST /api/signup/application/withdraw

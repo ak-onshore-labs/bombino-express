@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'wouter';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,6 +22,7 @@ import type { GuestProfile } from '@/lib/shadowProfile';
 import { validateGstin } from '@shared/gstin';
 import { INDIA_HUBS } from '@shared/hubs';
 import {
+  DOC_SLOT_SPECS,
   EXTRA_FIELD_SPECS,
   isCompanyCategory,
   isDocSlot,
@@ -33,6 +34,13 @@ import { APPLICATION_FIELD_LABELS, isApplicationField, type ApplicationField } f
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const FIELD_CLASS = 'h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl';
 const LABEL_CLASS = 'text-sm font-medium text-[lab(34.0831_-9.57756_-27.7093)]';
+
+/** GET /api/signup/application/fix — see server/applicationFix.ts §fixNeeds. */
+interface FixNeeds {
+  asked: string[];
+  replaced: string[];
+  missing: string[];
+}
 
 /** What the guest profile already holds for a field, to start the input from. */
 function startingValue(profile: GuestProfile, field: ApplicationField): string {
@@ -80,8 +88,10 @@ function fieldError(field: ApplicationField, value: string): string | null {
  * Fixing an application the Bombino team sent back.
  *
  * Only what they ticked is asked for: the fields to correct and the documents
- * to upload again. The rest of the application, and the contract already
- * signed, stay as they are, and the guest session on this number is the proof
+ * to upload again, plus any required document no longer on file (the resend
+ * would fail on it otherwise). A document already uploaded again on an earlier
+ * visit is not asked for twice. The rest of the application, and the contract
+ * already signed, stay as they are, and the guest session on this number is the proof
  * it's theirs, so there is no code to type. The server enforces the same
  * (server/applicationFix.ts); this screen just doesn't ask for anything else.
  */
@@ -98,14 +108,37 @@ export default function ApplicationFix(): React.JSX.Element | null {
   );
   const accountTypeAsked = (changes?.fields ?? []).includes('account_type');
   /**
-   * The documents to upload again. A new GST number also needs the
-   * certificate that carries it, since the two are checked against each other.
+   * What is on file right now, from the server: the documents the team asked
+   * for, and any the application must have but doesn't (lost, or never
+   * uploaded). The second list is why this is asked for rather than read off
+   * the application: a document can go missing after the team looked.
+   */
+  const { data: needs } = useQuery({
+    queryKey: ['/api/signup/application/fix', application?.id, application?.status],
+    enabled: Boolean(changes),
+    queryFn: async (): Promise<FixNeeds | null> => {
+      const r = await fetch('/api/signup/application/fix', { credentials: 'include', cache: 'no-store' });
+      return r.ok ? ((await r.json()) as FixNeeds) : null;
+    },
+  });
+  /** Asked for and already uploaded again, on an earlier visit. */
+  const replaced = useMemo<DocSlot[]>(() => (needs?.replaced ?? []).filter(isDocSlot), [needs]);
+  /** Missing from the application though the team didn't tick them. */
+  const lost = useMemo<DocSlot[]>(
+    () => (needs?.missing ?? []).filter(isDocSlot).filter((slot) => !(changes?.slots ?? []).includes(slot)),
+    [needs, changes],
+  );
+  /**
+   * The documents to upload: the ones asked for, the ones missing, and the
+   * GST certificate when the GST number changes, since the two are checked
+   * against each other.
    */
   const slots = useMemo<DocSlot[]>(() => {
-    const asked = (changes?.slots ?? []).filter(isDocSlot);
-    if (fields.includes('gstin') && !asked.includes('gst_certificate')) asked.push('gst_certificate');
-    return asked;
-  }, [changes, fields]);
+    const list = (changes?.slots ?? []).filter(isDocSlot).filter((slot) => !replaced.includes(slot));
+    for (const slot of lost) if (!list.includes(slot)) list.push(slot);
+    if (fields.includes('gstin') && !list.includes('gst_certificate')) list.push('gst_certificate');
+    return list;
+  }, [changes, fields, lost, replaced]);
 
   const [values, setValues] = useState<Partial<Record<ApplicationField, string>>>({});
   const [errors, setErrors] = useState<Partial<Record<ApplicationField, string>>>({});
@@ -295,9 +328,31 @@ export default function ApplicationFix(): React.JSX.Element | null {
           </section>
         )}
 
+        {replaced.length > 0 && (
+          <p className="text-xs text-emerald-700" data-testid="fix-replaced">
+            Already uploaded again: {replaced.map((slot) => DOC_SLOT_SPECS[slot].label).join(', ')}.
+          </p>
+        )}
+
         {slots.length > 0 && (
           <section className="space-y-3" data-testid="fix-documents">
             <h2 className="text-sm font-semibold text-foreground">Documents to upload again</h2>
+            {lost.length > 0 && (
+              <div
+                className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+                role="status"
+                data-testid="fix-missing-documents"
+              >
+                <p className="font-semibold">
+                  {lost.length === 1 ? 'This document is' : 'These documents are'} no longer on your application
+                </p>
+                <p className="mt-0.5 text-xs leading-relaxed">
+                  {lost.map((slot) => DOC_SLOT_SPECS[slot].label).join(', ')}: upload{' '}
+                  {lost.length === 1 ? 'it' : 'them'} again with the number{lost.length === 1 ? '' : 's'} on{' '}
+                  {lost.length === 1 ? 'it' : 'them'}, or the application can't be sent.
+                </p>
+              </div>
+            )}
             <AccountDocuments
               accountType={application.account_type}
               category={category}
