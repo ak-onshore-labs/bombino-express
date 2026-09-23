@@ -70,6 +70,8 @@ import { mirrorAadhaarToKyc } from "./kycMirror.js";
 import { getLatestGuestRefForPhone, upsertGuestProfile } from "./guestProfileDb.js";
 import { itdLinkFailure } from "./itdLinkError.js";
 import { applicationToFix, assertFixedSlotsReplaced, FIX_NOT_OPEN_MESSAGE, mergeFixBody } from "./applicationFix.js";
+import { US_STATE_ERROR, US_ZIP_ERROR, isUsZip, usStateName } from "../shared/usAddress.js";
+import { explainDocketError } from "../shared/docketError.js";
 import { registerWhatsappRoutes } from "./routes/whatsapp.js";
 import { registerWhatsappScheduleRoutes } from "./routes/whatsappSchedule.js";
 import { registerOpsRoutes } from "./routes/ops.js";
@@ -3165,6 +3167,19 @@ export async function registerRoutes(
         message: "Pay at pickup is only available when an agent collects the parcel",
         params: { code: "PAY_AT_PICKUP_NEEDS_PICKUP" },
       }
+    )
+    // A US address ITD can't place is priced at zero and refused at the docket
+    // ("Freight amount is 0", BOM-100305). The form checks the same thing;
+    // this is the check that holds for any client. See shared/usAddress.ts.
+    .refine(
+      (body) =>
+        body.items.consignee_country !== "US" || isUsZip(String(body.items.consignee_zip_code ?? "")),
+      { message: US_ZIP_ERROR, params: { code: "US_ZIP_INVALID" } }
+    )
+    .refine(
+      (body) =>
+        body.items.consignee_country !== "US" || usStateName(String(body.items.consignee_state ?? "")) !== null,
+      { message: US_STATE_ERROR, params: { code: "US_STATE_INVALID" } }
     );
 
   // POST /api/orders — requires login (session)
@@ -3536,7 +3551,12 @@ export async function registerRoutes(
 
     res.json({
       order: docket.status === "issued" ? { ...order, awb_no: docket.awb_no } : order,
-      docket,
+      // A refusal goes out as the customer's note (shared/docketError.ts), never
+      // as ITD's raw reply: that carries HTTP codes and JSON, and is ops' to read.
+      docket:
+        docket.status === "failed"
+          ? { ...docket, message: explainDocketError(docket.message ?? "").customerNote }
+          : docket,
     });
   });
 
@@ -4261,6 +4281,17 @@ export async function registerRoutes(
       // Surfaced as its own field rather than leaving the page to dig through
       // `order.metadata` — the customer app has no business parsing an escape
       // hatch that also carries gateway ids and failure blobs.
+      /**
+       * Why there is no airway bill yet, when one was tried at booking and ITD
+       * refused it. The customer's wording only; ops sees ITD's reason.
+       */
+      awbNote: (() => {
+        if (order.awb_no) return null;
+        const meta = (order.metadata ?? {}) as Record<string, unknown>;
+        const err = meta.docket_error as { message?: unknown; stage?: unknown } | undefined;
+        if (!err || typeof err.message !== "string") return null;
+        return explainDocketError(err.message, typeof err.stage === "string" ? err.stage : null).customerNote;
+      })(),
       cancellationRequest: (() => {
         const request = readCancellationRequest(order);
         if (!request) return null;

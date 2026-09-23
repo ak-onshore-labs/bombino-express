@@ -326,8 +326,13 @@ export default function OpsOrderDetail() {
           <p className="text-sm font-semibold text-foreground mt-1 leading-snug">
             {order.docket_error}
           </p>
+          {order.docket_error_hint && (
+            <p className="text-xs text-foreground mt-1.5 leading-relaxed" data-testid="ops-order-docket-hint">
+              {order.docket_error_hint}
+            </p>
+          )}
           <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
-            The order is unaffected — generate the docket here once it is settled.
+            The order itself is unaffected.
           </p>
         </div>
       )}

@@ -448,6 +448,7 @@ export default function OrderDetails() {
     availableActions,
     cancellationRequest,
     handover,
+    awbNote,
   } = data;
   const items = order.items;
   const consignee = order.consignee;
@@ -614,6 +615,18 @@ export default function OrderDetails() {
 
         {/* Not yet a docket. Said once, here, rather than as a toast the
             customer has to dismiss to see anything at all. */}
+        {/* The airway bill was tried at booking and refused: why, in the
+            customer's words (shared/docketError.ts). */}
+        {!order.awb_no && awbNote && (
+          <div
+            className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5"
+            role="status"
+            data-testid="order-awb-note"
+          >
+            <p className="text-xs font-semibold text-amber-900">Airway bill still to be issued</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-amber-800/90">{awbNote}</p>
+          </div>
+        )}
         {!order.awb_no && (
           <p className="mt-3 text-xs text-muted-foreground leading-relaxed bg-muted/50 border border-border rounded-lg px-3 py-2.5">
             Live carrier tracking starts once your parcel reaches the Bombino hub

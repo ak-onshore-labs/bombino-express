@@ -71,11 +71,12 @@ import { parseApiErrorCode, parseApiErrorMessage } from '@/lib/apiError';
 import { AskBiaLink } from '@/components/bia/AskBiaLink';
 import { openBia, usePublishBiaScreen } from '@/lib/biaStore';
 import type { BiaScreen } from '@shared/biaScreen';
-import { PRODUCT_TYPE_INFO, isProductType } from '@shared/bookingTerms';
+import { DOX_CONTENT_WARNING, PRODUCT_TYPE_INFO, isDocumentsContent, isProductType } from '@shared/bookingTerms';
 import { payForOrder } from '@/lib/razorpay';
 import { PaymentTestModeSwitch } from '@/components/PaymentTestModeSwitch';
 import { cn } from '@/lib/utils';
 import { getHsnCode } from '@shared/hsn';
+import { US_STATES, US_STATE_ERROR, US_ZIP_ERROR, isUsZip, usStateName } from '@shared/usAddress';
 import { useToast } from '@/hooks/use-toast';
 import { usePincodeLookup } from '@/hooks/usePincodeLookup';
 import { DropoffBranches } from '@/components/DropoffBranches';
@@ -757,6 +758,12 @@ export default function CreateShipment() {
 
   /** Choosing a box size IS the product-type answer, so the select is locked. */
   const productTypeLocked = presetProductType !== null;
+  /**
+   * Documents (DOX) chosen, directly or by the envelope size, for contents
+   * that aren't paper. ITD prices DOX as paper and refuses the docket for
+   * goods ("Freight amount is 0"), so it's said on the step where it happens.
+   */
+  const doxMismatch = productType === 'DOX' && !isDocumentsContent(shipmentContent);
 
   // ── Payment methods ────────────────────────────────────────────────────
   // Two of the four are tied to how the parcel reaches us, and offering the
@@ -1362,9 +1369,9 @@ export default function CreateShipment() {
                   Airway bill still to be issued
                 </p>
                 <p className="text-[11px] text-amber-800/90 mt-1 leading-relaxed">
-                  Your booking is confirmed. We could not raise the airway bill just
-                  now — our team has been notified and will issue it before your
-                  parcel ships.
+                  {/* The server's customer note (shared/docketError.ts): why, and
+                      whether anything is theirs to check. */}
+                  {docketMessage}
                 </p>
               </div>
             )}
@@ -1573,6 +1580,12 @@ export default function CreateShipment() {
       if (!receiverCity.trim()) e.receiverCity = true;
       if (!receiverState.trim()) e.receiverState = true;
       if (!receiverZip.trim()) e.receiverZip = true;
+      // A US address ITD can't place is priced at zero and refused at the
+      // docket ("Freight amount is 0"). Caught here instead: shared/usAddress.ts.
+      if (destinationCountry === 'US') {
+        if (receiverZip.trim() && !isUsZip(receiverZip)) e.receiverZip = true;
+        if (receiverState.trim() && !usStateName(receiverState)) e.receiverState = true;
+      }
       if (Object.keys(e).length) {
         setFieldErrors(e);
         scrollToFirstError();
@@ -2546,7 +2559,7 @@ export default function CreateShipment() {
                 setReceiverCompany(address.company ?? '');
                 setReceiverAddress(address.address_line_1);
                 setReceiverCity(address.city);
-                setReceiverState(address.state ?? '');
+                setReceiverState(usStateName(address.state ?? '') ?? address.state ?? '');
                 setReceiverZip(address.pincode ?? '');
                 setFieldErrors({});
 
@@ -2675,7 +2688,9 @@ export default function CreateShipment() {
                     </p>
                   )}
                   {fieldErrors.receiverZip && (
-                    <p className="text-xs text-red-600 mt-1">This field is required</p>
+                    <p className="text-xs text-red-600 mt-1">
+                      {receiverZip.trim() && destinationCountry === 'US' ? US_ZIP_ERROR : 'This field is required'}
+                    </p>
                   )}
                 </div>
                 <div>
@@ -2695,17 +2710,40 @@ export default function CreateShipment() {
                 </div>
                 <div>
                   <Label className="text-xs text-muted-foreground">State</Label>
-                  <Input
-                    value={receiverState}
-                    onChange={(e) => {
-                      setReceiverState(e.target.value);
-                      clearFieldError('receiverState');
-                    }}
-                    className={fieldBorderClass('receiverState')}
-                    data-testid="input-receiver-state"
-                  />
+                  {destinationCountry === 'US' ? (
+                    <Select
+                      value={usStateName(receiverState) ?? ''}
+                      onValueChange={(value) => {
+                        setReceiverState(value);
+                        clearFieldError('receiverState');
+                      }}
+                    >
+                      <SelectTrigger className={fieldBorderClass('receiverState')} data-testid="select-receiver-state">
+                        <SelectValue placeholder="Choose state" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {US_STATES.map((st) => (
+                          <SelectItem key={st.code} value={st.name}>
+                            {st.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      value={receiverState}
+                      onChange={(e) => {
+                        setReceiverState(e.target.value);
+                        clearFieldError('receiverState');
+                      }}
+                      className={fieldBorderClass('receiverState')}
+                      data-testid="input-receiver-state"
+                    />
+                  )}
                   {fieldErrors.receiverState && (
-                    <p className="text-xs text-red-600 mt-1">This field is required</p>
+                    <p className="text-xs text-red-600 mt-1">
+                      {receiverState.trim() && destinationCountry === 'US' ? US_STATE_ERROR : 'This field is required'}
+                    </p>
                   )}
                 </div>
               </div>
@@ -2740,6 +2778,25 @@ export default function CreateShipment() {
               />
               {fieldErrors.shipmentContent && (
                 <p className="text-xs text-red-600 mt-1">This field is required</p>
+              )}
+              {doxMismatch && (
+                <div
+                  className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+                  role="status"
+                  data-testid="warning-dox-content"
+                >
+                  <p>{DOX_CONTENT_WARNING}</p>
+                  {selectedPreset === 'envelope' && (
+                    <button
+                      type="button"
+                      onClick={() => setShowPresetSheet(true)}
+                      className="mt-1 font-semibold underline underline-offset-2"
+                      data-testid="button-dox-change-size"
+                    >
+                      Choose another size
+                    </button>
+                  )}
+                </div>
               )}
               <button
                 type="button"
@@ -3137,6 +3194,16 @@ export default function CreateShipment() {
                     >
                       Set by the {DIMENSION_PRESETS.find((p) => p.id === selectedPreset)?.label}{' '}
                       size you chose. Clear it on the Package step to change this.
+                    </p>
+                  )}
+                  {doxMismatch && (
+                    <p
+                      className="mt-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+                      role="status"
+                      data-testid="warning-dox-product-type"
+                    >
+                      {DOX_CONTENT_WARNING}
+                      {productTypeLocked ? ' Go back to the Package step to change the size.' : ' Pick Package (SPX) above.'}
                     </p>
                   )}
                 </div>

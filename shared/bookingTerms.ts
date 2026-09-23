@@ -97,3 +97,20 @@ export const BOOKING_TERM_NAMES = Object.keys(BOOKING_TERMS) as BookingTerm[];
 export function isBookingTerm(value: unknown): value is BookingTerm {
   return typeof value === "string" && Object.prototype.hasOwnProperty.call(BOOKING_TERMS, value);
 }
+
+/**
+ * Whether what a customer typed as the shipment's content is paper only.
+ *
+ * Documents (DOX) is priced as paper: ITD has no documents rate for goods, so
+ * a DOX docket for BOOKS or CLOTHES comes back "Freight amount is 0" with no
+ * airway bill (BOM-100305). The booking form warns when the two disagree.
+ * Empty content is not a disagreement yet.
+ */
+export function isDocumentsContent(content: string): boolean {
+  const c = content.trim().toLowerCase();
+  if (!c) return true;
+  return /\b(documents?|docs?|papers?|letters?|certificates?|transcripts?|diplomas?|degree|marksheets?|contracts?|agreements?|deeds?|affidavits?|cheques?|checks?|invoices?|statements?|forms?|applications?|visa)\b/.test(c);
+}
+
+export const DOX_CONTENT_WARNING =
+  "Documents (DOX) is for paper only. What you're sending isn't paper, so it can't be priced or booked as documents. Choose a parcel size instead.";

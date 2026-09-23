@@ -33,6 +33,8 @@ export type OpsBoardOrder = {
    * never docketed at booking and are simply waiting their turn with ops.
    */
   docket_error: string | null;
+  /** What usually causes that refusal and what to do. */
+  docket_error_hint?: string | null;
 };
 
 export type OpsOrderEvent = {

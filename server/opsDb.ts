@@ -6,6 +6,7 @@
  */
 
 import { supabase } from "./supabaseClient.js";
+import { explainDocketError, type DocketFailure } from "../shared/docketError.js";
 import { dbClient, logDbError, type DbError } from "./db/client.js";
 import {
   cancellationState,
@@ -78,6 +79,8 @@ export type OpsBoardOrder = {
    * place and are simply waiting for ops.
    */
   docket_error: string | null;
+  /** What usually causes that refusal and what to do (shared/docketError.ts). */
+  docket_error_hint: string | null;
 };
 
 export type OpsOrderDetail = {
@@ -105,6 +108,8 @@ export type OpsOrderDetail = {
   itd_docket_response: unknown;
   metadata: unknown;
   docket_error: string | null;
+  /** What usually causes that refusal and what to do (shared/docketError.ts). */
+  docket_error_hint: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -126,12 +131,22 @@ export type OpsOrderEvent = {
  * of which the board has any business seeing. See `recordBookingDocketError`
  * in server/ordersDb.ts for who writes it.
  */
-function docketErrorMessage(metadata: unknown): string | null {
+function docketFailure(metadata: unknown): DocketFailure | null {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
   const err = (metadata as Record<string, unknown>).docket_error;
   if (!err || typeof err !== "object" || Array.isArray(err)) return null;
-  const message = (err as Record<string, unknown>).message;
-  return typeof message === "string" && message.trim() !== "" ? message : null;
+  const { message, stage } = err as Record<string, unknown>;
+  if (typeof message !== "string" || message.trim() === "") return null;
+  return explainDocketError(message, typeof stage === "string" ? stage : null);
+}
+
+/** ITD's own reason, without the HTTP wrapping it was stored in. */
+function docketErrorMessage(metadata: unknown): string | null {
+  return docketFailure(metadata)?.reason ?? null;
+}
+
+function docketErrorHint(metadata: unknown): string | null {
+  return docketFailure(metadata)?.opsHint ?? null;
 }
 
 function toNum(value: unknown): number | null {
@@ -167,6 +182,7 @@ function mapBoardRow(row: Record<string, unknown>): OpsBoardOrder {
     agent_name: null,
     awb_no: (row.awb_no as string | null) ?? null,
     docket_error: docketErrorMessage(row.metadata),
+    docket_error_hint: docketErrorHint(row.metadata),
   };
 }
 
@@ -196,6 +212,7 @@ function mapDetailRow(row: Record<string, unknown>): OpsOrderDetail {
     itd_docket_response: row.itd_docket_response ?? null,
     metadata: row.metadata ?? null,
     docket_error: docketErrorMessage(row.metadata),
+    docket_error_hint: docketErrorHint(row.metadata),
     created_at: String(row.created_at),
     updated_at: String(row.updated_at),
   };
