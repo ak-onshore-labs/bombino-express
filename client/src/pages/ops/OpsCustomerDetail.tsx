@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { OpsAccessRequired } from '@/components/ops/OpsAccessRequired';
+import { ArrowLeft, Download, Loader2 } from 'lucide-react';
 import { Link, useParams } from 'wouter';
 import { OpsDocumentPreviewOverlay, useOpsDocumentPreview } from '@/components/ops/OpsDocumentPreview';
 import { OpsShell } from '@/components/ops/OpsShell';
@@ -17,8 +18,8 @@ import {
   type OpsShipmentKycMeta,
 } from '@/hooks/useOpsCustomers';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { parseApiErrorMessage } from '@/lib/apiError';
-import { formatIst } from '@/lib/orderDetail';
+import { parseApiErrorMessage, isForbiddenError, isNotFoundError } from '@/lib/apiError';
+import { formatIst, formatIstDate } from '@/lib/orderDetail';
 import { useAppStore } from '@/lib/store';
 import {
   COMPANY_CATEGORY_SPECS,
@@ -51,16 +52,6 @@ function Fact({ label, value }: { label: string; value: string | null | undefine
       </p>
     </div>
   );
-}
-
-function formatMemberSince(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('en-IN', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
 }
 
 function identityKindLabel(kind: string): string {
@@ -101,6 +92,8 @@ type ViewableDoc = {
   original_filename: string;
   updated_at: string;
   load: () => Promise<Blob>;
+  /** The same bytes, fetched as a copy to keep — the server logs it as a download. */
+  loadForDownload: () => Promise<Blob>;
 };
 
 function viewableDocuments(data: OpsCustomerDetail): ViewableDoc[] {
@@ -112,6 +105,7 @@ function viewableDocuments(data: OpsCustomerDetail): ViewableDoc[] {
     original_filename: row.original_filename,
     updated_at: row.updated_at,
     load: () => fetchOpsCustomerDocumentFile(data.customer.id, row.doc_slot),
+    loadForDownload: () => fetchOpsCustomerDocumentFile(data.customer.id, row.doc_slot, true),
   }));
 
   const shipment: OpsShipmentKycMeta | null = data.kyc.shipment_kyc;
@@ -124,6 +118,7 @@ function viewableDocuments(data: OpsCustomerDetail): ViewableDoc[] {
       original_filename: shipment.original_filename,
       updated_at: shipment.updated_at,
       load: () => fetchOpsCustomerKycFile(data.customer.id),
+      loadForDownload: () => fetchOpsCustomerKycFile(data.customer.id, true),
     });
   }
   return rows;
@@ -138,7 +133,7 @@ export default function OpsCustomerDetail() {
   const { data, isLoading, isError, error } = useOpsCustomerDetail(id);
   const ordersQuery = useOpsCustomerOrders(id);
 
-  const { preview, closePreview, openBlob, fileBusy, fileErrors } = useOpsDocumentPreview();
+  const { preview, closePreview, openBlob, downloadBlob, fileBusy, fileErrors } = useOpsDocumentPreview();
   const [revealed, setRevealed] = useState<Partial<Record<OpsIdentityMeta['kind'], string>>>({});
   const [revealBusy, setRevealBusy] = useState<OpsIdentityMeta['kind'] | null>(null);
   const [revealError, setRevealError] = useState('');
@@ -147,8 +142,8 @@ export default function OpsCustomerDetail() {
   const showSource = docs.some((doc) => doc.source === 'onboarding') &&
     docs.some((doc) => doc.source === 'shipment');
 
-  const notFound =
-    isError && error instanceof Error && error.message.startsWith('404:');
+  const notFound = isNotFoundError(error);
+  const forbidden = isForbiddenError(error);
 
   const revealNumber = async (kind: OpsIdentityMeta['kind']): Promise<void> => {
     if (!id) return;
@@ -189,9 +184,10 @@ export default function OpsCustomerDetail() {
             </div>
           )}
 
-          {isError && (
+          {isError && forbidden && <OpsAccessRequired what="customer records" />}
+          {isError && !forbidden && (
             <p
-              className="text-sm text-muted-foreground py-8"
+              className="text-sm text-red-600 py-8"
               data-testid="ops-customer-detail-error"
             >
               {notFound ? 'That customer could not be found.' : 'Could not load this customer.'}
@@ -257,28 +253,51 @@ export default function OpsCustomerDetail() {
                             )}
                           </div>
                           {canViewKyc ? (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="h-9 rounded-lg text-xs font-semibold shrink-0"
-                              disabled={fileBusy === doc.key}
-                              onClick={() =>
-                                void openBlob(doc.key, doc.original_filename || doc.key, () =>
-                                  doc.load(),
-                                )
-                              }
-                              data-testid={
-                                doc.key === 'shipment-kyc'
-                                  ? 'ops-kyc-view-shipment'
-                                  : `ops-kyc-view-slot-${doc.key}`
-                              }
-                            >
-                              {fileBusy === doc.key ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                              ) : (
-                                'View'
-                              )}
-                            </Button>
+                            <div className="flex shrink-0 items-center gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-9 rounded-lg text-xs font-semibold"
+                                disabled={fileBusy === doc.key}
+                                onClick={() =>
+                                  void openBlob(doc.key, doc.original_filename || doc.label, () =>
+                                    doc.load(),
+                                  )
+                                }
+                                data-testid={
+                                  doc.key === 'shipment-kyc'
+                                    ? 'ops-kyc-view-shipment'
+                                    : `ops-kyc-view-slot-${doc.key}`
+                                }
+                              >
+                                {fileBusy === doc.key ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  'View'
+                                )}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-9 rounded-lg text-xs font-semibold gap-1.5"
+                                disabled={fileBusy === doc.key}
+                                onClick={() =>
+                                  void downloadBlob(
+                                    doc.key,
+                                    doc.original_filename || doc.label,
+                                    () => doc.loadForDownload(),
+                                  )
+                                }
+                                data-testid={
+                                  doc.key === 'shipment-kyc'
+                                    ? 'ops-kyc-download-shipment'
+                                    : `ops-kyc-download-slot-${doc.key}`
+                                }
+                              >
+                                <Download className="w-4 h-4" aria-hidden />
+                                Download
+                              </Button>
+                            </div>
                           ) : null}
                         </li>
                       );
@@ -293,7 +312,7 @@ export default function OpsCustomerDetail() {
                 )}
                 {canViewKyc && docs.length > 0 && (
                   <p className="text-xs text-muted-foreground mt-3">
-                    Each view is recorded.
+                    Every view and download is recorded.
                   </p>
                 )}
               </section>
@@ -375,7 +394,7 @@ export default function OpsCustomerDetail() {
                     <Fact label="GSTIN" value={data.customer.gstin} />
                   </>
                 )}
-                <Fact label="Member since" value={formatMemberSince(data.customer.created_at)} />
+                <Fact label="Member since" value={formatIstDate(data.customer.created_at)} />
               </section>
 
               <section

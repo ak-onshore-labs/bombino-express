@@ -1,0 +1,94 @@
+[
+  {
+    "id": "guest-17-list-orders",
+    "ref": "#17",
+    "module": "orders",
+    "identity": "guest",
+    "turns": [
+      "Show my orders"
+    ],
+    "expect": {
+      "tools": [
+        "list_my_orders"
+      ],
+      "buttons": [
+        "TAP_MY_ORDERS"
+      ],
+      "buttonsNot": [
+        "re:TAP_VIEW_ORDER"
+      ],
+      "contains": [
+        "BOM-100136"
+      ],
+      "notContains": [
+        "BOM-100108"
+      ],
+      "cards": [
+        "order"
+      ]
+    }
+  },
+  {
+    "id": "guest-18-where-to-drop-off",
+    "ref": "#18",
+    "module": "orders",
+    "identity": "guest",
+    "turns": [
+      "Where do I drop off BOM-100136?"
+    ],
+    "expect": {
+      "tools": [
+        "get_order_status"
+      ],
+      "buttons": [
+        "TAP_LOCATIONS:Maharashtra"
+      ],
+      "contains": [
+        "re:order id"
+      ],
+      "notContains": [
+        "re:drop-off code"
+      ],
+      "cards": [
+        "order"
+      ]
+    }
+  },
+  {
+    "id": "guest-19-accounts-order-not-theirs",
+    "ref": "#19",
+    "module": "orders",
+    "identity": "guest",
+    "turns": [
+      "What about BOM-100108?"
+    ],
+    "expect": {
+      "contains": [
+        "re:couldn.t find|could not find|no order|wasn.t found|not found"
+      ],
+      "notContains": [
+        "Sunnyvale"
+      ],
+      "buttonsNot": [
+        "re:TAP_VIEW_ORDER"
+      ]
+    }
+  },
+  {
+    "id": "guest-20-cancel-via-support",
+    "ref": "#20",
+    "module": "orders",
+    "identity": "guest",
+    "turns": [
+      "Can I cancel BOM-100136?"
+    ],
+    "expect": {
+      "buttons": [
+        "TAP_CONTACT_US"
+      ],
+      "contains": [
+        "re:support"
+      ]
+    }
+  }
+]

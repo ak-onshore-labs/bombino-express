@@ -45,6 +45,7 @@ import {
   type ExtraField,
 } from '@shared/accountSpec';
 import { INDIA_HUBS } from '@shared/hubs';
+import type { CustomerApplicationView } from '@shared/applicationStatus';
 
 /**
  * Every row the profile can show. Which of them apply is decided by the
@@ -160,6 +161,11 @@ export interface GuestProfile {
     unverified: string[];
   };
   orders: GuestOrderSummary[];
+  /**
+   * The account application on this number (account review): open, or the
+   * last one decided. Absent from servers that predate it, hence optional.
+   */
+  application?: CustomerApplicationView | null;
 }
 
 /**

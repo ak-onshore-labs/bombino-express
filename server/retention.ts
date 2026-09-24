@@ -31,6 +31,12 @@ import {
   deleteGuestProfilesByRefs,
   listAbandonedGuestProfileRefs,
 } from "./guestProfileDb.js";
+import {
+  deleteApplicationsByIds,
+  listClosedApplicationsBefore,
+  listOpenApplicationRefs,
+} from "./accountApplicationsDb.js";
+import { isAccountReviewEnabled } from "./accountApplications.js";
 
 /** Days an unclaimed signup's documents are kept before deletion. */
 export const ABANDONED_SIGNUP_RETENTION_DAYS = Number(
@@ -44,6 +50,8 @@ export interface SweepResult {
   errors: string[];
   /** Guest profiles nobody came back for — see the note where they are swept. */
   guestProfiles: number;
+  /** Rejected or withdrawn account applications past the window (account review). */
+  closedApplications: number;
 }
 
 /**
@@ -92,6 +100,7 @@ export async function sweepAbandonedSignups(
     documents: 0,
     identityVerifications: 0,
     guestProfiles: 0,
+    closedApplications: 0,
     errors: [],
   };
 
@@ -116,7 +125,23 @@ export async function sweepAbandonedSignups(
   // age. What is still swept is the original target: documents staged by
   // somebody who started signup, uploaded an Aadhaar, and never came back.
   const bookedRefs = await listRefsWithOrders();
-  const isBooked = (ref: string | null): boolean => !!ref && bookedRefs.has(ref);
+
+  // An application waiting on the Bombino team is not abandoned either: its
+  // documents are what the reviewer reads and what approval moves onto the
+  // account. Under account review those refs are left alone at any age. If
+  // they cannot be listed, nothing is swept — the same rule as above.
+  let openApplicationRefs = new Set<string>();
+  if (isAccountReviewEnabled()) {
+    try {
+      openApplicationRefs = await listOpenApplicationRefs();
+    } catch (err) {
+      result.errors.push(`account_applications: ${err instanceof Error ? err.message : String(err)}`);
+      console.error("[retention] could not list open applications, sweeping nothing:", err);
+      return result;
+    }
+  }
+  const isBooked = (ref: string | null): boolean =>
+    !!ref && (bookedRefs.has(ref) || openApplicationRefs.has(ref));
 
   for (const [table, label] of [
     ["account_documents", "documents"],
@@ -161,12 +186,25 @@ export async function sweepAbandonedSignups(
   // guest ref is a durable identity rather than an in-flight signup: the same
   // uuid is what /api/guest/phone/verify hands back to a returning customer.
   try {
-    const abandoned = await listAbandonedGuestProfileRefs(cutoff);
+    const abandoned = (await listAbandonedGuestProfileRefs(cutoff)).filter((ref) => !openApplicationRefs.has(ref));
     result.guestProfiles = await deleteGuestProfilesByRefs(abandoned);
   } catch (err) {
     result.errors.push(
       `guest_profiles: ${err instanceof Error ? err.message : String(err)}`
     );
+  }
+
+  // Rejected and withdrawn applications, once the same window has passed since
+  // the decision. The purpose they were collected for is over. Their staged
+  // documents went with the sweep above (their ref is no longer open); the
+  // application row and its history go here.
+  if (isAccountReviewEnabled()) {
+    try {
+      const closed = await listClosedApplicationsBefore(cutoff);
+      result.closedApplications = await deleteApplicationsByIds(closed.map((row) => row.id));
+    } catch (err) {
+      result.errors.push(`account_applications: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   // Worth a log line every time, including the quiet ones: a sweep that has
@@ -175,7 +213,8 @@ export async function sweepAbandonedSignups(
     `[retention] swept abandoned signups older than ${retentionDays}d ` +
       `(before ${cutoff}): ${result.documents} document(s), ` +
       `${result.identityVerifications} identity row(s), ` +
-      `${result.guestProfiles} guest profile(s)` +
+      `${result.guestProfiles} guest profile(s), ` +
+      `${result.closedApplications} closed application(s)` +
       (result.errors.length > 0 ? ` — errors: ${result.errors.join("; ")}` : "")
   );
 

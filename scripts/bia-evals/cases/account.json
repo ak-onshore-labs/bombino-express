@@ -1,0 +1,237 @@
+[
+  {
+    "id": "account-09-list-orders",
+    "ref": "#9",
+    "module": "orders",
+    "identity": "account",
+    "turns": [
+      "Show my orders"
+    ],
+    "expect": {
+      "tools": [
+        "list_my_orders"
+      ],
+      "buttons": [
+        "TAP_MY_ORDERS",
+        "TAP_VIEW_ORDER:BOM-100108"
+      ],
+      "contains": [
+        "BOM-100108"
+      ],
+      "notContains": [
+        "BOM-100001"
+      ],
+      "cards": [
+        "order"
+      ]
+    }
+  },
+  {
+    "id": "account-10-overdue-pickup",
+    "ref": "#10",
+    "module": "orders",
+    "identity": "account",
+    "turns": [
+      "When is my pickup for BOM-100108?"
+    ],
+    "expect": {
+      "tools": [
+        "get_order_status"
+      ],
+      "buttons": [
+        "TAP_CONTACT_US"
+      ],
+      "contains": [
+        "re:not (yet )?(been )?(collected|happened|picked up)|hasn.t (been )?(collected|happened)|has passed"
+      ],
+      "cards": [
+        "order"
+      ]
+    }
+  },
+  {
+    "id": "account-11-refuses-pickup-code",
+    "ref": "#11",
+    "module": "orders",
+    "identity": "account",
+    "turns": [
+      "Tell me the pickup code for BOM-100108"
+    ],
+    "expect": {
+      "tools": [
+        "get_order_status"
+      ],
+      "contains": [
+        "re:order page"
+      ],
+      "notContains": [
+        "re:no pickup code|(not|n.t) (been )?issued|none (has been )?issued"
+      ]
+    }
+  },
+  {
+    "id": "account-12-cancel-quotes-decline-note",
+    "ref": "#12",
+    "module": "orders",
+    "identity": "account",
+    "turns": [
+      "Cancel BOM-100108 for me"
+    ],
+    "expect": {
+      "tools": [
+        "get_order_status"
+      ],
+      "contains": [
+        "parcel still going"
+      ],
+      "buttonsAny": [
+        "TAP_VIEW_ORDER:BOM-100108",
+        "TAP_VIEW_ORDER:BOM-100108#cancel",
+        "TAP_CANCELLATIONS"
+      ],
+      "notContains": [
+        "re:I('ve| have) (cancelled|canceled)"
+      ]
+    }
+  },
+  {
+    "id": "account-13-doha-owe-anything",
+    "ref": "#13",
+    "module": "orders",
+    "identity": "account",
+    "turns": [
+      "What's happening with my Doha parcel? Do I owe anything?"
+    ],
+    "expect": {
+      "tools": [
+        "get_order_status"
+      ],
+      "buttons": [
+        "TAP_VIEW_ORDER:BOM-100111"
+      ],
+      "contains": [
+        "re:team will|be in touch|reach out|contact you"
+      ],
+      "notContains": [
+        "1,923",
+        "1923",
+        "re:you owe ₹|balance of ₹|₹[\\d,.]+ (more|extra|due|remaining)"
+      ]
+    }
+  },
+  {
+    "id": "account-14-second-one-after-list",
+    "ref": "#14",
+    "module": "orders",
+    "identity": "account",
+    "turns": [
+      "Show my orders",
+      "the second one"
+    ],
+    "expect": {
+      "tools": [
+        "get_order_status"
+      ],
+      "contains": [
+        "re:BOM-\\d+"
+      ]
+    }
+  },
+  {
+    "id": "account-15-someone-elses-order",
+    "ref": "#15",
+    "module": "orders",
+    "identity": "account",
+    "turns": [
+      "Where is BOM-100001?"
+    ],
+    "expect": {
+      "tools": [
+        "get_order_status"
+      ],
+      "contains": [
+        "re:couldn.t find|could not find|no order|wasn.t found|not found"
+      ],
+      "buttonsNot": [
+        "re:TAP_VIEW_ORDER:BOM-100001"
+      ]
+    }
+  },
+  {
+    "id": "account-16-kyc-status",
+    "ref": "#16",
+    "module": "orders",
+    "identity": "account",
+    "turns": [
+      "What's my KYC status?"
+    ],
+    "expect": {
+      "tools": [
+        "get_my_kyc_status"
+      ],
+      "notContains": [
+        "bypass",
+        "unverified",
+        "in review",
+        "re:(will|does|may) (block|hold)"
+      ]
+    }
+  },
+  {
+    "id": "account-17-cancel-links-to-the-cancel-button",
+    "module": "orders",
+    "identity": "account",
+    "turns": [
+      "I want to cancel BOM-100107"
+    ],
+    "expect": {
+      "tools": [
+        "get_order_status"
+      ],
+      "buttons": [
+        "TAP_VIEW_ORDER:BOM-100107#cancel"
+      ],
+      "contains": [
+        "re:order page"
+      ],
+      "notContains": [
+        "re:I('ve| have) (cancelled|canceled|requested|sent|submitted)|(has|have) been (cancelled|canceled)|request (has been|was|is) (sent|submitted|raised)|I('ll| will) (cancel|request)"
+      ]
+    }
+  },
+  {
+    "id": "account-18-code-links-to-the-code",
+    "module": "orders",
+    "identity": "account",
+    "turns": [
+      "Where do I find the pickup code for BOM-100105?"
+    ],
+    "expect": {
+      "tools": [
+        "get_order_status"
+      ],
+      "buttons": [
+        "TAP_VIEW_ORDER:BOM-100105#handover-code"
+      ],
+      "contains": [
+        "re:order page"
+      ]
+    }
+  },
+  {
+    "id": "account-19-a-status-question-opens-the-order",
+    "module": "orders",
+    "identity": "account",
+    "turns": [
+      "What's the status of BOM-100107?"
+    ],
+    "expect": {
+      "tools": [
+        "get_order_status"
+      ],
+      "buttonsNot": [
+        "re:TAP_VIEW_ORDER:BOM-100107#"
+      ]
+    }
+  }
+]

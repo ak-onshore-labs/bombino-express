@@ -4,19 +4,21 @@
  * Lives outside routes.ts because two endpoints consume a code now —
  * /api/auth/otp/verify (signup) and /api/auth/phone/continue (the unified
  * entry) — and a second copy of this logic is exactly where a check gets
- * dropped. Callers map the returned status/message straight onto the response.
+ * dropped. Callers map the returned status/message/code straight onto the response;
+ * the code is the catalogued one (shared/errorCatalog.ts).
  */
+import type { ErrorCode } from "../shared/errorCatalog.js";
 import { hashOtp, OTP_MAX_ATTEMPTS } from "./otp.js";
 import {
   getLatestOtpForVerify,
-  incrementAttempts,
+  claimAttempt,
   markConsumed,
   type OtpPurpose,
 } from "./otpDb.js";
 
 export type OtpConsumeResult =
   | { ok: true }
-  | { ok: false; status: number; message: string };
+  | { ok: false; status: number; message: string; code: ErrorCode };
 
 /**
  * Dev-only escape hatch for when no delivery channel is configured
@@ -43,8 +45,8 @@ function devBypassEnabled(): boolean {
  * they presented is a perfectly good one for signing in — spending it would
  * cost them a second SMS to be told to use the door they are standing at.
  *
- * A wrong code still counts against the attempt ceiling either way; only the
- * success is withheld.
+ * Every try counts against the attempt ceiling either way; only the success
+ * is withheld.
  */
 export async function verifyOtp(
   phone: string,
@@ -58,28 +60,55 @@ export async function verifyOtp(
       ok: false,
       status: 400,
       message: "No pending OTP for this number. Request a new one.",
+      code: "OTP_NOT_REQUESTED",
     };
   }
   if (new Date(row.expires_at).getTime() < Date.now()) {
-    return { ok: false, status: 400, message: "This OTP has expired. Request a new one." };
-  }
-  if (row.attempts >= OTP_MAX_ATTEMPTS) {
     return {
       ok: false,
-      status: 429,
-      message: "Too many incorrect attempts. Request a new OTP.",
+      status: 400,
+      message: "This OTP has expired. Request a new one.",
+      code: "OTP_EXPIRED",
     };
   }
+  const tooMany: OtpConsumeResult = {
+    ok: false,
+    status: 429,
+    message: "Too many incorrect attempts. Request a new OTP.",
+    code: "OTP_TOO_MANY_ATTEMPTS",
+  };
+  if (row.attempts >= OTP_MAX_ATTEMPTS) return tooMany;
+
+  // Every try claims a numbered attempt BEFORE the code is compared, right or
+  // wrong. Checking the count and then comparing let a burst of parallel
+  // guesses all pass the check before any of them was counted; a claim is
+  // atomic, so the sixth guess is refused however the requests are timed.
+  // The right code on a try within the ceiling still works.
+  const attempt = await claimAttempt(row.id);
+  if (attempt === null) {
+    return {
+      ok: false,
+      status: 502,
+      message: "We couldn't check your code just now. Please try again.",
+      code: "OTP_SEND_FAILED",
+    };
+  }
+  if (attempt > OTP_MAX_ATTEMPTS) return tooMany;
 
   if (!devBypassEnabled() && hashOtp(code) !== row.code_hash) {
-    // Without this the ceiling checked above is unreachable — `attempts` stayed
-    // at 0 for the life of every row, so the lockout never fired.
-    await incrementAttempts(row.id, row.attempts);
-    return { ok: false, status: 400, message: "Incorrect code" };
+    return { ok: false, status: 400, message: "Incorrect code", code: "OTP_WRONG" };
   }
 
   if (options?.consume !== false) {
-    await markConsumed(row.id);
+    const spent = await markConsumed(row.id);
+    if (!spent) {
+      return {
+        ok: false,
+        status: 400,
+        message: "This code has already been used. Request a new one.",
+        code: "OTP_NOT_REQUESTED",
+      };
+    }
   }
   return { ok: true };
 }

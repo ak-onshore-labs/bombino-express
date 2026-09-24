@@ -1,4 +1,6 @@
 import { useState, type ReactNode } from 'react';
+import { formatInr, formatIst } from '@/lib/orderDetail';
+import { signOutAndRedirect } from '@/lib/session';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Loader2, LogOut } from 'lucide-react';
 import { Link, useLocation, useParams } from 'wouter';
@@ -29,7 +31,6 @@ import {
   type OpsActionError,
 } from '@/hooks/useOpsOrders';
 import { getOrderStatusLabel } from '@/lib/orderStatus';
-import { useAppStore } from '@/lib/store';
 
 function Fact({ label, value }: { label: string; value: ReactNode }) {
   return (
@@ -44,21 +45,9 @@ function Fact({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-function formatMoney(value: number | null | undefined): string {
-  if (value == null || Number.isNaN(value)) return '—';
-  return `₹${value.toLocaleString('en-IN')}`;
-}
-
-function formatWhen(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString('en-IN', {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
+/** The shared helpers answer '—' for nothing; these keep this page's wording. */
+const formatMoney = (value: number | null | undefined): string => formatInr(value) ?? '—';
+const formatWhen = (iso: string): string => formatIst(iso);
 
 function consigneeLines(consignee: unknown): { name: string; city: string; phone: string } {
   if (!consignee || typeof consignee !== 'object' || Array.isArray(consignee)) {
@@ -83,7 +72,6 @@ export default function OpsOrderDetail() {
   const params = useParams<{ id: string }>();
   const orderId = params.id;
   const [, setLocation] = useLocation();
-  const { logout } = useAppStore();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data, isLoading, error, isError } = useOpsOrderDetail(orderId);
@@ -129,15 +117,7 @@ export default function OpsOrderDetail() {
     error instanceof Error &&
     error.message.startsWith('403:');
 
-  const handleLogout = async (): Promise<void> => {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
-    } catch {
-      // ignore
-    }
-    logout();
-    setLocation('/login');
-  };
+  const handleLogout = (): Promise<void> => signOutAndRedirect(setLocation);
 
   const runAction = (actionName: string, payload?: Record<string, unknown>): void => {
     setPendingAction(actionName);

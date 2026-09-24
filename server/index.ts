@@ -61,4 +61,11 @@ import { serveStatic } from "./static.js";
       }
       process.exit(1);
     });
-})();
+})().catch((err: unknown) => {
+  // A boot that cannot finish — no SESSION_SECRET, no session store, no
+  // ENCRYPTION_KEY — must end the process. The process guards would otherwise
+  // log the rejection and keep an empty process alive with nothing listening,
+  // which a host reads as "starting" rather than "failed".
+  console.error("[boot] failed:", err instanceof Error ? err.message : err);
+  process.exit(1);
+});

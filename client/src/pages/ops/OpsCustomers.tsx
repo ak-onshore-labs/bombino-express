@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
+import { OpsAccessRequired } from '@/components/ops/OpsAccessRequired';
+import { isForbiddenError } from '@/lib/apiError';
+import { formatIstDate } from '@/lib/orderDetail';
 import { Link } from 'wouter';
-import { Loader2, Search } from 'lucide-react';
+import { Download, Loader2, Search } from 'lucide-react';
 import { OpsDocumentPreviewOverlay, useOpsDocumentPreview } from '@/components/ops/OpsDocumentPreview';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { Input } from '@/components/ui/input';
@@ -16,16 +19,6 @@ import { DOC_SLOT_SPECS, isDocSlot } from '@shared/accountSpec';
 import { cn } from '@/lib/utils';
 
 const LIST_CAP = 200;
-
-function formatJoined(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('en-IN', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
-}
 
 function DesktopOnlyNotice() {
   return (
@@ -106,29 +99,48 @@ function FileChip({
   busy,
   error,
   onView,
+  onDownload,
   testId,
 }: {
   label: string;
   busy: boolean;
   error?: string;
   onView: () => void;
+  onDownload: () => void;
   testId: string;
 }) {
   return (
     <span className="inline-flex flex-col items-start gap-0.5">
-      <button
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          onView();
-        }}
-        disabled={busy}
-        data-testid={testId}
-        className="inline-flex items-center gap-1 h-6 px-2 rounded-md text-[11px] font-bold bg-[#F3F4F6] text-foreground hover:bg-muted disabled:opacity-60"
-      >
-        {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-        {label}
-      </button>
+      <span className="inline-flex items-center rounded-md bg-[#F3F4F6] pr-1">
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onView();
+          }}
+          disabled={busy}
+          data-testid={testId}
+          className="inline-flex items-center gap-1 h-6 px-2 rounded-md text-[11px] font-bold text-foreground hover:bg-muted disabled:opacity-60"
+        >
+          {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+          {label}
+        </button>
+        {/* Saving a copy, without leaving the list. */}
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onDownload();
+          }}
+          disabled={busy}
+          aria-label={`Download ${label}`}
+          title={`Download ${label}`}
+          data-testid={`${testId}-download`}
+          className="inline-flex h-5 w-5 items-center justify-center rounded text-foreground hover:bg-white disabled:opacity-60"
+        >
+          <Download className="w-3 h-3" aria-hidden />
+        </button>
+      </span>
       {error ? <span className="text-[10px] text-red-600 max-w-[10rem]">{error}</span> : null}
     </span>
   );
@@ -141,6 +153,8 @@ function DocumentChips({
   fileErrors,
   onOpenSlot,
   onOpenShipment,
+  onDownloadSlot,
+  onDownloadShipment,
 }: {
   row: OpsCustomerListRow;
   canView: boolean;
@@ -148,6 +162,8 @@ function DocumentChips({
   fileErrors: Record<string, string>;
   onOpenSlot: (slot: string) => void;
   onOpenShipment: () => void;
+  onDownloadSlot: (slot: string) => void;
+  onDownloadShipment: () => void;
 }) {
   const hasAny =
     row.doc_slots.length > 0 || row.shipment_kyc || row.identity_kinds.length > 0;
@@ -167,6 +183,7 @@ function DocumentChips({
             busy={fileBusy === key}
             error={fileErrors[key]}
             onView={() => onOpenSlot(slot)}
+            onDownload={() => onDownloadSlot(slot)}
             testId={`ops-customer-doc-${row.id}-${slot}`}
           />
         ) : (
@@ -184,6 +201,7 @@ function DocumentChips({
             busy={fileBusy === `${row.id}:shipment`}
             error={fileErrors[`${row.id}:shipment`]}
             onView={onOpenShipment}
+            onDownload={onDownloadShipment}
             testId={`ops-customer-doc-${row.id}-shipment`}
           />
         ) : (
@@ -211,7 +229,7 @@ export default function OpsCustomers() {
   const [q, setQ] = useState('');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [kycFilter, setKycFilter] = useState<KycFilter>('all');
-  const { preview, closePreview, openBlob, fileBusy, fileErrors } = useOpsDocumentPreview();
+  const { preview, closePreview, openBlob, downloadBlob, fileBusy, fileErrors } = useOpsDocumentPreview();
 
   useEffect(() => {
     const timer = window.setTimeout(() => setQ(input.trim()), 300);
@@ -234,6 +252,18 @@ export default function OpsCustomers() {
   const openShipment = (customerId: string): void => {
     void openBlob(`${customerId}:shipment`, 'Shipment KYC.pdf', () =>
       fetchOpsCustomerKycFile(customerId),
+    );
+  };
+
+  const downloadSlot = (customerId: string, slot: string): void => {
+    void downloadBlob(`${customerId}:${slot}`, slotLabel(slot), () =>
+      fetchOpsCustomerDocumentFile(customerId, slot, true),
+    );
+  };
+
+  const downloadShipment = (customerId: string): void => {
+    void downloadBlob(`${customerId}:shipment`, 'Shipment KYC', () =>
+      fetchOpsCustomerKycFile(customerId, true),
     );
   };
 
@@ -320,7 +350,8 @@ export default function OpsCustomers() {
             </div>
           )}
 
-          {list.isError && (
+          {list.isError && isForbiddenError(list.error) && <OpsAccessRequired what="customer records" />}
+          {list.isError && !isForbiddenError(list.error) && (
             <p
               className="text-sm text-red-600 py-8 text-center"
               data-testid="ops-customers-error"
@@ -392,6 +423,8 @@ export default function OpsCustomers() {
                             fileErrors={fileErrors}
                             onOpenSlot={(slot) => openSlot(row.id, slot)}
                             onOpenShipment={() => openShipment(row.id)}
+                            onDownloadSlot={(slot) => downloadSlot(row.id, slot)}
+                            onDownloadShipment={() => downloadShipment(row.id)}
                           />
                         </td>
                         <td className="px-4 py-3 tabular-nums">
@@ -407,7 +440,7 @@ export default function OpsCustomers() {
                           )}
                         </td>
                         <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
-                          {formatJoined(row.created_at)}
+                          {formatIstDate(row.created_at)}
                         </td>
                       </tr>
                     ))}

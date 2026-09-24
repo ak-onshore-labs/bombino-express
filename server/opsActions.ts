@@ -9,6 +9,8 @@ import { z } from "zod";
 import { transitionOrderStatus } from "./agentDb.js";
 import { itdClient, type RateParams } from "./itd.js";
 import { withTimeout } from "./itdTokenRefresh.js";
+import { decryptPassword } from "./crypto.js";
+import { supabase } from "./supabaseClient.js";
 import {
   applyGenerateDocket,
   applyMarkDispatched,
@@ -67,65 +69,86 @@ export type RepriceFail = {
   message: string;
 };
 
-/** Re-query ITD rates at actual weight; formula fallback; else RETRY_REPRICE. */
-export async function repriceOrderAtWeight(
-  order: Order,
-  actualWeightKg: number
-): Promise<RepriceOk | RepriceFail> {
-  const items = asRecord(order.items);
-  const consignee = asRecord(order.consignee);
-  const apiServiceCode = strField(items, "api_service_code");
-  const quotedAmount = order.quoted_amount;
+export type ItdRatesLogin = { email: string; code: string; password: string };
 
+/**
+ * The ITD login a customer's prices come from — the same choice
+ * `POST /api/rates` makes when it shows them a price. A customer who linked
+ * their own ITD account is quoted on that account's tariff; everyone else
+ * (and anyone whose stored password can't be read) on the company login.
+ * Pricing a booking or a reweigh on any other login gives a different
+ * service list and different numbers from the ones the customer chose from.
+ */
+export async function itdRatesLoginFor(userId: string | null): Promise<ItdRatesLogin | null> {
+  if (!userId || !supabase) return null;
+  const { data, error } = await supabase
+    .from("itd_users")
+    .select("email, itd_password_encrypted, encryption_iv")
+    .eq("id", userId)
+    .maybeSingle();
+  if (error || !data?.email || !data.itd_password_encrypted || !data.encryption_iv) return null;
+
+  let password: string;
+  try {
+    password = decryptPassword(data.itd_password_encrypted as string, data.encryption_iv as string);
+  } catch {
+    return null;
+  }
+  const email = data.email as string;
+
+  // The customer code the rates call wants is the one ITD's login returns —
+  // the stored `itd_customer_code` holds the customer id on some rows and ITD
+  // answers "Customer Not Found" to it (see mintItdSession). Cached per user
+  // for an hour so a booking or a reweigh doesn't cost a login each time.
+  const cached = ratesCodeCache.get(userId);
+  if (cached && cached.expiresAt > Date.now()) return { email, code: cached.code, password };
+  try {
+    const { user } = await withTimeout(itdClient.loginUser(email, password), RATES_TIMEOUT_MS, "ITD loginUser (rates)");
+    if (!user?.code) return null;
+    ratesCodeCache.set(userId, { code: user.code, expiresAt: Date.now() + 60 * 60 * 1000 });
+    return { email, code: user.code, password };
+  } catch (err) {
+    console.error("[opsActions] ITD login for rates failed:", err);
+    return null;
+  }
+}
+
+const ratesCodeCache = new Map<string, { code: string; expiresAt: number }>();
+
+/**
+ * The price ITD gives today for this shipment at `weightKg`, for the service
+ * the customer picked (`items.api_service_code`). Null when ITD can't be
+ * asked (no product, destination or service on the order), doesn't answer,
+ * or no longer offers that service.
+ *
+ * One lookup for both moments a price is set: at booking, where it replaces
+ * whatever amount the browser sent, and at the hub, where the parcel is
+ * repriced at its real weight. Both must ask the same question on the same
+ * login, or a customer is quoted one number and charged by another rule.
+ */
+export async function itdRateAtWeight(
+  input: {
+    items: unknown;
+    consignee: unknown;
+    origin: { city: string | null; pincode: string | null } | null;
+    /** Whose tariff: see itdRatesLoginFor. Null prices on the company login. */
+    login?: ItdRatesLogin | null;
+  },
+  weightKg: number
+): Promise<{ total: number; serviceCode: string } | null> {
+  const items = asRecord(input.items);
+  const consignee = asRecord(input.consignee);
+  const apiServiceCode = strField(items, "api_service_code");
   const productCode = strField(items, "product_code");
   const destinationCode =
     strField(items, "destination_code") ?? strField(consignee, "country_code");
+  if (!productCode || !destinationCode || !apiServiceCode) return null;
 
-  let oriCity = strField(items, "shipper_city");
-  let oriPincode = strField(items, "shipper_zip_code");
-  if (order.origin_address_id) {
-    const addr = await getAddressCityPincode(order.origin_address_id);
-    if (addr) {
-      oriCity = addr.city ?? oriCity;
-      oriPincode = addr.pincode ?? oriPincode;
-    }
-  }
-
-  const destCity =
-    strField(consignee, "city") ?? strField(items, "consignee_city");
+  const oriCity = input.origin?.city ?? strField(items, "shipper_city");
+  const oriPincode = input.origin?.pincode ?? strField(items, "shipper_zip_code");
+  const destCity = strField(consignee, "city") ?? strField(items, "consignee_city");
   const destPincode =
     strField(consignee, "pincode") ?? strField(items, "consignee_zip_code");
-
-  const tryFormula = (): RepriceOk | RepriceFail => {
-    const booked = order.booked_weight;
-    if (
-      quotedAmount != null &&
-      Number.isFinite(quotedAmount) &&
-      booked != null &&
-      booked > 0
-    ) {
-      const finalAmount =
-        Math.round(quotedAmount * (actualWeightKg / booked) * 100) / 100;
-      return {
-        ok: true,
-        finalAmount,
-        source: "formula_fallback",
-        quotedAmount,
-        delta: Math.round((finalAmount - quotedAmount) * 100) / 100,
-        apiServiceCode,
-      };
-    }
-    return {
-      ok: false,
-      code: "RETRY_REPRICE",
-      message:
-        "Could not reprice this order. ITD rates failed and formula fallback needs quoted amount and booked weight. Try again.",
-    };
-  };
-
-  if (!productCode || !destinationCode) {
-    return tryFormula();
-  }
 
   const rateParams: RateParams = {
     product_code: productCode,
@@ -133,7 +156,7 @@ export async function repriceOrderAtWeight(
     booking_date: new Date().toISOString().split("T")[0]!,
     origin_code: strField(items, "shipper_country") ?? "IN",
     pcs: strField(items, "pcs") ?? "1",
-    actual_weight: String(actualWeightKg),
+    actual_weight: String(weightKg),
     ...(oriCity ? { ori_city: oriCity.toUpperCase() } : {}),
     ...(oriPincode ? { ori_pincode: oriPincode } : {}),
     ...(destCity ? { dest_city: destCity.toUpperCase() } : {}),
@@ -142,9 +165,11 @@ export async function repriceOrderAtWeight(
 
   try {
     const raw = await withTimeout(
-      itdClient.getRates(rateParams),
+      input.login
+        ? itdClient.getRates(rateParams, input.login.email, input.login.code, input.login.password)
+        : itdClient.getRates(rateParams),
       RATES_TIMEOUT_MS,
-      "ITD getRates (ops reprice)"
+      "ITD getRates"
     );
 
     const list: unknown[] = Array.isArray(raw)
@@ -155,35 +180,95 @@ export async function repriceOrderAtWeight(
         ? ((raw as { data: unknown[] }).data)
         : [];
 
-    if (apiServiceCode && list.length > 0) {
-      for (const item of list) {
-        const row = asRecord(item);
-        if (!row) continue;
-        const code =
-          strField(row, "code") ?? strField(row, "internal_api_service_code");
-        if (code !== apiServiceCode) continue;
-        const total = Number(row.total);
-        if (!Number.isFinite(total) || total < 0) continue;
-        const finalAmount = Math.round(total * 100) / 100;
-        return {
-          ok: true,
-          finalAmount,
-          source: "itd_requery",
-          matchedServiceCode: code,
-          quotedAmount,
-          delta:
-            quotedAmount != null
-              ? Math.round((finalAmount - quotedAmount) * 100) / 100
-              : null,
-          apiServiceCode,
-        };
-      }
+    for (const item of list) {
+      const row = asRecord(item);
+      if (!row) continue;
+      const code = strField(row, "code") ?? strField(row, "internal_api_service_code");
+      if (code !== apiServiceCode) continue;
+      const total = Number(row.total);
+      if (!Number.isFinite(total) || total <= 0) continue;
+      return { total: Math.round(total * 100) / 100, serviceCode: code };
     }
   } catch (err) {
-    console.error("[opsActions] reprice getRates failed:", err);
+    console.error("[opsActions] ITD getRates failed:", err);
+  }
+  return null;
+}
+
+/**
+ * True when the booking amount was checked against ITD at booking time. Orders
+ * booked before that check carry no flag and count as checked — they predate
+ * the problem, not the fix.
+ */
+export function isQuoteVerified(order: Pick<Order, "metadata">): boolean {
+  const meta = asRecord(order.metadata);
+  return meta?.quote_verified !== false;
+}
+
+/** Re-query ITD rates at actual weight; formula fallback; else RETRY_REPRICE. */
+export async function repriceOrderAtWeight(
+  order: Order,
+  actualWeightKg: number
+): Promise<RepriceOk | RepriceFail> {
+  const apiServiceCode = strField(asRecord(order.items), "api_service_code");
+  const quotedAmount = order.quoted_amount;
+
+  const origin = order.origin_address_id
+    ? await getAddressCityPincode(order.origin_address_id)
+    : null;
+
+  const rate = await itdRateAtWeight(
+    {
+      items: order.items,
+      consignee: order.consignee,
+      origin,
+      login: await itdRatesLoginFor(order.user_id),
+    },
+    actualWeightKg
+  );
+  if (rate) {
+    return {
+      ok: true,
+      finalAmount: rate.total,
+      source: "itd_requery",
+      matchedServiceCode: rate.serviceCode,
+      quotedAmount,
+      delta:
+        quotedAmount != null ? Math.round((rate.total - quotedAmount) * 100) / 100 : null,
+      apiServiceCode,
+    };
   }
 
-  return tryFormula();
+  // Scaling the booking quote by weight is only as good as the quote, and one
+  // the server could not check at booking (`quote_verified: false`) came from
+  // the browser. It is still allowed here: some services stop being offered
+  // after booking, and refusing would leave the parcel unweighable forever.
+  // The money risk is contained elsewhere — an unchecked quote can't be paid
+  // online (routes/payments.ts), and at the hub ops sees the amount before
+  // taking it. The weigh event records whether the quote was checked.
+  const booked = order.booked_weight;
+  if (
+    quotedAmount != null &&
+    Number.isFinite(quotedAmount) &&
+    booked != null &&
+    booked > 0
+  ) {
+    const finalAmount = Math.round(quotedAmount * (actualWeightKg / booked) * 100) / 100;
+    return {
+      ok: true,
+      finalAmount,
+      source: "formula_fallback",
+      quotedAmount,
+      delta: Math.round((finalAmount - quotedAmount) * 100) / 100,
+      apiServiceCode,
+    };
+  }
+  return {
+    ok: false,
+    code: "RETRY_REPRICE",
+    message:
+      "Could not reprice this order. ITD rates failed and formula fallback needs quoted amount and booked weight. Try again.",
+  };
 }
 
 export async function handleMarkReceivedDropoff(input: {
@@ -281,6 +366,7 @@ export async function handleWeigh(input: {
       final_amount: f,
       delta: d,
       reprice_source: reprice.source,
+      quote_verified: isQuoteVerified(input.order),
       ...(reprice.apiServiceCode
         ? { api_service_code: reprice.apiServiceCode }
         : {}),

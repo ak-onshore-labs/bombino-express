@@ -1,16 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { MAX_UPLOAD_BYTES, isAllowedUploadType } from '@shared/upload';
+import { useLocation } from 'wouter';
+import type { BiaScreen } from '@shared/biaScreen';
+import { DocumentSlotCard } from '@/components/documents/DocumentSlotCard';
+import type { SlotState } from '@/components/documents/accountDocumentSlot';
+import { ocrErrorCode } from '@shared/errorCatalog';
 import {
-  CloudUpload,
-  CheckCircle2,
-  XCircle,
-  Loader2,
-  FileText,
-  Trash2,
-  AlertTriangle,
 } from 'lucide-react';
-import { Label } from '@/components/ui/label';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
 import {
   DOC_SLOT_SPECS,
   isVerifiedDocSlot,
@@ -19,41 +15,9 @@ import {
   type CompanyCategory,
   type DocSlot,
 } from '@shared/accountSpec';
-import { formatAadhaar, validateAadhaar } from '@shared/aadhaar';
-import { AADHAAR_DISPLAY_MAX_LENGTH, readAadhaarInput } from '@/lib/aadhaarInput';
-import { cn } from '@/lib/utils';
+import { validateAadhaar } from '@shared/aadhaar';
 
-const ALLOWED_MIME_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png']);
-const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB — must match kycUpload in server/routes.ts
 
-type SlotStatus = 'idle' | 'pending' | 'uploading' | 'success' | 'unverified' | 'error';
-
-interface SlotState {
-  status: SlotStatus;
-  documentNo: string;
-  /**
-   * True once the server holds this slot's number in identity_verifications.
-   *
-   * The upload endpoint takes the number it compares against from that row,
-   * not from the request, and 422s when there is none — so for a slot that
-   * carries a number, recording it is a precondition of uploading anything.
-   * The field locks at the same moment, because the row is what the document
-   * will be judged against and letting the two drift is the whole problem.
-   */
-  numberRecorded: boolean;
-  /** In flight to the identity endpoint; the upload waits on it. */
-  recording: boolean;
-  fileName: string;
-  error: string;
-  /**
-   * Why the document is not verified, when it is not. A contradicting number,
-   * the wrong document or a tamper signal never gets this far — the server
-   * refuses those uploads outright. What lands here is an unreadable scan or
-   * an unreachable verifier, and account creation refuses both, so the slot
-   * stays outstanding rather than showing as done.
-   */
-  ocrNote: string;
-}
 
 const EMPTY_SLOT: SlotState = {
   status: 'idle',
@@ -63,6 +27,7 @@ const EMPTY_SLOT: SlotState = {
   fileName: '',
   error: '',
   ocrNote: '',
+  errorCode: null,
 };
 
 /**
@@ -92,9 +57,15 @@ const OCR_ACCEPTED = new Set(['match', 'bypassed']);
  * Keyed on isVerifiedDocSlot rather than isOcrCheckedSlot so the GST
  * certificate counts: Cashfree has no OCR type for one, but it is read all the
  * same (server/gstCertificate.ts) and the server gates on it.
+ *
+ * `staffReview` (signup with account review on): the Bombino team verifies
+ * every document by hand before the account opens, so any stored document is
+ * enough here, Cashfree's first-layer verdict notwithstanding. A document that
+ * contradicted its number was refused at upload and is never stored.
  */
-function isSlotVerified(slot: string, ocrStatus: string | null | undefined): boolean {
+function isSlotVerified(slot: string, ocrStatus: string | null | undefined, staffReview = false): boolean {
   if (!isVerifiedDocSlot(slot)) return true;
+  if (staffReview) return true;
   return OCR_ACCEPTED.has(ocrStatus ?? '');
 }
 
@@ -193,9 +164,31 @@ export function AccountDocuments({
   const slots = requiredDocuments(accountType, category);
   const basePath = endpoint === 'account' ? '/api/account/documents' : '/api/signup/documents';
   const [state, setState] = useState<Record<string, SlotState>>({});
+  // Where "Ask BIA" says the customer is: their account's documents, a guest
+  // opening an account, or the documents step of signup.
+  const [location] = useLocation();
+  const biaScreen: Omit<BiaScreen, 'errorCode'> =
+    endpoint === 'account'
+      ? { surface: 'documents' }
+      : location.startsWith('/guest-profile')
+        ? { surface: 'guest_profile' }
+        : {
+            surface: 'signup',
+            step: 'documents',
+            ...(accountType === 'personal' ? { account: 'personal' } : category ? { account: category } : {}),
+          };
   const fileInputs = useRef<Record<string, HTMLInputElement | null>>({});
   /** A file chosen before its number was valid; uploaded as soon as it is. */
   const pendingFiles = useRef<Record<string, File | null>>({});
+  /** Signup with account review on: the team checks each document by hand (see isSlotVerified). */
+  const staffReview = useRef(false);
+  /** TEMPORARY: false while the server has document checks off (shared/aadhaar.ts). */
+  const aadhaarCheckDigits = useRef(true);
+  /**
+   * TEMPORARY: false while the server skips the GST portal (IDENTITY_BYPASS).
+   * The GST number is then saved as part of the upload, with no Verify step.
+   */
+  const [gstinLookup, setGstinLookup] = useState(true);
 
   const getSlot = useCallback(
     (slot: DocSlot): SlotState => state[slot] ?? EMPTY_SLOT,
@@ -289,6 +282,9 @@ export function AccountDocuments({
         );
         if (!res.ok) return;
         const body = (await res.json()) as {
+          staff_review?: boolean;
+          aadhaar_check_digits?: boolean;
+          gstin_lookup?: boolean;
           documents: Array<{
             doc_slot: string;
             document_no: string | null;
@@ -297,6 +293,9 @@ export function AccountDocuments({
           }>;
         };
         if (cancelled) return;
+        staffReview.current = endpoint === 'signup' && body.staff_review === true;
+        aadhaarCheckDigits.current = body.aadhaar_check_digits !== false;
+        setGstinLookup(body.gstin_lookup !== false);
         setState((prev) => {
           const next = { ...prev };
           for (const doc of body.documents) {
@@ -314,7 +313,7 @@ export function AccountDocuments({
             // verified documents — hiding them would show an empty form to
             // someone who has already finished, and report them as missing.
             if (endpoint === 'signup' && isVerifiedDocSlot(doc.doc_slot)) continue;
-            const verified = isSlotVerified(doc.doc_slot, doc.ocr_status);
+            const verified = isSlotVerified(doc.doc_slot, doc.ocr_status, staffReview.current);
             next[doc.doc_slot] = {
               ...(next[doc.doc_slot] ?? EMPTY_SLOT),
               status: verified ? 'success' : 'unverified',
@@ -324,6 +323,9 @@ export function AccountDocuments({
               ocrNote: verified
                 ? ''
                 : 'This document could not be verified. Please upload it again.',
+              // A row with no verdict at all predates the checks: explained as
+              // unverified rather than left without a reason.
+              errorCode: verified ? null : (ocrErrorCode(doc.ocr_status) ?? 'DOCUMENTS_UNVERIFIED'),
             };
           }
           return next;
@@ -338,6 +340,7 @@ export function AccountDocuments({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phone, basePath, endpoint]);
+
 
   // Report upward on every change. The parent gates "create account" on this,
   // and the server refuses the same set independently.
@@ -376,14 +379,14 @@ export function AccountDocuments({
     const field = DOC_SLOT_SPECS[slot].numberField;
     if (!field) return { ok: true };
     if (slot === 'aadhaar_card') {
-      const verdict = validateAadhaar(value);
+      const verdict = validateAadhaar(value, { checkDigits: aadhaarCheckDigits.current });
       return { ok: verdict.valid, message: verdict.message };
     }
     return field.pattern.test(value) ? { ok: true } : { ok: false, message: field.error };
   };
 
   async function performUpload(slot: DocSlot, file: File, documentNo: string): Promise<void> {
-    patchSlot(slot, { status: 'uploading', fileName: file.name, error: '', ocrNote: '' });
+    patchSlot(slot, { status: 'uploading', fileName: file.name, error: '', ocrNote: '', errorCode: null });
 
     const formData = new FormData();
     formData.append('file', file);
@@ -410,17 +413,21 @@ export function AccountDocuments({
           patchSlot(slot, { status: 'pending', fileName: file.name, error: '' });
           return;
         }
-        throw new Error(body.message);
+        patchSlot(slot, { status: 'error', error: body.message, errorCode: body.code ?? null });
+        return;
       }
       const body = (await res.json().catch(() => ({}))) as {
         ocr?: { status?: string; message?: string };
+        staff_review?: boolean;
       };
-      const verified = isSlotVerified(slot, body.ocr?.status);
+      if (endpoint === 'signup' && typeof body.staff_review === 'boolean') staffReview.current = body.staff_review;
+      const verified = isSlotVerified(slot, body.ocr?.status, staffReview.current);
       patchSlot(slot, {
         status: verified ? 'success' : 'unverified',
         fileName: file.name,
         error: '',
         ocrNote: verified ? '' : (body.ocr?.message ?? 'This document could not be verified.'),
+        errorCode: verified ? null : (ocrErrorCode(body.ocr?.status) ?? 'DOCUMENTS_UNVERIFIED'),
       });
       pendingFiles.current[slot] = null;
       // The account endpoint returns the recomputed verification state with the
@@ -431,6 +438,7 @@ export function AccountDocuments({
       patchSlot(slot, {
         status: 'error',
         error: err instanceof Error ? err.message : 'Upload failed. Please try again.',
+        errorCode: null,
       });
     }
   }
@@ -491,6 +499,7 @@ export function AccountDocuments({
           numberRecorded: false,
           status: 'error',
           error: parsed.message ?? 'Could not save this number. Please try again.',
+          errorCode: parsed.code ?? null,
         });
         return null;
       }
@@ -511,6 +520,7 @@ export function AccountDocuments({
         numberRecorded: false,
         status: 'error',
         error: 'Could not save this number. Please try again.',
+        errorCode: null,
       });
       return null;
     }
@@ -571,6 +581,7 @@ export function AccountDocuments({
       patchSlot('gst_certificate', {
         status: 'error',
         error: 'Go back and enter the company name.',
+        errorCode: null,
       });
       return;
     }
@@ -599,12 +610,29 @@ export function AccountDocuments({
   }
 
   async function handleFile(slot: DocSlot, file: File): Promise<void> {
-    if (!ALLOWED_MIME_TYPES.has(file.type)) {
-      patchSlot(slot, { status: 'error', error: 'Only PDF, JPEG, or PNG files are accepted.' });
+    if (!isAllowedUploadType(file.type)) {
+      // errorCode cleared too: a code left from an earlier upload would
+      // explain the wrong problem in place of this message.
+      patchSlot(slot, { status: 'error', error: 'Only PDF, JPEG, or PNG files are accepted.', errorCode: null });
       return;
     }
-    if (file.size > MAX_FILE_SIZE) {
-      patchSlot(slot, { status: 'error', error: 'File must be under 4MB.' });
+    if (file.size > MAX_UPLOAD_BYTES) {
+      patchSlot(slot, { status: 'error', error: 'File must be under 4MB.', errorCode: null });
+      return;
+    }
+
+    // TEMPORARY: with the GST portal lookup off there is nothing to wait for.
+    // Save the GST number from the details step and send the file in one go.
+    if (
+      slot === 'gst_certificate' &&
+      !gstinLookup &&
+      endpoint === 'signup' &&
+      !getSlot(slot).numberRecorded &&
+      gstin.trim().length === 15
+    ) {
+      patchSlot(slot, { status: 'uploading', fileName: file.name, error: '', errorCode: null });
+      const recorded = await recordNumber(slot, gstin.trim().toUpperCase());
+      if (recorded) await performUpload(slot, file, recorded);
       return;
     }
 
@@ -639,305 +667,30 @@ export function AccountDocuments({
         each.
       </p>
 
-      {slots.map((slot) => {
-        const spec = DOC_SLOT_SPECS[slot];
-        const s = getSlot(slot);
-        // A recorded number is the value the uploaded document is judged
-        // against, so it stops being editable the moment it is banked.
-        const locked = s.numberRecorded;
-        const flagged = highlight?.includes(slot) && s.status !== 'success';
-        // The GST number is not typed here; it comes from the details step.
-        const isGst = slot === 'gst_certificate';
-
-        return (
-          <div
-            key={slot}
-            className={cn(
-              'bg-card rounded-xl border p-4 shadow-sm space-y-3',
-              flagged ? 'border-primary border-2 field-shake' : 'border-border',
-            )}
-            data-testid={`doc-slot-${slot}`}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <Label className="text-sm font-semibold">
-                  {spec.label} <span className="text-red-400">*</span>
-                </Label>
-                <p className="text-[11px] text-muted-foreground mt-0.5">{spec.hint}</p>
-              </div>
-              <StatusPill status={s.status} />
-            </div>
-
-            {spec.numberField && (
-              <div>
-                <Label className="text-xs text-muted-foreground">
-                  {spec.numberField.label} <span className="text-red-400">*</span>
-                </Label>
-                {/* Aadhaar is shown in the card's own groups of four; the
-                    slot still holds the bare twelve digits, which is what is
-                    validated and sent. */}
-                <Input
-                  value={slot === 'aadhaar_card' ? formatAadhaar(s.documentNo) : s.documentNo}
-                  onChange={(e) =>
-                    handleNumberChange(
-                      slot,
-                      slot === 'aadhaar_card' ? readAadhaarInput(e.target).digits : e.target.value,
-                    )
-                  }
-                  placeholder={spec.numberField.placeholder}
-                  maxLength={
-                    slot === 'aadhaar_card' ? AADHAAR_DISPLAY_MAX_LENGTH : spec.numberField.maxLength
-                  }
-                  inputMode={spec.numberField.uppercase ? 'text' : 'numeric'}
-                  readOnly={locked || s.recording}
-                  aria-readonly={locked || s.recording}
-                  className={cn(
-                    'h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl',
-                    !spec.numberField.uppercase && 'font-mono tracking-widest',
-                    locked && 'text-muted-foreground cursor-not-allowed',
-                  )}
-                  data-testid={`doc-number-${slot}`}
-                />
-                {s.recording ? (
-                  <p className="text-[10px] text-muted-foreground mt-1 inline-flex items-center gap-1">
-                    <Loader2 className="w-3 h-3 animate-spin" /> Saving…
-                  </p>
-                ) : locked ? (
-                  <p className="text-[10px] text-muted-foreground mt-1 inline-flex items-center gap-1.5">
-                    <CheckCircle2 className="w-3 h-3 text-green-600" />
-                    Saved — now upload the matching document.
-                    <button
-                      type="button"
-                      onClick={() => void handleClearNumber(slot)}
-                      className="underline"
-                      data-testid={`doc-number-change-${slot}`}
-                    >
-                      Change
-                    </button>
-                  </p>
-                ) : (
-                  <p className="text-[10px] text-muted-foreground mt-1">
-                    Type it exactly as printed on the document.
-                  </p>
-                )}
-              </div>
-            )}
-
-            {isGst && (
-              <div>
-                <Label className="text-xs text-muted-foreground">GST Number</Label>
-                {/* Read-only: the GST number belongs to the details step. */}
-                <Input
-                  value={gstin}
-                  readOnly
-                  aria-readonly
-                  placeholder="22AAAAA0000A1Z5"
-                  className="h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl font-mono tracking-wider text-muted-foreground"
-                  data-testid="doc-number-gst_certificate"
-                />
-                {locked ? (
-                  <p className="text-[10px] text-muted-foreground mt-1 inline-flex items-center gap-1.5">
-                    <CheckCircle2 className="w-3 h-3 text-green-600" />
-                    Verified on the GST portal — now upload the certificate.
-                    <button
-                      type="button"
-                      onClick={() => void handleClearNumber(slot)}
-                      className="underline"
-                      data-testid="doc-number-change-gst_certificate"
-                    >
-                      Check again
-                    </button>
-                  </p>
-                ) : (
-                  <div className="mt-2 space-y-1">
-                    <p className="text-[10px] text-muted-foreground">
-                      Checked against <span className="font-medium">{accountName || '—'}</span>. To
-                      change the number, go back a step.
-                    </p>
-                    <Button
-                      type="button"
-                      onClick={() => void handleVerifyGstin()}
-                      disabled={gstin.trim().length !== 15 || s.recording}
-                      className="h-9 rounded-xl"
-                      data-testid="doc-gstin-verify"
-                    >
-                      {s.recording ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        'Verify GST number'
-                      )}
-                    </Button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <input
-              ref={(el) => {
-                fileInputs.current[slot] = el;
-              }}
-              type="file"
-              accept=".pdf,.jpg,.jpeg,.png"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) void handleFile(slot, file);
-                e.target.value = '';
-              }}
-              data-testid={`doc-file-${slot}`}
-            />
-
-            <div
-              role="button"
-              tabIndex={0}
-              onClick={() => fileInputs.current[slot]?.click()}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') fileInputs.current[slot]?.click();
-              }}
-              onDragOver={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const file = e.dataTransfer.files[0];
-                if (file) void handleFile(slot, file);
-              }}
-              className={cn(
-                'border-2 border-dashed rounded-xl p-4 flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-colors min-h-[84px] select-none',
-                s.status === 'idle' && 'border-border hover:border-primary/50 hover:bg-primary/5',
-                s.status === 'pending' && 'border-sky-300 bg-sky-50/50',
-                s.status === 'unverified' && 'border-amber-400 bg-amber-50',
-                s.status === 'uploading' && 'border-amber-300 bg-amber-50 pointer-events-none',
-                s.status === 'success' && 'border-green-300 bg-green-50',
-                s.status === 'error' && 'border-red-300 bg-red-50',
-              )}
-            >
-              {s.status === 'idle' && (
-                <>
-                  <CloudUpload className="w-6 h-6 text-muted-foreground" />
-                  <p className="text-xs text-muted-foreground">Tap to upload or drag &amp; drop</p>
-                </>
-              )}
-
-              {s.status === 'pending' && (
-                <>
-                  <FileText className="w-6 h-6 text-sky-600" />
-                  <p className="text-xs text-sky-900 font-medium truncate max-w-[200px]">
-                    {s.fileName}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground text-center px-1">
-                    Enter a valid {spec.numberField?.label} to upload
-                  </p>
-                </>
-              )}
-
-              {s.status === 'uploading' && (
-                <>
-                  <Loader2 className="w-5 h-5 text-amber-600 animate-spin" />
-                  <p className="text-xs text-amber-700 font-medium truncate max-w-[200px]">
-                    {s.fileName}
-                  </p>
-                </>
-              )}
-
-              {s.status === 'success' && (
-                <>
-                  <CheckCircle2 className="w-5 h-5 text-green-600" />
-                  <p className="text-xs text-green-700 font-medium truncate max-w-[200px]">
-                    {s.fileName}
-                  </p>
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        fileInputs.current[slot]?.click();
-                      }}
-                      className="text-[11px] text-primary underline"
-                    >
-                      Change file
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void handleRemove(slot);
-                      }}
-                      className="text-[11px] text-muted-foreground underline inline-flex items-center gap-1"
-                    >
-                      <Trash2 className="w-3 h-3" /> Remove
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {s.status === 'unverified' && (
-                <>
-                  <AlertTriangle className="w-5 h-5 text-amber-600" />
-                  <p className="text-xs text-amber-800 font-medium truncate max-w-[200px]">
-                    {s.fileName}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      fileInputs.current[slot]?.click();
-                    }}
-                    className="text-[11px] text-primary underline"
-                  >
-                    Upload a clearer photo
-                  </button>
-                </>
-              )}
-
-              {s.status === 'error' && (
-                <>
-                  <XCircle className="w-5 h-5 text-red-500" />
-                  <p className="text-xs text-red-600 text-center px-2">{s.error}</p>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      fileInputs.current[slot]?.click();
-                    }}
-                    className="text-[11px] text-primary underline"
-                  >
-                    Try again
-                  </button>
-                </>
-              )}
-            </div>
-
-            {s.status === 'unverified' && s.ocrNote && (
-              <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
-                {s.ocrNote}
-              </p>
-            )}
-          </div>
-        );
-      })}
+      {slots.map((slot) => (
+        <DocumentSlotCard
+          key={slot}
+          slot={slot}
+          state={getSlot(slot)}
+          endpoint={endpoint}
+          accountName={accountName}
+          biaScreen={biaScreen}
+          gstinLookup={gstinLookup}
+          gstin={gstin}
+          // The server named this slot as one to fix; stop flagging it once it lands.
+          flagged={Boolean(highlight?.includes(slot)) && getSlot(slot).status !== 'success'}
+          registerInput={(s, el) => {
+            fileInputs.current[s] = el;
+          }}
+          openPicker={(s) => fileInputs.current[s]?.click()}
+          onFile={handleFile}
+          onNumberChange={handleNumberChange}
+          onClearNumber={handleClearNumber}
+          onRemove={handleRemove}
+          onVerifyGstin={handleVerifyGstin}
+        />
+      ))}
     </div>
   );
 }
 
-function StatusPill({ status }: { status: SlotStatus }): React.JSX.Element {
-  const config: Record<SlotStatus, { label: string; className: string }> = {
-    idle: { label: 'Required', className: 'bg-muted text-muted-foreground' },
-    pending: { label: 'Selected', className: 'bg-sky-100 text-sky-800' },
-    uploading: { label: 'Checking…', className: 'bg-amber-100 text-amber-700' },
-    // "Verified", not "Uploaded" — the document was read and it agreed.
-    success: { label: 'Verified', className: 'bg-green-100 text-green-700' },
-    unverified: { label: 'Not verified', className: 'bg-amber-100 text-amber-800' },
-    error: { label: 'Failed', className: 'bg-red-100 text-red-600' },
-  };
-  const { label, className } = config[status];
-  return (
-    <span
-      className={cn('text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0', className)}
-    >
-      {label}
-    </span>
-  );
-}

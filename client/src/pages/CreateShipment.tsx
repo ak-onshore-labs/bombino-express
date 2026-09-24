@@ -1,6 +1,17 @@
 ﻿import { useState, useEffect, useCallback, useMemo, useLayoutEffect, useRef, type CSSProperties } from 'react';
 import confetti from 'canvas-confetti';
 import {
+  dedupeAndSort,
+  formatInr,
+  itemizedChargesEmpty,
+  normalizeRateRow,
+  type ITDChargeApplyEntry,
+  type ITDRateResponse,
+  type ITDRateRow,
+  type RateParams,
+} from '@/lib/itdRates';
+import { isIndianMobile } from '@shared/contact';
+import {
   ArrowLeft,
   Check,
   Package,
@@ -18,6 +29,7 @@ import {
   X,
   CalendarIcon,
   ShieldCheck,
+  Sparkles,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useLocation } from 'wouter';
@@ -53,13 +65,17 @@ import {
   pickupCutoffHour,
 } from '@shared/pickupPincodes';
 import { usePickupCoverage } from '@/hooks/usePickupCoverage';
-import { lbToKg, inToCm } from '@/lib/mockData';
+import { lbToKg, inToCm } from '@/lib/units';
 import { apiRequest } from '@/lib/queryClient';
-import { parseApiErrorMessage } from '@/lib/apiError';
+import { parseApiErrorCode, parseApiErrorMessage } from '@/lib/apiError';
+import { AskBiaLink } from '@/components/bia/AskBiaLink';
+import { openBia, usePublishBiaScreen } from '@/lib/biaStore';
+import type { BiaScreen } from '@shared/biaScreen';
+import { PRODUCT_TYPE_INFO, isProductType } from '@shared/bookingTerms';
 import { payForOrder } from '@/lib/razorpay';
 import { PaymentTestModeSwitch } from '@/components/PaymentTestModeSwitch';
 import { cn } from '@/lib/utils';
-import { getHsnCode } from '@/lib/hsnData';
+import { getHsnCode } from '@shared/hsn';
 import { useToast } from '@/hooks/use-toast';
 import { usePincodeLookup } from '@/hooks/usePincodeLookup';
 import { DropoffBranches } from '@/components/DropoffBranches';
@@ -83,6 +99,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
+import { AskBiaTopButton } from '@/components/bia/AskBiaTopButton';
 
 interface FreeFormLineItem {
   total: string;
@@ -201,46 +218,6 @@ interface OrderCreateResponse {
   message?: string;
 }
 
-interface RateParams {
-  product_code: string;
-  destination_code: string;
-  booking_date: string;
-  origin_code: string;
-  pcs: string;
-  actual_weight: string;
-  ori_city?: string;
-  ori_pincode?: string;
-  dest_city?: string;
-  dest_pincode?: string;
-}
-
-interface ITDChargeApplyEntry {
-  name: string;
-  amount: number;
-}
-
-interface ITDRateRow {
-  id: string;
-  code: string;
-  rate: number;
-  fsc: number;
-  cgst: number;
-  sgst: number;
-  other_charges: number;
-  chrage_apply_data?: Record<string, ITDChargeApplyEntry>;
-  sub_total: number;
-  total: number;
-  per_kg: number;
-  weight: string;
-  gst_per: string;
-  internal_api_service_code?: string;
-}
-
-interface ITDRateResponse {
-  success?: boolean;
-  data?: ITDRateRow[];
-}
-
 const BOMBINO_BLUE = '#14567C';
 const BEST_GREEN = '#166534';
 const BEST_BADGE_BG = '#dcfce7';
@@ -251,64 +228,8 @@ const ratesResultsShellStyle = {
   '--color-border-tertiary': 'rgba(55, 65, 81, 0.12)',
 } as CSSProperties;
 
-/** Indian Rupee with sensible fraction digits (no float noise). */
-function formatInr(n: number): string {
-  return `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
-}
-
-function normalizeRateRow(raw: unknown): ITDRateRow | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const r = raw as Record<string, unknown>;
-  const id = r.id != null ? String(r.id) : '';
-  const code =
-    typeof r.code === 'string'
-      ? r.code
-      : typeof r.internal_api_service_code === 'string'
-        ? r.internal_api_service_code
-        : '';
-  if (!id && !code) return null;
-  const num = (v: unknown): number => (typeof v === 'number' && !Number.isNaN(v) ? v : Number(v) || 0);
-  const str = (v: unknown): string => (typeof v === 'string' ? v : String(v ?? ''));
-  let chrage = r.chrage_apply_data;
-  if (chrage && typeof chrage === 'object' && !Array.isArray(chrage)) {
-    chrage = chrage as Record<string, ITDChargeApplyEntry>;
-  } else {
-    chrage = undefined;
-  }
-  return {
-    id: id || code,
-    code: code || id,
-    rate: num(r.rate),
-    fsc: num(r.fsc),
-    cgst: num(r.cgst),
-    sgst: num(r.sgst),
-    other_charges: num(r.other_charges),
-    chrage_apply_data: chrage as ITDRateRow['chrage_apply_data'],
-    sub_total: num(r.sub_total),
-    total: num(r.total),
-    per_kg: num(r.per_kg),
-    weight: str(r.weight),
-    gst_per: str(r.gst_per),
-    internal_api_service_code:
-      typeof r.internal_api_service_code === 'string' ? r.internal_api_service_code : undefined,
-  };
-}
-
-function dedupeAndSort(rows: ITDRateRow[]): ITDRateRow[] {
-  const seen = new Set<string>();
-  const deduped: ITDRateRow[] = [];
-  for (const row of rows) {
-    if (seen.has(row.id)) continue;
-    seen.add(row.id);
-    deduped.push(row);
-  }
-  return [...deduped].sort((a, b) => a.total - b.total);
-}
-
-function itemizedChargesEmpty(service: ITDRateRow): boolean {
-  const d = service.chrage_apply_data;
-  return !d || Object.keys(d).length === 0;
-}
+/** The step names BIA understands (shared/biaScreen.ts), in the order of `steps`. */
+const BOOKING_STEP_NAMES = ['sender', 'receiver', 'package', 'invoice'] as const;
 
 const steps = [
   { id: 1, title: 'Sender', icon: User },
@@ -399,31 +320,8 @@ const PRODUCT_TYPE_LABEL: Record<string, string> = {
   'CSB V': 'CSB V',
 };
 
-/**
- * What each product type means, for the info sheet.
- *
- * Keyed by the same value the select carries, so the sheet explains exactly
- * the options on offer and no others — a personal customer reading about CSB V
- * is reading about a filing they cannot make.
- */
-const PRODUCT_TYPE_INFO: Record<string, { title: string; body: string }> = {
-  DOX: {
-    title: 'Documents (DOX)',
-    body: 'Standard industry code for shipments containing only paper — no commercial value, no duties.',
-  },
-  SPX: {
-    title: 'Package (SPX)',
-    body: "Small Parcel Express — usually containing physical goods that aren't just paper.",
-  },
-  COMMERCIAL: {
-    title: 'Commercial',
-    body: 'Goods meant for sale or trade. Requires a formal invoice and duty assessment.',
-  },
-  'CSB V': {
-    title: 'CSB V',
-    body: 'Courier Shipping Bill V — a simplified export process for low-value goods usually under ₹5,00,000 sent via courier.',
-  },
-};
+// What each product type means, for the info sheet: PRODUCT_TYPE_INFO in
+// shared/bookingTerms.ts, so BIA's explain_booking_term says the same words.
 
 /**
  * One thing already on file, on the booking gate.
@@ -571,6 +469,8 @@ export default function CreateShipment() {
   const [docketMessage, setDocketMessage] = useState('');
   const [newOrderId, setNewOrderId] = useState('');
   const [submitError, setSubmitError] = useState('');
+  /** The catalogued code behind `submitError`, for "Ask BIA"; null when it has none. */
+  const [submitErrorCode, setSubmitErrorCode] = useState<string | null>(null);
 
   // Pay-now only. The order exists either way by the time this matters — the
   // booking is never held hostage to the gateway — so `unpaid` is a normal
@@ -587,6 +487,9 @@ export default function CreateShipment() {
   const [pickupDatePickerOpen, setPickupDatePickerOpen] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [paymentError, setPaymentError] = useState('');
+  // The last booking error the server sent, with its code, so "Ask BIA" can
+  // say which error it was. Used only while its message is the one on screen.
+  const lastOrderErrorRef = useRef<{ message: string; code: string | null } | null>(null);
   const pendingOrderRef = useRef<Omit<OrderCreatePayload, 'payment_method'> | null>(null);
 
   /**
@@ -1135,6 +1038,7 @@ export default function CreateShipment() {
 
       // All other errors — keep the modal open so the user can retry
       const msg = message.replace(/^\d+:\s*/, '');
+      lastOrderErrorRef.current = { message: msg, code: parseApiErrorCode(err) };
       setPaymentError(msg);
     },
   });
@@ -1207,6 +1111,33 @@ export default function CreateShipment() {
     setShowServiceModal(true);
   };
 
+  // What BIA knows about this booking when it opens, from the support button
+  // or any "Ask BIA" here: the step, where the parcel is going and what kind
+  // of shipment it is. Nothing else — no names, addresses, numbers or contents
+  // (and shared/biaScreen.ts drops anything else on the server regardless).
+  const biaStepIndex = Math.min(currentStep, steps.length) - 1;
+  const biaScreen: Omit<BiaScreen, 'errorCode'> = {
+    surface: 'create',
+    step: showConfirmModal ? 'payment' : BOOKING_STEP_NAMES[biaStepIndex],
+    ...(destinationCountry ? { destination: destinationCountry } : {}),
+    ...(isProductType(productType) ? { productType } : {}),
+  };
+  usePublishBiaScreen(biaScreen);
+  // "Which HS code?" beside the contents and CSB V fields. BIA suggests from
+  // Bombino's list (suggest_hsn); the customer picks in the field themselves.
+  const askBiaAboutHsn = (content: string): void => {
+    const item = content.trim().slice(0, 80);
+    openBia({
+      screen: biaScreen,
+      seed: item ? `Which HS code fits "${item}"?` : "What should I put in Shipment Content, and which HS code goes with it?",
+    });
+  };
+  const askBiaAboutStep = (): void =>
+    openBia({
+      screen: biaScreen,
+      seed: `I'm on the ${steps[biaStepIndex].title.toLowerCase()} step of my booking. What do I need to do here?`,
+    });
+
   // Signed out, and not yet committed to booking as a guest.
   //
   // This used to be a wall: "Please login to continue". It is a choice now,
@@ -1226,6 +1157,7 @@ export default function CreateShipment() {
               <ArrowLeft className="w-5 h-5" />
             </button>
             <h1 className="ml-2 font-semibold text-sm">Ship</h1>
+            <AskBiaTopButton withLabel className="ml-auto" />
           </div>
         </header>
 
@@ -1596,7 +1528,7 @@ export default function CreateShipment() {
     if (currentStep === 1) {
       const e: Record<string, boolean> = {};
       if (!senderName.trim()) e.senderName = true;
-      if (!/^\d{10}$/.test(senderPhone.trim())) e.senderPhone = true;
+      if (!isIndianMobile(senderPhone.trim())) e.senderPhone = true;
       if (!senderAddress.trim()) e.senderAddress = true;
       if (!senderCity.trim()) e.senderCity = true;
       if (!senderState.trim()) e.senderState = true;
@@ -1694,6 +1626,7 @@ export default function CreateShipment() {
 
   const handleSubmit = () => {
     setSubmitError('');
+    setSubmitErrorCode(null);
     setServiceSelectionError('');
     setFieldErrors({});
     // Both of these are mandatory and neither is a text input, so they report
@@ -1702,6 +1635,7 @@ export default function CreateShipment() {
     // have to hunt a step for it.
     if (!productType.trim()) {
       setSubmitError('Please select a product type');
+      setSubmitErrorCode('PRODUCT_TYPE_REQUIRED');
       setFieldErrors({ productType: true });
       scrollToFirstError();
       return;
@@ -1755,6 +1689,7 @@ export default function CreateShipment() {
     }
     if (pickupRequest === '1' && !pickupDate) {
       setSubmitError('Please go back to step 1 and choose a pickup date');
+      setSubmitErrorCode('PICKUP_DATE_REQUIRED');
       return;
     }
     const weightLb = getWeightLb();
@@ -1948,6 +1883,15 @@ export default function CreateShipment() {
             <ArrowLeft className="w-5 h-5" />
           </button>
           <h1 className="ml-2 font-semibold text-sm">Create Shipment</h1>
+          <button
+            type="button"
+            onClick={askBiaAboutStep}
+            className="ml-auto inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-[#14567C] hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14567C]/40"
+            data-testid="button-ask-bia-step"
+          >
+            <Sparkles className="h-3.5 w-3.5 text-[#F2A123]" aria-hidden />
+            Ask BIA
+          </button>
         </div>
       </header>
 
@@ -1964,6 +1908,16 @@ export default function CreateShipment() {
               <h1 className="text-[26px] font-bold tracking-[-0.02em] text-[lab(34.0831_-9.57756_-27.7093)] leading-tight">Create shipment</h1>
               <p className="text-sm text-muted-foreground mt-1">
                 Step <span className="text-[lab(34.0831_-9.57756_-27.7093)] font-semibold tabular-nums">{currentStep < 4 ? currentStep : steps.length}</span> of <span className="tabular-nums">{steps.length}</span> · {steps[Math.min(currentStep, steps.length) - 1]?.title}
+                <span aria-hidden> · </span>
+                <button
+                  type="button"
+                  onClick={askBiaAboutStep}
+                  className="inline-flex items-center gap-1 font-semibold text-[#14567C] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14567C]/40 rounded"
+                  data-testid="button-ask-bia-step-desktop"
+                >
+                  <Sparkles className="h-3.5 w-3.5 text-[#F2A123]" aria-hidden />
+                  Ask BIA about this step
+                </button>
               </p>
             </div>
 
@@ -2787,6 +2741,15 @@ export default function CreateShipment() {
               {fieldErrors.shipmentContent && (
                 <p className="text-xs text-red-600 mt-1">This field is required</p>
               )}
+              <button
+                type="button"
+                onClick={() => askBiaAboutHsn(shipmentContent)}
+                className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-[#14567C] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14567C]/40 rounded"
+                data-testid="button-ask-bia-hsn"
+              >
+                <Sparkles className="h-3 w-3 text-[#F2A123]" aria-hidden />
+                Not sure what to pick? Ask BIA
+              </button>
             </div>
 
             <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
@@ -3213,6 +3176,15 @@ export default function CreateShipment() {
                           10 digits
                         </p>
                       )}
+                      <button
+                        type="button"
+                        onClick={() => askBiaAboutHsn(shipmentContent)}
+                        className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-[#14567C] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14567C]/40 rounded"
+                        data-testid="button-ask-bia-csbv-hs"
+                      >
+                        <Sparkles className="h-3 w-3 text-[#F2A123]" aria-hidden />
+                        Ask BIA about the HS code
+                      </button>
                     </div>
 
                     <div className="flex items-center justify-between">
@@ -3617,7 +3589,10 @@ export default function CreateShipment() {
             {submitError && (
               <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3">
                 <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-red-600">{submitError}</p>
+                <div className="flex flex-col items-start gap-1">
+                  <p className="text-xs text-red-600">{submitError}</p>
+                  <AskBiaLink screen={biaScreen} code={submitErrorCode} message={submitError} />
+                </div>
               </div>
             )}
 
@@ -3784,7 +3759,10 @@ export default function CreateShipment() {
                 {submitError && (
                   <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3">
                     <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                    <p className="text-xs text-red-600">{submitError}</p>
+                    <div className="flex flex-col items-start gap-1">
+                      <p className="text-xs text-red-600">{submitError}</p>
+                      <AskBiaLink screen={biaScreen} code={submitErrorCode} message={submitError} />
+                    </div>
                   </div>
                 )}
 
@@ -3829,7 +3807,7 @@ export default function CreateShipment() {
             </div>
             <div className="space-y-4">
               {productTypeOptions.map(({ value }) => {
-                const info = PRODUCT_TYPE_INFO[value];
+                const info = isProductType(value) ? PRODUCT_TYPE_INFO[value] : null;
                 if (!info) return null;
                 return (
                   <div key={value}>
@@ -4239,7 +4217,14 @@ export default function CreateShipment() {
             {paymentError && (
               <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 mb-4">
                 <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-red-600">{paymentError}</p>
+                <div className="flex flex-col items-start gap-1">
+                  <p className="text-xs text-red-600">{paymentError}</p>
+                  <AskBiaLink
+                    screen={{ ...biaScreen, step: 'payment' }}
+                    code={lastOrderErrorRef.current?.message === paymentError ? lastOrderErrorRef.current.code : null}
+                    message={paymentError}
+                  />
+                </div>
               </div>
             )}
 

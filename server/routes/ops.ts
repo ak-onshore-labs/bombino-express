@@ -94,7 +94,9 @@ import {
   type OpsPaymentRange,
 } from "../opsDb.js";
 import { buildPincodeReport } from "../pincodeReport.js";
-import { requireRole, requireUser, ensureDbUser } from "../routeGuards.js";
+import { opsGate, requireRole, requireUser, ensureDbUser } from "../routeGuards.js";
+import { INDIAN_MOBILE_MESSAGE, INDIAN_MOBILE_PATTERN } from "../../shared/contact.js";
+import { sendDocumentFile, wantsDownload } from "../documentResponse.js";
 import {
   AuditLogUnavailableError,
   logDocumentAccess,
@@ -109,7 +111,7 @@ import {
 
 const createStaffSchema = z.object({
   full_name: z.string().trim().min(1, "Full name is required"),
-  phone: z.string().trim().regex(/^\d{10}$/, "Enter a valid 10-digit phone number"),
+  phone: z.string().trim().regex(INDIAN_MOBILE_PATTERN, INDIAN_MOBILE_MESSAGE),
   role: z.enum(["agent", "admin"]),
   hub_id: z.coerce.number().int().refine(isIndiaHubId, "Select a valid hub"),
 });
@@ -208,27 +210,6 @@ const customerIdSchema = z.string().uuid();
 const guestRefSchema = z.string().uuid();
 
 const identityKindSchema = z.enum(["aadhaar", "pan", "gstin"]);
-
-function sanitizeContentFilename(name: string): string {
-  return name.replace(/"/g, "");
-}
-
-function sendOpsDocumentFile(
-  res: Response,
-  doc: { mime_type: string; file_data: string; original_filename: string }
-): void {
-  const buffer = Buffer.from(doc.file_data, "base64");
-  res.set({
-    "Content-Type": doc.mime_type,
-    "Content-Length": String(buffer.length),
-    "Cache-Control": "no-store",
-    "X-Robots-Tag": "noindex, nofollow, noarchive",
-    "X-Content-Type-Options": "nosniff",
-    "Referrer-Policy": "no-referrer",
-    "Content-Disposition": `inline; filename="${sanitizeContentFilename(doc.original_filename)}"`,
-  });
-  res.send(buffer);
-}
 
 async function requireOpsKycActorAndCustomer(
   req: Request,
@@ -331,8 +312,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/orders — all orders, newest first (cap 200)
   app.get(
     "/api/ops/orders",
-    requireUser,
-    requireRole("admin", "super_admin"),
+    ...opsGate,
     async (req: Request, res: Response) => {
       const rawStatus = req.query.status;
       let status: string | undefined;
@@ -361,8 +341,7 @@ export function registerOpsRoutes(app: Express): void {
   // Registered before /orders/:id so "export" is not parsed as an id.
   app.get(
     "/api/ops/orders/export",
-    requireUser,
-    requireRole("admin", "super_admin"),
+    ...opsGate,
     async (req: Request, res: Response) => {
       const parsed = ordersExportQuerySchema.safeParse(req.query);
       if (!parsed.success) {
@@ -398,8 +377,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/payments — ops-wide ledger (IST today | last 7 days)
   app.get(
     "/api/ops/payments",
-    requireUser,
-    requireRole("admin", "super_admin"),
+    ...opsGate,
     async (req: Request, res: Response) => {
       const range = parsePaymentRange(req.query.range);
       if (range === null) {
@@ -420,8 +398,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/payments/export — uncapped ledger rows (same IST window)
   app.get(
     "/api/ops/payments/export",
-    requireUser,
-    requireRole("admin", "super_admin"),
+    ...opsGate,
     async (req: Request, res: Response) => {
       const range = parsePaymentRange(req.query.range);
       if (range === null) {
@@ -442,8 +419,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/cancellations — pending cancellation requests
   app.get(
     "/api/ops/cancellations",
-    requireUser,
-    requireRole("admin", "super_admin"),
+    ...opsGate,
     async (_req: Request, res: Response) => {
       const result = await listPendingCancellationsForOps();
       if (result === null) {
@@ -458,8 +434,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/orders/:id — any order by id + events + availableActions
   app.get(
     "/api/ops/orders/:id",
-    requireUser,
-    requireRole("admin", "super_admin"),
+    ...opsGate,
     async (req: Request, res: Response) => {
       const order = await getOrderByIdForOps(req.params.id);
       if (!order) {
@@ -499,8 +474,7 @@ export function registerOpsRoutes(app: Express): void {
   // POST /api/ops/orders/:id/assign — admin-directed pickup assign (auto-advance)
   app.post(
     "/api/ops/orders/:id/assign",
-    requireUser,
-    requireRole("admin", "super_admin"),
+    ...opsGate,
     async (req: Request, res: Response) => {
       const callerId = req.session.dbUserId;
       if (!callerId) {
@@ -572,8 +546,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/customers — customer directory (meta + KYC-on-file, no numbers)
   app.get(
     "/api/ops/customers",
-    requireUser,
-    requireRole("admin", "super_admin"),
+    ...opsGate,
     async (req: Request, res: Response) => {
       const parsed = customersListQuerySchema.safeParse(req.query);
       if (!parsed.success) {
@@ -637,8 +610,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/customers/:id — one customer + KYC meta (no numbers / bytes)
   app.get(
     "/api/ops/customers/:id",
-    requireUser,
-    requireRole("admin", "super_admin"),
+    ...opsGate,
     async (req: Request, res: Response) => {
       const parsedId = customerIdSchema.safeParse(req.params.id);
       if (!parsedId.success) {
@@ -685,8 +657,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/customers/:id/orders — this customer's bookings (registered only)
   app.get(
     "/api/ops/customers/:id/orders",
-    requireUser,
-    requireRole("admin", "super_admin"),
+    ...opsGate,
     async (req: Request, res: Response) => {
       const parsedId = customerIdSchema.safeParse(req.params.id);
       if (!parsedId.success) {
@@ -852,6 +823,8 @@ export function registerOpsRoutes(app: Express): void {
       const ctx = await requireOpsKycActorAndCustomer(req, res);
       if (!ctx) return;
 
+      const download = wantsDownload(req);
+
       try {
         const doc = await getKycFileByUserId(ctx.customerId);
         if (!doc) {
@@ -860,7 +833,7 @@ export function registerOpsRoutes(app: Express): void {
             outcome: "not_found",
             userId: ctx.customerId,
             actorUserId: ctx.actorId,
-            action: "view",
+            action: download ? "download" : "view",
           });
           res.status(404).json({ message: "Document not found." });
           return;
@@ -872,10 +845,10 @@ export function registerOpsRoutes(app: Express): void {
           documentId: doc.id,
           userId: ctx.customerId,
           actorUserId: ctx.actorId,
-          action: "view",
+          action: download ? "download" : "view",
           capabilityId: doc.capability_id,
         });
-        sendOpsDocumentFile(res, doc);
+        sendDocumentFile(res, doc, download ? "attachment" : "inline");
       } catch (err) {
         if (err instanceof AuditLogUnavailableError) {
           res.status(500).json({ message: "Audit unavailable." });
@@ -922,7 +895,7 @@ export function registerOpsRoutes(app: Express): void {
           action: "view",
           capabilityId: doc.capability_id,
         });
-        sendOpsDocumentFile(res, doc);
+        sendDocumentFile(res, doc, "inline");
       } catch (err) {
         if (err instanceof AuditLogUnavailableError) {
           res.status(500).json({ message: "Audit unavailable." });
@@ -947,6 +920,8 @@ export function registerOpsRoutes(app: Express): void {
         return;
       }
 
+      const download = wantsDownload(req);
+
       try {
         const doc = await getAccountDocumentByUserIdAndSlot(ctx.customerId, req.params.slot);
         if (!doc) {
@@ -955,7 +930,7 @@ export function registerOpsRoutes(app: Express): void {
             outcome: "not_found",
             userId: ctx.customerId,
             actorUserId: ctx.actorId,
-            action: "view",
+            action: download ? "download" : "view",
           });
           res.status(404).json({ message: "Document not found." });
           return;
@@ -967,10 +942,10 @@ export function registerOpsRoutes(app: Express): void {
           documentId: doc.id,
           userId: ctx.customerId,
           actorUserId: ctx.actorId,
-          action: "view",
+          action: download ? "download" : "view",
           capabilityId: doc.capability_id,
         });
-        sendOpsDocumentFile(res, doc);
+        sendDocumentFile(res, doc, download ? "attachment" : "inline");
       } catch (err) {
         if (err instanceof AuditLogUnavailableError) {
           res.status(500).json({ message: "Audit unavailable." });
@@ -1054,8 +1029,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/verifications — customers who still owe documents
   app.get(
     "/api/ops/verifications",
-    requireUser,
-    requireRole("admin", "super_admin"),
+    ...opsGate,
     async (_req: Request, res: Response) => {
       const accounts = await listCustomerAccounts();
       if (accounts === null) {
@@ -1097,8 +1071,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/users — staff accounts (agent / admin / super_admin)
   app.get(
     "/api/ops/users",
-    requireUser,
-    requireRole("admin", "super_admin"),
+    ...opsGate,
     async (_req: Request, res: Response) => {
       const users = await listStaffUsers();
       if (users === null) {
@@ -1301,8 +1274,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/beats — every beat, retired ones included
   app.get(
     "/api/ops/beats",
-    requireUser,
-    requireRole("admin", "super_admin"),
+    ...opsGate,
     async (_req: Request, res: Response) => {
       const beats = await listBeats();
       if (beats === null) {
@@ -1316,8 +1288,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/beats/:id — one beat with its full pincode list
   app.get(
     "/api/ops/beats/:id",
-    requireUser,
-    requireRole("admin", "super_admin"),
+    ...opsGate,
     async (req: Request, res: Response) => {
       const id = beatIdSchema.safeParse(req.params.id);
       if (!id.success) {
@@ -1341,8 +1312,7 @@ export function registerOpsRoutes(app: Express): void {
   // POST /api/ops/beats — create one
   app.post(
     "/api/ops/beats",
-    requireUser,
-    requireRole("admin", "super_admin"),
+    ...opsGate,
     async (req: Request, res: Response) => {
       const parsed = createBeatSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -1368,8 +1338,7 @@ export function registerOpsRoutes(app: Express): void {
   // PATCH /api/ops/beats/:id — name, hub, cut-off, or retire it
   app.patch(
     "/api/ops/beats/:id",
-    requireUser,
-    requireRole("admin", "super_admin"),
+    ...opsGate,
     async (req: Request, res: Response) => {
       const id = beatIdSchema.safeParse(req.params.id);
       if (!id.success) {
@@ -1412,8 +1381,7 @@ export function registerOpsRoutes(app: Express): void {
    */
   app.put(
     "/api/ops/beats/:id/pincodes",
-    requireUser,
-    requireRole("admin", "super_admin"),
+    ...opsGate,
     async (req: Request, res: Response) => {
       const id = beatIdSchema.safeParse(req.params.id);
       if (!id.success) {
@@ -1459,8 +1427,7 @@ export function registerOpsRoutes(app: Express): void {
    */
   app.put(
     "/api/ops/beats/:id/agents",
-    requireUser,
-    requireRole("admin", "super_admin"),
+    ...opsGate,
     async (req: Request, res: Response) => {
       const id = beatIdSchema.safeParse(req.params.id);
       if (!id.success) {
@@ -1500,8 +1467,7 @@ export function registerOpsRoutes(app: Express): void {
   // POST /api/ops/users — mint a real itd_users staff row (seed-script shape)
   app.post(
     "/api/ops/users",
-    requireUser,
-    requireRole("admin", "super_admin"),
+    ...opsGate,
     async (req: Request, res: Response) => {
       const parsed = createStaffSchema.safeParse(req.body);
       if (!parsed.success) {

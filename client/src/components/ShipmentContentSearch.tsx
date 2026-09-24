@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { HSN_DESCRIPTIONS, getHsnCode } from '@/lib/hsnData';
+import { HSN_DESCRIPTIONS, getHsnCode } from '@shared/hsn';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';

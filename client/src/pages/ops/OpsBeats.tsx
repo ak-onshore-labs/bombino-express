@@ -11,6 +11,8 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
+import { OpsAccessRequired } from '@/components/ops/OpsAccessRequired';
+import { isForbiddenError } from '@/lib/apiError';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { OpsShell } from '@/components/ops/OpsShell';
@@ -448,8 +450,9 @@ export default function OpsBeats() {
             <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
           </div>
         )}
-        {beats.isError && (
-          <p className="text-sm text-red-600 py-6 text-center">
+        {beats.isError && isForbiddenError(beats.error) && <OpsAccessRequired what="beats" />}
+        {beats.isError && !isForbiddenError(beats.error) && (
+          <p className="text-sm text-red-600 py-6 text-center" data-testid="ops-beats-error">
             Could not load beats. Try refreshing.
           </p>
         )}

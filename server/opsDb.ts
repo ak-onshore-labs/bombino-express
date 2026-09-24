@@ -6,6 +6,7 @@
  */
 
 import { supabase } from "./supabaseClient.js";
+import { dbClient, logDbError, type DbError } from "./db/client.js";
 import {
   cancellationState,
   readCancellationRequest,
@@ -20,6 +21,7 @@ import {
 } from "../shared/opsBoardQuery.js";
 import { nowInIst, startOfIstDayIso } from "../shared/istTime.js";
 import { getUserContactsByIds, toOrder, type OrderRow } from "./ordersDb.js";
+import { reconcilePaymentStatus } from "./paymentsDb.js";
 
 /** PostgREST default max-rows is ~1000; page past that so export never truncates. */
 const EXPORT_PAGE_SIZE = 1000;
@@ -30,13 +32,10 @@ const BOARD_COLUMNS =
 const DETAIL_COLUMNS =
   "id, order_no, user_id, guest_ref, guest_name, guest_email, guest_phone, status, pickup_request, pickup_date, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, itd_docket_response, metadata, created_at, updated_at";
 
-function getSupabaseClient() {
-  return supabase;
-}
+const logSupabaseError = (operation: string, error: DbError): void =>
+  logDbError("opsDb", operation, error);
 
-function logSupabaseError(op: string, error: { message?: string; code?: string } | null): void {
-  console.error(`[opsDb] ${op} failed:`, error?.code, error?.message);
-}
+const getSupabaseClient = () => dbClient("opsDb");
 
 function consigneeField(
   consignee: unknown,
@@ -542,7 +541,13 @@ export async function applyWeighResult(input: {
   }
   if (!data) return null;
 
-  return toOrder(data as unknown as OrderRow & { metadata?: unknown });
+  // The price just changed, so what we hold may no longer match what is due:
+  // a prepaid parcel that came in heavier now owes the difference and must
+  // not settle until it is collected; one that came in lighter is owed a
+  // refund. Recompute the flag here — it used to stay `paid` either way.
+  const weighed = toOrder(data as unknown as OrderRow & { metadata?: unknown });
+  const reconciled = await reconcilePaymentStatus(input.orderId);
+  return reconciled ? { ...weighed, payment_status: reconciled.payment_status } : weighed;
 }
 
 export type MockDocketResponse = {

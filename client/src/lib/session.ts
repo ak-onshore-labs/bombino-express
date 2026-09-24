@@ -44,10 +44,39 @@ const NOT_AN_EXPIRY = [
   // browser" — the normal state for a visitor — and treating it as an expiry
   // would bounce a guest to the login screen for looking at their own profile.
   '/api/guest/',
+  // The identity upload a guest shares with accounts. Its 401 (code
+  // phone_unverified) is the same "no verified number here" answer, and the
+  // upload box on the booking form explains it in place.
+  // Taking it as an expiry sent a guest to the login screen mid-upload. An
+  // account whose session really died is still caught by the next request.
+  '/api/kyc/upload',
 ];
 
 function isExpiryPath(url: string): boolean {
   return !NOT_AN_EXPIRY.some((prefix) => url.includes(prefix));
+}
+
+/**
+ * Sign out on purpose: tell the server, clear the store, go to sign-in.
+ *
+ * Five shells and boards had this same three-step body inline. Session
+ * teardown is security-relevant, so it belongs beside `handleSessionExpired`
+ * — which is the same idea for a session that died on its own.
+ *
+ * The network call is best effort: if it fails the cookie may outlive the tab,
+ * but refusing to sign out locally because the server was unreachable is worse.
+ */
+export async function signOutAndRedirect(
+  navigate: (path: string) => void,
+  to = '/login',
+): Promise<void> {
+  try {
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+  } catch {
+    // Ignore network failure — still clear the local session.
+  }
+  useAppStore.getState().logout();
+  navigate(to);
 }
 
 /**

@@ -1,23 +1,13 @@
 import { supabase } from "./supabaseClient.js";
+import { dbClient, logDbError, type DbError } from "./db/client.js";
 import type { Order } from "../shared/orderContract.js";
 
 type Json = Record<string, unknown> | unknown[] | null;
 
-function logSupabaseError(operation: string, error: { message?: string; code?: string } | null): void {
-  console.error("[ordersDb] supabase operation failed (non-fatal):", {
-    operation,
-    message: error?.message,
-    code: error?.code,
-  });
-}
+const logSupabaseError = (operation: string, error: DbError): void =>
+  logDbError("ordersDb", operation, error);
 
-function getSupabaseClient() {
-  if (!supabase) {
-    console.error("[ordersDb] supabase client is not configured");
-    return null;
-  }
-  return supabase;
-}
+const getSupabaseClient = () => dbClient("ordersDb");
 
 export type PickupRequest = 1 | 2;
 export type PaymentMethod = "pay_now" | "pay_at_pickup" | "pay_at_dropoff" | "cod";
@@ -222,6 +212,53 @@ export async function getOrderByNumberForUser(
 
   if (error) {
     logSupabaseError("getOrderByNumberForUser", error);
+    return null;
+  }
+  if (!data) return null;
+
+  const row = data as unknown as OrderRow & { origin_address?: OrderAddress | null };
+  return { ...toOrder(row), origin_address: row.origin_address ?? null };
+}
+
+/**
+ * Whoever is asking about an order: an account, or a guest proved by OTP.
+ * Built from the session only — never from a value a client or a model sent.
+ */
+export type OrderOwner =
+  | { kind: "account"; userId: string }
+  | { kind: "guest"; guestRef: string };
+
+/**
+ * One order, by its BOM number or its AWB, scoped to whoever is asking.
+ *
+ * The same boundary as `getOrderByNumberForUser`, extended to guests: the
+ * owner is in the WHERE clause, because the service-role key bypasses RLS. A
+ * guest only matches orders still unclaimed (`user_id IS NULL`) — once an
+ * account has claimed the order, it answers to that account alone.
+ *
+ * A miss, someone else's order and a DB error all return null. The caller
+ * cannot tell them apart, by design.
+ */
+export async function findOrderForOwner(
+  key: { orderNo: string } | { awb: string },
+  owner: OrderOwner
+): Promise<OrderWithAddress | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  let query = client.from("orders").select(`${ORDER_COLUMNS}, ${ORIGIN_ADDRESS_EMBED}`);
+  query = "orderNo" in key ? query.eq("order_no", key.orderNo) : query.eq("awb_no", key.awb);
+  query =
+    owner.kind === "account"
+      ? query.eq("user_id", owner.userId)
+      : query.eq("guest_ref", owner.guestRef).is("user_id", null);
+
+  // `limit(1)` rather than trusting uniqueness: `awb_no` carries no unique
+  // constraint, and a duplicate must not turn into an error the customer sees.
+  const { data, error } = await query.limit(1).maybeSingle();
+
+  if (error) {
+    logSupabaseError("findOrderForOwner", error);
     return null;
   }
   if (!data) return null;
@@ -744,6 +781,9 @@ export async function claimGuestOrdersForUser(
     ["addresses", "addresses"],
     ["payments", "payments"],
     ["notifications", "notifications"],
+    // BIA conversations (support_sessions_guest_ref.sql): the chat a guest had
+    // is the chat the account opens with.
+    ["support_sessions", "support_sessions"],
   ] as const) {
     const { error: err } = await client
       .from(table)

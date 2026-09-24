@@ -1,0 +1,15 @@
+# One line ending in the repository, whatever the checkout looks like.
+# Without this the tree carries a mix: server/routes/ops.ts was LF while the
+# file beside it was CRLF, and a whitespace-only diff hid the real change.
+* text=auto eol=lf
+
+# Binary, never touched.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.svg text
+*.pdf binary
+*.ico binary
+*.woff binary
+*.woff2 binary

@@ -1,4 +1,5 @@
 import React, { Suspense, lazy, useEffect, useState } from 'react';
+import { formatIstDate } from '@/lib/orderDetail';
 import { createPortal } from 'react-dom';
 import {
   ShieldCheck,
@@ -41,17 +42,6 @@ function formatFileSize(bytes: number | undefined): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatUploadedAt(iso: string | undefined): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('en-IN', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
 }
 
 function blobToBase64(blob: Blob): Promise<string> {
@@ -316,7 +306,7 @@ export function KycOnFileCard({
         <DetailRow label="File" value={kyc.original_filename || '—'} />
         <DetailRow
           label="Uploaded"
-          value={`${formatUploadedAt(kyc.updated_at)} · ${formatFileSize(kyc.file_size_bytes)}`}
+          value={`${formatIstDate(kyc.updated_at)} · ${formatFileSize(kyc.file_size_bytes)}`}
         />
       </div>
 

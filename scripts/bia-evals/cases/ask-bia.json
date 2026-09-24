@@ -1,0 +1,45 @@
+[
+  {
+    "id": "ask-01-booking-error-from-the-form",
+    "module": "booking",
+    "identity": "account",
+    "screen": { "surface": "create", "step": "payment", "errorCode": "PAY_AT_PICKUP_NEEDS_PICKUP" },
+    "turns": ["I got this error: \"Pay at pickup needs a doorstep pickup\". What do I do?"],
+    "expect": {
+      "toolsNot": ["get_order_status", "list_my_orders"],
+      "contains": ["re:doorstep|pickup", "re:switch|another (way|payment)|other (way|payment)|different (way|payment)"]
+    }
+  },
+  {
+    "id": "ask-02-kyc-required-from-the-form",
+    "module": "booking",
+    "identity": "guest",
+    "screen": { "surface": "create", "step": "payment", "errorCode": "KYC_REQUIRED" },
+    "turns": ["I got this error: \"Add your identity document first\". What do I do?"],
+    "expect": {
+      "contains": ["re:identity document|ID document|Aadhaar|PAN"],
+      "notContains": ["re:bypass|unverified|in review"]
+    }
+  },
+  {
+    "id": "ask-03-document-mismatch-at-signup",
+    "module": "documents",
+    "identity": "anon",
+    "screen": { "surface": "signup", "step": "documents", "errorCode": "OCR_MISMATCH" },
+    "turns": ["I got this error: \"The number on the document doesn't match\". What do I do?"],
+    "expect": {
+      "toolsNot": ["get_order_status", "list_my_orders"],
+      "contains": ["re:number", "re:re-?type|reset|re-?enter|correct|right (card|document)|upload"]
+    }
+  },
+  {
+    "id": "ask-04-uncatalogued-message",
+    "module": "booking",
+    "identity": "anon",
+    "screen": { "surface": "create", "step": "package" },
+    "turns": ["I got this message: \"Please select a product type\". What do I do?"],
+    "expect": {
+      "contains": ["re:product type|documents|package|DOX|SPX"]
+    }
+  }
+]

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { isIndianMobile } from '@shared/contact';
 import { User, Mail, Phone, Building2, Loader2, ShieldCheck, UserRound, MapPin, ArrowRight } from 'lucide-react';
 import { useLocation, Link } from 'wouter';
 import { Button } from '@/components/ui/button';
@@ -16,9 +17,15 @@ import { AccountDocuments } from '@/components/AccountDocuments';
 import { ContractSignature } from '@/components/ContractSignature';
 import { AuthShell } from '@/components/auth/AuthShell';
 import { useAppStore, type AuthUser } from '@/lib/store';
-import { useGuestProfile } from '@/hooks/useGuestProfile';
+import { invalidateGuestProfile, useGuestProfile } from '@/hooks/useGuestProfile';
+import { useQueryClient } from '@tanstack/react-query';
+import type { CustomerApplicationView } from '@shared/applicationStatus';
 import { apiRequest } from '@/lib/queryClient';
 import { parseApiErrorCode, parseApiErrorMessage } from '@/lib/apiError';
+import { AskBiaLink } from '@/components/bia/AskBiaLink';
+import { AskBiaTopButton } from '@/components/bia/AskBiaTopButton';
+import { usePublishBiaScreen } from '@/lib/biaStore';
+import type { BiaScreen } from '@shared/biaScreen';
 import { usePincodeLookup } from '@/hooks/usePincodeLookup';
 import { validateGstin } from '@shared/gstin';
 import { INDIA_HUBS } from '@shared/hubs';
@@ -28,6 +35,7 @@ import {
   COMPANY_CATEGORY_SPECS,
   DOC_SLOT_SPECS,
   EXTRA_FIELD_SPECS,
+  isCompanyCategory,
   requiredExtraFields,
   type CompanyCategory,
   type DocSlot,
@@ -85,8 +93,17 @@ export default function Signup() {
    *
    * Still a toggle: the param sets the starting position, it does not lock it.
    */
+  /**
+   * `?category=` names the company category as well — BIA's "which account do
+   * I need?" answer lands here with it (shared/accountMatch.ts). An unknown
+   * value is ignored and the form starts on Corporate as usual.
+   */
+  const initialCategoryParam = new URLSearchParams(window.location.search).get('category');
+  const initialCategory: CompanyCategory | null = isCompanyCategory(initialCategoryParam)
+    ? initialCategoryParam
+    : null;
   const initialAccountType: AccountType =
-    new URLSearchParams(window.location.search).get('type') === 'company'
+    new URLSearchParams(window.location.search).get('type') === 'company' || initialCategory
       ? 'company'
       : 'personal';
   const [accountType, setAccountType] = useState<AccountType>(initialAccountType);
@@ -98,10 +115,8 @@ export default function Signup() {
    * again on the next screen would be asking twice. Everyone else starts on
    * the choice.
    */
-  const typePreselected = new URLSearchParams(window.location.search).has('type');
-  const [step, setStep] = useState<Step>(
-    new URLSearchParams(window.location.search).has('type') ? 'details' : 'account_type'
-  );
+  const typePreselected = new URLSearchParams(window.location.search).has('type') || initialCategory !== null;
+  const [step, setStep] = useState<Step>(typePreselected ? 'details' : 'account_type');
   const [isLoading, setIsLoading] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -110,7 +125,7 @@ export default function Signup() {
   const [fullName, setFullName] = useState('');
 
   // Company
-  const [category, setCategory] = useState<CompanyCategory>('corporate');
+  const [category, setCategory] = useState<CompanyCategory>(initialCategory ?? 'corporate');
   const [companyName, setCompanyName] = useState('');
   const [gstin, setGstin] = useState('');
   const [contactPerson, setContactPerson] = useState('');
@@ -131,6 +146,28 @@ export default function Signup() {
 
   // Both paths
   const [email, setEmail] = useState('');
+
+  /**
+   * Account review: finishing signup files an application for the Bombino
+   * team rather than opening the account. Asked once, so the last button and
+   * the copy around it say what will actually happen. The server decides
+   * either way — an old answer here only mislabels a button.
+   */
+  const queryClient = useQueryClient();
+  const [reviewEnabled, setReviewEnabled] = useState(false);
+  const [submittedApplication, setSubmittedApplication] = useState<CustomerApplicationView | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/signup/application', { credentials: 'include', cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { enabled?: boolean } | null) => {
+        if (!cancelled && body?.enabled) setReviewEnabled(true);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /**
    * What the guest already told us, carried into the account they are opening.
@@ -217,6 +254,15 @@ export default function Signup() {
 
   const categorySpec = COMPANY_CATEGORY_SPECS[category];
   const activeExtras = accountType === 'company' ? requiredExtraFields(category) : [];
+
+  // Where BIA should think they are: the step, and — once chosen — the
+  // account being opened, so "what's left?" is answered for the right list.
+  const biaScreen: Omit<BiaScreen, 'errorCode'> = {
+    surface: 'signup',
+    step,
+    ...(step !== 'account_type' ? { account: accountType === 'personal' ? 'personal' : category } : {}),
+  };
+  usePublishBiaScreen(biaScreen);
   /** The name this account is for: the individual's on a personal account,
    *  the company's on a corporate one. Only the GSTIN check reads it — the
    *  server refuses to open a company account under a name the GSTIN was not
@@ -245,6 +291,16 @@ export default function Signup() {
    * a fresh entry, and the customer can never actually go back.
    */
   const poppingBack = useRef(false);
+  // The last error a signup call returned, with its code, so "Ask BIA" can
+  // say which error it was. Used only while its message is the one shown.
+  const lastApiErrorRef = useRef<{ message: string; code: string | null } | null>(null);
+  const rememberApiError = (err: unknown, fallback: string): string => {
+    const message = parseApiErrorMessage(err, fallback);
+    lastApiErrorRef.current = { message, code: parseApiErrorCode(err) };
+    return message;
+  };
+  const codeFor = (message: string | undefined): string | null =>
+    message && lastApiErrorRef.current?.message === message ? lastApiErrorRef.current.code : null;
   const historySeeded = useRef(false);
 
   useEffect(() => {
@@ -329,7 +385,7 @@ export default function Signup() {
       setCooldown(RESEND_COOLDOWN_SECONDS);
       // Redundant with the OTP step subtitle; see Login.tsx.
     } catch (err) {
-      setErrors({ form: parseApiErrorMessage(err, 'Could not send OTP') });
+      setErrors({ form: rememberApiError(err, 'Could not send OTP') });
     } finally {
       setIsLoading(false);
     }
@@ -337,7 +393,7 @@ export default function Signup() {
 
   const validateDetails = (): boolean => {
     const nextErrors: Record<string, string> = {};
-    if (!/^\d{10}$/.test(phone.trim())) nextErrors.phone = 'Enter a valid 10-digit phone number';
+    if (!isIndianMobile(phone.trim())) nextErrors.phone = 'Enter a valid 10-digit phone number';
     if (!EMAIL_PATTERN.test(email.trim())) nextErrors.email = 'Enter a valid email';
 
     if (accountType === 'personal') {
@@ -391,7 +447,7 @@ export default function Signup() {
       await apiRequest('POST', '/api/auth/otp/verify', { phone, purpose, code: otp });
       setStep('documents');
     } catch (err) {
-      setErrors({ otp: parseApiErrorMessage(err, 'Incorrect code') });
+      setErrors({ otp: rememberApiError(err, 'Incorrect code') });
     } finally {
       setIsLoading(false);
     }
@@ -421,7 +477,7 @@ export default function Signup() {
    */
   const handlePhoneVerificationExpired = (): void => {
     const search = new URLSearchParams({ reason: 'signup_otp' });
-    if (/^\d{10}$/.test(phone.trim())) search.set('phone', phone.trim());
+    if (isIndianMobile(phone.trim())) search.set('phone', phone.trim());
     if (redirect) search.set('redirect', redirect);
     setLocation(`/login?${search.toString()}`);
   };
@@ -480,8 +536,17 @@ export default function Signup() {
               contract_accepted: true,
               contract_signed_name: contractSignedName.trim(),
             });
-      const user = (await res.json()) as AuthUser;
-      login(user);
+      const body = (await res.json()) as
+        | AuthUser
+        | { status: 'application_submitted'; application: CustomerApplicationView };
+      // Account review: no account yet. They are a guest on this number until
+      // the Bombino team opens it, and the profile now carries the application.
+      if ('status' in body && body.status === 'application_submitted') {
+        invalidateGuestProfile(queryClient);
+        setSubmittedApplication(body.application);
+        return;
+      }
+      login(body as AuthUser);
       setLocation(redirect || '/home');
     } catch (err) {
       // The one failure that is not a detail to correct here: the OTP that
@@ -495,7 +560,7 @@ export default function Signup() {
       // here, and a failure is nearly always a detail to correct rather than
       // a missing file. `missing_documents` in the body says otherwise when
       // it is.
-      setErrors({ form: parseApiErrorMessage(err, 'Could not create account') });
+      setErrors({ form: rememberApiError(err, 'Could not create account') });
     } finally {
       setIsLoading(false);
     }
@@ -542,7 +607,9 @@ export default function Signup() {
         ? 'Verify & continue'
         : step === 'documents'
           ? 'Continue'
-          : 'Confirm & create account';
+          : reviewEnabled
+            ? 'Confirm & send to Bombino'
+            : 'Confirm & create account';
 
   const stepIndex =
     step === 'account_type'
@@ -573,9 +640,50 @@ export default function Signup() {
       // one is checked with an authority. The rest are matched against the
       // document uploaded beside them. See server/cashfreeIdentity.ts.
       'Enter each number and upload the document that carries it.'
+    ) : reviewEnabled ? (
+      'Check your details and sign the contract. The Bombino team then sets up your account.'
     ) : (
       'Check your details, then sign the contract to open the account.'
     );
+
+  // Account review: sent. They can use the app as a guest straight away.
+  if (submittedApplication) {
+    return (
+      <AuthShell
+        title="Application sent"
+        subtitle="The Bombino team is setting up your account."
+        onBack={() => setLocation('/home')}
+        testId="screen-signup-submitted"
+        headerAction={<AskBiaTopButton className="md:inline-flex" />}
+      >
+        <div className="space-y-4" data-testid="signup-application-submitted">
+          <p className="text-sm leading-relaxed text-foreground">
+            We'll email <span className="font-semibold">{email.trim()}</span> when your account is open, with your
+            login details.
+          </p>
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            In the meantime you can book shipments as a guest with +91 {phone}. They move into your account when
+            it opens.
+          </p>
+          <Button
+            onClick={() => setLocation('/create')}
+            className="h-12 w-full rounded-xl text-base font-semibold"
+            data-testid="button-submitted-book"
+          >
+            Book a shipment
+          </Button>
+          <button
+            type="button"
+            onClick={() => setLocation('/guest-profile')}
+            className="w-full text-center text-sm font-semibold text-[#2F4468] underline underline-offset-4"
+            data-testid="button-submitted-profile"
+          >
+            See my application
+          </button>
+        </div>
+      </AuthShell>
+    );
+  }
 
   const fieldLabelClass = 'text-sm font-medium text-[lab(34.0831_-9.57756_-27.7093)]';
   const fieldClass = 'pl-10 h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl';
@@ -588,6 +696,9 @@ export default function Signup() {
       step={stepIndex}
       totalSteps={TOTAL_STEPS}
       testId="screen-signup"
+      // BIA already knows the step and account (usePublishBiaScreen above).
+      // Shown at every width: signup has no sidebar, where desktop keeps BIA.
+      headerAction={<AskBiaTopButton className="md:inline-flex" />}
       beforeCard={
         // Shown from the details step onward so the answer stays visible and
         // correctable. It is no longer where the choice is MADE — that is step
@@ -995,7 +1106,12 @@ export default function Signup() {
                     </InputOTPGroup>
                   </InputOTP>
                 </div>
-                {errors.otp && <p role="alert" className="text-sm text-red-500 mt-2">{errors.otp}</p>}
+                {errors.otp && (
+                  <div className="mt-2 flex flex-col items-start gap-1">
+                    <p role="alert" className="text-sm text-red-500">{errors.otp}</p>
+                    <AskBiaLink screen={biaScreen} code={codeFor(errors.otp)} message={errors.otp} />
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={handleResendOtp}
@@ -1088,7 +1204,10 @@ export default function Signup() {
             )}
 
             {errors.form && (
-              <p role="alert" className="text-sm text-red-500">{errors.form}</p>
+              <div className="flex flex-col items-start gap-1">
+                <p role="alert" className="text-sm text-red-500">{errors.form}</p>
+                <AskBiaLink screen={biaScreen} code={codeFor(errors.form)} message={errors.form} />
+              </div>
             )}
 
             {/* No footer button on the choice step: picking a card IS the

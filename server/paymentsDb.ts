@@ -15,33 +15,20 @@
  */
 
 import { supabase } from "./supabaseClient.js";
+import { dbClient, logDbError, type DbError } from "./db/client.js";
 import { toOrder, type OrderRow } from "./ordersDb.js";
 import type { Order } from "../shared/orderContract.js";
 
 const ORDER_COLUMNS =
-  "id, order_no, user_id, status, pickup_request, pickup_date, origin_address_id, consignee, items, booked_weight, quoted_amount, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, metadata, created_at, updated_at";
+  "id, order_no, user_id, status, pickup_request, pickup_date, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, metadata, created_at, updated_at";
 
 /** Postgres unique_violation — the concurrent-writer signal, not an error. */
 const UNIQUE_VIOLATION = "23505";
 
-function logSupabaseError(
-  operation: string,
-  error: { message?: string; code?: string } | null
-): void {
-  console.error("[paymentsDb] supabase operation failed (non-fatal):", {
-    operation,
-    message: error?.message,
-    code: error?.code,
-  });
-}
+const logSupabaseError = (operation: string, error: DbError): void =>
+  logDbError("paymentsDb", operation, error);
 
-function getSupabaseClient() {
-  if (!supabase) {
-    console.error("[paymentsDb] supabase client is not configured");
-    return null;
-  }
-  return supabase;
-}
+const getSupabaseClient = () => dbClient("paymentsDb");
 
 export type GatewayPaymentRow = {
   id: string;
@@ -129,7 +116,7 @@ export async function recordGatewayPayment(
     // Already recorded — by the verify call, or by an earlier delivery of this
     // same webhook. Still reconcile the order flag, because the crash window
     // above may have left it stale.
-    const order = await markOrderPaid(input.order_id, input.amount);
+    const order = await reconcilePaymentStatus(input.order_id);
     return { payment: existing, created: false, order };
   }
 
@@ -156,7 +143,7 @@ export async function recordGatewayPayment(
     if (error.code === UNIQUE_VIOLATION) {
       const winner = await getPaymentByReference(input.reference);
       if (winner) {
-        const order = await markOrderPaid(input.order_id, input.amount);
+        const order = await reconcilePaymentStatus(input.order_id);
         return { payment: winner, created: false, order };
       }
     }
@@ -164,50 +151,121 @@ export async function recordGatewayPayment(
     return null;
   }
 
-  const order = await markOrderPaid(input.order_id, input.amount);
+  const order = await reconcilePaymentStatus(input.order_id);
   return { payment: data as GatewayPaymentRow, created: true, order };
 }
 
+/** Half a paisa: amounts are rupees with two decimals, compared with tolerance. */
+const PAISA_TOLERANCE = 0.005;
+
 /**
- * Flip the order's payment flag after money lands.
+ * What `orders.payment_status` should read, from the money actually held.
  *
- * `paid` only when the payment covers the amount we are currently asking for;
- * a short payment is `partially_paid`, which is the honest state and the one
- * M3 reconciles at settle. Note this is deliberately *not* the final word —
- * the parcel is reweighed at the hub, and a fully-paid order can go back to
- * owing money when the real weight comes in. That is M3's call, not ours.
+ * Pure, so the rules can be tested without a database:
  *
- * The `.neq` guard is there so a late webhook cannot demote an order that a
- * subsequent, larger reconciliation already marked paid.
+ *   · COD never changes here — nothing is collected by us, and it must never
+ *     block a docket.
+ *   · A cancelled order holding money owes it back: `refund_due`.
+ *   · Otherwise compare what we hold with what is due now — `final_amount`
+ *     once the hub has weighed the parcel, the booking quote before that:
+ *     nothing held → `pending`, short → `partially_paid`, more than due →
+ *     `refund_due` (Flow D, weighed lighter), covered → `paid`.
+ *   · No amount due on record → whatever was collected is taken as covering
+ *     it; an order with no quote is a data problem, not a reason to show money
+ *     as uncollected.
+ *
+ * Returns null for "leave it as it is".
  */
-async function markOrderPaid(orderId: string, amountPaid: number): Promise<Order | null> {
+export function derivePaymentStatus(input: {
+  status: string;
+  paymentMethod: string;
+  isCod: boolean;
+  due: number | null;
+  held: number;
+  current: string | null;
+}): Order["payment_status"] | null {
+  if (input.isCod || input.paymentMethod === "cod") return null;
+  if (input.status === "cancelled") return input.held > PAISA_TOLERANCE ? "refund_due" : null;
+  if (input.held <= PAISA_TOLERANCE) {
+    // A failed gateway attempt is more informative than "pending"; keep it.
+    return input.current === "failed" ? null : "pending";
+  }
+  if (input.due == null) return "paid";
+  if (input.held + PAISA_TOLERANCE < input.due) return "partially_paid";
+  if (input.held > input.due + PAISA_TOLERANCE) return "refund_due";
+  return "paid";
+}
+
+/**
+ * Recompute an order's payment flag from its payments and its amount due, and
+ * write it. The single writer of `payment_status` for every money event:
+ * a door or counter collection, a gateway payment, a reweigh at the hub, and
+ * a cancellation.
+ *
+ * It replaced per-caller flips that each looked at one number: any collection
+ * marked the order `paid` whatever the amount, and a reweigh never touched the
+ * flag, so a prepaid parcel that turned out heavier settled short and one that
+ * turned out lighter never showed a refund.
+ *
+ * Money held is the sum of `collected` payment rows, less anything refunded
+ * through the dashboard. Once a dashboard refund has been recorded the order
+ * keeps its `refund_due` flag for accounts to close by hand — recomputing it
+ * would quietly un-flag money that has already moved.
+ *
+ * Races: every caller recomputes from the rows, so whichever write lands last
+ * is also the most informed one.
+ */
+export async function reconcilePaymentStatus(orderId: string): Promise<Order | null> {
   const client = getSupabaseClient();
   if (!client) return null;
 
-  const { data: current, error: readError } = await client
+  const { data: order, error: orderError } = await client
     .from("orders")
-    .select("quoted_amount, final_amount")
+    .select("status, payment_method, is_cod, payment_status, quoted_amount, final_amount")
     .eq("id", orderId)
     .maybeSingle();
-
-  if (readError) {
-    logSupabaseError("markOrderPaid:read", readError);
+  if (orderError || !order) {
+    if (orderError) logSupabaseError("reconcilePaymentStatus:order", orderError);
     return null;
   }
 
-  const due =
-    (current?.final_amount as number | null) ?? (current?.quoted_amount as number | null) ?? null;
+  const { data: rows, error: paymentsError } = await client
+    .from("payments")
+    .select("amount, status, metadata")
+    .eq("order_id", orderId);
+  if (paymentsError) {
+    logSupabaseError("reconcilePaymentStatus:payments", paymentsError);
+    return null;
+  }
 
-  // Unknown amount due → treat the payment as covering it. An order with no
-  // quote is a data problem, not a reason to leave collected money looking
-  // uncollected.
-  const status = due == null || amountPaid + 0.005 >= due ? "paid" : "partially_paid";
+  let held = 0;
+  let refundRecorded = false;
+  for (const p of rows ?? []) {
+    const refunded = Number((p.metadata as Record<string, unknown> | null)?.amount_refunded) || 0;
+    if (refunded > 0) refundRecorded = true;
+    if (p.status === "collected") held += (Number(p.amount) || 0) - refunded;
+  }
+
+  if (refundRecorded && order.payment_status === "refund_due") return null;
+
+  const num = (v: unknown) => (v == null ? null : Number(v));
+  const next = derivePaymentStatus({
+    status: order.status as string,
+    paymentMethod: order.payment_method as string,
+    isCod: !!order.is_cod,
+    due: num(order.final_amount) ?? num(order.quoted_amount),
+    held,
+    current: (order.payment_status as string | null) ?? null,
+  });
+  if (next === null || next === order.payment_status) {
+    const { data } = await client.from("orders").select(ORDER_COLUMNS).eq("id", orderId).maybeSingle();
+    return data ? toOrder(data as unknown as OrderRow) : null;
+  }
 
   const { data, error } = await client
     .from("orders")
-    .update({ payment_status: status, updated_at: new Date().toISOString() })
+    .update({ payment_status: next, updated_at: new Date().toISOString() })
     .eq("id", orderId)
-    .neq("payment_status", "paid")
     .select(ORDER_COLUMNS)
     .maybeSingle();
 
@@ -221,6 +279,7 @@ async function markOrderPaid(orderId: string, amountPaid: number): Promise<Order
 
   return data ? toOrder(data as unknown as OrderRow) : null;
 }
+
 
 // ── Refunds ───────────────────────────────────────────────────────────────
 //

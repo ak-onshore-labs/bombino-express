@@ -1017,3 +1017,70 @@ input[type="date"] {
     animation: none;
   }
 }
+
+/* BIA's button in the top bar: a warm gradient that keeps drifting, a light
+   sweep across it and a breathing glow, so it reads as BIA on every screen. */
+.bia-top-btn {
+  background: linear-gradient(110deg, #fbad1f 0%, #f2a123 25%, #e8742a 50%, #f2a123 75%, #fbad1f 100%);
+  background-size: 200% 100%;
+  animation:
+    bia-top-shift 3s ease-in-out infinite alternate,
+    bia-top-glow 2.4s ease-in-out infinite;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+/* The sweep is one band slid across with a transform. It used to be a
+   repeating background moved by background-position: the next tile's band
+   parked, still, in the button's left quarter for the pause between sweeps,
+   then jumped when the loop restarted. A transform also runs off the main
+   thread, so it stays smooth while the page is busy. */
+.bia-top-btn::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 60%;
+  background: linear-gradient(100deg, transparent 0%, rgba(255, 255, 255, 0.5) 50%, transparent 100%);
+  transform: translateX(-100%);
+  animation: bia-top-sweep 2.8s cubic-bezier(0.45, 0, 0.25, 1) infinite;
+  will-change: transform;
+  z-index: 0;
+  pointer-events: none;
+}
+
+@keyframes bia-top-shift {
+  from { background-position: 0% 50%; }
+  to { background-position: 100% 50%; }
+}
+
+@keyframes bia-top-glow {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7), 0 2px 8px rgba(242, 161, 35, 0.35); }
+  50% { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7), 0 2px 16px rgba(242, 161, 35, 0.65); }
+}
+
+/* -100% to 170% of the band's own width: from wholly off the left edge to
+   wholly off the right one, then off-screen for the rest of the loop. */
+@keyframes bia-top-sweep {
+  0% { transform: translateX(-100%); }
+  55%, 100% { transform: translateX(170%); }
+}
+
+/* A question BIA put in the typing box for the customer to send. */
+.bia-send-ready {
+  animation: bia-send-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes bia-send-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(251, 173, 31, 0.55), 0 0 20px rgba(251, 173, 31, 0.35); }
+  50% { box-shadow: 0 0 0 6px rgba(251, 173, 31, 0), 0 0 28px rgba(251, 173, 31, 0.6); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bia-top-btn,
+  .bia-top-btn::before,
+  .bia-send-ready {
+    animation: none;
+  }
+}

@@ -1,4 +1,7 @@
 import { useState } from 'react';
+import { OpsAccessRequired } from '@/components/ops/OpsAccessRequired';
+import { isForbiddenError } from '@/lib/apiError';
+import { isIndianMobile } from '@shared/contact';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { Loader2 } from 'lucide-react';
@@ -96,7 +99,7 @@ export default function OpsUsers() {
       setFormError('Full name is required');
       return;
     }
-    if (!/^\d{10}$/.test(phone)) {
+    if (!isIndianMobile(phone)) {
       setFormError('Enter a valid 10-digit phone number');
       return;
     }
@@ -225,8 +228,11 @@ export default function OpsUsers() {
             <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
           </div>
         )}
-        {list.isError && (
-          <p className="text-sm text-red-600 py-6 text-center">Could not load users. Try refreshing.</p>
+        {list.isError && isForbiddenError(list.error) && <OpsAccessRequired what="staff accounts" />}
+        {list.isError && !isForbiddenError(list.error) && (
+          <p className="text-sm text-red-600 py-6 text-center" data-testid="ops-users-error">
+            Could not load users. Try refreshing.
+          </p>
         )}
         {!list.isLoading && !list.isError && (list.data?.length ?? 0) === 0 && (
           <p className="text-sm text-muted-foreground py-8 text-center">No staff yet.</p>

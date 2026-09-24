@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { signOutAndRedirect } from '@/lib/session';
 import { Loader2, LogOut } from 'lucide-react';
 import { useLocation } from 'wouter';
 import {
@@ -34,7 +35,6 @@ import {
 } from '@/lib/orderDetail';
 import { getOrderStatusLabel } from '@/lib/orderStatus';
 import { OPS_PHASES, groupOrdersByPhase } from '@/lib/opsPhases';
-import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
 const STAGE_PHASES = OPS_PHASES.filter(
@@ -133,7 +133,6 @@ export function OpsSectionBoard({
 }) {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
-  const { logout } = useAppStore();
   const {
     data: orders,
     isLoading: cappedLoading,
@@ -149,15 +148,7 @@ export function OpsSectionBoard({
     error instanceof Error &&
     error.message.startsWith('403:');
 
-  const handleLogout = async (): Promise<void> => {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
-    } catch {
-      // ignore
-    }
-    logout();
-    setLocation('/login');
-  };
+  const handleLogout = (): Promise<void> => signOutAndRedirect(setLocation);
 
   const sectionOrders = useMemo(
     () => (orders ?? []).filter((order) => matchesOpsSection(order, section)),

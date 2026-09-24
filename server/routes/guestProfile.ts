@@ -22,6 +22,8 @@
  */
 
 import type { Express, Request, Response } from "express";
+import { asyncRoutes } from "../routeGuards.js";
+import { OWNER_PROFILES, ownerFrom } from "../sessionOwner.js";
 import { z } from "zod";
 import {
   COMPANY_CATEGORIES,
@@ -35,6 +37,9 @@ import {
 import { listDocumentsBySignupRef } from "../accountDocsDb.js";
 import { seedSignupDocumentFromGuestKyc } from "../guestKycMirror.js";
 import { INDIA_HUBS } from "../../shared/hubs.js";
+import { getLatestApplicationByPhone, toCustomerView } from "../accountApplicationsDb.js";
+import { isAccountReviewEnabled } from "../accountApplications.js";
+import type { CustomerApplicationView } from "../../shared/applicationStatus.js";
 import {
   getGuestKycSummary,
   getGuestProfile,
@@ -45,13 +50,10 @@ import {
 
 /** The guest this session is, or null. */
 function guestFrom(req: Request): { ref: string; phone: string } | null {
-  if (req.session.guestRef && req.session.guestPhone) {
-    return { ref: req.session.guestRef, phone: req.session.guestPhone };
-  }
-  if (req.session.signupRef && req.session.signupPhone) {
-    return { ref: req.session.signupRef, phone: req.session.signupPhone };
-  }
-  return null;
+  const owner = ownerFrom(req, OWNER_PROFILES.guestProfile);
+  // The profile asks for a phone, so a guest resolved here always has one.
+  if (!owner || owner.kind !== "guest" || !owner.phone) return null;
+  return { ref: owner.guestRef, phone: owner.phone };
 }
 
 /**
@@ -103,6 +105,11 @@ type GuestProfileResponse = {
   };
   kyc: { status: "verified" | "in_review"; summary: string } | null;
   orders: Awaited<ReturnType<typeof listGuestOrders>>;
+  /**
+   * The account application on this number, open or the last decided one
+   * (account review, server/accountApplications.ts). Null when there is none.
+   */
+  application: CustomerApplicationView | null;
 };
 
 async function buildProfile(guest: { ref: string; phone: string }): Promise<GuestProfileResponse> {
@@ -110,11 +117,14 @@ async function buildProfile(guest: { ref: string; phone: string }): Promise<Gues
   // matrix — see server/guestKycMirror.ts.
   await seedSignupDocumentFromGuestKyc(guest.ref);
 
-  const [profile, kyc, orders, staged] = await Promise.all([
+  const [profile, kyc, orders, staged, application] = await Promise.all([
     getGuestProfile(guest.ref),
     getGuestKycSummary(guest.ref),
     listGuestOrders(guest.ref),
     listDocumentsBySignupRef(guest.ref),
+    // Only asked with review on: before its migration has run the table does
+    // not exist, and every guest screen would log the failure.
+    isAccountReviewEnabled() ? getLatestApplicationByPhone(guest.phone) : Promise.resolve(null),
   ]);
 
   // The stored profile wins, then whatever the newest booking declared. A
@@ -169,6 +179,7 @@ async function buildProfile(guest: { ref: string; phone: string }): Promise<Gues
         }
       : null,
     orders,
+    application: application ? toCustomerView(application) : null,
   };
 }
 
@@ -237,11 +248,13 @@ const patchSchema = z
   });
 
 export function registerGuestProfileRoutes(app: Express): void {
+  // Rejections reach the error middleware instead of hanging the request.
+  const routes = asyncRoutes(app);
   // ── GET /api/guest/profile ──────────────────────────────────────────────
   //
   // Everything this guest is: the verified number, the details they have
   // given, the identity document on file, and their bookings.
-  app.get("/api/guest/profile", async (req: Request, res: Response) => {
+  routes.get("/api/guest/profile", async (req: Request, res: Response) => {
     // An account is not a guest. Answering this for a signed-in customer would
     // hand them a second, emptier identity beside their real one.
     if (req.session.user) {
@@ -269,7 +282,7 @@ export function registerGuestProfileRoutes(app: Express): void {
   // The two fields a guest may give us after the fact. Not the phone: that is
   // what identifies them, and changing it means proving a new one through the
   // OTP flow, which mints a different ref by design.
-  app.patch("/api/guest/profile", async (req: Request, res: Response) => {
+  routes.patch("/api/guest/profile", async (req: Request, res: Response) => {
     if (req.session.user) {
       res.status(409).json({
         message: "This session is signed in. Use /api/user/profile.",

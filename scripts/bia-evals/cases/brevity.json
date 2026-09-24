@@ -1,0 +1,24 @@
+[
+  {
+    "id": "brief-01-one-order-in-a-few-sentences",
+    "module": "orders",
+    "identity": "account",
+    "turns": ["Where is BOM-100109?"],
+    "expect": {
+      "tools": ["get_order_status"],
+      "maxChars": 520,
+      "notContains": ["re:\\n\\s*- (Last update|Payment|Estimated|How it reaches|To|Tracking)"]
+    }
+  },
+  {
+    "id": "brief-02-guest-order-in-a-few-sentences",
+    "module": "orders",
+    "identity": "guest",
+    "turns": ["What's happening with my order BOM-100136?"],
+    "expect": {
+      "tools": ["get_order_status"],
+      "maxChars": 520,
+      "notContains": ["re:\\n\\s*- (Last update|Payment|Estimated|How it reaches|To|Tracking)"]
+    }
+  }
+]

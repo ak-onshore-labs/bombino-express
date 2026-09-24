@@ -1,8 +1,10 @@
 ﻿import { useLocation } from 'wouter';
-import { ArrowLeft, Bell, AlertTriangle, Info, LogIn } from 'lucide-react';
+import { ArrowLeft, Bell, AlertTriangle, Info, LogIn, Sparkles } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
 import { useAppStore } from '@/lib/store';
 import { useGuestProfile } from '@/hooks/useGuestProfile';
+import { openBia } from '@/lib/biaStore';
+import { notificationLink, seedFor } from '@/lib/notificationLink';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
@@ -10,13 +12,6 @@ import {
   useNotifications,
   type CustomerNotification as ApiNotification,
 } from '@/hooks/useCustomerOrders';
-
-function parseNotifData(raw: unknown): { awb?: string } {
-  if (!raw || typeof raw !== 'object') return {};
-  const d = raw as Record<string, unknown>;
-  const awb = d.awb;
-  return typeof awb === 'string' ? { awb } : {};
-}
 
 export default function Notifications() {
   const [, setLocation] = useLocation();
@@ -44,10 +39,14 @@ export default function Notifications() {
    * optimistic, so the dot clears either way and rolls back if the write fails.
    */
   const handleNotificationClick = (n: ApiNotification) => {
-    const parsed = parseNotifData(n.data);
+    const link = notificationLink(n.data);
     if (!n.is_read) markRead.mutate(n.id);
-    if (parsed.awb) {
-      setLocation(`/shipment/${encodeURIComponent(parsed.awb)}`);
+    const seed = seedFor(link);
+    if (link?.kind === 'shipment') {
+      setLocation(`/shipment/${encodeURIComponent(link.awb)}`);
+    } else if (seed) {
+      // Something BIA nudged about: BIA opens on it.
+      openBia({ screen: { surface: 'help' }, seed });
     }
   };
 
@@ -118,7 +117,9 @@ export default function Notifications() {
                 notif.type === 'customs_hold' ||
                 (notif.title ?? '').toLowerCase().includes('hold');
               const isShipmentCreated = notif.type === 'shipment_created';
-              const data = parseNotifData(notif.data);
+              const link = notificationLink(notif.data);
+              // BIA speaking first (5.1): marked as BIA's, and it opens BIA.
+              const isNudge = link?.kind === 'nudge';
               return (
                 <button
                   key={notif.id}
@@ -135,14 +136,18 @@ export default function Notifications() {
                   <div
                     className={cn(
                       'w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0',
-                      isWarn && !isShipmentCreated
+                      isNudge
+                        ? 'bg-[#FDF3E1] text-[#F2A123]'
+                        : isWarn && !isShipmentCreated
                         ? 'bg-amber-50 text-amber-600'
                         : isShipmentCreated
                           ? 'bg-[lab(34.0831_-9.57756_-27.7093)]/8 text-[lab(34.0831_-9.57756_-27.7093)]'
                           : 'bg-[#F3F4F6] text-[#2F4468]'
                     )}
                   >
-                    {isWarn && !isShipmentCreated ? (
+                    {isNudge ? (
+                      <Sparkles className="w-5 h-5" />
+                    ) : isWarn && !isShipmentCreated ? (
                       <AlertTriangle className="w-5 h-5" />
                     ) : (
                       <Info className="w-5 h-5" />
@@ -167,9 +172,14 @@ export default function Notifications() {
                       <p className="text-[10px] text-muted-foreground tabular-nums">
                         {formatTime(notif.created_at)}
                       </p>
-                      {data.awb && (
+                      {link?.kind === 'shipment' && (
                         <span className="text-[10px] font-mono font-semibold text-[#2F4468] bg-[#2F4468]/8 px-2 py-0.5 rounded-full">
-                          {data.awb}
+                          {link.awb}
+                        </span>
+                      )}
+                      {isNudge && (
+                        <span className="text-[10px] font-semibold text-[#2F4468] bg-[#2F4468]/8 px-2 py-0.5 rounded-full" data-testid="badge-open-in-bia">
+                          Ask BIA
                         </span>
                       )}
                     </div>

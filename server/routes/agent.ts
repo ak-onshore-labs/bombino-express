@@ -25,6 +25,7 @@ import {
 } from "../agentDb.js";
 import { availableActions } from "../orderLifecycle.js";
 import {
+  asyncRoutes,
   ensureDbUser,
   requireActiveAgent,
   requireRole,
@@ -43,8 +44,10 @@ function withActions(orders: AgentPickup[], agentId: string) {
 }
 
 export function registerAgentRoutes(app: Express): void {
+  // Rejections reach the error middleware instead of hanging the request.
+  const routes = asyncRoutes(app);
   // GET /api/agent/pickups/available — unclaimed jobs, oldest first
-  app.get(
+  routes.get(
     "/api/agent/pickups/available",
     requireUser,
     requireRole("agent"),
@@ -68,7 +71,7 @@ export function registerAgentRoutes(app: Express): void {
   );
 
   // GET /api/agent/pickups/mine — the caller's own live jobs
-  app.get(
+  routes.get(
     "/api/agent/pickups/mine",
     requireUser,
     requireRole("agent"),
@@ -110,7 +113,7 @@ export function registerAgentRoutes(app: Express): void {
   // An empty list is a real answer and not an error: a rider ops have not put
   // on a beat yet still works, still sees every unclaimed job, and is still
   // notified about all of them. The profile screen says so in as many words.
-  app.get(
+  routes.get(
     "/api/agent/beats",
     requireUser,
     requireRole("agent"),
@@ -136,7 +139,7 @@ export function registerAgentRoutes(app: Express): void {
   // GET /api/agent/collections — money this agent has taken today (IST),
   // so they can reconcile their pouch against the transaction ids at the end
   // of a shift.
-  app.get(
+  routes.get(
     "/api/agent/collections",
     requireUser,
     requireRole("agent"),

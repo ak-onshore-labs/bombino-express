@@ -1,0 +1,109 @@
+[
+  {
+    "id": "rest-01-power-bank-to-us-no-list",
+    "module": "booking",
+    "requires": [
+      "booking"
+    ],
+    "identity": "account",
+    "screen": {
+      "surface": "help"
+    },
+    "turns": [
+      "Can I send a power bank to the US?"
+    ],
+    "expect": {
+      "tools": [
+        "can_i_ship"
+      ],
+      "contains": [
+        "re:(our|the) team|check with|confirm"
+      ],
+      "notContains": [
+        "re:(yes|no),? you can|(?<!(whether|if) )you can (send|ship)|you can.t (send|ship)|(is|are) (prohibited|banned|not allowed)|not accepted"
+      ],
+      "buttons": [
+        "TAP_CONTACT_US"
+      ]
+    }
+  },
+  {
+    "id": "rest-02-destination-from-the-form",
+    "module": "booking",
+    "requires": [
+      "booking"
+    ],
+    "identity": "guest",
+    "screen": {
+      "surface": "create",
+      "step": "invoice",
+      "destination": "AE",
+      "productType": "SPX"
+    },
+    "turns": [
+      "Can I put dry fruits and some sweets in this parcel?"
+    ],
+    "expect": {
+      "tools": [
+        "can_i_ship"
+      ],
+      "contains": [
+        "re:(our|the) team|check with|confirm"
+      ],
+      "buttons": [
+        "TAP_CONTACT_US"
+      ]
+    }
+  },
+  {
+    "id": "rest-03-medicines-to-canada-signed-out",
+    "module": "booking",
+    "requires": [
+      "booking"
+    ],
+    "identity": "anon",
+    "screen": {
+      "surface": "help"
+    },
+    "turns": [
+      "Is it okay to ship my mother's medicines to Canada?"
+    ],
+    "expect": {
+      "tools": [
+        "can_i_ship"
+      ],
+      "contains": [
+        "re:(our|the) team|check with|confirm"
+      ],
+      "notContains": [
+        "re:prescription|3 months|personal supply",
+        "re:(yes|no),? you can|(?<!(whether|if) )you can (send|ship)|you can.t (send|ship)|(is|are) (prohibited|banned|not allowed)|not accepted"
+      ],
+      "buttons": [
+        "TAP_CONTACT_US"
+      ]
+    }
+  },
+  {
+    "id": "rest-04-asks-where-it-is-going",
+    "module": "booking",
+    "requires": [
+      "booking"
+    ],
+    "identity": "account",
+    "screen": {
+      "surface": "help"
+    },
+    "turns": [
+      "Can I send perfume?"
+    ],
+    "expect": {
+      "contains": [
+        "re:which country|where (are you|is it|it.s) (sending|going)|destination"
+      ],
+      "notContains": [
+        "re:(yes|no),? you can|(?<!(whether|if) )you can (send|ship)|you can.t (send|ship)|(is|are) (prohibited|banned|not allowed)|not accepted"
+      ]
+    }
+  }
+]

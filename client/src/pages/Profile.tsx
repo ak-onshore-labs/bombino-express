@@ -11,6 +11,8 @@ import {
   Calendar,
 } from 'lucide-react';
 import { useLocation } from 'wouter';
+import { useRefreshUserProfile, useUserProfile } from '@/hooks/useUserProfile';
+import { isIndianMobile } from '@shared/contact';
 import { useAppStore } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import {
@@ -47,6 +49,7 @@ import { KycOnFileCard } from '@/components/KycOnFileCard';
 import { useKycOnFile } from '@/hooks/useKycOnFile';
 import { useSupportContacts } from '@/hooks/useSupportContacts';
 import { AccountDocuments } from '@/components/AccountDocuments';
+import { NudgePrefs } from '@/components/bia/NudgePrefs';
 import {
   publishVerificationState,
   useVerificationState,
@@ -54,6 +57,7 @@ import {
 } from '@/hooks/useVerificationState';
 import { useQueryClient } from '@tanstack/react-query';
 import type { CompanyCategory, DocSlot } from '@shared/accountSpec';
+import { AskBiaTopButton } from '@/components/bia/AskBiaTopButton';
 
 function formatMemberSince(iso: string | undefined | null): string | null {
   if (!iso) return null;
@@ -67,7 +71,8 @@ export default function Profile() {
   const { isLoggedIn, user, login } = useAppStore();
   const { toast } = useToast();
   const { waHref, telHref, officeLabel } = useSupportContacts();
-  const [profile, setProfile] = useState<any>(null);
+  const { data: profile } = useUserProfile(isLoggedIn);
+  const refreshProfile = useRefreshUserProfile();
   const [signOutOpen, setSignOutOpen] = useState(false);
   const [unlinkOpen, setUnlinkOpen] = useState(false);
   const [isUnlinking, setIsUnlinking] = useState(false);
@@ -97,24 +102,6 @@ export default function Profile() {
   const { data: verification } = useVerificationState({ enabled: isLoggedIn });
   const [, setOutstandingDocs] = useState<DocSlot[]>([]);
 
-  useEffect(() => {
-    if (!isLoggedIn) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch('/api/user/profile', { credentials: 'include' });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!cancelled) setProfile(data);
-      } catch {
-        // silent fallback to Zustand
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isLoggedIn]);
-
   if (!isLoggedIn) {
     return (
       <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-profile-login-required">
@@ -127,6 +114,7 @@ export default function Profile() {
               <ArrowLeft className="w-5 h-5" />
             </button>
             <h1 className="ml-2 font-semibold text-sm">Profile</h1>
+            <AskBiaTopButton withLabel className="ml-auto" />
           </div>
         </header>
 
@@ -168,7 +156,7 @@ export default function Profile() {
     setIsUnlinking(true);
     try {
       await apiRequest('POST', '/api/user/phone/unlink', {});
-      setProfile((prev: any) => (prev ? { ...prev, phone: null } : prev));
+      void refreshProfile();
       setUnlinkOpen(false);
       toast({
         title: 'Mobile number unlinked',
@@ -198,7 +186,7 @@ export default function Profile() {
   };
 
   const handleSendChangeOtp = async () => {
-    if (!/^\d{10}$/.test(newPhone.trim())) {
+    if (!isIndianMobile(newPhone.trim())) {
       setChangeError('Enter a valid 10-digit phone number');
       return;
     }
@@ -245,7 +233,7 @@ export default function Profile() {
         phone: newPhone.trim(),
         ...(requiresPassword ? { password: changePassword } : {}),
       });
-      setProfile((prev: any) => (prev ? { ...prev, phone: newPhone.trim() } : prev));
+      void refreshProfile();
       setChangeOpen(false);
       toast({
         title: 'Mobile number updated',
@@ -278,7 +266,7 @@ export default function Profile() {
     setUsernameError('');
     try {
       await apiRequest('PATCH', '/api/user/profile', { username: next });
-      setProfile((prev: any) => (prev ? { ...prev, username: next } : prev));
+      void refreshProfile();
       // The store feeds the header and anything else reading the session user,
       // so it has to move with the profile response.
       if (user) login({ ...user, username: next });
@@ -303,6 +291,7 @@ export default function Profile() {
             <ArrowLeft className="w-5 h-5" />
           </button>
           <h1 className="ml-2 font-semibold text-sm">My Profile</h1>
+          <AskBiaTopButton withLabel className="ml-auto" />
         </div>
       </header>
 
@@ -416,7 +405,7 @@ export default function Profile() {
             {verification && !verification.verified && (
               <div
                 id="documents"
-                className="bg-white rounded-2xl border border-amber-200 p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)] space-y-3"
+                className="scroll-mt-20 bg-white rounded-2xl border border-amber-200 p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)] space-y-3"
                 data-testid="profile-documents-section"
               >
                 <div>
@@ -479,6 +468,9 @@ export default function Profile() {
                 <KycUpload />
               </div>
             )}
+
+            {/* BIA's reminders, each one switchable (BIA 3.0, 5.1). */}
+            <NudgePrefs />
 
             {/* Support card */}
             <div className="bg-white rounded-2xl border border-border divide-y divide-[#E2E8F0] shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">

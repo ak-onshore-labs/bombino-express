@@ -1,0 +1,69 @@
+[
+  {
+    "id": "hsn-01-turmeric-powder",
+    "module": "booking",
+    "requires": ["booking"],
+    "identity": "account",
+    "screen": { "surface": "create", "step": "package", "destination": "US" },
+    "turns": ["Which HS code fits \"turmeric powder\"?"],
+    "expect": {
+      "tools": ["suggest_hsn"],
+      "cards": ["hsn"],
+      "contains": ["09103030"],
+      "notContains": ["re:I('ve| have) (filled|entered|added|set)|I.ll (fill|enter|add|set) (it|that|the)"]
+    }
+  },
+  {
+    "id": "hsn-02-cotton-kurta",
+    "module": "booking",
+    "requires": ["booking"],
+    "identity": "guest",
+    "screen": { "surface": "create", "step": "package", "destination": "GB" },
+    "turns": ["What HS code should I use for a cotton kurta?"],
+    "expect": {
+      "tools": ["suggest_hsn"],
+      "cards": ["hsn"],
+      "contains": ["re:kurta", "re:Shipment Content|package step|choose|pick|select"]
+    }
+  },
+  {
+    "id": "hsn-03-brass-idol",
+    "module": "booking",
+    "requires": ["booking"],
+    "identity": "account",
+    "screen": { "surface": "help" },
+    "turns": ["I'm sending a small brass idol of Ganesha. What do I put for the HS code?"],
+    "expect": {
+      "tools": ["suggest_hsn"],
+      "cards": ["hsn"],
+      "contains": ["re:idol|brass|artifact"]
+    }
+  },
+  {
+    "id": "hsn-04-nothing-fits",
+    "module": "booking",
+    "requires": ["booking"],
+    "identity": "account",
+    "screen": { "surface": "create", "step": "package", "destination": "US" },
+    "turns": ["What's the HS code for a live parrot?"],
+    "expect": {
+      "tools": ["suggest_hsn"],
+      "contains": ["re:(our|the) team"],
+      "notContains": ["re:\\b[0-9]{8}\\b"],
+      "buttons": ["TAP_CONTACT_US"],
+      "noCards": true
+    }
+  },
+  {
+    "id": "hsn-05-csb-v-wants-ten-digits",
+    "module": "booking",
+    "requires": ["booking"],
+    "identity": "account",
+    "screen": { "surface": "create", "step": "invoice", "destination": "US", "productType": "CSB V" },
+    "turns": ["Which HS code fits \"books\"?"],
+    "expect": {
+      "tools": ["suggest_hsn"],
+      "contains": ["49019100", "re:10.digit|ten.digit|10 digits"]
+    }
+  }
+]

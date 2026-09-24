@@ -1,4 +1,5 @@
 import type * as React from 'react';
+import { signOutAndRedirect } from '@/lib/session';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { UserRound, ChevronLeft } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
@@ -43,17 +44,8 @@ import { DAY_NAMES_SHORT, dayOfWeekForDate, todayInIst } from '@shared/istTime';
  */
 export function useLogout(): () => Promise<void> {
   const [, setLocation] = useLocation();
-  const { logout } = useAppStore();
 
-  return async (): Promise<void> => {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
-    } catch {
-      // Ignore network failure — still clear the local session.
-    }
-    logout();
-    setLocation('/login');
-  };
+  return (): Promise<void> => signOutAndRedirect(setLocation);
 }
 
 /** `TUE 18 AUG` — the shift's date, in the slot the `Agent` tag used to hold. */

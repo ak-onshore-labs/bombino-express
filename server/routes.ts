@@ -1,17 +1,12 @@
 import type { Express, NextFunction, Request, Response } from "express";
 import {
   countUnreadNotifications,
-  createNewSupportSession,
-  findItdUserIdByCustomerId,
   findItdUserIdByPhone,
   findOrCreateAddress,
-  generateSessionTitle,
   getAccountShapeById,
   getItdUserProfileById,
   getItdUserTokenAndSecretsById,
-  getOrCreateSupportSession,
   insertLoginAuditLog,
-  resolveSupportSession,
   listAddressesByUserIdAndType,
   listAddressesByGuestRefAndType,
   getShipmentDocument,
@@ -22,7 +17,6 @@ import {
   insertNotification,
   markNotificationRead,
   mergeItdUserMetadataById,
-  updateSupportSessionMessages,
   clearItdUserPhoneById,
   itdUserHasStoredPassword,
   updateItdUserPhoneById,
@@ -47,10 +41,6 @@ import {
   listCancellationOrdersByUserId,
   listOrdersByUserId,
   listPaymentsByOrderId,
-  markCancellationRequestDecided,
-  recordCancellationRequest,
-  applyBookingDocket,
-  recordBookingDocketError,
   toOrder,
 } from "./ordersDb.js";
 import {
@@ -59,25 +49,14 @@ import {
   isKnownAction,
 } from "./orderLifecycle.js";
 import {
-  notifyAgentOfCancellationRequest,
   notifyAgentsOfNewJob,
-  notifyCancellationDeclined,
   notifyHandoverCodeReissued,
   notifyOrderBooked,
   notifyOrderTransition,
 } from "./notify.js";
 import {
-  advanceOrderStatus,
-  claimPickup,
-  recordCollectedPayment,
-  transitionOrderStatus,
-} from "./agentDb.js";
-import {
-  burnCodeForOverride,
   getCodeForOwner,
   issueCode,
-  verifyCode,
-  HANDOVER_CODE_PATTERN,
   type HandoverKind,
 } from "./handoverCodes.js";
 import {
@@ -89,18 +68,25 @@ import {
 import { registerAgentRoutes } from "./routes/agent.js";
 import { registerPaymentRoutes } from "./routes/payments.js";
 import { registerGuestProfileRoutes } from "./routes/guestProfile.js";
+import { registerSupportRoutes } from "./routes/support.js";
 import { seedSignupDocumentFromGuestKyc } from "./guestKycMirror.js";
-import { deleteGuestProfilesFor } from "./guestProfileDb.js";
+import { mirrorAadhaarToKyc } from "./kycMirror.js";
 import { getLatestGuestRefForPhone, upsertGuestProfile } from "./guestProfileDb.js";
 import { registerWhatsappRoutes } from "./routes/whatsapp.js";
 import { registerWhatsappScheduleRoutes } from "./routes/whatsappSchedule.js";
 import { registerOpsRoutes } from "./routes/ops.js";
 import { listPublicSettings } from "./settingsDb.js";
+import { registerBiaRoutes } from "./routes/bia.js";
+import { registerAccountApplicationRoutes } from "./routes/accountApplications.js";
+import { isAccountReviewEnabled } from "./accountApplications.js";
+import { getLatestApplicationByPhone, toCustomerView } from "./accountApplicationsDb.js";
 import {
   handleGenerateDocket,
   handleMarkDispatched,
   handleSettle,
   handleWeigh,
+  itdRateAtWeight,
+  itdRatesLoginFor,
 } from "./opsActions.js";
 import { isIndiaHubId } from "../shared/hubs.js";
 import {
@@ -111,7 +97,50 @@ import {
   readCancellationRequest,
 } from "../shared/orderContract.js";
 import type { Order, OrderStatus, Role } from "../shared/orderContract.js";
-import { earliestPickupDate } from "../shared/istTime.js";
+import { earliestPickupDate, todayInIst } from "../shared/istTime.js";
+import { sendDocumentFile } from "./documentResponse.js";
+import { OWNER_PROFILES, ownerFrom } from "./sessionOwner.js";
+import { requireCronSecret } from "./cronAuth.js";
+import {
+  handleCancel,
+  handleClaim,
+  handleCollectPayment,
+  handleHandover,
+  handleOverrideHandover,
+  handleRejectCancellation,
+  handleRequestCancellation,
+  handleStartPickup,
+  type AgentActionResult,
+} from "./orderActions.js";
+import {
+  claimDocumentsForUser,
+  claimGuestBookingsForUser,
+  contractColumns,
+  respondWithApplication,
+} from "./signupClaim.js";
+import {
+  assertDocumentsStaged,
+  resolveKycOwner,
+} from "./kycPolicy.js";
+import {
+  IDENTITY_KIND_BY_SLOT,
+  IDENTITY_KIND_FOR_KYC_TYPE,
+  normalizeDocumentNo,
+  recordIdentity,
+  recordedIdentityNumbers,
+  sendIdentityFailure,
+  verifyDocumentOrRefuse,
+} from "./identityChecks.js";
+import {
+  PHONE_UNVERIFIED,
+  assertPhoneVerified,
+  isPhoneVerifiedHere,
+  markPhoneVerified,
+  signupRefForPhone,
+  signupRefForReading,
+} from "./signupRef.js";
+import { INDIAN_MOBILE_MESSAGE, INDIAN_MOBILE_PATTERN } from "../shared/contact.js";
+import { MAX_UPLOAD_BYTES, UPLOAD_TYPE_MESSAGE, isAllowedUploadType } from "../shared/upload.js";
 import {
   formatCutoffHour,
   formatPickupCities,
@@ -126,15 +155,12 @@ import {
   hashOtp,
   deliverOtp,
   OTP_TTL_MINUTES,
-  OTP_MAX_ATTEMPTS,
   OTP_MAX_REQUESTS_PER_HOUR,
-  OTP_VERIFICATION_WINDOW_MINUTES,
 } from "./otp.js";
 import type { OtpPurpose } from "./otpDb.js";
 import {
   countRecentRequests,
   insertOtpCode,
-  hasRecentVerification,
 } from "./otpDb.js";
 import { consumeOtp, verifyOtp } from "./otpVerify.js";
 import { decryptPassword, encryptPassword, isEncryptionConfigured } from "./crypto.js";
@@ -145,18 +171,13 @@ import {
   withTimeout,
 } from "./itdTokenRefresh.js";
 import type { Server } from "http";
-import fs from "fs";
-import path from "path";
 import crypto from "crypto";
 import multer from "multer";
 import { z } from "zod";
-import { itdClient, isItdAuthExpired } from "./itd.js";
+import { itdClient } from "./itd.js";
 import type { CreateShipmentPayload, RateParams } from "./itd.js";
-import { handleChat } from "./supportAgent.js";
-import { supportChatRateLimit } from "./supportRateLimit.js";
-import type { ChatMessage } from "./supportTypes.js";
 import { persistShipmentAfterCreate } from "./persistShipment.js";
-import { isDocketAtBookingEnabled } from "./docketAtBooking.js";
+import { docketAtBooking } from "./docketAtBooking.js";
 import { lookupPostal } from "./postalLookup.js";
 import {
   getKycByCapabilityId,
@@ -172,17 +193,15 @@ import {
 } from "../shared/kyc.js";
 import {
   bypassedOcr,
+  isOcrBypassed,
   ocrTypeForDocSlot,
   ACCOUNT_SLOT_FOR_KYC_TYPE,
   ocrTypeForKycDocumentType,
-  runSmartOcr,
-  skippedOcr,
   type OcrResult,
 } from "./cashfreeOcr.js";
 import {
   isIdentityBypassed,
   isValidAadhaarNumber,
-  isValidGstinFormat,
   isValidPanNumber,
   verifyGstin,
 } from "./cashfreeIdentity.js";
@@ -191,16 +210,12 @@ import { signContractPdf } from "./contractPdf.js";
 import { sweepAbandonedSignups, ABANDONED_SIGNUP_RETENTION_DAYS } from "./retention.js";
 import { logDocumentAccess } from "./documentAccessLog.js";
 import {
-  claimSignupIdentityVerifications,
   deleteIdentityVerificationsBySignupRef,
   listIdentityVerificationsBySignupRef,
   upsertIdentityVerification,
-  type IdentityKind,
 } from "./identityDb.js";
 import {
   toOcrColumns,
-  claimSignupDocuments,
-  deleteAllSignupDocuments,
   deleteSignupDocument,
   getAccountDocumentByCapabilityId,
   deleteUserDocument,
@@ -220,28 +235,19 @@ import {
 import {
   COMPANY_CATEGORIES,
   COMPANY_CATEGORY_SPECS,
-  DOC_SLOT_SPECS,
   EXTRA_FIELD_SPECS,
   IDENTITY_CHECK_LABELS,
   isDocSlot,
-  isOcrCheckedSlot,
   isVerifiedDocSlot,
   VERIFIED_DOC_SLOTS,
-  missingDocuments,
   requiredDocuments,
   requiredExtraFields,
   requiredIdentityChecks,
-  verificationState,
   type CompanyCategory,
-  type DocSlot,
   type ExtraField,
-  type VerifiedDocSlot,
 } from "../shared/accountSpec.js";
 import { validateGstin } from "../shared/gstin.js";
-import {
-  SUPPORT_CHAT_MAX_MESSAGES,
-  SUPPORT_CHAT_MAX_CONTENT_LENGTH,
-} from "./supportTypes.js";
+import { isErrorCode, ocrErrorCode } from "../shared/errorCatalog.js";
 
 // Matches the refresh path's ceiling (itdTokenRefresh.ts). The legacy
 // POST /api/auth/login has no timeout and can hang on a stalled ITD.
@@ -254,13 +260,12 @@ const kycUpload = multer({
   // a bare 413 with no JSON body and no way to say why. Staying under the cap
   // keeps the error ours. Raise this only if the host is a long-lived server,
   // and change client/src/components/KycUpload.tsx to match.
-  limits: { fileSize: 4 * 1024 * 1024 }, // 4MB
+  limits: { fileSize: MAX_UPLOAD_BYTES },
   fileFilter: (_req, file, cb) => {
-    const allowed = new Set(["application/pdf", "image/jpeg", "image/png"]);
-    if (allowed.has(file.mimetype)) {
+    if (isAllowedUploadType(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error("Only PDF, JPEG, and PNG files are accepted."));
+      cb(new Error(UPLOAD_TYPE_MESSAGE));
     }
   },
 });
@@ -293,6 +298,10 @@ export async function registerRoutes(
   // users. Admin/super_admin gated inside the module; writes go through the
   // uniform action endpoint below.
   registerOpsRoutes(app);
+  // BIA's nudges: the daily sweep and each customer's switches (BIA 3.0, 5.1).
+  registerBiaRoutes(app);
+  // Account review: the customer's application status and the ops queue.
+  registerAccountApplicationRoutes(app);
 
   // GET /api/settings — public bag. No session.
   //
@@ -368,17 +377,6 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/debug/session", (req, res) => {
-    res.json({
-      hasSession: !!req.session,
-      hasItdToken: !!req.session.itdToken,
-      hasUser: !!req.session.user,
-      hasDbUserId: !!req.session.dbUserId,
-      sessionID: req.sessionID,
-      cookieSettings: req.session.cookie,
-    });
-  });
-
   // POST /api/auth/logout — destroy session
   app.post("/api/auth/logout", (req: Request, res: Response) => {
     req.session.destroy((err) => {
@@ -412,7 +410,7 @@ export async function registerRoutes(
     // conflation that survives review unnoticed.
     "auth",
   ]);
-  const phoneSchema = z.string().trim().regex(/^\d{10}$/, "Enter a valid 10-digit phone number");
+  const phoneSchema = z.string().trim().regex(INDIAN_MOBILE_PATTERN, INDIAN_MOBILE_MESSAGE);
 
   // POST /api/auth/otp/request
   app.post("/api/auth/otp/request", async (req: Request, res: Response) => {
@@ -427,7 +425,7 @@ export async function registerRoutes(
 
     const recentCount = await countRecentRequests(phone, 60);
     if (recentCount !== null && recentCount >= OTP_MAX_REQUESTS_PER_HOUR) {
-      res.status(429).json({ message: "Too many OTP requests. Please try again later." });
+      res.status(429).json({ message: "Too many OTP requests. Please try again later.", code: "OTP_RATE_LIMITED" });
       return;
     }
 
@@ -440,7 +438,7 @@ export async function registerRoutes(
       expires_at: expiresAt,
     });
     if (!inserted) {
-      res.status(502).json({ message: "Could not send OTP. Please try again." });
+      res.status(502).json({ message: "Could not send OTP. Please try again.", code: "OTP_SEND_FAILED" });
       return;
     }
 
@@ -465,9 +463,10 @@ export async function registerRoutes(
 
     const result = await consumeOtp(phone, purpose as OtpPurpose, code);
     if (!result.ok) {
-      res.status(result.status).json({ message: result.message });
+      res.status(result.status).json({ message: result.message, code: result.code });
       return;
     }
+    if (purpose === "auth") markPhoneVerified(req, phone);
     res.json({ verified: true });
   });
 
@@ -482,300 +481,10 @@ export async function registerRoutes(
   // the OTP for the number they are opening the account under. That is the
   // same proof /api/auth/signup/* asks for a moment later.
 
-  /** Mint the staging handle on first use; reuse it for the rest of the signup. */
-  /**
-   * The handle this signup's staged rows are owned by, for this phone.
-   *
-   * Documents and identity verifications belong to a NUMBER, not to a browser.
-   * The ref used to be minted once per session and never revisited, so
-   * verifying a phone, proving an Aadhaar, then starting again with a
-   * different number left the second signup holding the first one's verified
-   * identity and uploaded files — and an account could open for one person on
-   * another person's Aadhaar and PAN.
-   *
-   * So the ref is bound to the phone that proved it. When the phone changes
-   * the old ref is abandoned, its rows are deleted, and a fresh one is minted.
-   * Deletion is best-effort: an orphaned row is recoverable, but handing it to
-   * the wrong person is not, and the new ref already guarantees the second
-   * part regardless of whether the delete lands.
-   *
-   * Every staging and reading endpoint goes through here, so there is one
-   * place where the binding can be got wrong.
-   */
-  async function signupRefForPhone(req: Request, phone: string): Promise<string> {
-    if (req.session.signupPhone === phone && req.session.signupRef) {
-      return req.session.signupRef;
-    }
-
-    const abandoned = req.session.signupPhone !== undefined ? req.session.signupRef : undefined;
-
-    req.session.signupRef = crypto.randomUUID();
-    req.session.signupPhone = phone;
-
-    if (abandoned) {
-      console.warn(`[signup] phone changed mid-signup — discarding staged rows for ${abandoned}`);
-      try {
-        await Promise.all([
-          deleteAllSignupDocuments(abandoned),
-          deleteIdentityVerificationsBySignupRef(abandoned),
-        ]);
-      } catch (err) {
-        console.error("[signup] failed to discard abandoned signup rows:", err);
-      }
-    }
-
-    return req.session.signupRef;
-  }
-
-  /**
-   * The ref for a read, without minting one.
-   *
-   * Returns null when this session has nothing staged for that phone, which
-   * the readers answer as an empty list. A GET must never hand back rows
-   * proved by a different number just because the same browser asked.
-   */
-  function signupRefForReading(req: Request, phone: string | undefined): string | null {
-    if (!phone || req.session.signupPhone !== phone) return null;
-    return req.session.signupRef ?? null;
-  }
-
-  /**
-   * The signup endpoints have no session to authenticate against — the account
-   * does not exist yet — so a recent OTP on the number is what authorises
-   * them. That authorisation expires after OTP_VERIFICATION_WINDOW_MINUTES,
-   * and filling in a documents screen takes longer than ten minutes often
-   * enough that it is a normal thing to happen rather than an edge case.
-   *
-   * Both refusals carry `code: "phone_unverified"` so the form can act on it
-   * without reading the prose. It sends the customer back to re-request a
-   * code instead of leaving them on a screen where every button fails.
-   */
-  const PHONE_UNVERIFIED = "phone_unverified";
-
-  async function assertPhoneVerified(
-    phone: unknown,
-    res: Response,
-    /**
-     * The request, when a live guest session may stand in for a fresh OTP.
-     *
-     * Only passed by routes a returning guest reaches from their profile
-     * rather than mid-signup. `session.guestRef` can only have been minted by
-     * an OTP on `session.guestPhone`, so it proves the same number — what it
-     * does not carry is the ten-minute freshness, and for a customer filling
-     * in their own profile over several visits that window is the wrong rule.
-     * Signup's own calls omit this and stay strict.
-     */
-    req?: Request
-  ): Promise<string | null> {
-    const parsed = phoneSchema.safeParse(phone);
-    if (!parsed.success) {
-      res
-        .status(400)
-        .json({ message: "A verified phone number is required", code: PHONE_UNVERIFIED });
-      return null;
-    }
-
-    if (req?.session.guestRef && req.session.guestPhone === parsed.data) {
-      return parsed.data;
-    }
-
-    const verified = await hasRecentVerification(
-      parsed.data,
-      "auth",
-      OTP_VERIFICATION_WINDOW_MINUTES
-    );
-    if (!verified) {
-      res.status(400).json({
-        message: `Your phone verification has expired. Please request a new code.`,
-        code: PHONE_UNVERIFIED,
-      });
-      return null;
-    }
-    return parsed.data;
-  }
-
-  /**
-   * Validate the number printed on a document, where the slot asks for one.
-   * Returns the value to store, or an error message. The patterns are the
-   * ones the form enforces — shared/accountSpec.ts is the single source.
-   */
-  function normalizeDocumentNo(
-    slot: DocSlot,
-    raw: unknown
-  ): { ok: true; value: string | null } | { ok: false; message: string } {
-    const field = DOC_SLOT_SPECS[slot].numberField;
-    if (!field) return { ok: true, value: null };
-
-    const trimmed = typeof raw === "string" ? raw.trim() : "";
-    if (!trimmed) {
-      return { ok: false, message: `${field.label} is required` };
-    }
-    const value = field.uppercase ? trimmed.toUpperCase() : trimmed;
-    if (!field.pattern.test(value)) {
-      return { ok: false, message: field.error };
-    }
-    return { ok: true, value };
-  }
-
-  /**
-   * Read the document and check it says what the customer said it says.
-   *
-   * Refuses the upload when OCR reads a contradicting number, the wrong kind
-   * of document, or a tamper signal. Everything else — an unreadable scan, an
-   * outage, no credentials — is allowed through and recorded as unverified,
-   * because those failures are ours and a customer cannot photograph their way
-   * out of them. See server/cashfreeOcr.ts for the full policy.
-   */
-  async function verifyDocumentOrRefuse(
-    res: Response,
-    args: {
-      cashfreeType: ReturnType<typeof ocrTypeForDocSlot>;
-      typedNumber: string | null;
-      file: Express.Multer.File;
-      tag: string;
-    }
-  ): Promise<OcrResult | null> {
-    if (!args.cashfreeType || !args.typedNumber) {
-      return skippedOcr("No OCR check applies to this document.");
-    }
-
-    const result = await runSmartOcr({
-      documentType: args.cashfreeType,
-      typedNumber: args.typedNumber,
-      file: args.file.buffer,
-      filename: args.file.originalname,
-      mimeType: args.file.mimetype,
-      tag: args.tag,
-    });
-
-    if (result.blocking) {
-      // 422: the request was well-formed and we understood it — the document
-      // itself is the problem.
-      res.status(422).json({
-        message: result.message,
-        ocr: { status: result.status, verification_id: result.verification_id },
-      });
-      return null;
-    }
-    return result;
-  }
-
-  /* ── Identity numbers ────────────────────────────────────────────────────
-   *
-   * The step ahead of the document upload. Each number is collected here, and
-   * the documents screen then makes the uploaded file agree with it.
-   *
-   *   GSTIN   proved by the GST portal returning the legal and trade names of
-   *           the business, and a status of Active. The only one of the
-   *           three that reaches an authority.
-   *   Aadhaar not proved by anyone. Typed, checked for its Verhoeff check
-   *           digit, recorded `self_declared`.
-   *   PAN     not proved by anyone either, since the Income Tax lookup was
-   *           removed. Typed, checked for shape, recorded `self_declared`.
-   *
-   * What stands behind the last two is the document uploaded at the next
-   * step, which Smart OCR must read as the same number — see the header of
-   * server/cashfreeIdentity.ts for what that does and does not establish.
-   * The ordering still matters for all three: the number is recorded
-   * first, so the OCR comparison is against a value the customer can no
-   * longer change by the time the file arrives.
-   *
-   * Rows are staged against the session's signup_ref exactly like documents,
-   * and claimed by the account at creation. See server/cashfreeIdentity.ts for
-   * the vendor contract and the refusal policy.
-   */
-
-  /**
-   * Which identity check a KYC document type answers.
-   *
-   * Only these two. A passport or a driving licence is a valid identity
-   * document for a booking and is not a check any account owes; a GSTIN has
-   * its own endpoint, because that one is verified against the registry
-   * rather than asserted.
-   */
-  const IDENTITY_KIND_FOR_KYC_TYPE: Record<string, IdentityKind | undefined> = {
-    "Aadhaar Number": "aadhaar",
-    "PAN Number": "pan",
-  };
-
-  const IDENTITY_KIND_BY_SLOT: Record<VerifiedDocSlot, IdentityKind> = {
-    aadhaar_card: "aadhaar",
-    pan_card: "pan",
-    gst_certificate: "gstin",
-  };
-
-  /**
-   * The number recorded for each kind on this signup.
-   *
-   * "Recorded", not "proved" — an Aadhaar row is self_declared and nobody
-   * confirmed it. The distinction does not change what this function is for:
-   * whatever is here is the value the uploaded document has to agree with,
-   * and the client does not get to supply a different one.
-   */
-  async function recordedIdentityNumbers(req: Request, phone: string): Promise<Map<IdentityKind, string>> {
-    const signupRef = signupRefForReading(req, phone);
-    if (!signupRef) return new Map();
-    const rows = await listIdentityVerificationsBySignupRef(signupRef);
-    return new Map(rows.map((row) => [row.kind, row.document_no]));
-  }
-
-  /**
-   * Answer an identity failure.
-   *
-   * `rejected` is 422 — the request was understood perfectly and the authority
-   * simply said no. `expired` is 410, which the form reads as "offer a fresh
-   * OTP" rather than "retype". `unavailable` is 503, so nothing about it can
-   * be mistaken for the customer's fault.
-   */
-  function sendIdentityFailure(
-    res: Response,
-    err: { failure: string; message: string; detail: string | null }
-  ): void {
-    if (err.detail) console.error("[signup/identity]", err.failure, "-", err.detail);
-    const status = err.failure === "rejected" ? 422 : err.failure === "expired" ? 410 : 503;
-    res.status(status).json({ message: err.message, failure: err.failure });
-  }
-
-  /**
-   * Write one confirmed number against the in-flight signup.
-   *
-   * Answers the request itself on failure and returns false, so callers read
-   * as a straight line. Minting the signup_ref here rather than at the first
-   * upload is what lets identity verification come *before* any document.
-   */
-  async function recordIdentity(
-    req: Request,
-    res: Response,
-    phone: string,
-    input: {
-      kind: IdentityKind;
-      document_no: string;
-      status: "verified" | "self_declared" | "bypassed";
-      reference_id: string | null;
-      verified_name: string | null;
-      name_submitted?: string | null;
-      name_match_result?: string | null;
-      name_match_score?: number | null;
-      details: Record<string, unknown> | null;
-    }
-  ): Promise<boolean> {
-    try {
-      const saved = await upsertIdentityVerification({
-        signup_ref: await signupRefForPhone(req, phone),
-        ...input,
-      });
-      if (!saved) {
-        res.status(500).json({ message: "Could not record the verification. Please try again." });
-        return false;
-      }
-      return true;
-    } catch (err) {
-      console.error(`[signup/identity] failed to record ${input.kind}:`, err);
-      res.status(500).json({ message: "Could not record the verification. Please try again." });
-      return false;
-    }
-  }
-
+  // The staging ref, the phone that proved it, and the OTP freshness rule
+  // now live in server/signupRef.ts.
+  // Document-number validation, the OCR verdict policy and identity
+  // recording now live in server/identityChecks.ts.
   /**
    * POST /api/signup/contract/preview — the contract with the signature on it
    *
@@ -800,7 +509,7 @@ export async function registerRoutes(
     // parcel can easily reach more than ten minutes after the OTP — and being
     // refused sight of a contract you are about to sign is the wrong failure.
     // The session ref proves the same number; nothing here is written.
-    const phone = await assertPhoneVerified(req.body?.phone, res, req);
+    const phone = await assertPhoneVerified(req.body?.phone, res, req, { allowSessionGuest: true });
     if (!phone) return;
 
     const signedName =
@@ -902,7 +611,7 @@ export async function registerRoutes(
    * this phone it deletes nothing and says so.
    */
   app.post("/api/signup/identity/reset", async (req: Request, res: Response) => {
-    const phone = await assertPhoneVerified(req.body?.phone, res);
+    const phone = await assertPhoneVerified(req.body?.phone, res, req);
     if (!phone) return;
 
     // Deliberately the reading form, which does not mint a ref. Arriving at
@@ -950,15 +659,18 @@ export async function registerRoutes(
    * does not prove the card is theirs. See server/cashfreeIdentity.ts.
    */
   app.post("/api/signup/identity/aadhaar", async (req: Request, res: Response) => {
-    const phone = await assertPhoneVerified(req.body?.phone, res);
+    const phone = await assertPhoneVerified(req.body?.phone, res, req);
     if (!phone) return;
 
     const aadhaar =
       typeof req.body?.aadhaar_number === "string"
         ? req.body.aadhaar_number.replace(/\s/g, "")
         : "";
-    if (!isValidAadhaarNumber(aadhaar)) {
-      res.status(400).json({ message: "Enter a valid 12-digit Aadhaar number" });
+    // TEMPORARY: with OCR_BYPASS=1 (no document checks until Cashfree production
+    // credentials are in) only the 12 digits are required; the 0/1 prefix and
+    // Verhoeff rules come back when the flag goes. See shared/aadhaar.ts.
+    if (!isValidAadhaarNumber(aadhaar, { checkDigits: !isOcrBypassed() })) {
+      res.status(400).json({ message: "Enter a valid 12-digit Aadhaar number", code: "AADHAAR_INVALID" });
       return;
     }
 
@@ -1009,12 +721,12 @@ export async function registerRoutes(
    * it to, and storing it would suggest a check that does not happen.
    */
   app.post("/api/signup/identity/pan", async (req: Request, res: Response) => {
-    const phone = await assertPhoneVerified(req.body?.phone, res);
+    const phone = await assertPhoneVerified(req.body?.phone, res, req);
     if (!phone) return;
 
     const pan = typeof req.body?.pan === "string" ? req.body.pan.trim().toUpperCase() : "";
     if (!isValidPanNumber(pan)) {
-      res.status(400).json({ message: "Enter a valid 10-character PAN" });
+      res.status(400).json({ message: "Enter a valid 10-character PAN", code: "PAN_INVALID" });
       return;
     }
 
@@ -1044,14 +756,17 @@ export async function registerRoutes(
     // `req` is passed so a guest completing their profile can verify a GSTIN
     // without a fresh SMS. Everything below is unchanged: shape and checksum
     // first, then the registry, then the name match.
-    const phone = await assertPhoneVerified(req.body?.phone, res, req);
+    const phone = await assertPhoneVerified(req.body?.phone, res, req, { allowSessionGuest: true });
     if (!phone) return;
 
     const gstin = typeof req.body?.gstin === "string" ? req.body.gstin.trim().toUpperCase() : "";
     // Shape and mod-36 checksum first, so a typo never costs a billed lookup.
     const shapeCheck = validateGstin(gstin);
     if (!shapeCheck.valid) {
-      res.status(400).json({ message: shapeCheck.message ?? "Enter a valid 15-character GST number" });
+      res.status(400).json({
+        message: shapeCheck.message ?? "Enter a valid 15-character GST number",
+        code: "GSTIN_INVALID",
+      });
       return;
     }
 
@@ -1060,7 +775,7 @@ export async function registerRoutes(
     // another does not get through.
     const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
     if (!name) {
-      res.status(400).json({ message: "Enter the company name this account is for" });
+      res.status(400).json({ message: "Enter the company name this account is for", code: "COMPANY_NAME_REQUIRED" });
       return;
     }
 
@@ -1165,6 +880,7 @@ export async function registerRoutes(
     const missing = required.filter((slot) => !byKind.has(IDENTITY_KIND_BY_SLOT[slot]));
     if (missing.length > 0) {
       res.status(422).json({
+        code: "IDENTITY_MISSING",
         message: `Please enter your ${missing
           .map((slot) => IDENTITY_CHECK_LABELS[slot])
           .join(" and ")} before ${
@@ -1193,6 +909,7 @@ export async function registerRoutes(
       const row = byKind.get(kind);
       if (row?.name_submitted && !sameName(row.name_submitted, accountName)) {
         res.status(422).json({
+          code: "IDENTITY_NAME_MISMATCH",
           message: `Your ${kind === "pan" ? "PAN" : "GST number"} was verified for "${row.name_submitted}". Please verify it again for "${accountName}".`,
           unverified_identity: [kind],
         });
@@ -1238,7 +955,11 @@ export async function registerRoutes(
     if (check.blocking) {
       // 422: the request was well-formed and we understood it — the document
       // itself is the problem.
-      res.status(422).json({ message: check.message, ocr: { status: check.status } });
+      res.status(422).json({
+        message: check.message,
+        code: ocrErrorCode(check.status) ?? undefined,
+        ocr: { status: check.status },
+      });
       return null;
     }
     return check;
@@ -1249,11 +970,11 @@ export async function registerRoutes(
     "/api/signup/documents",
     kycUpload.single("file"),
     async (req: Request, res: Response) => {
-      const phone = await assertPhoneVerified(req.body?.phone, res);
+      const phone = await assertPhoneVerified(req.body?.phone, res, req);
       if (!phone) return;
 
       if (!req.file) {
-        res.status(400).json({ message: "No file uploaded." });
+        res.status(400).json({ message: "No file uploaded.", code: "FILE_MISSING" });
         return;
       }
 
@@ -1284,6 +1005,7 @@ export async function registerRoutes(
         if (!proved) {
           res.status(422).json({
             message: `Please enter your ${IDENTITY_CHECK_LABELS[slot]} number before uploading the document.`,
+            code: "IDENTITY_NUMBER_FIRST",
             unverified_identity: [IDENTITY_KIND_BY_SLOT[slot]],
           });
           return;
@@ -1292,7 +1014,7 @@ export async function registerRoutes(
       } else {
         const parsed = normalizeDocumentNo(slot, req.body?.document_no);
         if (!parsed.ok) {
-          res.status(400).json({ message: parsed.message });
+          res.status(400).json({ message: parsed.message, code: "DOCUMENT_NUMBER_INVALID" });
           return;
         }
         documentNo = parsed.value;
@@ -1343,6 +1065,9 @@ export async function registerRoutes(
             // The form tells the customer when a document went in unverified,
             // so "Uploaded" never over-promises.
             ocr: { status: ocr.status, message: ocr.message },
+            // With account review on, the Bombino team checks every document by
+            // hand, so one Cashfree couldn't read still lets signup go on.
+            staff_review: isAccountReviewEnabled(),
           });
         });
       } catch (err) {
@@ -1365,22 +1090,7 @@ export async function registerRoutes(
    * deleted, and it is safe to call repeatedly — a second call in the same
    * minute finds nothing left to do.
    */
-  app.post("/api/admin/retention/sweep", async (req: Request, res: Response) => {
-    const expected = process.env.WA_CRON_SECRET;
-    if (!expected) {
-      res.status(503).json({ message: "Scheduler secret is not configured." });
-      return;
-    }
-    const header = req.header("authorization") ?? "";
-    const presented = header.startsWith("Bearer ") ? header.slice(7) : "";
-    // Length check first: timingSafeEqual throws on a length mismatch.
-    if (
-      presented.length !== expected.length ||
-      !crypto.timingSafeEqual(Buffer.from(presented), Buffer.from(expected))
-    ) {
-      res.status(401).json({ message: "Unauthorized" });
-      return;
-    }
+  app.post("/api/admin/retention/sweep", requireCronSecret, async (req: Request, res: Response) => {
 
     try {
       const result = await sweepAbandonedSignups();
@@ -1413,6 +1123,16 @@ export async function registerRoutes(
     const rows = await listDocumentsBySignupRef(signupRef);
     res.set("Cache-Control", "no-store");
     res.json({
+      // See POST: with account review on, a document Cashfree couldn't read is
+      // left to the Bombino team rather than holding signup up.
+      staff_review: isAccountReviewEnabled(),
+      // TEMPORARY: false while OCR_BYPASS=1, so the form asks only for 12 digits
+      // (shared/aadhaar.ts §validateAadhaar), matching the server.
+      aadhaar_check_digits: !isOcrBypassed(),
+      // TEMPORARY: false while IDENTITY_BYPASS=gstin. With no portal lookup to
+      // run, the form saves the GST number by itself instead of asking for a
+      // "Verify" click, and the certificate uploads straight away.
+      gstin_lookup: !isIdentityBypassed("gstin"),
       documents: rows.map((row) => ({
         doc_slot: row.doc_slot,
         capability_id: row.capability_id,
@@ -1425,7 +1145,7 @@ export async function registerRoutes(
         file_size_bytes: row.file_size_bytes,
         updated_at: row.updated_at,
         // The form marks an unverified identity document as still outstanding,
-        // because account creation will refuse it.
+        // because account creation will refuse it (unless staff_review).
         ocr_status: row.ocr_status,
       })),
     });
@@ -1464,459 +1184,12 @@ export async function registerRoutes(
    * in `account_documents` either way and the customer can re-upload, so losing
    * an account (or a 200) over the copy would be the worse trade.
    */
-  /**
-   * The KYC document behind an order, whoever booked it.
-   *
-   * An account order's document is owned by its user; a guest order's by the
-   * ref it was staged under. Both produce the same row, because a guest is
-   * compelled to produce the same documents — the difference is only where the
-   * row hangs.
-   *
-   * This is what a docket path must use, and `docketAtBooking` below does.
-   * POST /api/shipments still does not: that path reads the *caller's* KYC,
-   * which is a documented bug predating guest booking (see
-   * docs/final-phase/markdowns/open-items.md §4.0) and is still waiting on M5.
-   * Reaching for `order.user_id` directly would refuse every guest docket.
-   */
-  async function kycForOrder(order: Pick<Order, "user_id" | "guest_ref">) {
-    if (order.user_id) return getKycByUserId(order.user_id);
-    if (order.guest_ref) return getKycByGuestRef(order.guest_ref);
-    return null;
-  }
+  // Document ownership and the "has this account produced what it owes"
+  // gate now live in server/kycPolicy.ts.
 
-  /**
-   * File an ITD docket for an order the moment it is booked.
-   *
-   * ── Why only some orders ──────────────────────────────────────────────────
-   *
-   * `create_docket` has no customer field: ITD attributes a shipment to
-   * whoever's session token makes the call (server/itd.ts §createShipment).
-   * That is the open question M5 is blocked on — ops cannot docket on a
-   * customer's behalf because ops holds no customer token, and `add_customer`
-   * issues no credentials to get one.
-   *
-   * But the question does not arise for a customer who already HAS an ITD
-   * login. They linked it themselves through POST /api/auth/link/itd, which
-   * stored their password encrypted precisely so `mintItdSession` can replay it
-   * — ITD has no refresh token, so replaying the password is the only way to
-   * mint one. For those accounts the right token is available at booking, on
-   * the customer's own credential, and the docket lands on their own ITD
-   * account with no attribution to guess at.
-   *
-   * Everyone else — guests, and accounts opened by OTP signup, which are
-   * `local-<uuid>` rows with no ITD credential anywhere — is untouched here and
-   * still dockets the ordinary way, by ops at `settled`.
-   *
-   * The test is capability, not provenance: `itdUserHasStoredPassword`, the
-   * same gate `mintItdSession` applies internally. NOT the `local-` prefix,
-   * which is a superset — a genuine ITD row loses its credential on phone
-   * unlink, and POST /api/auth/login silently stores none when ENCRYPTION_KEY
-   * is unset.
-   *
-   * ── Why the payload is not built here ─────────────────────────────────────
-   *
-   * `order.items` already IS a complete CreateShipmentPayload — the booking
-   * form builds one and posts it verbatim (client CreateShipment.tsx). Only the
-   * three KYC fields are missing, for the same reason they are missing on
-   * POST /api/shipments: they are derived server-side from the stored document
-   * and must never be taken from the client.
-   *
-   * ── Failure ───────────────────────────────────────────────────────────────
-   *
-   * Never throws, never fails the booking. The order is already committed when
-   * this runs; a docket is something added on top of it. A failure leaves
-   * `awb_no` null, which is the state every guest order is in anyway, so the
-   * order simply falls back to being docketed by ops at `settled` — and stamps
-   * `metadata.docket_error` so the ops board can say so out loud rather than
-   * leaving it to look like an ordinary pre-docket booking.
-   */
-  type BookingDocketOutcome = {
-    status: "issued" | "failed" | "skipped";
-    awb_no: string | null;
-    message: string | null;
-  };
+  // The booking-time docket now lives in server/docketAtBooking.ts,
+  // beside the flag that turns it on.
 
-  const SKIPPED: BookingDocketOutcome = { status: "skipped", awb_no: null, message: null };
-
-  const BOOKING_DOCKET_TIMEOUT_MS = 15_000;
-
-  async function docketAtBooking(
-    req: Request,
-    order: Order
-  ): Promise<BookingDocketOutcome> {
-    if (!isDocketAtBookingEnabled()) return SKIPPED;
-
-    // A guest order has no account and therefore no ITD credential. It is also
-    // the cohort this whole split exists to keep OUT of ITD at booking.
-    const dbUserId = order.user_id;
-    if (!dbUserId) return SKIPPED;
-
-    // No KYC hold: KYC is decided by Cashfree Smart OCR alone and never stops
-    // an AWB. The document itself is still required — `kycForOrder` below
-    // refuses a docket with nothing on file, and says so in `docket_error`.
-    if (!(await itdUserHasStoredPassword(dbUserId))) return SKIPPED;
-
-    // POST /api/orders does not sit behind refreshItdTokenIfNeeded, so a
-    // session older than the token is entirely ordinary here. mintItdSession
-    // replays the stored password and returns null rather than throwing.
-    let token = req.session.itdToken;
-    if (!token) {
-      const email = req.session.user?.email;
-      if (email) await mintItdSession(req, dbUserId, email);
-      token = req.session.itdToken;
-    }
-    if (!token) {
-      const message = "Could not sign in to ITD to issue an airway bill.";
-      await recordBookingDocketError(order.id, { stage: "token", message });
-      return { status: "failed", awb_no: null, message };
-    }
-
-    const kyc = await kycForOrder(order);
-    if (!kyc) {
-      const message = "No identity document on file to file with the airway bill.";
-      await recordBookingDocketError(order.id, { stage: "kyc", message });
-      return { status: "failed", awb_no: null, message };
-    }
-
-    // `order.items` is the payload the form built, read back from the row we
-    // just wrote rather than from req.body — so what ITD is sent is exactly
-    // what was persisted, and the two can never drift.
-    const payload = {
-      ...(order.items as Record<string, unknown>),
-    } as unknown as CreateShipmentPayload;
-
-    const publicUrl =
-      process.env.PUBLIC_URL ?? `http://localhost:${process.env.PORT ?? 5000}`;
-    const kycPayload = buildItdKycPayload(
-      {
-        document_type: kyc.document_type,
-        document_no: kyc.document_no,
-        capability_id: kyc.capability_id,
-      },
-      publicUrl
-    );
-    payload.kyc_details = kycPayload.kyc_details;
-    payload.shipper_gstin_type = kycPayload.shipper_gstin_type;
-    payload.shipper_gstin_no = kycPayload.shipper_gstin_no;
-
-    // One retry, and only on an expired token.
-    //
-    // The block above mints only when the session carries NO token. A session
-    // carrying a stale one skips minting, sends it, and ITD answers 500 with
-    // AUTH TOKEN EXPIRED — not 401, so `createShipment` throws it as an
-    // ordinary error and nothing upstream recognises it as an auth problem.
-    //
-    // Expiry cannot be predicted into. ITD's auth response carries no expiry
-    // field, so `itdTokenExpiryIso` writes a guessed 24 hours for an endpoint
-    // the company token in itd.ts treats as 4 — a token is routinely dead long
-    // before anything thinks it is due for refresh. Reacting to the refusal is
-    // the only reliable signal there is.
-    //
-    // Strictly once: a second expiry on a token minted seconds earlier means
-    // the credential itself is wrong, and retrying that files nothing but load.
-    let itdResponse: Awaited<ReturnType<typeof itdClient.createShipment>> | null = null;
-    let failure: string | null = null;
-
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      if (attempt === 1) {
-        const email = req.session.user?.email;
-        const minted = email ? await mintItdSession(req, dbUserId, email) : null;
-        if (!minted || !req.session.itdToken) {
-          // Keep the ITD refusal as the reason. "Could not re-mint" is the
-          // symptom of it, and the first message is the one that names ITD.
-          break;
-        }
-        token = req.session.itdToken;
-        console.log(
-          `[docketAtBooking] ${order.order_no}: ITD token had expired, minted a new one and retrying`
-        );
-      }
-
-      try {
-        console.log(
-          `[docketAtBooking] filing ITD docket for order ${order.order_no} (user ${dbUserId})`
-        );
-        itdResponse = await withTimeout(
-          itdClient.createShipment(payload, token),
-          BOOKING_DOCKET_TIMEOUT_MS,
-          "ITD create_docket (booking)"
-        );
-        failure = null;
-        break;
-      } catch (err) {
-        failure = err instanceof Error ? err.message : "ITD refused the docket.";
-        itdResponse = null;
-        if (!isItdAuthExpired(failure)) break;
-      }
-    }
-
-    if (!itdResponse) {
-      const message = failure ?? "ITD refused the docket.";
-      console.error(`[docketAtBooking] ${order.order_no} failed:`, message);
-      await recordBookingDocketError(order.id, { stage: "create_docket", message });
-      return { status: "failed", awb_no: null, message };
-    }
-
-    if (!itdResponse.success || !itdResponse.data?.awb_no) {
-      const message = itdResponse.errors?.join("; ") || "ITD returned no airway bill number.";
-      console.error(`[docketAtBooking] ${order.order_no} rejected:`, message);
-      await recordBookingDocketError(order.id, { stage: "create_docket", message });
-      return { status: "failed", awb_no: null, message };
-    }
-
-    const awb = itdResponse.data.awb_no;
-
-    // Status is deliberately untouched: ITD holds the shipment, but the parcel
-    // is still in the customer's house and has to be collected, weighed and
-    // paid for exactly as before.
-    const docketed = await applyBookingDocket({
-      orderId: order.id,
-      awbNo: awb,
-      docketResponse: itdResponse,
-    });
-    if (!docketed) {
-      // The AWB exists at ITD but the row would not take it — a concurrent
-      // write, or a DB blip. Say so loudly: this is the one failure mode that
-      // leaves the two sides disagreeing, and it needs a human.
-      const message = `ITD issued AWB ${awb} but it could not be saved against this order.`;
-      console.error(`[docketAtBooking] ${order.order_no}: ${message}`);
-      await recordBookingDocketError(order.id, { stage: "persist", message });
-      return { status: "failed", awb_no: null, message };
-    }
-
-    void insertOrderEvent({
-      order_id: order.id,
-      status: order.status,
-      note: `Docket filed at booking · AWB ${awb}`,
-      actor_user_id: dbUserId,
-      metadata: { action: "docket_at_booking", awb_no: awb },
-    });
-
-    // The `shipments` row and its addresses, so tracking and the documents
-    // endpoint have something to read. `notifyDispatch: false` because the
-    // parcel has not shipped — see the note on persistShipmentAfterCreate.
-    void persistShipmentAfterCreate(dbUserId, payload, itdResponse, req.ip, {
-      notifyDispatch: false,
-    });
-
-    return { status: "issued", awb_no: awb, message: null };
-  }
-
-  /**
-   * Who a KYC document belongs to: the signed-in account, or a guest.
-   *
-   * The account wins whenever there is one. Otherwise this browser must be
-   * mid-guest-booking: a signupRef bound to a phone, which `signupRefForPhone`
-   * only ever mints after an OTP on that number, and discards the moment the
-   * number changes. The ref is re-checked against a live verification here so
-   * that a session left open overnight cannot still upload against a number
-   * proved yesterday — the ten-minute window is the point of it.
-   *
-   * Returns null when neither holds, which the caller answers as 401.
-   */
-  async function resolveKycOwner(
-    req: Request,
-    options?: { allowSessionGuest?: boolean }
-  ): Promise<{ userId: string; guestRef: null } | { userId: null; guestRef: string } | null> {
-    if (req.session.dbUserId) return { userId: req.session.dbUserId, guestRef: null };
-
-    /**
-     * Reading your own document, on a session that already proved the number.
-     *
-     * Opt-in, and only the GETs opt in. The ten-minute OTP window below is the
-     * right rule for a WRITE — it is what stops a stale session uploading
-     * against a number proved yesterday — but applied to a read it means a
-     * returning guest cannot see the document they already gave us, and the
-     * booking screen offers them an upload form for a document that is on
-     * file.
-     *
-     * `session.guestRef` is not weaker proof for a read: it is minted only by
-     * signupRefForPhone, which only ever runs after an OTP on that number, and
-     * it is the same ref /api/guest/profile is already trusted to answer from.
-     * The row it reaches is the caller's own by construction.
-     */
-    if (options?.allowSessionGuest && req.session.guestRef) {
-      return { userId: null, guestRef: req.session.guestRef };
-    }
-
-    // A guest names the number they proved, and it is checked here rather than
-    // trusted — the same shape /api/signup/documents uses. Falls back to the
-    // session's own phone so a repeat upload need not resend it.
-    const claimed =
-      typeof req.body?.phone === "string" ? req.body.phone.trim() : req.session.signupPhone;
-    if (!claimed) return null;
-
-    const verified = await hasRecentVerification(claimed, "auth", OTP_VERIFICATION_WINDOW_MINUTES);
-    if (!verified) return null;
-
-    // A number with an account is not a guest, however it got here. Refusing
-    // before the write keeps an identity document from being stored against a
-    // guest ref when the person it belongs to already has somewhere to keep it.
-    if (await findItdUserIdByPhone(claimed)) return null;
-
-    // Mints on first upload and returns the same ref afterwards, discarding
-    // anything staged under a different number. This is the only thing that
-    // creates a guest's ref: they never touch the signup endpoints, so without
-    // it there would be nothing to own the document or, later, the order.
-    const ref = await signupRefForPhone(req, claimed);
-    return { userId: null, guestRef: ref };
-  }
-
-  async function mirrorAadhaarToKyc(
-    owner: { userId: string; guestRef?: null } | { userId: null; guestRef: string },
-    aadhaar: { document_no: string | null; original_filename: string; mime_type: string; file_size_bytes: number; file_data: string } | null,
-    tag: string
-  ): Promise<void> {
-    // NOT NULL on kyc_documents.document_no — a slot without a typed number
-    // cannot be mirrored, and the Aadhaar slot always asks for one.
-    if (!aadhaar?.document_no) return;
-
-    const mirrored = await upsertKycDocument({
-      user_id: owner.userId,
-      guest_ref: owner.guestRef ?? null,
-      capability_id: crypto.randomUUID(),
-      document_type: "Aadhaar Number",
-      document_no: aadhaar.document_no,
-      original_filename: aadhaar.original_filename,
-      mime_type: aadhaar.mime_type,
-      file_size_bytes: aadhaar.file_size_bytes,
-      file_data: aadhaar.file_data,
-    });
-    if (!mirrored) {
-      console.error(
-        `[${tag}] KYC mirror failed for`,
-        owner.userId ? `user ${owner.userId}` : `guest ${owner.guestRef}`
-      );
-    }
-  }
-
-  /**
-   * Refuse the account until every compelled document is present and verified.
-   *
-   * Returns null when the set falls short, having already answered the request;
-   * `missing_documents` / `unverified_documents` are echoed back so the form can
-   * mark the gaps rather than making the customer hunt for them.
-   *
-   * The verdict itself comes from `verificationState` in shared/accountSpec.ts,
-   * which the banner, the docket guard and the ops queue also read. This
-   * function owns only the HTTP shape of the refusal.
-   *
-   * Whatever is staged is returned even when the gate is waived, because the
-   * caller mirrors the Aadhaar out of it — a customer who uploaded one document
-   * and skipped the other should keep the one they gave us.
-   */
-  /**
-   * Whether a document's number is still the number of record.
-   *
-   * Masking can arrive from either side and means the same thing it does in
-   * cashfreeOcr.compareNumbers: a masked value discloses only its last four
-   * digits, so that is all an honest comparison can use. Two unmasked values
-   * are compared whole.
-   */
-  function sameIdentityNumber(documentNo: string | null, recorded: string): boolean {
-    if (!documentNo) return false;
-    const a = documentNo.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
-    const b = recorded.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
-    if (!a || !b) return false;
-    if (a === b) return true;
-
-    const masked = (v: string): boolean => /X{2,}/.test(v);
-    if (!masked(a) && !masked(b)) return false;
-
-    const tail = (v: string): string => v.replace(/[^0-9]/g, "").slice(-4);
-    return tail(a).length === 4 && tail(a) === tail(b);
-  }
-
-  async function assertDocumentsStaged(
-    req: Request,
-    res: Response,
-    accountType: "personal" | "company",
-    category: CompanyCategory | null,
-    phone: string
-  ): Promise<Map<DocSlot, { document_no: string | null; capability_id: string }> | null> {
-    const signupRef = req.session.signupRef;
-    // Seeded here as well as on the documents read, so a client that skipped
-    // that screen — or reached this with a document uploaded since — is held
-    // to what the customer has actually given us rather than to what one GET
-    // happened to have copied.
-    if (signupRef) await seedSignupDocumentFromGuestKyc(signupRef);
-    const staged = signupRef ? await listDocumentsBySignupRef(signupRef) : [];
-    const stagedBySlot = new Map(
-      staged.map((row) => [
-        row.doc_slot,
-        { document_no: row.document_no, capability_id: row.capability_id },
-      ])
-    );
-
-    const { missing, unverified } = verificationState(accountType, category, staged);
-
-    if (missing.length > 0) {
-      res.status(400).json({
-        message: `Please upload: ${missing.map((s) => DOC_SLOT_SPECS[s].label).join(", ")}`,
-        missing_documents: missing,
-      });
-      return null;
-    }
-
-    // Present is not the same as verified. A document that was never actually
-    // read — a blurred scan, an unreachable Cashfree, a GST certificate with
-    // no legible number — is refused here rather than opening an account on a
-    // document nobody has checked.
-    //
-    // This makes verification load-bearing: while the readers are unreachable,
-    // no account can open. That is the deliberate trade.
-    //
-    // Which slots that covers, and why `bypassed` passes, is decided once in
-    // verificationState (shared/accountSpec.ts) so this gate, the customer's
-    // banner and the docket guard cannot answer differently. Note the GST
-    // certificate IS covered: Cashfree has no OCR type for one, but
-    // server/gstCertificate.ts reads it and writes a real verdict.
-    if (unverified.length > 0) {
-      res.status(422).json({
-        message:
-          `We could not verify your ${unverified
-            .map((slot) => DOC_SLOT_SPECS[slot].label)
-            .join(" and ")}. Please upload a clear photo of the original and check the number you entered.`,
-        unverified_documents: unverified,
-      });
-      return null;
-    }
-
-    // A staged document carries the number it was checked against at the time
-    // it was uploaded. That number can since have changed: the identity step
-    // is cleared and retyped on every arrival, so a customer who goes back and
-    // enters a different Aadhaar leaves a card for the old one behind.
-    //
-    // The OCR verdict above does not catch it — that row says `match`, and it
-    // was a match, against a number nobody uses now. So the two are compared
-    // directly here. Without this an account can open on a document for one
-    // number and an identity row for another, which is exactly the bad data
-    // the whole document check exists to keep out of Indian customs.
-    //
-    // Compared on the last four digits for the same reason compareNumbers is:
-    // an Aadhaar recorded through DigiLocker is masked, and comparing a masked
-    // value in full would refuse a document that is perfectly good.
-    const recorded = await recordedIdentityNumbers(req, phone);
-    const outdated = staged
-      .filter((row) => {
-        if (!isVerifiedDocSlot(row.doc_slot)) return false;
-        const now = recorded.get(IDENTITY_KIND_BY_SLOT[row.doc_slot]);
-        return !now || !sameIdentityNumber(row.document_no, now);
-      })
-      .map((row) => row.doc_slot);
-
-    if (outdated.length > 0) {
-      res.status(422).json({
-        message: `Your ${outdated
-          .map((slot) => DOC_SLOT_SPECS[slot].label)
-          .join(" and ")} was uploaded for a different number. Please upload it again.`,
-        outdated_documents: outdated,
-      });
-      return null;
-    }
-
-    return stagedBySlot;
-  }
 
   /**
    * The typed signature that closes signup.
@@ -1933,77 +1206,8 @@ export async function registerRoutes(
     contract_signed_name: z.string().trim().max(SIGNATURE_MAX_LENGTH, SIGNATURE_ERROR),
   });
 
-  /** The columns an acceptance writes, with the evidence to go alongside it. */
-  function contractColumns(
-    req: Request,
-    signedName: string
-  ): {
-    contract_signed_name: string;
-    contract_version: string;
-    contract_accepted_at: string;
-    contract_accepted_ip: string | null;
-  } {
-    return {
-      contract_signed_name: signedName.trim(),
-      contract_version: CONTRACT_VERSION,
-      contract_accepted_at: new Date().toISOString(),
-      // Behind a proxy this is only as good as `trust proxy`, which is why it
-      // is evidence alongside the timestamp rather than proof on its own.
-      contract_accepted_ip: req.ip ?? null,
-    };
-  }
-
-  /** Move the staged documents onto the new account; never fatal to signup. */
-  async function claimDocumentsForUser(req: Request, userId: string): Promise<void> {
-    const signupRef = req.session.signupRef;
-    if (!signupRef) return;
-    try {
-      await claimSignupDocuments(signupRef, userId);
-      // The proved numbers move with the files they belong to. A failure here
-      // leaves the rows on the signup_ref side — recoverable, and the account
-      // still stands, same trade as the documents themselves.
-      await claimSignupIdentityVerifications(signupRef, userId);
-    } catch (err) {
-      console.error("[signup] claiming staged signup rows failed:", err);
-      return;
-    }
-    delete req.session.signupRef;
-    delete req.session.signupPhone;
-  }
-
-  /**
-   * Hand this account everything it booked as a guest on the same number.
-   *
-   * Runs after the account exists and after its own staged rows are claimed.
-   * Best-effort by design: an unclaimed order is still a real order, tracked
-   * by its number and visible to ops, and failing a signup over it would be
-   * the worse trade. The next signup on that number would claim it anyway.
-   *
-   * The guest session is cleared either way — the browser is signed in now,
-   * and leaving a guest ref behind would let a later payment be authorised by
-   * the weaker of the two identities.
-   */
-  async function claimGuestBookingsForUser(req: Request, phone: string, userId: string): Promise<void> {
-    try {
-      const claimed = await claimGuestOrdersForUser(phone, userId);
-      if (claimed.orders > 0) {
-        console.log(`[signup] claimed ${claimed.orders} guest order(s) for ${userId}`);
-      }
-
-      // The guest profile has no reader once an account exists: signup wrote
-      // the name, email and company details to itd_users, and the claim above
-      // moved everything that hung off the ref. Leaving it would keep a second
-      // copy of a customer's personal data that nothing ever reads again.
-      const dropped = await deleteGuestProfilesFor(phone, claimed.refs);
-      if (dropped > 0) {
-        console.log(`[signup] removed ${dropped} guest profile row(s) for ${phone}`);
-      }
-    } catch (err) {
-      console.error("[signup] claiming guest bookings failed:", err);
-    }
-    delete req.session.guestRef;
-    delete req.session.guestPhone;
-  }
+  // Filing an application, and re-parenting what a signup staged, now live
+  // in server/signupClaim.ts.
 
   // GET /api/account/documents/:id/file — capability URL, same contract as the
   // KYC one: the unguessable id in the path is the authorisation, so ITD can
@@ -2027,18 +1231,7 @@ export async function registerRoutes(
         documentId: doc.id,
         userId: doc.user_id,
       });
-      const buffer = Buffer.from(doc.file_data, "base64");
-      res.set({
-        "Content-Type": doc.mime_type,
-        "Content-Length": String(buffer.length),
-        // Re-uploads keep the capability_id, so a cached copy would go stale.
-        "Cache-Control": "no-store",
-        "X-Robots-Tag": "noindex, nofollow, noarchive",
-        "X-Content-Type-Options": "nosniff",
-        "Referrer-Policy": "no-referrer",
-        "Content-Disposition": `inline; filename="${doc.original_filename}"`,
-      });
-      res.send(buffer);
+      sendDocumentFile(res, doc);
     } catch (err) {
       console.error("[GET /api/account/documents/:id/file] failed:", err);
       res.status(500).json({ message: "Failed to retrieve document." });
@@ -2142,6 +1335,8 @@ export async function registerRoutes(
       const rows = await listDocumentsByUserId(req.session.dbUserId);
       res.set("Cache-Control", "no-store");
       res.json({
+        // TEMPORARY: see GET /api/signup/documents.
+        aadhaar_check_digits: !isOcrBypassed(),
         documents: rows.map((row) => ({
           doc_slot: row.doc_slot,
           capability_id: row.capability_id,
@@ -2169,7 +1364,7 @@ export async function registerRoutes(
         return;
       }
       if (!req.file) {
-        res.status(400).json({ message: "No file uploaded." });
+        res.status(400).json({ message: "No file uploaded.", code: "FILE_MISSING" });
         return;
       }
 
@@ -2190,7 +1385,7 @@ export async function registerRoutes(
 
       const docNo = normalizeDocumentNo(slot, req.body?.document_no);
       if (!docNo.ok) {
-        res.status(400).json({ message: docNo.message });
+        res.status(400).json({ message: docNo.message, code: "DOCUMENT_NUMBER_INVALID" });
         return;
       }
 
@@ -2211,6 +1406,7 @@ export async function registerRoutes(
           res.status(409).json({
             message:
               "This account has no GST number on file, so its certificate cannot be checked. Please contact support.",
+            code: "GSTIN_NOT_ON_FILE",
           });
           return;
         }
@@ -2323,13 +1519,16 @@ export async function registerRoutes(
 
     const existing = await findItdUserIdByPhone(phone);
     if (existing) {
-      res.status(409).json({ message: "This phone number is already registered. Please sign in instead." });
+      res.status(409).json({
+        message: "This phone number is already registered. Please sign in instead.",
+        code: "ACCOUNT_EXISTS",
+      });
       return;
     }
 
     // "auth" — the unified entry point issues one code before it knows whether
     // the number ends in a sign-in, a link, or this. See otpPurposeSchema.
-    const verified = await hasRecentVerification(phone, "auth", OTP_VERIFICATION_WINDOW_MINUTES);
+    const verified = await isPhoneVerifiedHere(req, phone);
     if (!verified) {
       res.status(400).json({
         message: "Your phone verification has expired. Please request a new code.",
@@ -2347,6 +1546,19 @@ export async function registerRoutes(
 
     const staged = await assertDocumentsStaged(req, res, "personal", null, phone);
     if (!staged) return;
+
+    // Account review: everything above has passed, so file it for the Bombino
+    // team instead of opening the account here. See server/accountApplications.ts.
+    if (isAccountReviewEnabled()) {
+      await respondWithApplication(req, res, {
+        phone,
+        accountType: "personal",
+        category: null,
+        details: { full_name, email },
+        contract_signed_name,
+      });
+      return;
+    }
 
     const itdCustomerId = `local-${crypto.randomUUID()}`;
     const row = await upsertItdUserAndReturnId({
@@ -2489,17 +1701,20 @@ export async function registerRoutes(
 
     const extras = collectExtraFields(company_category, parsed.data);
     if (!extras.ok) {
-      res.status(400).json({ message: extras.message });
+      res.status(400).json({ message: extras.message, code: "EXTRA_FIELD_INVALID" });
       return;
     }
 
     const existing = await findItdUserIdByPhone(phone);
     if (existing) {
-      res.status(409).json({ message: "This phone number is already registered. Please sign in instead." });
+      res.status(409).json({
+        message: "This phone number is already registered. Please sign in instead.",
+        code: "ACCOUNT_EXISTS",
+      });
       return;
     }
 
-    const verified = await hasRecentVerification(phone, "auth", OTP_VERIFICATION_WINDOW_MINUTES);
+    const verified = await isPhoneVerifiedHere(req, phone);
     if (!verified) {
       res.status(400).json({
         message: "Your phone verification has expired. Please request a new code.",
@@ -2528,6 +1743,7 @@ export async function registerRoutes(
     if (recordedGstin && recordedGstin.toUpperCase() !== gstin) {
       res.status(422).json({
         message: `Your GST number was verified as ${recordedGstin}. Please verify ${gstin} before creating the account.`,
+        code: "GSTIN_CHANGED",
         unverified_identity: ["gstin"],
       });
       return;
@@ -2535,6 +1751,31 @@ export async function registerRoutes(
 
     const staged = await assertDocumentsStaged(req, res, "company", company_category, phone);
     if (!staged) return;
+
+    // Account review: file it instead. No ITD add_customer either — the team
+    // creates the customer in ITD by hand, and calling it here as well would
+    // register the company twice.
+    if (isAccountReviewEnabled()) {
+      await respondWithApplication(req, res, {
+        phone,
+        accountType: "company",
+        category: company_category,
+        details: {
+          email,
+          company_name,
+          gstin,
+          contact_person,
+          address,
+          pincode,
+          city,
+          state,
+          hub_id,
+          ...extras.values,
+        },
+        contract_signed_name,
+      });
+      return;
+    }
 
     const itdCustomerId = `local-${crypto.randomUUID()}`;
     const row = await upsertItdUserAndReturnId({
@@ -2723,7 +1964,7 @@ export async function registerRoutes(
     // below, and a wrong code is rejected here either way.
     const otp = await verifyOtp(phone, "auth", code, { consume: false });
     if (!otp.ok) {
-      res.status(otp.status).json({ message: otp.message });
+      res.status(otp.status).json({ message: otp.message, code: otp.code });
       return;
     }
 
@@ -2739,14 +1980,15 @@ export async function registerRoutes(
       return;
     }
 
-    // Spend it now. That leaves hasRecentVerification(phone, "auth", …) true
-    // for the next few minutes, which is what authorises the document upload
-    // and the booking that follow. No session is created.
+    // Spend it now, and stamp THIS session with the proof. That is what
+    // authorises the document upload and the booking that follow, for the
+    // next few minutes and from this browser only.
     const spent = await consumeOtp(phone, "auth", code);
     if (!spent.ok) {
-      res.status(spent.status).json({ message: spent.message });
+      res.status(spent.status).json({ message: spent.message, code: spent.code });
       return;
     }
+    markPhoneVerified(req, phone);
 
     // Bind this browser to the number it just proved, and to nothing else.
     //
@@ -2821,9 +2063,10 @@ export async function registerRoutes(
 
     const otp = await consumeOtp(phone, "auth", code);
     if (!otp.ok) {
-      res.status(otp.status).json({ message: otp.message });
+      res.status(otp.status).json({ message: otp.message, code: otp.code });
       return;
     }
+    markPhoneVerified(req, phone);
 
     const existing = await findItdUserIdByPhone(phone);
     if (!existing) {
@@ -2846,9 +2089,15 @@ export async function registerRoutes(
         req.session.guestRef = guestRef;
         req.session.guestPhone = phone;
 
+        // An applicant waiting on the Bombino team signs in as exactly this: a
+        // guest. Their application rides along so the app can say where it is.
+        const application = isAccountReviewEnabled() ? await getLatestApplicationByPhone(phone) : null;
         req.session.save((err) => {
           if (err) console.error("[phone/continue] guest session save error:", err);
-          res.json({ status: "guest" as const });
+          res.json({
+            status: "guest" as const,
+            application: application ? toCustomerView(application) : null,
+          });
         });
         return;
       }
@@ -2883,6 +2132,14 @@ export async function registerRoutes(
 
     let user = toSessionUser(profile);
     req.session.dbUserId = existing.id;
+
+    // A guest booking that landed while the Bombino team was approving this
+    // account was filed under the guest ref after approval had already moved
+    // the rest. Claiming again is idempotent and finds nothing in the ordinary
+    // case: a number with an account cannot book as a guest.
+    void claimGuestOrdersForUser(phone, existing.id).catch((err) =>
+      console.error("[phone/continue] late guest-order claim failed:", err)
+    );
 
     // Accounts linked to ITD get a live ITD token here. Without this the
     // session would look valid but ITD-backed routes would either 401
@@ -2925,7 +2182,7 @@ export async function registerRoutes(
     }
     const { phone, email, password } = parsed.data;
 
-    const verified = await hasRecentVerification(phone, "auth", OTP_VERIFICATION_WINDOW_MINUTES);
+    const verified = await isPhoneVerifiedHere(req, phone);
     if (!verified) {
       res.status(400).json({ message: "Please verify your phone number first" });
       return;
@@ -2971,6 +2228,7 @@ export async function registerRoutes(
         res.status(409).json({
           message:
             "This mobile number is already linked to a different account. Sign in with it, or contact support to move it.",
+          code: "PHONE_LINKED_ELSEWHERE",
         });
         return;
       }
@@ -3219,11 +2477,7 @@ export async function registerRoutes(
         return;
       }
 
-      const verified = await hasRecentVerification(
-        phone,
-        "auth",
-        OTP_VERIFICATION_WINDOW_MINUTES
-      );
+      const verified = await isPhoneVerifiedHere(req, phone);
       if (!verified) {
         res.status(400).json({ message: "Please verify your new number first" });
         return;
@@ -3390,6 +2644,11 @@ export async function registerRoutes(
         "Last Updated",
       ];
 
+      // The server runs UTC and every customer is in India: a booking made
+      // after 18:30 IST would otherwise export under the previous day.
+      const istDate = (value: string | null | undefined): string =>
+        value ? new Date(value).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }) : "";
+
       const escape = (val: unknown) => {
         if (val === null || val === undefined) return "";
         const str = String(val);
@@ -3404,13 +2663,7 @@ export async function registerRoutes(
         ...rows.map((r) =>
           [
             escape(r.awb_number),
-            escape(
-              r.booking_date
-                ? new Date(r.booking_date).toLocaleDateString("en-IN")
-                : r.created_at
-                  ? new Date(r.created_at).toLocaleDateString("en-IN")
-                  : ""
-            ),
+            escape(istDate(r.booking_date) || istDate(r.created_at)),
             escape(r.service_name),
             escape(r.sender_city),
             escape(r.consignee_city),
@@ -3422,16 +2675,13 @@ export async function registerRoutes(
             escape(r.declared_value),
             escape(r.currency),
             escape(r.current_status),
-            escape(
-              r.created_at ? new Date(r.created_at).toLocaleDateString("en-IN") : ""
-            ),
+            escape(istDate(r.created_at)),
           ].join(",")
         ),
       ];
 
       const csv = csvRows.join("\n");
-      const filename =
-        "bombino-shipments-" + new Date().toISOString().split("T")[0] + ".csv";
+      const filename = `bombino-shipments-${todayInIst()}.csv`;
 
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", 'attachment; filename="' + filename + '"');
@@ -3503,8 +2753,7 @@ export async function registerRoutes(
    * same trust /api/guest/profile answers from — never one named in the request.
    */
   function sessionGuestRef(req: Request): string | null {
-    if (req.session.user) return null;
-    return req.session.guestRef ?? req.session.signupRef ?? null;
+    return ownerFrom(req, OWNER_PROFILES.guestNotifications)?.guestRef ?? null;
   }
 
   app.get(
@@ -3740,186 +2989,9 @@ export async function registerRoutes(
   );
 
   // ── Support: AI chat ──────────────────────────────────────────────────────
-
-  // POST /api/support/chat — guest and logged-in; validates body and returns { message }
-  app.post(
-    "/api/support/chat",
-    ensureDbUser,
-    refreshItdTokenIfNeeded,
-    supportChatRateLimit,
-    async (req: Request, res: Response) => {
-    const body = req.body as { messages?: unknown; sessionId?: unknown };
-    const messages = body?.messages;
-    const bodySessionId =
-      typeof body?.sessionId === "string" && body.sessionId.trim() !== ""
-        ? body.sessionId.trim()
-        : null;
-
-    if (!Array.isArray(messages)) {
-      res.status(400).json({ message: "messages must be an array" });
-      return;
-    }
-    if (messages.length < 1 || messages.length > SUPPORT_CHAT_MAX_MESSAGES) {
-      res.status(400).json({
-        message: `messages must have 1–${SUPPORT_CHAT_MAX_MESSAGES} items`,
-      });
-      return;
-    }
-
-    for (let i = 0; i < messages.length; i++) {
-      const m = messages[i] as Record<string, unknown>;
-      if (m?.role !== "user" && m?.role !== "assistant") {
-        res.status(400).json({
-          message: `messages[${i}]: role must be "user" or "assistant"`,
-        });
-        return;
-      }
-      if (typeof m?.content !== "string") {
-        res.status(400).json({
-          message: `messages[${i}]: content must be a string`,
-        });
-        return;
-      }
-      if (m.content.length > SUPPORT_CHAT_MAX_CONTENT_LENGTH) {
-        res.status(400).json({
-          message: `messages[${i}]: content must be at most ${SUPPORT_CHAT_MAX_CONTENT_LENGTH} characters`,
-        });
-        return;
-      }
-    }
-
-    const chatMessages: ChatMessage[] = messages.map((m: Record<string, unknown>) => ({
-      role: m.role as "user" | "assistant",
-      content: String(m.content),
-    }));
-
-    const dbUserId = req.session.dbUserId ?? null;
-    const isLoggedIn = !!req.session.user && !!dbUserId;
-
-    let activeSessionId: string | null = null;
-    if (isLoggedIn && dbUserId) {
-      if (bodySessionId) {
-        activeSessionId = bodySessionId;
-      } else {
-        const row = await getOrCreateSupportSession(dbUserId);
-        activeSessionId = row?.id ?? null;
-      }
-    }
-
-    const context = {
-      user: req.session.user ?? null,
-      itdToken: req.session.itdToken ?? null,
-      dbUserId,
-      sessionId: activeSessionId,
-    };
-
-    try {
-      const message = await handleChat(chatMessages, context);
-      const stored: ChatMessage[] = [
-        ...chatMessages,
-        { role: "assistant" as const, content: message },
-      ];
-
-      if (isLoggedIn && activeSessionId) {
-        const firstUser = chatMessages.find((m) => m.role === "user");
-        const titleCandidate =
-          firstUser !== undefined
-            ? generateSessionTitle(firstUser.content)
-            : undefined;
-        void updateSupportSessionMessages(
-          activeSessionId,
-          stored,
-          titleCandidate
-        );
-
-        const lastUserMsg =
-          chatMessages
-            .filter((m) => m.role === "user")
-            .at(-1)
-            ?.content?.toLowerCase() ?? "";
-        const isThankyou = [
-          "thank you",
-          "thanks",
-          "bye",
-          "goodbye",
-          "perfect",
-          "great",
-        ].some((phrase) => lastUserMsg.includes(phrase));
-        const hasContactCta = message
-          .toLowerCase()
-          .includes("tap_contact_us");
-        if (isThankyou && !hasContactCta && activeSessionId) {
-          void resolveSupportSession(activeSessionId);
-        }
-      }
-
-      res.json({
-        message,
-        sessionId: isLoggedIn ? activeSessionId : null,
-      });
-    } catch {
-      res.status(500).json({
-        message:
-          "Something went wrong. Please try again or contact support from the app menu.",
-      });
-    }
-  });
-
-  // GET /api/support/session — logged-in: active session + messages
-  app.get(
-    "/api/support/session",
-    requireUser,
-    ensureDbUser,
-    async (req: Request, res: Response) => {
-      const dbUserId = req.session.dbUserId ?? null;
-      if (!dbUserId) {
-        res.json({
-          sessionId: null,
-          messages: [] as ChatMessage[],
-          title: null as string | null,
-        });
-        return;
-      }
-
-      const row = await getOrCreateSupportSession(dbUserId);
-      if (!row) {
-        res.json({
-          sessionId: null,
-          messages: [] as ChatMessage[],
-          title: null as string | null,
-        });
-        return;
-      }
-
-      res.json({
-        sessionId: row.id,
-        messages: row.messages,
-        title: row.title,
-      });
-    }
-  );
-
-  // POST /api/support/new-session — start fresh conversation
-  app.post(
-    "/api/support/new-session",
-    requireUser,
-    ensureDbUser,
-    async (req: Request, res: Response) => {
-      const dbUserId = req.session.dbUserId ?? null;
-      if (!dbUserId) {
-        res.status(400).json({ message: "Profile not synced yet" });
-        return;
-      }
-
-      const created = await createNewSupportSession(dbUserId);
-      if (!created) {
-        res.status(503).json({ message: "Could not create a new session" });
-        return;
-      }
-
-      res.json({ sessionId: created.id });
-    }
-  );
+  // Lives in routes/support.ts. Registered here, where the block used to be,
+  // so the order routes are matched in is unchanged.
+  registerSupportRoutes(app);
 
   // ── ITD: Create Shipment ──────────────────────────────────────────────────
 
@@ -3955,6 +3027,7 @@ export async function registerRoutes(
     if (!kyc) {
       res.status(422).json({
         message: "KYC required. Upload your identity document before creating a shipment.",
+        code: "KYC_REQUIRED",
       });
       return;
     }
@@ -4020,8 +3093,15 @@ export async function registerRoutes(
       pickup_request: z.union([z.literal(1), z.literal(2)]),
       pickup_date: z.string().trim().min(1).optional().nullable(),
       payment_method: z.enum(PAYMENT_METHODS),
-      booked_weight: z.number().optional().nullable(),
-      quoted_amount: z.number().optional().nullable(),
+      // Positive, and a sane parcel. The amount is only the browser's claim —
+      // the server asks ITD for the real price below and books at that.
+      booked_weight: z
+        .number()
+        .positive("Weight must be greater than zero")
+        .max(1000, "Weight looks wrong — check the unit")
+        .optional()
+        .nullable(),
+      quoted_amount: z.number().positive("Amount must be greater than zero").optional().nullable(),
       /**
        * The shipping contract, signed on the sender step of a guest booking.
        *
@@ -4051,6 +3131,7 @@ export async function registerRoutes(
     })
     .refine((body) => body.pickup_request !== 1 || !!body.pickup_date, {
       message: "pickup_date is required when pickup_request is 1 (pickup)",
+      params: { code: "PICKUP_DATE_REQUIRED" },
     })
     // Two payment methods are tied to how the parcel reaches us, because each
     // names the person who physically takes the money. Pay-at-pickup is
@@ -4062,11 +3143,17 @@ export async function registerRoutes(
     // server/orderLifecycle.ts, so the order would stall before `settled`.
     .refine(
       (body) => !(body.pickup_request === 1 && body.payment_method === "pay_at_dropoff"),
-      { message: "Pay at drop-off is only available when you drop the parcel off yourself" }
+      {
+        message: "Pay at drop-off is only available when you drop the parcel off yourself",
+        params: { code: "PAY_AT_DROPOFF_NEEDS_DROPOFF" },
+      }
     )
     .refine(
       (body) => !(body.pickup_request === 2 && body.payment_method === "pay_at_pickup"),
-      { message: "Pay at pickup is only available when an agent collects the parcel" }
+      {
+        message: "Pay at pickup is only available when an agent collects the parcel",
+        params: { code: "PAY_AT_PICKUP_NEEDS_PICKUP" },
+      }
     );
 
   // POST /api/orders — requires login (session)
@@ -4088,7 +3175,14 @@ export async function registerRoutes(
   app.post("/api/orders", ensureDbUser, async (req: Request, res: Response) => {
     const parsed = orderCreateSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid order payload" });
+      // A refinement names its catalogued code in `params`; the message is
+      // still the one the form has always shown.
+      const issue = parsed.error.issues[0];
+      const code = issue?.code === "custom" ? issue.params?.code : undefined;
+      res.status(400).json({
+        message: issue?.message ?? "Invalid order payload",
+        code: isErrorCode(code) ? code : undefined,
+      });
       return;
     }
     const body = parsed.data;
@@ -4147,7 +3241,7 @@ export async function registerRoutes(
       const verified =
         !!guestPhone &&
         (stagedForThisPhone ||
-          (await hasRecentVerification(guestPhone, "auth", OTP_VERIFICATION_WINDOW_MINUTES)));
+          (await isPhoneVerifiedHere(req, guestPhone)));
 
       if (!verified) {
         res.status(401).json({
@@ -4253,12 +3347,36 @@ export async function registerRoutes(
     });
 
     if (!originAddr?.id) {
-      res.status(502).json({ message: "Could not save pickup address" });
+      res.status(502).json({ message: "Could not save pickup address", code: "ORDER_CREATE_FAILED" });
       return;
     }
 
     const isPickup = body.pickup_request === 1;
     const status = isPickup ? "pickup_requested" : "awaiting_dropoff";
+
+    // The price is ours to set, not the browser's. Ask ITD for the selected
+    // service at the booked weight — the same lookup the hub reprices with —
+    // and book at that. When ITD can't answer, the browser's amount is kept
+    // but marked unverified: it can't be charged online, and the hub won't
+    // scale it into a final price (server/opsActions.ts).
+    const itdQuote = body.booked_weight
+      ? await itdRateAtWeight(
+          {
+            items: body.items,
+            consignee: body.consignee,
+            origin: { city: body.origin_address.city, pincode: body.origin_address.pincode ?? null },
+            login: await itdRatesLoginFor(req.session.dbUserId ?? null),
+          },
+          body.booked_weight
+        )
+      : null;
+    const quotedAmount = itdQuote ? itdQuote.total : (body.quoted_amount ?? null);
+    if (itdQuote && body.quoted_amount != null && Math.abs(itdQuote.total - body.quoted_amount) > 1) {
+      console.warn("[orders] booking quote differs from ITD — booking at ITD's price", {
+        client: body.quoted_amount,
+        itd: itdQuote.total,
+      });
+    }
 
     // Stamp the account's verification state onto the order.
     //
@@ -4295,12 +3413,16 @@ export async function registerRoutes(
       consignee: body.consignee,
       items: body.items,
       booked_weight: body.booked_weight ?? null,
-      quoted_amount: body.quoted_amount ?? null,
+      quoted_amount: quotedAmount,
       packaging_required: body.packaging_required ?? false,
       payment_method: body.payment_method,
       is_cod: body.payment_method === "cod",
       metadata: {
         kyc_verified: bookingKyc.verified,
+        quote_verified: !!itdQuote,
+        ...(itdQuote && body.quoted_amount != null && itdQuote.total !== body.quoted_amount
+          ? { client_quoted_amount: body.quoted_amount }
+          : {}),
         // The guest's acceptance, kept with the shipment it authorised. An
         // account's lives on itd_users; a guest has no row of their own to
         // carry it, and the order is the thing the terms are about.
@@ -4320,7 +3442,7 @@ export async function registerRoutes(
     });
 
     if (!order) {
-      res.status(502).json({ message: "Order creation failed" });
+      res.status(502).json({ message: "Order creation failed", code: "ORDER_CREATE_FAILED" });
       return;
     }
 
@@ -4418,30 +3540,8 @@ export async function registerRoutes(
   // with the transition's effect — and put the race-prone preconditions in the
   // UPDATE's WHERE clause, not just in the guard (see orderLifecycle.ts).
 
-  /**
-   * Which handover each OTP-gated action checks.
-   *
-   * Kept as data next to the switch rather than inferred inside it, so adding a
-   * fourth handover is one line here and one transition row — the same
-   * discipline `orderLifecycle.ts` follows.
-   */
-  const HANDOVER_KIND_FOR_ACTION = {
-    mark_picked_up: "pickup",
-    mark_received_at_hub: "hub",
-    mark_received_dropoff: "dropoff",
-  } as const satisfies Record<string, HandoverKind>;
-
-  /**
-   * Whose code each handover checks, for the audit note.
-   *
-   * Not cosmetic: reading "with the hub's code" in an order's history is what
-   * tells whoever is investigating a disputed parcel which party was tested.
-   */
-  const HANDOVER_CODE_OWNER = {
-    pickup: "the customer's code",
-    hub: "the hub's code",
-    dropoff: "the customer's code",
-  } as const satisfies Record<HandoverKind, string>;
+  // The three handovers and whose code each checks now live beside the
+  // handler that uses them, in server/orderActions.ts.
 
   /** Which handover an ops override is waving through, by the status it acts on. */
   const HANDOVER_KIND_FOR_STATUS: Partial<Record<OrderStatus, HandoverKind>> = {
@@ -4541,28 +3641,45 @@ export async function registerRoutes(
       // branch re-asserts its preconditions in the UPDATE's WHERE clause and
       // treats a zero-row result as "someone else got there first" (409).
 
-      let updated: Order | null = null;
-      let eventNote = "";
-      let extra: Record<string, unknown> = {};
-      let collectionReceipt: { txnId: string | null; amount: number } | null = null;
+      /**
+       * What the arm did. One object rather than four `let`s, because every arm
+       * now writes it from inside `applyResult` — and TypeScript cannot follow
+       * an assignment made in a closure, so plain locals would narrow to
+       * `never` by the time they are read below.
+       */
+      const outcome: {
+        order: Order | null;
+        note: string;
+        meta: Record<string, unknown>;
+        receipt: { txnId: string | null; amount: number } | null;
+      } = { order: null, note: "", meta: {}, receipt: null };
+
+      /**
+       * A handler's answer, onto the response. Every arm returns
+       * `{ order, eventNote, eventMeta }` or `{ error }` and never touches
+       * `res` itself; this is the one place that knows how either becomes HTTP.
+       * Returns false when it has already answered.
+       */
+      const applyResult = (r: AgentActionResult): boolean => {
+        if ("error" in r) {
+          res.status(r.error.status).json({
+            message: r.error.message,
+            code: r.error.code,
+            ...(r.error.extra ?? {}),
+            availableActions: availableActions(order, role, { userId: callerId }),
+          });
+          return false;
+        }
+        outcome.order = r.order;
+        outcome.note = r.eventNote;
+        outcome.meta = r.eventMeta;
+        if ("receipt" in r) outcome.receipt = r.receipt;
+        return true;
+      };
 
       switch (action) {
         case "claim": {
-          updated = await claimPickup(order.id, callerId);
-          if (!updated) {
-            res.status(409).json({
-              message: "Another agent just took this pickup.",
-              code: "PICKUP_ALREADY_CLAIMED",
-            });
-            return;
-          }
-          eventNote = "Pickup claimed by agent";
-          // The customer can now be told a code, and will want it visible well
-          // before the doorbell goes. Best-effort: the claim is already
-          // committed, and refusing it because a code failed to write would
-          // hand the job back to the pool for no good reason. The customer's
-          // screen offers a regenerate when there is nothing to show.
-          await issueCode(order.id, "pickup");
+          if (!applyResult(await handleClaim({ order, callerId }))) return;
           break;
         }
 
@@ -4571,30 +3688,18 @@ export async function registerRoutes(
             res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
             return;
           }
-          updated = await advanceOrderStatus({
-            orderId: order.id,
-            agentId: callerId,
+          const result = await handleStartPickup({
+            order,
+            callerId,
             expectedFrom: transition.from,
             to: transition.to,
           });
-          if (!updated) {
-            // Either the order moved under us, or it is not ours. Both are the
-            // same answer to the caller, and saying which would disclose
-            // whether another agent holds it.
-            res.status(409).json({
-              message: "This pickup has already moved on. Refresh your list.",
-              code: "ORDER_STATE_CHANGED",
-            });
-            return;
-          }
-          eventNote = `Agent moved order to ${transition.to}`;
+          if (!applyResult(result)) return;
           break;
         }
 
         // ── OTP-gated handovers ───────────────────────────────────────────
-        // Three steps, one shape: check the code the other party read out,
-        // then move the order. The code is verified BEFORE the status write,
-        // so a wrong guess costs an attempt and changes nothing else.
+        // Three steps, one shape, and they live in server/orderActions.ts.
         case "mark_picked_up":
         case "mark_received_at_hub":
         case "mark_received_dropoff": {
@@ -4602,336 +3707,56 @@ export async function registerRoutes(
             res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
             return;
           }
-
-          const kind = HANDOVER_KIND_FOR_ACTION[action];
-
-          const otpBody = z
-            .object({
-              // `required_error` as well as the regex message: a missing key
-              // otherwise surfaces zod's bare "Required", which is what an
-              // agent would have been shown at a doorstep.
-              otp: z
-                .string({ required_error: "Enter the code" })
-                .trim()
-                // Exactly four. The pattern lives in handoverCodes.ts so the
-                // length the route accepts cannot drift from the length minted.
-                .regex(HANDOVER_CODE_PATTERN, "Enter the 4-digit code"),
-            })
-            .safeParse(parsed.data.payload ?? {});
-          if (!otpBody.success) {
-            res.status(400).json({
-              message: otpBody.error.issues[0]?.message ?? "The handover code is required",
-              code: "OTP_REQUIRED",
-            });
-            return;
-          }
-
-          const check = await verifyCode({
-            orderId: order.id,
-            kind,
-            submitted: otpBody.data.otp,
-            verifiedBy: callerId,
+          const result = await handleHandover({
+            order,
+            callerId,
+            role,
+            action,
+            expectedFrom: transition.from,
+            to: transition.to,
+            payload: parsed.data.payload,
           });
-
-          if (!check.ok) {
-            const messages: Record<typeof check.reason, string> = {
-              no_code: "There is no handover code on this order to check.",
-              locked:
-                "Too many wrong codes. Ask for a fresh code to be generated, then try again.",
-              mismatch:
-                check.attemptsLeft > 0
-                  ? `That code is not right. ${check.attemptsLeft} ${
-                      check.attemptsLeft === 1 ? "try" : "tries"
-                    } left.`
-                  : "That code is not right, and this code is now locked. Ask for a fresh one.",
-              error: "Could not check the code. Try again.",
-            };
-            res.status(check.reason === "error" ? 502 : 409).json({
-              message: messages[check.reason],
-              code: `OTP_${check.reason.toUpperCase()}`,
-              attemptsLeft: check.attemptsLeft,
-            });
-            return;
-          }
-
-          // Ownership differs by who is acting: the agent may only advance a
-          // job they hold, ops may act on anyone's.
-          updated =
-            role === "agent"
-              ? await advanceOrderStatus({
-                  orderId: order.id,
-                  agentId: callerId,
-                  expectedFrom: transition.from,
-                  to: transition.to,
-                })
-              : await transitionOrderStatus({
-                  orderId: order.id,
-                  expectedFrom: transition.from,
-                  to: transition.to,
-                });
-
-          if (!updated) {
-            // The code is already spent at this point. Saying so matters: the
-            // caller must ask for a fresh one rather than retyping the same
-            // number and being told it is wrong.
-            res.status(409).json({
-              message:
-                "This order moved on before the code was accepted. Refresh, then ask for a fresh code.",
-              code: "ORDER_STATE_CHANGED",
-            });
-            return;
-          }
-
-          eventNote = `${
-            role === "agent" ? "Agent" : "Ops"
-          } completed the ${kind} handover with ${HANDOVER_CODE_OWNER[kind]}`;
-          extra = { handover: kind, verified: true };
-
-          // The parcel is now in the agent's bag and the next handover is at the
-          // hub counter, where ops reads this number off their console. Issued
-          // here rather than at the counter so it is already on the ops screen
-          // when the agent walks up.
-          if (action === "mark_picked_up") {
-            await issueCode(order.id, "hub");
-          }
+          if (!applyResult(result)) return;
           break;
         }
+
 
         case "override_handover": {
           if (!transition.to) {
             res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
             return;
           }
-
-          const overrideBody = z
-            .object({
-              // Required, unlike every other note in this endpoint. An
-              // override is the one action here with no check on it at all,
-              // so the reason is the only thing anyone can audit it by.
-              reason: z
-                .string({ required_error: "Say why the code could not be used" })
-                .trim()
-                .min(3, "Say why the code could not be used")
-                .max(300, "Keep the reason under 300 characters"),
-            })
-            .safeParse(parsed.data.payload ?? {});
-          if (!overrideBody.success) {
-            res.status(400).json({
-              message: overrideBody.error.issues[0]?.message ?? "A reason is required",
-              code: "REASON_REQUIRED",
-            });
-            return;
-          }
-
-          const kind = HANDOVER_KIND_FOR_STATUS[transition.from];
-
-          updated = await transitionOrderStatus({
-            orderId: order.id,
+          const result = await handleOverrideHandover({
+            order,
+            callerId,
             expectedFrom: transition.from,
             to: transition.to,
+            payload: parsed.data.payload,
           });
-          if (!updated) {
-            res.status(409).json({
-              message: "This order has already moved on.",
-              code: "ORDER_STATE_CHANGED",
-            });
-            return;
-          }
-
-          // Spend the code so it cannot be used afterwards to imply the
-          // handover was verified when it was waved through.
-          if (kind) {
-            await burnCodeForOverride({
-              orderId: order.id,
-              kind,
-              overriddenBy: callerId,
-            });
-          }
-
-          eventNote = `Ops completed the ${kind ?? "handover"} without a code: ${overrideBody.data.reason}`;
-          extra = { handover: kind, override: true, reason: overrideBody.data.reason };
+          if (!applyResult(result)) return;
           break;
         }
 
+
         case "collect_payment": {
-          if (role === "agent") {
-            // Ops collection at the hub is M3's; this branch is the doorstep.
-            if (order.payment_method !== "pay_at_pickup") {
-              res.status(400).json({
-                message: "This order is not marked pay-at-pickup.",
-                code: "PAYMENT_METHOD_MISMATCH",
-              });
-              return;
-            }
-
-            const paymentBody = z
-              .object({
-                amount: z.number().positive("amount must be greater than zero"),
-                // How the money actually moved. Required: an agent handing over
-                // a parcel must have said whether they hold cash or watched a
-                // UPI transfer land, because only one of those ends up in their
-                // pouch at the end of the shift.
-                collection_mode: z.enum(["upi", "cash"], {
-                  errorMap: () => ({ message: "Choose UPI or cash" }),
-                }),
-                // UPI reference from the customer's app, if they read it out.
-                reference: z.string().trim().max(120).optional().nullable(),
-              })
-              .safeParse(parsed.data.payload ?? {});
-            if (!paymentBody.success) {
-              res.status(400).json({
-                message: paymentBody.error.issues[0]?.message ?? "Invalid payment payload",
-                code: "INVALID_PAYLOAD",
-              });
-              return;
-            }
-
-            const result = await recordCollectedPayment({
-              order_id: order.id,
-              user_id: order.user_id,
-              guest_ref: order.guest_ref ?? null,
-              amount: paymentBody.data.amount,
-              method: "pay_at_pickup",
-              status: "collected",
-              collection_mode: paymentBody.data.collection_mode,
-              collected_by: callerId,
-              reference: paymentBody.data.reference ?? null,
-            });
-            if (!result) {
-              res.status(502).json({
-                message: "Could not record the payment. Do not hand over the parcel.",
-                code: "PAYMENT_WRITE_FAILED",
-              });
-              return;
-            }
-
-            // Deliberately no status change — the parcel is still out_for_pickup.
-            updated = result.order ?? order;
-            eventNote = `Collected ₹${paymentBody.data.amount} at pickup (${paymentBody.data.collection_mode})`;
-            extra = {
-              payment_id: result.paymentId,
-              txn_id: result.txnId,
-              amount: paymentBody.data.amount,
-              collection_mode: paymentBody.data.collection_mode,
-            };
-            // Surfaced at the top level so the sheet can show the receipt without
-            // digging through the event metadata.
-            collectionReceipt = { txnId: result.txnId, amount: paymentBody.data.amount };
-            break;
-          }
-
-          if (role === "admin" || role === "super_admin") {
-            if (order.payment_method !== "pay_at_dropoff") {
-              res.status(400).json({
-                message: "This order is not marked pay-at-drop-off.",
-                code: "PAYMENT_METHOD_MISMATCH",
-              });
-              return;
-            }
-
-            const paymentBody = z
-              .object({
-                amount: z.number().positive("amount must be greater than zero"),
-                collection_mode: z.enum(["upi", "cash"], {
-                  errorMap: () => ({ message: "Choose UPI or cash" }),
-                }),
-                reference: z.string().trim().max(120).optional().nullable(),
-              })
-              .safeParse(parsed.data.payload ?? {});
-            if (!paymentBody.success) {
-              res.status(400).json({
-                message: paymentBody.error.issues[0]?.message ?? "Invalid payment payload",
-                code: "INVALID_PAYLOAD",
-              });
-              return;
-            }
-
-            const result = await recordCollectedPayment({
-              order_id: order.id,
-              user_id: order.user_id,
-              guest_ref: order.guest_ref ?? null,
-              amount: paymentBody.data.amount,
-              method: "pay_at_dropoff",
-              status: "collected",
-              collection_mode: paymentBody.data.collection_mode,
-              collected_by: callerId,
-              reference: paymentBody.data.reference ?? null,
-            });
-            if (!result) {
-              res.status(502).json({
-                message: "Could not record the payment. Do not settle yet.",
-                code: "PAYMENT_WRITE_FAILED",
-              });
-              return;
-            }
-
-            updated = result.order ?? order;
-            eventNote = `Collected ₹${paymentBody.data.amount} at drop-off (${paymentBody.data.collection_mode})`;
-            extra = {
-              payment_id: result.paymentId,
-              txn_id: result.txnId,
-              amount: paymentBody.data.amount,
-              collection_mode: paymentBody.data.collection_mode,
-            };
-            collectionReceipt = { txnId: result.txnId, amount: paymentBody.data.amount };
-            break;
-          }
-
-          res.status(403).json({
-            message: "You do not have permission to collect payment on this order.",
-            code: "FORBIDDEN",
+          const result = await handleCollectPayment({
+            order,
+            callerId,
+            role,
+            payload: parsed.data.payload,
           });
-          return;
+          if (!applyResult(result)) return;
+          break;
         }
 
+
         case "request_cancellation": {
-          const requestBody = z
-            .object({
-              // Optional, and capped: this is a note for whoever picks the
-              // request up, not a support ticket.
-              reason: z.string().trim().max(300, "Keep the reason under 300 characters")
-                .optional()
-                .nullable(),
-            })
-            .safeParse(parsed.data.payload ?? {});
-          if (!requestBody.success) {
-            res.status(400).json({
-              message: requestBody.error.issues[0]?.message ?? "Invalid request payload",
-              code: "INVALID_PAYLOAD",
-            });
-            return;
-          }
-
-          const reason = requestBody.data.reason?.trim() || null;
-
-          updated = await recordCancellationRequest({
-            orderId: order.id,
-            userId: callerId,
-            // The states a request is legal from, mirrored from the transition
-            // table so the WHERE clause re-asserts what the guard checked.
-            expectedStatuses: ["pickup_requested", "awaiting_dropoff", "agent_accepted"],
-            reason,
+          const result = await handleRequestCancellation({
+            order,
+            callerId,
+            payload: parsed.data.payload,
           });
-          if (!updated) {
-            res.status(409).json({
-              message:
-                "This order has already moved on. Call support if you still need it cancelled.",
-              code: "ORDER_STATE_CHANGED",
-            });
-            return;
-          }
-
-          // Deliberately no status change: the order is still live and the
-          // agent is still expected to collect it until ops decides.
-          eventNote = reason
-            ? `Customer requested cancellation: ${reason}`
-            : "Customer requested cancellation";
-          extra = { reason };
-
-          // Warn the agent holding it. The order has not moved, so the message
-          // says wait rather than stop — but an agent who sets off now may find
-          // a customer who has already decided they are not sending anything.
-          void notifyAgentOfCancellationRequest(updated);
+          if (!applyResult(result)) return;
           break;
         }
 
@@ -4940,121 +3765,36 @@ export async function registerRoutes(
             res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
             return;
           }
-          // Ops only — `orderLifecycle.ts` gives the customer no `cancel` row,
-          // so a customer reaching here has already been refused by
-          // `findTransition` above.
-          updated = await transitionOrderStatus({
-            orderId: order.id,
+          const result = await handleCancel({
+            order,
+            callerId,
             expectedFrom: transition.from,
             to: transition.to,
           });
-          if (!updated) {
-            res.status(409).json({
-              message: "This order has already moved on and can no longer be cancelled.",
-              code: "ORDER_STATE_CHANGED",
-            });
-            return;
-          }
-          // Whether ops was acting on a request or a phone call is the first
-          // thing anyone asks afterwards, so the event says which.
-          const request = readCancellationRequest(order);
-          if (request) {
-            // Best-effort: the cancellation itself is already committed above,
-            // and failing the response because an audit field did not write
-            // would tell ops the cancellation failed when it did not.
-            await markCancellationRequestDecided({
-              orderId: order.id,
-              decision: "approved",
-              decidedBy: callerId,
-              note: null,
-            });
-          }
-          eventNote = request
-            ? "Order cancelled by ops on the customer's request"
-            : "Order cancelled by ops";
-          extra = request
-            ? { requested_at: request.requested_at, requested_reason: request.reason }
-            : {};
+          if (!applyResult(result)) return;
           break;
         }
 
         case "reject_cancellation": {
-          const rejectBody = z
-            .object({
-              // The customer reads this. Optional, because a decline over the
-              // phone may already have been explained.
-              note: z.string().trim().max(300, "Keep the note under 300 characters")
-                .optional()
-                .nullable(),
-            })
-            .safeParse(parsed.data.payload ?? {});
-          if (!rejectBody.success) {
-            res.status(400).json({
-              message: rejectBody.error.issues[0]?.message ?? "Invalid decision payload",
-              code: "INVALID_PAYLOAD",
-            });
-            return;
-          }
-
-          const note = rejectBody.data.note?.trim() || null;
-
-          const written = await markCancellationRequestDecided({
-            orderId: order.id,
-            decision: "rejected",
-            decidedBy: callerId,
-            note,
+          const result = await handleRejectCancellation({
+            order,
+            callerId,
+            payload: parsed.data.payload,
           });
-          if (!written) {
-            res.status(409).json({
-              message: "There is no open cancellation request on this order.",
-              code: "NO_OPEN_REQUEST",
-            });
-            return;
-          }
-
-          // Nothing moved — that is the decision. Re-read so the response and
-          // the recomputed actions reflect the decision just written.
-          updated = (await getOrderById(order.id)) ?? order;
-          eventNote = note
-            ? `Cancellation declined by ops: ${note}`
-            : "Cancellation declined by ops";
-          extra = { note };
-
-          // The one case the customer must be told about explicitly. An
-          // approval announces itself as the order turning `cancelled`, which
-          // the fan-out below already notifies; a decline changes nothing on
-          // screen, so without this the customer waits forever.
-          void notifyCancellationDeclined({ order: updated, note });
+          if (!applyResult(result)) return;
           break;
         }
+
 
         default: {
           // Ops actions — weigh, settle, generate_docket. mark_received_dropoff
           // is OTP-gated above; do not delegate a payload-less handler here.
-          const mapOpsResult = (
-            r: Awaited<ReturnType<typeof handleWeigh>>
-          ): boolean => {
-            if ("error" in r) {
-              res.status(r.error.status).json({
-                message: r.error.message,
-                code: r.error.code,
-                ...(r.error.extra ?? {}),
-                availableActions: availableActions(order, role, { userId: callerId }),
-              });
-              return false;
-            }
-            updated = r.order;
-            eventNote = r.eventNote;
-            extra = r.eventMeta;
-            return true;
-          };
-
           if (action === "weigh") {
             if (!transition.to) {
               res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
               return;
             }
-            const ok = mapOpsResult(
+            const ok = applyResult(
               await handleWeigh({
                 order,
                 callerId,
@@ -5072,7 +3812,7 @@ export async function registerRoutes(
               res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
               return;
             }
-            const ok = mapOpsResult(
+            const ok = applyResult(
               await handleSettle({
                 order,
                 callerId,
@@ -5089,7 +3829,7 @@ export async function registerRoutes(
               res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
               return;
             }
-            const ok = mapOpsResult(await handleGenerateDocket({ order, callerId }));
+            const ok = applyResult(await handleGenerateDocket({ order, callerId }));
             if (!ok) return;
             break;
           }
@@ -5099,7 +3839,7 @@ export async function registerRoutes(
               res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
               return;
             }
-            const ok = mapOpsResult(await handleMarkDispatched({ order, callerId }));
+            const ok = applyResult(await handleMarkDispatched({ order, callerId }));
             if (!ok) return;
             break;
           }
@@ -5117,7 +3857,8 @@ export async function registerRoutes(
         }
       }
 
-      if (!updated) {
+      const settled = outcome.order;
+      if (!settled) {
         res.status(500).json({
           message: "Action completed without an order row.",
           code: "NO_ORDER",
@@ -5133,18 +3874,18 @@ export async function registerRoutes(
       // The durable fix is an AFTER UPDATE trigger on `orders`, which would
       // cover every writer instead of just this endpoint.
       const eventLogged = await insertOrderEvent({
-        order_id: updated.id,
-        status: updated.status,
-        note: eventNote,
+        order_id: settled.id,
+        status: settled.status,
+        note: outcome.note,
         actor_user_id: callerId,
-        metadata: { action, role, ...extra },
+        metadata: { action, role, ...outcome.meta },
       });
 
       if (!eventLogged) {
         console.error("[POST /api/orders/:id/actions] order_events insert failed", {
-          order_id: updated.id,
+          order_id: settled.id,
           action,
-          status: updated.status,
+          status: settled.status,
           actor_user_id: callerId,
         });
       }
@@ -5157,15 +3898,15 @@ export async function registerRoutes(
       // cannot drift apart. Fire-and-forget: a provider round trip must not sit
       // in front of this response.
       void notifyOrderTransition({
-        order: updated,
+        order: settled,
         moved: transition.to !== null,
         actorUserId: callerId,
       });
 
       res.json({
-        order: updated,
-        availableActions: availableActions(updated, role, { userId: callerId }),
-        ...(collectionReceipt ? { receipt: collectionReceipt } : {}),
+        order: settled,
+        availableActions: availableActions(settled, role, { userId: callerId }),
+        ...(outcome.receipt ? { receipt: outcome.receipt } : {}),
         ...(eventLogged ? {} : { warning: "Action applied but history entry failed to write." }),
       });
     }
@@ -5580,14 +4321,7 @@ export async function registerRoutes(
           return;
         }
 
-        const buffer = Buffer.from(doc.file_data, "base64");
-        res.set({
-          "Content-Type": doc.mime_type,
-          "Content-Length": String(buffer.length),
-          "Cache-Control": "no-store",
-          "Content-Disposition": `inline; filename="${doc.original_filename.replace(/"/g, "")}"`,
-        });
-        res.send(buffer);
+        sendDocumentFile(res, doc);
       } catch (err) {
         console.error("[GET /api/kyc/me/file] failed:", err);
         res.status(500).json({ message: "Failed to retrieve document." });
@@ -5622,7 +4356,7 @@ export async function registerRoutes(
       }
 
       if (!req.file) {
-        res.status(400).json({ message: "No file uploaded." });
+        res.status(400).json({ message: "No file uploaded.", code: "FILE_MISSING" });
         return;
       }
 
@@ -5666,6 +4400,7 @@ export async function registerRoutes(
       if (!docNoValidation[documentType].test(documentNo)) {
         res.status(400).json({
           message: `Invalid document number for ${documentType}`,
+          code: "DOCUMENT_NUMBER_INVALID",
         });
         return;
       }
@@ -5812,21 +4547,7 @@ export async function registerRoutes(
         userId: doc.user_id,
       });
 
-      const buffer = Buffer.from(doc.file_data, "base64");
-      res.set({
-        "Content-Type": doc.mime_type,
-        "Content-Length": String(buffer.length),
-        // Re-uploads reuse the capability_id, so a cached copy would go stale.
-        "Cache-Control": "no-store",
-        // A leaked URL must not end up in a search index, and a browser must
-        // not be talked into treating an identity document as something it can
-        // execute. See migrations/add_document_access_log.sql.
-        "X-Robots-Tag": "noindex, nofollow, noarchive",
-        "X-Content-Type-Options": "nosniff",
-        "Referrer-Policy": "no-referrer",
-        "Content-Disposition": `inline; filename="${doc.original_filename}"`,
-      });
-      res.send(buffer);
+      sendDocumentFile(res, doc);
     } catch (err) {
       console.error("[GET /api/kyc/documents/:id/file] failed:", err);
       res.status(500).json({ message: "Failed to retrieve document." });

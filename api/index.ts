@@ -14,7 +14,7 @@ import { createApp } from "../server/app.js";
  * Supabase client separately in every one.
  *
  * THE APP IS BUILT ONCE PER CONTAINER, not once per request. A warm invocation
- * reuses it; a cold one pays for the Redis connect. The promise is cached
+ * reuses it; a cold one pays for the Postgres connect. The promise is cached
  * rather than the app so that two requests arriving during a cold start share
  * one boot instead of racing to build two.
  */

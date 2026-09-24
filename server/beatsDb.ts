@@ -12,6 +12,7 @@
 
 import { invalidateCoverage } from "./pickupCoverageDb.js";
 import { supabase } from "./supabaseClient.js";
+import { dbClient, logDbError, type DbError } from "./db/client.js";
 
 export type BeatRemark = "ok" | "out_of_city";
 
@@ -51,24 +52,10 @@ export interface BeatPatch {
   is_active?: boolean;
 }
 
-function logSupabaseError(
-  operation: string,
-  error: { message?: string; code?: string } | null
-): void {
-  console.error("[beatsDb] supabase operation failed:", {
-    operation,
-    message: error?.message,
-    code: error?.code,
-  });
-}
+const logSupabaseError = (operation: string, error: DbError): void =>
+  logDbError("beatsDb", operation, error);
 
-function getSupabaseClient() {
-  if (!supabase) {
-    console.error("[beatsDb] supabase client is not configured");
-    return null;
-  }
-  return supabase;
-}
+const getSupabaseClient = () => dbClient("beatsDb");
 
 type BeatRow = {
   id: string;

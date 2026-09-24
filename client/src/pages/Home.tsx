@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useLocation, Link } from 'wouter';
-import { Search, ArrowRight, BadgeDollarSign, Send, Phone, Bell, ChevronRight } from 'lucide-react';
+import { openBia } from '@/lib/biaStore';
+import { Search, ArrowRight, BadgeDollarSign, Send, Phone, Bell, ChevronRight, Sparkles } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { BottomNav } from '@/components/BottomNav';
 import { SideMenu } from '@/components/SideMenu';
@@ -15,6 +16,7 @@ import { useNotifications, useOrderHistory } from '@/hooks/useCustomerOrders';
 import { useGuestProfile } from '@/hooks/useGuestProfile';
 import { useSupportContacts } from '@/hooks/useSupportContacts';
 import { GuestOrders } from '@/components/GuestOrders';
+import { ApplicationStatusCard } from '@/components/ApplicationStatusCard';
 import HomeDesktop from '@/pages/HomeDesktop';
 
 function HomeShipmentsSkeleton() {
@@ -209,6 +211,12 @@ function HomeMobile() {
             Above the sign-in prompt deliberately: what they already have with
             us outranks an invitation to open an account. Capped at three —
             Home is a starting point, and the full list is one tap away. */}
+        {/* Account review: where their account stands, above everything else
+            that is theirs — it is the reason they are still a guest. */}
+        {!isLoggedIn && guestProfile?.application && (
+          <ApplicationStatusCard application={guestProfile.application} phone={guestProfile.phone} compact />
+        )}
+
         {!isLoggedIn && guestProfile && guestProfile.orders.length > 0 && (
           <GuestOrders orders={guestProfile.orders} limit={3} showViewAll />
         )}
@@ -279,6 +287,15 @@ function HomeMobile() {
                 <Phone className="w-4 h-4 text-muted-foreground" />
                 Call Us
               </a>
+              <button
+                type="button"
+                onClick={() => openBia({ screen: { surface: "home" } })}
+                className="flex-1 flex items-center justify-center gap-2 h-11 rounded-xl bg-white border border-border text-foreground text-sm font-medium shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:border-primary/20 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] active:scale-[0.98] transition-all"
+                data-testid="button-bia-home"
+              >
+                <Sparkles className="w-4 h-4 text-[#F2A123]" />
+                Ask BIA
+              </button>
             </div>
 
             <WhyBombinoSection />

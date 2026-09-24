@@ -95,9 +95,13 @@ const pickupDateArrived = (order: Order): boolean => {
 const owesAtPickup = (order: Order): boolean =>
   order.payment_method === "pay_at_pickup" && order.payment_status !== "paid";
 
-/** Money is owed at the counter and has not been taken yet. */
-const owesAtDropoff = (order: Order): boolean =>
-  order.payment_method === "pay_at_dropoff" && order.payment_status !== "paid";
+/**
+ * Money is owed at the hub once the parcel is weighed: the drop-off counter
+ * payment, or the difference on any prepaid order that came in heavier than
+ * booked (Flow A — "collect ₹340 more"). COD is never collected by us.
+ */
+const owesAtHub = (order: Order): boolean =>
+  order.payment_method !== "cod" && !order.is_cod && !isPaymentSatisfied(order);
 
 // ── The table ─────────────────────────────────────────────────────────────
 
@@ -228,7 +232,7 @@ export const TRANSITIONS: readonly Transition[] = [
     to: null,
     label: "Collect payment",
     requiresPayload: true,
-    guard: owesAtDropoff,
+    guard: owesAtHub,
   },
   {
     from: "weighed",

@@ -78,8 +78,17 @@ export function normalizeAadhaar(raw: string): string {
  * production credentials for the real path.
  *
  * 234567890124 is a valid number for exercising this validator itself.
+ *
+ * `checkDigits: false` (TEMPORARY, while OCR_BYPASS=1 has document checks
+ * off until Cashfree production credentials are in) keeps only the 12-digit
+ * rule: no 0/1 prefix rule, no Verhoeff. The server says which applies
+ * (`aadhaar_check_digits` on the documents endpoints). Removing OCR_BYPASS
+ * brings both back; nothing here needs to change.
  */
-export function validateAadhaar(raw: string): { valid: boolean; message?: string } {
+export function validateAadhaar(
+  raw: string,
+  { checkDigits = true }: { checkDigits?: boolean } = {}
+): { valid: boolean; message?: string } {
   const digits = normalizeAadhaar(raw);
 
   if (!digits) {
@@ -88,6 +97,7 @@ export function validateAadhaar(raw: string): { valid: boolean; message?: string
   if (!/^\d{12}$/.test(digits)) {
     return { valid: false, message: "Aadhaar number must be 12 digits" };
   }
+  if (!checkDigits) return { valid: true };
   if (/^[01]/.test(digits)) {
     return { valid: false, message: "Aadhaar numbers do not start with 0 or 1" };
   }
@@ -101,8 +111,8 @@ export function validateAadhaar(raw: string): { valid: boolean; message?: string
 }
 
 /** Convenience for callers that only want the boolean. */
-export function isValidAadhaarNumber(value: string): boolean {
-  return validateAadhaar(value).valid;
+export function isValidAadhaarNumber(value: string, options?: { checkDigits?: boolean }): boolean {
+  return validateAadhaar(value, options).valid;
 }
 
 /** Grouped as it is printed on the card, so a mistyped digit is easy to spot. */

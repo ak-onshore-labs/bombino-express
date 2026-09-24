@@ -61,6 +61,9 @@ an order through `mark_picked_up`, which issues the hub code as a side effect.
 |---|---|---|
 | `9000000090` | Test Customer (seed) | Owns every seeded order and address. Recreated by the seed script. |
 | `9000000005` | aditya kamarouthu | Personal test login, not seeded — leave it alone. |
+| `9000000095` | E2E Customer Two | Second customer for the e2e suite's ownership tests. Created on first run by `tests/e2e/harness.ts`. |
+| `9000000096` | — | E2E guest phone. No account; guest rows it creates are tagged `E2E-*` and deleted. |
+| `9000000097`, `9000000098` | — | E2E OTP abuse tests (attempt limits, rate limit). Never given an account. |
 
 ## Signing in
 
@@ -91,5 +94,5 @@ Add the number to the table above when you take one.
 
 ## Free numbers
 
-`9000000002`–`9000000004`, `9000000006`–`9000000009`, `9000000015` onward.
+`9000000002`–`9000000004`, `9000000006`–`9000000009`, `9000000015`–`9000000089`, `9000000091`–`9000000094`, `9000000099`.
 Add the account to the table above when you take one.

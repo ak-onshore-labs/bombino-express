@@ -1,0 +1,67 @@
+[
+  {
+    "id": "onboard-01-etsy-seller",
+    "module": "onboarding",
+    "requires": ["onboarding"],
+    "identity": "anon",
+    "screen": { "surface": "signup", "step": "account_type" },
+    "turns": ["I sell handmade jewellery on Etsy and want to ship my orders abroad. Which account should I open?"],
+    "expect": {
+      "tools": ["recommend_account"],
+      "cards": ["checklist"],
+      "buttons": ["TAP_SIGNUP:ecommerce"],
+      "contains": ["E-commerce"]
+    }
+  },
+  {
+    "id": "onboard-02-one-off-gift",
+    "module": "onboarding",
+    "requires": ["onboarding"],
+    "identity": "anon",
+    "screen": { "surface": "help" },
+    "turns": ["I just want to send a birthday gift to my sister in London, once. Do I need to open an account?"],
+    "expect": {
+      "toolsAny": ["recommend_account", "get_shipment_guidance"],
+      "contains": ["guest"],
+      "buttonsNot": ["re:TAP_SIGNUP:(corporate|co_courier|ecommerce|fbb)"]
+    }
+  },
+  {
+    "id": "onboard-03-what-is-lut",
+    "module": "onboarding",
+    "requires": ["onboarding"],
+    "identity": "anon",
+    "screen": { "surface": "signup", "step": "details" },
+    "turns": ["What is an LUT number?"],
+    "expect": {
+      "tools": ["explain_term"],
+      "contains": ["Letter of Undertaking", "re:GST"]
+    }
+  },
+  {
+    "id": "onboard-04-courier-already-signed-in",
+    "module": "onboarding",
+    "requires": ["onboarding"],
+    "identity": "account",
+    "screen": { "surface": "help" },
+    "turns": ["We're a courier company and hand our consignments to Bombino. Which account type should we have?"],
+    "expect": {
+      "tools": ["recommend_account"],
+      "contains": ["Co-Courier"],
+      "buttonsNot": ["TAP_SIGNUP"]
+    }
+  },
+  {
+    "id": "onboard-05-asks-business-first",
+    "module": "onboarding",
+    "requires": ["onboarding"],
+    "identity": "anon",
+    "screen": { "surface": "signup", "step": "account_type" },
+    "turns": ["Which account should I open?"],
+    "expect": {
+      "contains": ["re:business|company|yourself|personal"],
+      "noCards": true,
+      "buttonsNot": ["TAP_SIGNUP"]
+    }
+  }
+]

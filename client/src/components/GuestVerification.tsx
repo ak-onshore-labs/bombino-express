@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { isIndianMobile } from '@shared/contact';
 import { Loader2, ShieldCheck, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -6,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 import { apiRequest } from '@/lib/queryClient';
 import { parseApiErrorCode, parseApiErrorMessage } from '@/lib/apiError';
+import { AskBiaLink } from '@/components/bia/AskBiaLink';
 import type { AuthUser } from '@/lib/store';
 import {
   AlertDialog,
@@ -91,6 +93,15 @@ export function GuestVerification({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [verifiedPhone]);
 
+  // The last error the server returned, with its code, so "Ask BIA" can say
+  // which error it was. Used only while its message is the one on screen.
+  const lastApiErrorRef = useRef<{ message: string; code: string | null } | null>(null);
+  const rememberApiError = (err: unknown, fallback: string): string => {
+    const message = parseApiErrorMessage(err, fallback);
+    lastApiErrorRef.current = { message, code: parseApiErrorCode(err) };
+    return message;
+  };
+
   const requestOtp = async (): Promise<void> => {
     setIsLoading(true);
     setError('');
@@ -100,14 +111,14 @@ export function GuestVerification({
       setOtp('');
       setCooldown(RESEND_COOLDOWN_SECONDS);
     } catch (err) {
-      setError(parseApiErrorMessage(err, 'Could not send code'));
+      setError(rememberApiError(err, 'Could not send code'));
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleSendOtp = (): void => {
-    if (!/^\d{10}$/.test(phone.trim())) {
+    if (!isIndianMobile(phone.trim())) {
       setError('Enter a valid 10-digit phone number');
       phoneRef.current?.focus();
       return;
@@ -137,7 +148,7 @@ export function GuestVerification({
         setExistingAccount(true);
         return;
       }
-      setError(parseApiErrorMessage(err, 'Incorrect code'));
+      setError(rememberApiError(err, 'Incorrect code'));
       setOtp('');
     } finally {
       setIsLoading(false);
@@ -172,7 +183,7 @@ export function GuestVerification({
       setError('Could not sign you in. Please use the sign-in screen.');
     } catch (err) {
       setExistingAccount(false);
-      setError(parseApiErrorMessage(err, 'Could not sign you in'));
+      setError(rememberApiError(err, 'Could not sign you in'));
       setOtp('');
     } finally {
       setIsLoading(false);
@@ -354,9 +365,16 @@ export function GuestVerification({
       )}
 
       {error && (
-        <p className="text-xs text-red-600" role="alert" data-testid="text-guest-verification-error">
-          {error}
-        </p>
+        <div className="flex flex-col items-start gap-1">
+          <p className="text-xs text-red-600" role="alert" data-testid="text-guest-verification-error">
+            {error}
+          </p>
+          <AskBiaLink
+            screen={{ surface: 'create', step: 'sender' }}
+            code={lastApiErrorRef.current?.message === error ? lastApiErrorRef.current.code : null}
+            message={error}
+          />
+        </div>
       )}
 
       {/* Not a failure to correct — a different door to go through. The number

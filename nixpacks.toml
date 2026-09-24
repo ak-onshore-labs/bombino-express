@@ -1,5 +1,8 @@
 [phases.install]
 cmds = ["npm install"]
 
+# A type error or a failing unit test stops the deploy here, before a broken
+# build can replace the running one. The e2e suite (npm run test:e2e) is not
+# run: it writes to the shared database.
 [phases.build]
-cmds = ["npm run build"]
+cmds = ["npm run check", "npm test", "npm run build"]

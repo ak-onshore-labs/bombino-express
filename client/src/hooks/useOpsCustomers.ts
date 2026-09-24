@@ -1,4 +1,5 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { readJson } from '@/lib/queryClient';
 import type { OpsBoardOrder } from '@/hooks/useOpsOrders';
 
 export type OpsCustomerListRow = {
@@ -67,14 +68,6 @@ export const OPS_CUSTOMERS_KEY = ['/api/ops/customers'] as const;
 
 function opsCustomerDetailKey(id: string): readonly [string, string] {
   return ['/api/ops/customers', id] as const;
-}
-
-async function readJson<T>(res: Response): Promise<T> {
-  if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
-  }
-  return (await res.json()) as T;
 }
 
 export function useOpsCustomers(filters: OpsCustomerListFilters) {
@@ -148,23 +141,32 @@ async function readOk(res: Response): Promise<Response> {
   return res;
 }
 
-/** One logged GET — do not cache the blob. */
-export async function fetchOpsCustomerKycFile(customerId: string): Promise<Blob> {
-  const res = await fetch(`/api/ops/customers/${encodeURIComponent(customerId)}/kyc/file`, {
-    credentials: 'include',
-    cache: 'no-store',
-  });
+/**
+ * One logged GET — do not cache the blob. `download` tells the server this is a
+ * copy being kept, which it records as a download rather than a view.
+ */
+export async function fetchOpsCustomerKycFile(
+  customerId: string,
+  download = false,
+): Promise<Blob> {
+  const res = await fetch(
+    `/api/ops/customers/${encodeURIComponent(customerId)}/kyc/file${download ? '?download=1' : ''}`,
+    { credentials: 'include', cache: 'no-store' },
+  );
   await readOk(res);
   return res.blob();
 }
 
-/** One logged GET — do not cache the blob. */
+/** One logged GET — do not cache the blob. See `fetchOpsCustomerKycFile`. */
 export async function fetchOpsCustomerDocumentFile(
   customerId: string,
   slot: string,
+  download = false,
 ): Promise<Blob> {
   const res = await fetch(
-    `/api/ops/customers/${encodeURIComponent(customerId)}/documents/${encodeURIComponent(slot)}/file`,
+    `/api/ops/customers/${encodeURIComponent(customerId)}/documents/${encodeURIComponent(slot)}/file${
+      download ? '?download=1' : ''
+    }`,
     { credentials: 'include', cache: 'no-store' },
   );
   await readOk(res);

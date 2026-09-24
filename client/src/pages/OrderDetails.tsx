@@ -27,6 +27,7 @@ import {
   Package,
   Phone,
   RefreshCw,
+  Sparkles,
   Truck,
   User,
   Wallet,
@@ -50,6 +51,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { getOrderStatusTone } from '@/lib/orderStatus';
 import { apiRequest } from '@/lib/queryClient';
 import { payForOrder } from '@/lib/razorpay';
+import { openBia } from '@/lib/biaStore';
 import { PaymentTestModeSwitch } from '@/components/PaymentTestModeSwitch';
 import { DropoffBranches } from '@/components/DropoffBranches';
 import { cn } from '@/lib/utils';
@@ -70,6 +72,7 @@ import {
   useCustomerOrderDetail,
 } from '@/hooks/useCustomerOrders';
 import { useSupportContacts } from '@/hooks/useSupportContacts';
+import { AskBiaTopButton } from '@/components/bia/AskBiaTopButton';
 
 const BRAND_NAVY = 'lab(34.0831 -9.57756 -27.7093)';
 
@@ -126,12 +129,13 @@ function TopBar({
         <ArrowLeft className="w-4 h-4" />
         Back
       </button>
+      <div className="-mr-2 flex items-center gap-1">
       {onRefresh && (
         <button
           type="button"
           onClick={onRefresh}
           disabled={isFetching}
-          className="-mr-2 inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1.5 rounded-lg disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1.5 rounded-lg disabled:opacity-50"
           aria-label="Refresh order"
           data-testid="button-refresh-order"
         >
@@ -139,6 +143,8 @@ function TopBar({
           {isFetching ? 'Refreshing' : 'Refresh'}
         </button>
       )}
+      <AskBiaTopButton withLabel />
+      </div>
     </div>
   );
 }
@@ -553,9 +559,12 @@ export default function OrderDetails() {
             to find while somebody stands in front of them waiting. Set in the
             same mono the agent's screen uses, spaced so it can be read out
             loud without losing a digit. */}
+        {/* `id`s on this page are where BIA's buttons land (#handover-code,
+            #pay, #cancel): the customer presses the real button here. */}
         {handover && (
           <div
-            className="mt-4 rounded-xl border-2 p-4"
+            id="handover-code"
+            className="mt-4 rounded-xl border-2 p-4 scroll-mt-24"
             style={{ borderColor: BRAND_NAVY }}
             data-testid="card-handover-code"
           >
@@ -858,7 +867,7 @@ export default function OrderDetails() {
           {order.payment_method === 'pay_now' &&
             order.payment_status === 'pending' &&
             order.status !== 'cancelled' && (
-              <>
+              <div id="pay" className="scroll-mt-24 rounded-lg">
                 {/* TEMPORARY — only renders when the server has
                     PAYMENTS_TEST_MODE set. */}
                 <PaymentTestModeSwitch className="mt-4" />
@@ -874,7 +883,7 @@ export default function OrderDetails() {
                     `Pay ${formatInr(order.final_amount ?? order.quoted_amount) ?? 'now'}`
                   )}
                 </Button>
-              </>
+              </div>
             )}
 
           {/* COD never produces a payments row — an empty list here would
@@ -888,6 +897,7 @@ export default function OrderDetails() {
         </Section>
 
         {/* ─── Cancellation ────────────────────────────────────────────── */}
+        <div id="cancel" className="scroll-mt-24">
         {/* A request already with the team. Deliberately not styled as a
             success: nothing has been cancelled yet, and the pickup stands. */}
         {cancelPending && (
@@ -964,6 +974,33 @@ export default function OrderDetails() {
             </p>
           </div>
         )}
+        </div>
+
+        {/* ─── Ask BIA ─────────────────────────────────────────────────── */}
+        {/* Opens BIA over this page, already asking about this order, so the
+            customer does not have to retype the number to get an answer. */}
+        <button
+          type="button"
+          onClick={() =>
+            openBia({
+              screen: { surface: "order", orderNo: order.order_no },
+              seed: `What's the latest on my order ${order.order_no}?`,
+            })
+          }
+          className="mt-8 mb-16 md:mb-0 flex w-full items-center gap-3 rounded-xl border border-border p-4 text-left hover:bg-muted/50 transition-colors"
+          data-testid="link-ask-bia"
+        >
+          <Sparkles className="w-5 h-5 shrink-0 text-[#F2A123]" aria-hidden />
+          <span className="flex-1 min-w-0">
+            <span className="block text-sm font-semibold text-foreground">
+              Questions about this order?
+            </span>
+            <span className="block text-xs text-muted-foreground">
+              Ask BIA what happens next, about payment, or pickup.
+            </span>
+          </span>
+          <ArrowRight className="w-4 h-4 shrink-0 text-muted-foreground" aria-hidden />
+        </button>
       </div>
 
       <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>

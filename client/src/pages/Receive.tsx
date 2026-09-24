@@ -8,21 +8,19 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAppStore } from '@/lib/store';
-import { format } from 'date-fns';
+import { useOrderHistory } from '@/hooks/useCustomerOrders';
 
 export default function Receive() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [trackingNumber, setTrackingNumber] = useState('');
   const [error, setError] = useState('');
   const [, setLocation] = useLocation();
-  const { isLoggedIn, user, shipments } = useAppStore();
+  const isLoggedIn = useAppStore((s) => s.isLoggedIn);
 
-  const incomingShipments = isLoggedIn 
-    ? shipments.filter(s => 
-        s.userId === user?.id && 
-        !['Delivered', 'Exception'].includes(s.status)
-      )
-    : [];
+  // The same merged list Home and Orders read, so this screen shares their
+  // cache instead of keeping a copy. "Incoming" is anything still moving.
+  const { data: rows, isLoading } = useOrderHistory(isLoggedIn);
+  const incomingShipments = (rows ?? []).filter((row) => row.isLive);
 
   const handleTrack = () => {
     const awb = trackingNumber.trim();
@@ -84,24 +82,30 @@ export default function Receive() {
           {/* Right — Incoming Shipments */}
           <div>
             {isLoggedIn ? (
-              incomingShipments.length > 0 ? (
+              isLoading && incomingShipments.length === 0 ? (
+                <div
+                  className="h-40 rounded-2xl border border-[#E2E8F0] bg-white animate-pulse motion-reduce:animate-none"
+                  aria-busy="true"
+                  data-testid="receive-incoming-loading"
+                />
+              ) : incomingShipments.length > 0 ? (
                 <div>
                   <h2 className="font-semibold text-[lab(34.0831_-9.57756_-27.7093)] text-sm mb-3 md:text-base">Incoming Shipments</h2>
                   <div className="space-y-2">
                     {incomingShipments.map((shipment) => (
                       <Link
-                        key={shipment.id}
-                        href={`/shipment/${shipment.awb}`}
+                        key={shipment.key}
+                        href={shipment.awb ? `/shipment/${shipment.awb}` : `/orders/${shipment.displayId}`}
                         className="block bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)] hover:shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] transition-all"
-                        data-testid={`incoming-shipment-${shipment.awb}`}
+                        data-testid={`incoming-shipment-${shipment.displayId}`}
                       >
                         <div className="flex items-center justify-between mb-2">
-                          <span className="font-semibold text-sm text-[lab(34.0831_-9.57756_-27.7093)]">{shipment.awb}</span>
-                          <StatusBadge status={shipment.status} />
+                          <span className="font-semibold text-sm text-[lab(34.0831_-9.57756_-27.7093)]">{shipment.displayId}</span>
+                          <StatusBadge status={shipment.statusLabel} tone={shipment.statusTone} />
                         </div>
                         <div className="flex items-center justify-between text-xs text-muted-foreground">
-                          <span>{shipment.originCity}, {shipment.originCountry} → {shipment.destCity}</span>
-                          <span>ETA: {format(shipment.eta, 'MMM d')}</span>
+                          <span>{shipment.recipient} → {shipment.city}</span>
+                          <span>{shipment.service}</span>
                         </div>
                       </Link>
                     ))}

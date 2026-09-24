@@ -47,5 +47,13 @@ export default defineConfig({
       strict: true,
       deny: ["**/.*"],
     },
+    // Compile the app while the server starts, not on the first page load:
+    // otherwise the first load after every restart sits blank for ~30s while
+    // ~250 modules are transformed one request at a time. The entry pulls in
+    // everything it imports; pages are listed too in case a route loads lazily.
+    // (server/vite.ts passes this through; it replaces the rest of `server`.)
+    warmup: {
+      clientFiles: ["./src/main.tsx", "./src/pages/**/*.tsx"],
+    },
   },
 });

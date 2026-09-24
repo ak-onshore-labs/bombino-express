@@ -240,6 +240,24 @@ export function formatIst(iso: string | null): string {
   });
 }
 
+/**
+ * Calendar day in India: "17 Sep 2026". The date half of `formatIst`, for the
+ * places that show when something was joined, uploaded or filed rather than
+ * the minute it happened. Five screens had their own copy of this — and none
+ * of them passed `timeZone`, so a late-evening event showed the day before.
+ */
+export function formatIstDate(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
 // ── Labels ────────────────────────────────────────────────────────────────
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {

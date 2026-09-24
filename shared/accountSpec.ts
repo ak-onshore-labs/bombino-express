@@ -331,10 +331,40 @@ export const IDENTITY_CHECK_LABELS: Record<VerifiedDocSlot, string> = {
   pan_card: "PAN",
   gst_certificate: "GST",
 };
-/** One uploaded slot, reduced to the two facts a verdict depends on. */
+/**
+ * Cashfree's first-layer verdicts that count as a pass: it read the document
+ * and it agreed (`match`), or the check is switched off on test credentials
+ * (`bypassed`). `ocr_status` only ever holds Cashfree's word.
+ */
+export const ACCEPTED_OCR_STATUSES: readonly string[] = ["match", "bypassed"];
+
+export function isAcceptedOcrStatus(status: string | null | undefined): boolean {
+  return typeof status === "string" && ACCEPTED_OCR_STATUSES.includes(status);
+}
+
+/**
+ * One uploaded slot, reduced to the facts a verdict depends on: Cashfree's
+ * first-layer result, and whether a Bombino reviewer has verified it by hand
+ * (`ocr_verified_at`, migrations/add_manual_document_verification.sql).
+ */
 export interface DocumentVerdict {
   doc_slot: string;
   ocr_status: string | null;
+  ocr_verified_at?: string | null;
+}
+
+/**
+ * A reviewer opened the document and vouched for it. With account review on
+ * this is what every document needs before an account opens; Cashfree's
+ * verdict is advice to the reviewer, not an approval.
+ */
+export function isStaffVerified(doc: { ocr_verified_at?: string | null }): boolean {
+  return Boolean(doc.ocr_verified_at);
+}
+
+/** Verified by a reviewer, or (accounts opened before review) passed by Cashfree. */
+export function isDocumentVerified(doc: DocumentVerdict): boolean {
+  return isStaffVerified(doc) || isAcceptedOcrStatus(doc.ocr_status);
 }
 
 /**
@@ -363,6 +393,9 @@ export interface DocumentVerdict {
  * one document a corporate account rests on. Slots nothing reads at all
  * (bills, IEC and authorization letters) are verified by presence.
  *
+ * A document a Bombino reviewer verified by hand counts as verified whatever
+ * Cashfree said: with account review on, that is how every account opens.
+ *
  * `bypassed` counts as verified, exactly as assertDocumentsStaged treats it:
  * OCR_BYPASS=1 means a flag said not to ask, and those files are stored
  * unchecked on purpose. Without this a staging environment running that flag
@@ -384,11 +417,7 @@ export function verificationState(
     const row = bySlot.get(slot);
     if (!row) {
       missing.push(slot);
-    } else if (
-      isVerifiedDocSlot(slot) &&
-      row.ocr_status !== "match" &&
-      row.ocr_status !== "bypassed"
-    ) {
+    } else if (isVerifiedDocSlot(slot) && !isDocumentVerified(row)) {
       unverified.push(slot);
     }
   }

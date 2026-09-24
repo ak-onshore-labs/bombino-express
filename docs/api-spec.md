@@ -1,10 +1,19 @@
+> **Vendor notes, not our API spec.** These are ITD's own docket API request and
+> response shapes, kept for reference while integrating. Our endpoints are the
+> 107 handlers under `server/routes.ts` and `server/routes/*.ts`.
+>
+> **Credentials never belong in this file.** The values below are placeholders;
+> the real ones live in `.env` (`ITD_EMAIL`, `ITD_PASSWORD`, `ITD_COMPANY_ID`,
+> `ITD_COOKIE`) and are read through `server/itd.ts`. Anything pasted here is
+> committed to the repository for good.
+
 Auth API (POST)
 URL : https://admin.bombinoexp.com/docket_api/get_token
 Request Body : 
 {
     "company_id": 2,
-    "email": "uat@bombinoexp.com",
-    "password": "Welcome@2026"
+    "email": "<ITD_EMAIL>",
+    "password": "<ITD_PASSWORD>"
 }
 
 {
@@ -13,10 +22,10 @@ Request Body :
 		"id": "3903",
 		"customer_id": "74572",
 		"code": "72497",
-		"email": "uat@bombinoexp.com",
+		"email": "<ITD_EMAIL>",
 		"user_fullname": "CUSTOMER MOBILE APP",
 		"role": "customer",
-		"token": "ITDSERVICESCENTER1|RmRINUVXRlBHbWV4YllNWkF6d2pZMmhPY0RhY2h0UUE5NHBScm5DTzdZQT0=",
+		"token": "<auth token from the Auth API>",
 		"username": "CUSTOMER MOBILE APP",
 		"success": true,
 		"errors": []
@@ -359,7 +368,7 @@ Rate API (POST)
 Takes input like a form in insomnia
 Below is the curl command : 
 curl --location 'https://app.bombinoexp.com/docket_api/customer_rate_cals?api_company_id=2' \
---header 'Cookie: ci_sessions=348o4ekuj1otrtv05hj7d5jcnff83n90' \
+--header 'Cookie: ci_sessions=<ci_sessions cookie>' \
 --form 'product_code="SPX"' \
 --form 'destination_code="US"' \
 --form 'booking_date="2026-02-14"' \
@@ -367,8 +376,8 @@ curl --location 'https://app.bombinoexp.com/docket_api/customer_rate_cals?api_co
 --form 'pcs="1"' \
 --form 'actual_weight="12"' \
 --form 'customer_code="72497"' \
---form 'username="dWF0QGJvbWJpbm9leHAuY29t"' \
---form 'password="V2VsY29tZUAyMDI2"'
+--form 'username="<base64 of ITD_EMAIL>"' \
+--form 'password="<base64 of ITD_PASSWORD>"'
 
 Reponse for Rate API :
 {

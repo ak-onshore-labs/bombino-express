@@ -1,5 +1,16 @@
 ﻿import type { CSSProperties } from 'react';
 import { useLayoutEffect, useMemo, useState } from 'react';
+import { formatCountryDisplay } from '@/lib/itdCountryData';
+import {
+  dedupeAndSort,
+  formatInr,
+  itemizedChargesEmpty,
+  normalizeRateRow,
+  type ITDChargeApplyEntry,
+  type ITDRateResponse,
+  type ITDRateRow,
+  type RateParams,
+} from '@/lib/itdRates';
 import { ArrowLeft, ArrowRight, ChevronDown, Info, Loader2, AlertTriangle, Phone } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { useMutation } from '@tanstack/react-query';
@@ -13,60 +24,15 @@ import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 import { COUNTRY_LIST, COUNTRY_MAP, isBookableCorridor } from '@/lib/countryData';
-import { lbToKg, kgToLb } from '@/lib/mockData';
+import { lbToKg, kgToLb } from '@/lib/units';
 import { apiRequest } from '@/lib/queryClient';
 import { cn } from '@/lib/utils';
 import { useSupportContacts } from '@/hooks/useSupportContacts';
-
-interface RateParams {
-  product_code: string;
-  destination_code: string;
-  booking_date: string;
-  origin_code: string;
-  pcs: string;
-  actual_weight: string;
-  ori_city?: string;
-  ori_pincode?: string;
-  dest_city?: string;
-  dest_pincode?: string;
-}
-
-interface ITDChargeApplyEntry {
-  name: string;
-  amount: number;
-}
-
-interface ITDRateRow {
-  id: string;
-  code: string;
-  rate: number;
-  fsc: number;
-  cgst: number;
-  sgst: number;
-  other_charges: number;
-  chrage_apply_data?: Record<string, ITDChargeApplyEntry>;
-  sub_total: number;
-  total: number;
-  per_kg: number;
-  weight: string;
-  gst_per: string;
-  internal_api_service_code?: string;
-}
-
-interface ITDRateResponse {
-  success?: boolean;
-  data?: ITDRateRow[];
-}
 
 interface ShipmentMeta {
   weightLb: number;
   weightKg: number;
   pieces: number;
-}
-
-/** Indian Rupee with sensible fraction digits (no float noise). */
-function formatInr(n: number): string {
-  return `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 }
 
 const BOMBINO_BLUE = '#14567C';
@@ -78,65 +44,6 @@ const ratesResultsShellStyle = {
   '--color-background-secondary': 'rgb(247 247 249)',
   '--color-border-tertiary': 'rgba(55, 65, 81, 0.12)',
 } as CSSProperties;
-
-function normalizeRateRow(raw: unknown): ITDRateRow | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const r = raw as Record<string, unknown>;
-  const id = r.id != null ? String(r.id) : '';
-  const code =
-    typeof r.code === 'string'
-      ? r.code
-      : typeof r.internal_api_service_code === 'string'
-        ? r.internal_api_service_code
-        : '';
-  if (!id && !code) return null;
-  const num = (v: unknown): number => (typeof v === 'number' && !Number.isNaN(v) ? v : Number(v) || 0);
-  const str = (v: unknown): string => (typeof v === 'string' ? v : String(v ?? ''));
-  let chrage = r.chrage_apply_data;
-  if (chrage && typeof chrage === 'object' && !Array.isArray(chrage)) {
-    chrage = chrage as Record<string, ITDChargeApplyEntry>;
-  } else {
-    chrage = undefined;
-  }
-  return {
-    id: id || code,
-    code: code || id,
-    rate: num(r.rate),
-    fsc: num(r.fsc),
-    cgst: num(r.cgst),
-    sgst: num(r.sgst),
-    other_charges: num(r.other_charges),
-    chrage_apply_data: chrage as ITDRateRow['chrage_apply_data'],
-    sub_total: num(r.sub_total),
-    total: num(r.total),
-    per_kg: num(r.per_kg),
-    weight: str(r.weight),
-    gst_per: str(r.gst_per),
-    internal_api_service_code:
-      typeof r.internal_api_service_code === 'string' ? r.internal_api_service_code : undefined,
-  };
-}
-
-function dedupeAndSort(rows: ITDRateRow[]): ITDRateRow[] {
-  const seen = new Set<string>();
-  const deduped: ITDRateRow[] = [];
-  for (const row of rows) {
-    if (seen.has(row.id)) continue;
-    seen.add(row.id);
-    deduped.push(row);
-  }
-  return [...deduped].sort((a, b) => a.total - b.total);
-}
-
-function itemizedChargesEmpty(service: ITDRateRow): boolean {
-  const d = service.chrage_apply_data;
-  return !d || Object.keys(d).length === 0;
-}
-
-/** Title-case ALL CAPS country names from ITD list for display. */
-function formatCountryDisplay(raw: string): string {
-  return raw.toLowerCase().replace(/(^|[\s,]+)([a-z])/g, (_m, sep: string, letter: string) => sep + letter.toUpperCase());
-}
 
 interface CountryComboboxProps {
   value: string;

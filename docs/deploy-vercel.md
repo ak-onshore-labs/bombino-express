@@ -32,8 +32,7 @@ Deployments tab afterwards.
 Set these on the Production environment before the first deploy.
 
 ```
-SESSION_SECRET              random, 32+ bytes. Unset falls back to a literal in this repo.
-REDIS_URL                   NOT optional here — see Sessions below
+SESSION_SECRET              random, 32+ bytes. Required: a production server refuses to start without it.
 SUPABASE_URL
 SUPABASE_SERVICE_ROLE_KEY
 DATABASE_URL                the Supabase POOLER uri, port 6543
@@ -52,11 +51,12 @@ OTP bypass it is honoured in production builds).
 
 ## Four things that differ from a normal server
 
-**Sessions need Redis.** Without `REDIS_URL` the store is `MemoryStore`, which
-lives in one container. Serverless gives you a different container whenever it
-feels like it, so users are signed out at random. `createApp` warns at boot when
-production has no store, but the warning is not a fix. Upstash is the usual
-answer.
+**Sessions live in Postgres.** There is no Redis. The `session` table is read
+through `DATABASE_URL`, so every container sees the same sessions. If Postgres
+can't be reached, a serverless container falls back to signed cookies (readable
+by the browser), where a long-lived server would refuse to start. The BIA rate
+limit and postal cache are per-process, so on Vercel each container counts and
+caches on its own.
 
 **Postgres needs the pooler.** Every cold container opens its own `pg` pool. The
 direct Supabase connection string runs out of connections; the pooler URI on
@@ -72,6 +72,8 @@ this ever moves back to a long-lived host, raise it in `server/routes.ts` and in
 `start` script sets it; the function does not. `server/app.ts` calls
 `setDefaultResultOrder("ipv4first")` itself, which covers the same ground for
 anything resolved after the module loads.
+
+**BIA reads files from `content/`.** The app guide (`content/bia/app-guide.md`) and the restricted-items lists are read from disk at runtime, which the function bundler cannot trace, so `vercel.json` lists them in `includeFiles`. A new folder under `content/` is covered by the same glob.
 
 ## Before real users
 
