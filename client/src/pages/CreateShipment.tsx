@@ -1402,6 +1402,23 @@ export default function CreateShipment() {
                 <p className="font-medium text-foreground text-sm leading-snug">{corridorLabel}</p>
               </div>
             </div>
+
+            {/* "Drop it off whenever suits you" needs a where. This is the
+                screen the customer leaves with, so the counters belong here
+                as well as on the form step and the order page. */}
+            {pickupRequest === '2' && (
+              <DropoffBranches
+                pincode={senderZip}
+                city={senderCity}
+                state={senderState}
+                title={
+                  paymentMethod === 'pay_at_dropoff'
+                    ? 'Take it to — and pay at the counter'
+                    : 'Take it to'
+                }
+                className="mt-4"
+              />
+            )}
           </div>
 
           {/* Pay-now only. Four states, because "we don't know yet" is a real
