@@ -152,7 +152,7 @@ export function ApplicationStatusCard({
             )}
             {application.status === 'changes_requested' && (
               <Button
-                onClick={compact ? () => setLocation('/guest-profile') : reopenSignup}
+                onClick={() => setLocation(compact ? '/guest-profile' : '/application/fix')}
                 className="h-10 rounded-xl text-sm font-semibold"
                 data-testid="button-application-fix"
               >

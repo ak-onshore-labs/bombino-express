@@ -244,7 +244,7 @@ export function describeApplication(app: CustomerApplicationView): string {
     ];
     if (c.note) lines.push(`The team's note, to quote word for word: "${c.note}"`);
     if (items.length > 0) lines.push(`What to change: ${items.join(", ")}.`);
-    lines.push("They make the change from My Profile (Make the change), which reopens signup filled in, then send it again.");
+    lines.push("They make the change from My Profile (Make the change): a screen that asks only for what the team ticked, the fields to correct and the documents to upload again, with no new code and no contract to sign again. Then Send changes to Bombino.");
   }
   if (app.status === "rejected" && app.decision_note) {
     lines.push(`The team's reason, to quote word for word: "${app.decision_note}". They can still book as a guest, or apply again from My Profile.`);

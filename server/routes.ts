@@ -72,6 +72,10 @@ import { registerSupportRoutes } from "./routes/support.js";
 import { seedSignupDocumentFromGuestKyc } from "./guestKycMirror.js";
 import { mirrorAadhaarToKyc } from "./kycMirror.js";
 import { getLatestGuestRefForPhone, upsertGuestProfile } from "./guestProfileDb.js";
+import { itdLinkFailure } from "./itdLinkError.js";
+import { applicationToFix, assertFixedSlotsReplaced, FIX_NOT_OPEN_MESSAGE, mergeFixBody } from "./applicationFix.js";
+import { US_STATE_ERROR, US_ZIP_ERROR, isUsZip, usStateName } from "../shared/usAddress.js";
+import { explainDocketError } from "../shared/docketError.js";
 import { registerWhatsappRoutes } from "./routes/whatsapp.js";
 import { registerWhatsappScheduleRoutes } from "./routes/whatsappSchedule.js";
 import { registerOpsRoutes } from "./routes/ops.js";
@@ -79,7 +83,7 @@ import { listPublicSettings } from "./settingsDb.js";
 import { registerBiaRoutes } from "./routes/bia.js";
 import { registerAccountApplicationRoutes } from "./routes/accountApplications.js";
 import { isAccountReviewEnabled } from "./accountApplications.js";
-import { getLatestApplicationByPhone, toCustomerView } from "./accountApplicationsDb.js";
+import { getLatestApplicationByPhone, isOpenApplicationRef, toCustomerView } from "./accountApplicationsDb.js";
 import {
   handleGenerateDocket,
   handleMarkDispatched,
@@ -627,6 +631,16 @@ export async function registerRoutes(
       return;
     }
 
+    // These are an open application's files: the ones the Bombino team is
+    // reviewing, or has sent back. Wiping them here once deleted a PAN the team
+    // had accepted, and the resend then failed on a number nobody could see was
+    // gone. Same person (the phone is proved), so there is nothing to hide
+    // from them either. Each new upload still replaces its own slot.
+    if (await isOpenApplicationRef(signupRef)) {
+      res.json({ cleared: false, kept_for_application: true });
+      return;
+    }
+
     try {
       await Promise.all([
         deleteIdentityVerificationsBySignupRef(signupRef),
@@ -1112,7 +1126,11 @@ export async function registerRoutes(
   // GET /api/signup/documents — what this signup has staged so far
   app.get("/api/signup/documents", async (req: Request, res: Response) => {
     const phone = typeof req.query.phone === "string" ? req.query.phone : undefined;
-    const signupRef = signupRefForReading(req, phone);
+    // A guest fixing a sent-back application reads that application's files
+    // (applicationToFix points the session at its ref).
+    const signupRef =
+      signupRefForReading(req, phone) ??
+      ((await applicationToFix(req, phone)) ? req.session.signupRef ?? null : null);
     if (!signupRef) {
       res.set("Cache-Control", "no-store");
       res.json({ documents: [] });
@@ -1509,7 +1527,14 @@ export async function registerRoutes(
 
   // POST /api/auth/signup/personal
   app.post("/api/auth/signup/personal", async (req: Request, res: Response) => {
-    const parsed = signupPersonalSchema.safeParse(req.body);
+    // `fix: true` resends an application the team sent back, changing only
+    // what they asked about (server/applicationFix.ts).
+    const fixing = req.body?.fix === true ? await applicationToFix(req, req.body?.phone) : null;
+    if (req.body?.fix === true && (!fixing || fixing.account_type !== "personal")) {
+      res.status(409).json({ message: FIX_NOT_OPEN_MESSAGE, code: "APPLICATION_NOT_AWAITING_CHANGES" });
+      return;
+    }
+    const parsed = signupPersonalSchema.safeParse(fixing ? mergeFixBody(fixing, req.body) : req.body);
     if (!parsed.success) {
       res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid request" });
       return;
@@ -1532,7 +1557,8 @@ export async function registerRoutes(
 
     // "auth" — the unified entry point issues one code before it knows whether
     // the number ends in a sign-in, a link, or this. See otpPurposeSchema.
-    const verified = await isPhoneVerifiedHere(req, phone);
+    // A fix is proved by the guest session instead (applicationToFix above).
+    const verified = fixing !== null || (await isPhoneVerifiedHere(req, phone));
     if (!verified) {
       res.status(400).json({
         message: "Your phone verification has expired. Please request a new code.",
@@ -1540,6 +1566,7 @@ export async function registerRoutes(
       });
       return;
     }
+    if (fixing && !(await assertFixedSlotsReplaced(fixing, res))) return;
 
     // Aadhaar and PAN both, before the account exists — the numbers are a
     // precondition of opening it, and so is the document set. In that order,
@@ -1560,6 +1587,7 @@ export async function registerRoutes(
         category: null,
         details: { full_name, email },
         contract_signed_name,
+        keepContractOf: fixing,
       });
       return;
     }
@@ -1671,7 +1699,13 @@ export async function registerRoutes(
 
   // POST /api/auth/signup/company
   app.post("/api/auth/signup/company", async (req: Request, res: Response) => {
-    const parsed = signupCompanySchema.safeParse(req.body);
+    // `fix: true`: see /api/auth/signup/personal.
+    const fixing = req.body?.fix === true ? await applicationToFix(req, req.body?.phone) : null;
+    if (req.body?.fix === true && (!fixing || fixing.account_type !== "company")) {
+      res.status(409).json({ message: FIX_NOT_OPEN_MESSAGE, code: "APPLICATION_NOT_AWAITING_CHANGES" });
+      return;
+    }
+    const parsed = signupCompanySchema.safeParse(fixing ? mergeFixBody(fixing, req.body) : req.body);
     if (!parsed.success) {
       res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid request" });
       return;
@@ -1718,7 +1752,7 @@ export async function registerRoutes(
       return;
     }
 
-    const verified = await isPhoneVerifiedHere(req, phone);
+    const verified = fixing !== null || (await isPhoneVerifiedHere(req, phone));
     if (!verified) {
       res.status(400).json({
         message: "Your phone verification has expired. Please request a new code.",
@@ -1726,6 +1760,7 @@ export async function registerRoutes(
       });
       return;
     }
+    if (fixing && !(await assertFixedSlotsReplaced(fixing, res))) return;
 
     const categorySpec = COMPANY_CATEGORY_SPECS[company_category];
 
@@ -1777,6 +1812,7 @@ export async function registerRoutes(
           ...extras.values,
         },
         contract_signed_name,
+        keepContractOf: fixing,
       });
       return;
     }
@@ -2217,8 +2253,12 @@ export async function registerRoutes(
       itdUser = result.user;
       itdToken = result.token;
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Could not verify those credentials";
-      res.status(401).json({ message });
+      // ITD's wording goes to the log; the customer gets one of two plain
+      // answers (server/itdLinkError.ts).
+      const raw = err instanceof Error ? err.message : String(err);
+      const failure = itdLinkFailure(raw);
+      console.warn(`[link/itd] ITD login failed (${failure.code}): ${raw}`);
+      res.status(failure.status).json({ message: failure.message, code: failure.code });
       return;
     }
 
@@ -3158,6 +3198,19 @@ export async function registerRoutes(
         message: "Pay at pickup is only available when an agent collects the parcel",
         params: { code: "PAY_AT_PICKUP_NEEDS_PICKUP" },
       }
+    )
+    // A US address ITD can't place is priced at zero and refused at the docket
+    // ("Freight amount is 0", BOM-100305). The form checks the same thing;
+    // this is the check that holds for any client. See shared/usAddress.ts.
+    .refine(
+      (body) =>
+        body.items.consignee_country !== "US" || isUsZip(String(body.items.consignee_zip_code ?? "")),
+      { message: US_ZIP_ERROR, params: { code: "US_ZIP_INVALID" } }
+    )
+    .refine(
+      (body) =>
+        body.items.consignee_country !== "US" || usStateName(String(body.items.consignee_state ?? "")) !== null,
+      { message: US_STATE_ERROR, params: { code: "US_STATE_INVALID" } }
     );
 
   // POST /api/orders — requires login (session)
@@ -3472,11 +3525,15 @@ export async function registerRoutes(
       //
       // Best-effort: the order is placed and paid for either way, and a failed
       // bookkeeping write must not turn a successful booking into a 500.
+      //
+      // A blank field is left out rather than written as null: upsert skips
+      // undefined columns, so a booking without a sender email cannot wipe the
+      // one the profile or an account application already saved.
       void upsertGuestProfile({
         guest_ref: guestRef,
         phone: guestPhone!,
-        full_name: body.origin_address.full_name || null,
-        email: body.origin_address.email || null,
+        full_name: body.origin_address.full_name || undefined,
+        email: body.origin_address.email || undefined,
       }).catch((err) => console.error("[orders] guest profile upsert failed:", err));
     }
 
@@ -3525,7 +3582,12 @@ export async function registerRoutes(
 
     res.json({
       order: docket.status === "issued" ? { ...order, awb_no: docket.awb_no } : order,
-      docket,
+      // A refusal goes out as the customer's note (shared/docketError.ts), never
+      // as ITD's raw reply: that carries HTTP codes and JSON, and is ops' to read.
+      docket:
+        docket.status === "failed"
+          ? { ...docket, message: explainDocketError(docket.message ?? "").customerNote }
+          : docket,
     });
   });
 
@@ -4251,6 +4313,17 @@ export async function registerRoutes(
       // Surfaced as its own field rather than leaving the page to dig through
       // `order.metadata` — the customer app has no business parsing an escape
       // hatch that also carries gateway ids and failure blobs.
+      /**
+       * Why there is no airway bill yet, when one was tried at booking and ITD
+       * refused it. The customer's wording only; ops sees ITD's reason.
+       */
+      awbNote: (() => {
+        if (order.awb_no) return null;
+        const meta = (order.metadata ?? {}) as Record<string, unknown>;
+        const err = meta.docket_error as { message?: unknown; stage?: unknown } | undefined;
+        if (!err || typeof err.message !== "string") return null;
+        return explainDocketError(err.message, typeof err.stage === "string" ? err.stage : null).customerNote;
+      })(),
       cancellationRequest: (() => {
         const request = readCancellationRequest(order);
         if (!request) return null;

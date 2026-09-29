@@ -148,6 +148,8 @@ export interface OrderDetailResponse {
   availableActions: { action: string; label: string; requiresPayload?: boolean }[];
   cancellationRequest: OrderDetailCancellationRequest | null;
   handover: OrderDetailHandover | null;
+  /** Why there's no airway bill yet, when ITD refused one at booking. */
+  awbNote?: string | null;
   warning?: string;
 }
 

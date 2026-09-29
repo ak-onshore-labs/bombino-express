@@ -126,11 +126,10 @@ export default function Login() {
    * Sent here to attach a number to an ITD account that predates phone
    * sign-in.
    *
-   * The only route to this step since a number we have never seen goes
-   * straight to signup. Signup offers it in its footer, immediately after the
-   * OTP, because `/api/auth/link/itd` needs a verification less than
-   * OTP_VERIFICATION_WINDOW_MINUTES old — which is exactly what the customer
-   * has just done.
+   * Signup offers it in its footer as a second way in, besides the choice
+   * step here, immediately after the OTP, because `/api/auth/link/itd` needs
+   * a verification less than OTP_VERIFICATION_WINDOW_MINUTES old — which is
+   * exactly what the customer has just done.
    */
   const linkRequested = params.get('link') === '1';
   // Set when the session lapsed under the user rather than them signing out.
@@ -230,10 +229,11 @@ export default function Login() {
         setStep('guest');
         return;
       }
-      // Nothing on file at all. The old screen asked "have you shipped with
-      // Bombino before?" and made an account the second of two answers; a
-      // number we have never seen has one useful next step, so it happens.
-      goToSignup();
+      // Nothing on file at all. Ask before assuming they are new: a customer
+      // whose ITD account predates phone sign-in has no number on file either,
+      // and "Yes, I have an account" is how they link it. "No, I'm new here"
+      // goes to signup, which opens on Personal or Company.
+      setStep('choice');
     } catch (err) {
       setError(parseApiErrorMessage(err, 'Incorrect code'));
       setOtp('');

@@ -45,6 +45,46 @@ export const ERROR_CATALOG = {
     why: "A one-time code proves the number is yours. That proof only lasts a few minutes, so it can run out if a step takes a while.",
     fix: "Request a new code, enter it, and carry on.",
   },
+  // ── The receiver's address, for a US delivery ─────────────────────────────
+  US_ZIP_INVALID: {
+    area: "booking",
+    title: "That US ZIP code isn't complete",
+    why: "US ZIP codes have five digits, and the courier prices the delivery from it. One that's short or has letters can't be priced.",
+    fix: "Enter the receiver's 5-digit ZIP code, like 10001. Some start with 0, like 01001.",
+  },
+  US_STATE_INVALID: {
+    area: "booking",
+    title: "Choose the receiver's US state",
+    why: "A US delivery needs one of the 50 states or DC, and the one given isn't a US state.",
+    fix: "Pick the state from the list on the Receiver step.",
+  },
+  // ── Fixing an application the Bombino team sent back ──────────────────────
+  APPLICATION_NOT_AWAITING_CHANGES: {
+    area: "signup",
+    title: "Your application isn't waiting on a change",
+    why: "The team may have picked it up again, or it was withdrawn, approved or declined in the meantime.",
+    fix: "Open My Profile to see where it stands now.",
+  },
+  DOCUMENTS_NOT_REPLACED: {
+    area: "signup",
+    title: "A document still needs uploading again",
+    why: "The team asked for a new copy, and the one on file is still the one they saw.",
+    fix: "Upload the document named in the message on the Update your application screen, then send your changes.",
+  },
+  // ── Linking a Bombino login from before the app ───────────────────────────
+  ITD_LOGIN_FAILED: {
+    area: "auth",
+    title: "That email and password didn't match",
+    why: "Linking checks them with Bombino's booking system, and it didn't recognise this pair.",
+    fix: "Check the email and password you use on the Bombino portal and try again. Forgotten them? Contact support. Or go back and tap “No, I'm new here” to open a new account.",
+    button: "TAP_CONTACT_US",
+  },
+  ITD_UNAVAILABLE: {
+    area: "auth",
+    title: "Bombino's system couldn't be reached",
+    why: "Linking checks your login with Bombino's booking system, and it didn't answer in time.",
+    fix: "Wait a minute and try again. Nothing was saved, so you can start the same way.",
+  },
   OTP_RATE_LIMITED: {
     area: "auth",
     title: "Too many codes requested",

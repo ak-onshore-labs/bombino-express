@@ -20,6 +20,8 @@ import { OTP_VERIFICATION_WINDOW_MINUTES } from "./otp.js";
 import { hasRecentVerification } from "./otpDb.js";
 import { deleteAllSignupDocuments } from "./accountDocsDb.js";
 import { deleteIdentityVerificationsBySignupRef } from "./identityDb.js";
+import { applicationToFix } from "./applicationFix.js";
+import { isOpenApplicationRef } from "./accountApplicationsDb.js";
 
 const phoneSchema = z.string().trim().regex(INDIAN_MOBILE_PATTERN, INDIAN_MOBILE_MESSAGE);
 
@@ -53,7 +55,11 @@ export async function signupRefForPhone(req: Request, phone: string): Promise<st
   req.session.signupRef = crypto.randomUUID();
   req.session.signupPhone = phone;
 
-  if (abandoned) {
+  // An open application's files are not abandoned: the Bombino team is
+  // working from them. Only the session lets go of the ref.
+  if (abandoned && (await isOpenApplicationRef(abandoned))) {
+    console.warn(`[signup] phone changed mid-signup — keeping ${abandoned}, it belongs to an open application`);
+  } else if (abandoned) {
     console.warn(`[signup] phone changed mid-signup — discarding staged rows for ${abandoned}`);
     try {
       await Promise.all([
@@ -148,6 +154,10 @@ export async function assertPhoneVerified(
   }
 
   const verified = await isPhoneVerifiedHere(req, parsed.data);
+  // A guest fixing the application the team sent back: the guest session is
+  // the proof, and it points staging at that application's own files. See
+  // server/applicationFix.ts.
+  if (!verified && (await applicationToFix(req, parsed.data))) return parsed.data;
   if (!verified) {
     res.status(400).json({
       message: `Your phone verification has expired. Please request a new code.`,

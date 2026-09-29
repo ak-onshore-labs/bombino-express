@@ -29,6 +29,7 @@ import Privacy from "@/pages/Privacy";
 import Profile from "@/pages/Profile";
 import GuestProfileDashboard from "@/pages/GuestProfileDashboard";
 import GuestAccountSetup from "@/pages/GuestAccountSetup";
+import ApplicationFix from "@/pages/ApplicationFix";
 import { useGuestProfile } from "@/hooks/useGuestProfile";
 import { useAppStore } from "@/lib/store";
 import Support from "@/pages/Support";
@@ -87,6 +88,9 @@ function CustomerRouter() {
           summary: a dozen fields answered one row at a time is right for
           correcting one and wrong for finishing the set. */}
       <Route path="/guest-profile/setup" component={GuestAccountSetup} />
+      {/* Fixing an application the Bombino team sent back: only what they
+          asked about, no new code, no contract to sign again. */}
+      <Route path="/application/fix" component={ApplicationFix} />
       <Route path="/help" component={Support} />
       {/* Every drop-off counter. Reached from the booking form and the order
           screen with `?near=<state>`, which floats that state to the top. */}

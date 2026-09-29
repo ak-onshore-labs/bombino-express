@@ -743,10 +743,11 @@ export default function Signup() {
               </Link>
             </p>
             {/* The way back to an ITD account that predates phone sign-in.
-                Since a number we have never seen comes straight here, this is
-                the only entry to /api/auth/link/itd — and it is offered here
-                because that endpoint needs a verification only minutes old,
-                which is what the customer has just done to reach this screen. */}
+                Sign-in asks first ("Have you shipped with Bombino before?");
+                this is the second chance for someone who answered "No" and
+                then remembered. It works because /api/auth/link/itd needs a
+                verification only minutes old, which is what the customer has
+                just done to reach this screen. */}
             {preVerified && phone && (
               <p className="text-xs text-muted-foreground">
                 Shipped with Bombino before this app?{' '}
