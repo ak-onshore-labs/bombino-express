@@ -95,6 +95,13 @@ export const ERROR_CATALOG = {
     fix: "Sign in with that number, or contact support to move it.",
     button: "TAP_CONTACT_US",
   },
+  ACCOUNT_DEACTIVATED: {
+    area: "auth",
+    title: "This account has been deactivated",
+    why: "This account has been deactivated, so it can no longer be used to sign in.",
+    fix: "Please contact ops.",
+    button: "TAP_CONTACT_US",
+  },
 
   // ── Identity numbers (the step before documents) ─────────────────────────
   AADHAAR_INVALID: {
