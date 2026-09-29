@@ -442,7 +442,11 @@ export async function registerRoutes(
       return;
     }
 
-    await deliverOtp(phone, code);
+    const delivered = await deliverOtp(phone, code);
+    if (!delivered) {
+      res.status(502).json({ message: "Could not send OTP. Please try again.", code: "OTP_SEND_FAILED" });
+      return;
+    }
     res.json({ message: "OTP sent" });
   });
 
