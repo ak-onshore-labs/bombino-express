@@ -49,6 +49,8 @@
  *     try again shortly. Nothing is recorded, so nothing is claimed.
  */
 
+import { cashfreeSignatureHeader } from "./cashfreeSignature.js";
+
 const SANDBOX_BASE = "https://sandbox.cashfree.com";
 const PRODUCTION_BASE = "https://api.cashfree.com";
 /**
@@ -335,6 +337,7 @@ async function callCashfree(call: CashfreeCall): Promise<CashfreeAnswer> {
     "Content-Type": "application/json",
     "x-client-id": config.clientId,
     "x-client-secret": config.clientSecret,
+    ...cashfreeSignatureHeader(config.clientId),
   };
   if (call.sendApiVersion) headers["x-api-version"] = config.apiVersion;
 

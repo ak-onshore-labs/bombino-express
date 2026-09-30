@@ -43,6 +43,7 @@ import {
   isOcrCheckedSlot,
   type OcrCheckedSlot,
 } from "../shared/accountSpec.js";
+import { cashfreeSignatureHeader } from "./cashfreeSignature.js";
 
 const SANDBOX_BASE = "https://sandbox.cashfree.com";
 const PRODUCTION_BASE = "https://api.cashfree.com";
@@ -418,6 +419,7 @@ export async function runSmartOcr(input: RunSmartOcrInput): Promise<OcrResult> {
         "x-client-id": config.clientId,
         "x-client-secret": config.clientSecret,
         "x-api-version": config.apiVersion,
+        ...cashfreeSignatureHeader(config.clientId),
       },
       body: form,
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
