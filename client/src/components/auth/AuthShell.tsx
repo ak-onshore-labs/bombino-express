@@ -55,11 +55,8 @@ export function AuthShell({
     typeof step === 'number' && typeof totalSteps === 'number' && totalSteps > 1;
 
   return (
-    <div className="min-h-[100dvh] bg-background safe-bottom" data-testid={testId}>
-      {/* The status-bar inset is padding on the white bar, not on the grey page:
-          on the page it showed as a grey strip between the phone's status bar
-          and this header. */}
-      <header className="sticky top-0 z-50 bg-white border-b border-border safe-top">
+    <div className="min-h-[100dvh] bg-background safe-top safe-bottom" data-testid={testId}>
+      <header className="sticky top-0 z-50 bg-white border-b border-border">
         <div className="flex items-center h-14 px-4 max-w-md mx-auto w-full">
           <button
             onClick={onBack}

@@ -2,16 +2,6 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import { installSessionInterceptor } from "./lib/session";
 import "./index.css";
-import { isCapacitorIos } from "./lib/platform";
-
-// In the iOS app, the page scrolls inside #root instead of the document. The
-// WebView rubber-bands the document at both ends, dragging the fixed bottom
-// nav and the header with it, and CSS cannot switch that bounce off. With the
-// document still, only #root's content can move and the bars stay put.
-// Before render, so the first paint already has it. See `.native-shell`.
-if (isCapacitorIos()) {
-  document.documentElement.classList.add("native-shell");
-}
 
 // Before anything renders or fetches: a 401 on our API means the session is
 // gone, and the app must stop showing the previous user's data rather than

@@ -1,7 +1,6 @@
 import { AnimatePresence } from 'framer-motion';
 import { Route, Switch, useLocation } from 'wouter';
 import { AgentNav } from '@/components/agent/AgentNav';
-import { AgentTopBar } from '@/components/agent/AgentShell';
 import { PageTransition } from '@/components/motion/PageTransition';
 import Dashboard from '@/pages/agent/Dashboard';
 import AvailablePickups from '@/pages/agent/AvailablePickups';
@@ -45,14 +44,6 @@ export function AgentRoutes() {
 
   return (
     <>
-      {/*
-        Above the transition, like the nav below: a bar inside the animating
-        wrapper faded and shrank on every screen change and opened a gap under
-        the phone's status bar. Sticky in the document, so it stays put while
-        the screens under it change. The job sheet has its own dark header.
-      */}
-      {navVisible(location) && <AgentTopBar />}
-
       {/*
         `mode="wait"` — the leaving screen finishes before the arriving one
         mounts. Not a taste call: the list screens are `min-h-[100dvh]` and

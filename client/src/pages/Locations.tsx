@@ -69,8 +69,8 @@ export default function Locations(): React.JSX.Element {
   };
 
   return (
-    <div className="min-h-[100dvh] bg-background safe-bottom">
-      <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-border bg-white/95 px-4 py-3 backdrop-blur-sm safe-top">
+    <div className="min-h-[100dvh] bg-background safe-top safe-bottom">
+      <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-border bg-white/95 px-4 py-3 backdrop-blur-sm">
         <button
           onClick={goBack}
           className="rounded-lg p-1 transition-colors hover:bg-gray-100"

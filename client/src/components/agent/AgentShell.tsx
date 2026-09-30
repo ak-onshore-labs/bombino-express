@@ -67,13 +67,13 @@ function todayLine(): string {
  * work owed today, so the date is the one fact worth the space. Still amber —
  * it is the shift's own marker, and the tag it replaced was amber.
  */
-export function AgentTopBar() {
+function AgentTopBar() {
   const [location] = useLocation();
   const onProfile = location === '/agent/profile';
 
   return (
     <header
-      className="agent-surface sticky top-0 z-40 bg-white border-b border-[#E2E8F0]! safe-top"
+      className="sticky top-0 z-40 bg-white border-b border-[#E2E8F0]! safe-top"
       data-testid="agent-topbar"
     >
       {/* Three columns, the outer two equal, so the logo sits on the screen's
@@ -156,10 +156,8 @@ export function AgentShell({
       className="agent-surface min-h-[100dvh] bg-[#F1F3F5] pb-agent-nav"
       data-testid="agent-shell"
     >
-      {/* The top bar is mounted once in `routes.agent.tsx`, above the page
-          transition, for the same reason as the nav: inside the animating
-          wrapper it faded and shrank on every screen change, opening a gap
-          under the phone's status bar. */}
+      <AgentTopBar />
+
       <main className="max-w-md mx-auto px-5 pt-5 pb-6">
         <div className="flex flex-col" style={{ gap }}>
           {(title || meta || sub) && (
