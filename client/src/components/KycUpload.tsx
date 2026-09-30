@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { MAX_UPLOAD_BYTES, isAllowedUploadType } from '@shared/upload';
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB, isAllowedUploadType } from '@shared/upload';
+import { PASSPORT_NUMBER_PATTERN } from '@shared/kyc';
 import { CloudUpload, CheckCircle2, XCircle, Loader2, FileText } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { publishKycOnFile, type KycOnFile } from '@/hooks/useKycOnFile';
@@ -71,9 +72,9 @@ const DOC_TYPES: Record<string, DocConfig> = {
   'Passport Number': {
     label: 'Passport Number',
     placeholder: 'A1234567',
-    hint: '7-8 character passport number',
-    validate: (v) => /^[A-Z0-9]{7,8}$/i.test(v),
-    maxLength: 8,
+    hint: '6-9 letters and digits, as printed on your passport',
+    validate: (v) => PASSPORT_NUMBER_PATTERN.test(v),
+    maxLength: 9,
   },
   'Driving Licence': {
     label: 'Driving Licence',
@@ -340,7 +341,7 @@ export function KycUpload({
     }
     if (file.size > MAX_UPLOAD_BYTES) {
       setUploadErrorCode(null);
-      setUploadError('File must be under 4MB.');
+      setUploadError(`File must be under ${MAX_UPLOAD_MB}MB.`);
       setUploadStatus('error');
       return;
     }
@@ -577,7 +578,7 @@ export function KycUpload({
         )}
         <div className="flex items-center gap-1 mt-1.5">
           <FileText className="w-3 h-3 text-muted-foreground" />
-          <p className="text-[10px] text-muted-foreground">PDF, JPEG, or PNG · Max 4MB</p>
+          <p className="text-[10px] text-muted-foreground">PDF, JPEG, or PNG · Max {MAX_UPLOAD_MB}MB</p>
         </div>
       </div>
       </div>

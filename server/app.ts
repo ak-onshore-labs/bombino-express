@@ -15,6 +15,7 @@
  */
 
 import "dotenv/config";
+import { UPLOAD_SIZE_MESSAGE } from "../shared/upload.js";
 import { setDefaultResultOrder } from "node:dns";
 
 // Cloud Postgres (e.g. Supabase) often resolves to IPv6 first; some networks time out on IPv6.
@@ -412,7 +413,7 @@ export async function createApp(): Promise<{ app: Express; httpServer: Server }>
       return;
     }
     if (err?.code === "LIMIT_FILE_SIZE") {
-      res.status(413).json({ message: "File too large. Maximum size is 4MB." });
+      res.status(413).json({ message: UPLOAD_SIZE_MESSAGE });
       return;
     }
     if (err?.message?.includes("Only PDF")) {

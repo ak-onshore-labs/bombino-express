@@ -193,6 +193,7 @@ import {
 } from "./kycDb.js";
 import {
   buildItdKycPayload,
+  PASSPORT_NUMBER_PATTERN,
   toKycSummary,
 } from "../shared/kyc.js";
 import {
@@ -259,11 +260,7 @@ const ITD_LINK_TIMEOUT_MS = 10_000;
 
 const kycUpload = multer({
   storage: multer.memoryStorage(),
-  // 4MB, not 5: a serverless request body is capped at 4.5MB on Vercel and the
-  // platform rejects the request before multer ever sees it — which surfaces as
-  // a bare 413 with no JSON body and no way to say why. Staying under the cap
-  // keeps the error ours. Raise this only if the host is a long-lived server,
-  // and change client/src/components/KycUpload.tsx to match.
+  // Shared with the browser (shared/upload.ts), which says why it is 8MB.
   limits: { fileSize: MAX_UPLOAD_BYTES },
   fileFilter: (_req, file, cb) => {
     if (isAllowedUploadType(file.mimetype)) {
@@ -4454,7 +4451,7 @@ export async function registerRoutes(
       const docNoValidation: Record<string, RegExp> = {
         "Aadhaar Number": /^\d{12}$/,
         "PAN Number": /^[A-Z]{5}[0-9]{4}[A-Z]$/i,
-        "Passport Number": /^[A-Z0-9]{7,8}$/i,
+        "Passport Number": PASSPORT_NUMBER_PATTERN,
         "Driving Licence": /^[A-Z0-9-]{5,20}$/i,
         "GSTIN (Normal)": /^.{15}$/,
       };
