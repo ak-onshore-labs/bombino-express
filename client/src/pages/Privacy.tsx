@@ -5,8 +5,8 @@ export default function Privacy() {
   const [, setLocation] = useLocation();
 
   return (
-    <div className="min-h-[100dvh] bg-background safe-top safe-bottom">
-      <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm border-b border-border px-4 py-3 flex items-center gap-3">
+    <div className="min-h-[100dvh] bg-background safe-bottom">
+      <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm border-b border-border px-4 py-3 flex items-center gap-3 safe-top">
         <button
           onClick={() => setLocation('/login')}
           className="p-1 rounded-lg hover:bg-gray-100 transition-colors"

@@ -118,6 +118,23 @@
   @apply border-border;
 }
 
+/* No rubber-band at the ends of the page. In the iOS app shell the bounce
+   dragged the whole document — the bottom nav lifted off the bottom edge with a
+   white strip under it and the header slid with the content — which reads as a
+   web page, not an app. Inner scrollers (sheets, lists) keep their own. */
+html,
+body {
+  overscroll-behavior: none;
+  /* No scroll line down the right edge. It sat there permanently on short
+     screens like Sign in and read as a web page. */
+  scrollbar-width: none;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  display: none;
+}
+
 html {
   scroll-behavior: smooth;
   -webkit-tap-highlight-color: transparent;
