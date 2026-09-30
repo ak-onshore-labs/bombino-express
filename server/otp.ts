@@ -1,5 +1,8 @@
 import crypto from "crypto";
 import { sendOtpBySms } from "./sms.js";
+import { sendTemplate, toWaMsisdn } from "./whatsapp.js";
+import { getWhatsappReachability } from "./whatsappDb.js";
+import { loginOtpMessage } from "./whatsappTemplates.js";
 
 export const OTP_LENGTH = 6;
 export const OTP_TTL_MINUTES = 5;
@@ -91,29 +94,76 @@ export function hashOtp(code: string): string {
 }
 
 /**
- * Deliver a login code by SMS.
+ * The WhatsApp dedupe key for one issued code.
  *
- * SMS is the only channel for this code. WhatsApp still carries order,
- * payment, and rider messages; it is not asked to carry a login code.
+ * Keyed on the `otp_codes` row id, which is new on every request. NOT on the
+ * code: under OTP_FIXED_CODE every code is the same, so a code-derived key made
+ * every send after the first a "duplicate" and nothing went out. The code
+ * never appears in the key either way — `otp_codes` stores only its hash.
+ */
+export function otpDedupeKey(otpId: string, purpose = "otp"): string {
+  return `${purpose}:${otpId}`;
+}
+
+/**
+ * Deliver a login code — on WhatsApp and by SMS, at the same time.
+ *
+ * Both, not one-then-the-other. Meta ACCEPTS a message to a number with no
+ * WhatsApp and only reports it `failed` on the status webhook afterwards, so a
+ * WhatsApp-first design makes every non-WhatsApp customer wait out a grace
+ * period for their SMS. Sending both costs a message and costs nobody time.
+ *
+ * The WhatsApp send doubles as the silent "is this number on WhatsApp?" check:
+ * its receipt is what `getWhatsappReachability` reads. It therefore skips the
+ * reachability gate — a number marked unreachable must keep being re-tried on
+ * login, or it could never be marked reachable again.
+ *
+ * SMS carries the login code and nothing else.
+ *
+ * With OTP_FIXED_CODE set, no SMS is sent: the code is already known, so texting
+ * it only spends MSG91 credit. WhatsApp still goes, because the reachability
+ * check is worth having now, and the code in it is the known fixed one.
  *
  * The code is logged in DEVELOPMENT ONLY. Production logs must not hold a
  * plaintext login code.
  *
- * With OTP_FIXED_CODE set no SMS is sent at all: the code is already known,
- * so texting it only spends MSG91 credit and lands on the tester's phone.
- * Unset the variable and every login goes back to SMS.
- *
- * @returns whether MSG91 accepted the send (always true under OTP_FIXED_CODE).
- *          Not whether the handset has it — DLT can still drop a message
- *          MSG91 has accepted.
+ * @returns whether either channel accepted the send (always true under
+ *          OTP_FIXED_CODE). Not whether the handset has it.
  */
-export async function deliverOtp(phone: string, code: string): Promise<boolean> {
+export async function deliverOtp(
+  phone: string,
+  code: string,
+  otpId: string
+): Promise<boolean> {
   if (process.env.NODE_ENV === "development") {
     console.log(`[otp] OTP for ${phone}: ${code}`);
   }
 
-  if (fixedOtpCode() !== null) return true;
+  const fixed = fixedOtpCode() !== null;
+  const message = loginOtpMessage(code);
 
-  const result = await sendOtpBySms(phone, code);
-  return result.ok;
+  const [whatsapp, sms] = await Promise.all([
+    sendTemplate({
+      to: phone,
+      template: message.template,
+      variables: message.variables,
+      otpButtonCode: message.otpButtonCode,
+      dedupeKey: otpDedupeKey(otpId),
+      // The login code is a credential. Store a placeholder, send the real thing.
+      redactVariables: true,
+      skipReachabilityCheck: true,
+    }),
+    fixed ? Promise.resolve(null) : sendOtpBySms(phone, code),
+  ]);
+
+  if (fixed) return true;
+  if (sms?.ok) return true;
+  if (!whatsapp.ok) return false;
+
+  // SMS refused, WhatsApp accepted. Meta accepts sends to numbers with no
+  // WhatsApp, so "accepted" only counts if this number is not already known to
+  // be one of those — otherwise the customer is told "OTP sent" and gets nothing.
+  const msisdn = toWaMsisdn(phone);
+  if (!msisdn) return false;
+  return (await getWhatsappReachability(msisdn, message.template)) !== "not_on_whatsapp";
 }

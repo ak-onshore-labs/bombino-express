@@ -87,6 +87,14 @@ export default function Profile() {
   const [changeError, setChangeError] = useState('');
   const [isChanging, setIsChanging] = useState(false);
 
+  // Verify-WhatsApp flow: for a number Meta says is not on WhatsApp. The code
+  // goes out on WhatsApp only, so typing it back proves WhatsApp is there now.
+  const [waOpen, setWaOpen] = useState(false);
+  const [waStep, setWaStep] = useState<'send' | 'confirm'>('send');
+  const [waOtp, setWaOtp] = useState('');
+  const [waError, setWaError] = useState('');
+  const [isWaBusy, setIsWaBusy] = useState(false);
+
   const [usernameOpen, setUsernameOpen] = useState(false);
   const [usernameDraft, setUsernameDraft] = useState('');
   const [usernameError, setUsernameError] = useState('');
@@ -246,6 +254,50 @@ export default function Profile() {
     }
   };
 
+  const notOnWhatsapp = hasLinkedPhone && profile?.whatsapp === 'not_on_whatsapp';
+
+  const openWhatsappDialog = () => {
+    setWaOtp('');
+    setWaError('');
+    setWaStep('send');
+    setWaOpen(true);
+  };
+
+  const handleSendWhatsappOtp = async () => {
+    setIsWaBusy(true);
+    setWaError('');
+    try {
+      await apiRequest('POST', '/api/user/whatsapp/verify/request', {});
+      setWaStep('confirm');
+    } catch (err) {
+      setWaError(parseApiErrorMessage(err, 'Could not send the code'));
+    } finally {
+      setIsWaBusy(false);
+    }
+  };
+
+  const handleConfirmWhatsapp = async () => {
+    if (!/^\d{6}$/.test(waOtp)) {
+      setWaError('Enter the 6-digit code');
+      return;
+    }
+    setIsWaBusy(true);
+    setWaError('');
+    try {
+      await apiRequest('POST', '/api/user/whatsapp/verify/confirm', { code: waOtp });
+      void refreshProfile();
+      setWaOpen(false);
+      toast({
+        title: 'WhatsApp verified',
+        description: 'We’ll send your order updates on WhatsApp again.',
+      });
+    } catch (err) {
+      setWaError(parseApiErrorMessage(err, 'Could not verify the code'));
+    } finally {
+      setIsWaBusy(false);
+    }
+  };
+
   const openUsernameDialog = () => {
     setUsernameDraft(displayUsername);
     setUsernameError('');
@@ -343,6 +395,21 @@ export default function Profile() {
                     <p className="text-[11px] text-muted-foreground mt-0.5">
                       You sign in with this number.
                     </p>
+                  )}
+                  {notOnWhatsapp && (
+                    <div className="mt-1.5" data-testid="notice-not-on-whatsapp">
+                      <p className="text-[11px] text-muted-foreground">
+                        This number isn’t on WhatsApp, so we can’t send you updates there.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={openWhatsappDialog}
+                        className="mt-1 text-xs font-semibold text-secondary hover:underline"
+                        data-testid="button-verify-whatsapp"
+                      >
+                        Verify WhatsApp
+                      </button>
+                    </div>
                   )}
                 </div>
                 {hasLinkedPhone && (
@@ -688,6 +755,70 @@ export default function Profile() {
                 : changeStep === 'phone'
                   ? 'Send code'
                   : 'Change number'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={waOpen} onOpenChange={setWaOpen}>
+        <DialogContent data-testid="dialog-verify-whatsapp">
+          <DialogHeader>
+            <DialogTitle>Verify WhatsApp</DialogTitle>
+            <DialogDescription>
+              {waStep === 'send'
+                ? `We’ll send a code to ${displayPhone} on WhatsApp. Make sure WhatsApp is set up on this number first.`
+                : `Enter the code we sent to ${displayPhone} on WhatsApp.`}
+            </DialogDescription>
+          </DialogHeader>
+
+          {waStep === 'confirm' && (
+            <div className="flex justify-center">
+              <InputOTP
+                maxLength={6}
+                value={waOtp}
+                onChange={(v) => {
+                  setWaOtp(v);
+                  setWaError('');
+                }}
+              >
+                <InputOTPGroup>
+                  {[0, 1, 2, 3, 4, 5].map((i) => (
+                    <InputOTPSlot
+                      key={i}
+                      index={i}
+                      className="h-11 w-10 text-base"
+                      data-testid={`input-wa-otp-slot-${i}`}
+                    />
+                  ))}
+                </InputOTPGroup>
+              </InputOTP>
+            </div>
+          )}
+
+          {waError && (
+            <p className="text-sm text-red-500" data-testid="text-verify-whatsapp-error">
+              {waError}
+            </p>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setWaOpen(false)}
+              disabled={isWaBusy}
+              className="rounded-xl"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() =>
+                waStep === 'send' ? void handleSendWhatsappOtp() : void handleConfirmWhatsapp()
+              }
+              disabled={isWaBusy}
+              className="bg-accent hover:bg-accent/90 text-accent-foreground font-semibold rounded-xl shadow-[var(--shadow-hover)]"
+              data-testid="button-verify-whatsapp-submit"
+            >
+              {isWaBusy ? 'Working…' : waStep === 'send' ? 'Send code' : 'Verify'}
             </Button>
           </DialogFooter>
         </DialogContent>

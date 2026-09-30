@@ -98,6 +98,25 @@ export const ERROR_CATALOG = {
     fix: "Try again in a moment. If it keeps failing, contact support.",
     button: "TAP_CONTACT_US",
   },
+  WHATSAPP_SEND_FAILED: {
+    area: "auth",
+    title: "The code couldn't be sent on WhatsApp",
+    why: "WhatsApp didn't accept the message for this number. It may not be set up on WhatsApp yet.",
+    fix: "Make sure WhatsApp is installed and registered on this number, then try again.",
+  },
+  NO_PHONE: {
+    area: "auth",
+    title: "No mobile number on your account",
+    why: "A number is needed before it can be checked on WhatsApp.",
+    fix: "Add a mobile number to your profile first.",
+  },
+  SAVE_FAILED: {
+    area: "auth",
+    title: "That couldn't be saved",
+    why: "Something failed on our side while saving it.",
+    fix: "Try again in a moment. If it keeps failing, contact support.",
+    button: "TAP_CONTACT_US",
+  },
   OTP_NOT_REQUESTED: {
     area: "auth",
     title: "No code is waiting for this number",

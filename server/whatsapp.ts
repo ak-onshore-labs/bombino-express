@@ -21,7 +21,9 @@ import {
   markNotSent,
   markSent,
   getWhatsappRecipient,
+  getWhatsappReachability,
 } from "./whatsappDb.js";
+import { WA_TEMPLATE } from "./whatsappTemplates.js";
 
 const DEFAULT_BASE_URL = "https://wb.omni.tatatelebusiness.com";
 const SEND_PATH = "/whatsapp-cloud/messages";
@@ -83,7 +85,10 @@ export function toWaMsisdn(phone: string | null | undefined): string | null {
 
 export type SendOutcome =
   | { ok: true; messageId: string | null }
-  | { ok: false; reason: "duplicate" | "no_number" | "opted_out" | "skipped" | "failed" };
+  | {
+      ok: false;
+      reason: "duplicate" | "no_number" | "opted_out" | "not_on_whatsapp" | "skipped" | "failed";
+    };
 
 export interface SendTemplateInput {
   /** Phone as stored. Normalised here; a number that will not normalise is refused. */
@@ -109,6 +114,14 @@ export interface SendTemplateInput {
    * the number it belongs to. The provider still receives the real values.
    */
   redactVariables?: boolean;
+  /**
+   * Send even to a number last seen as not on WhatsApp.
+   *
+   * For the login code and the profile "Verify WhatsApp" code only. Those sends
+   * are how a number gets re-checked; skipping them would mark a customer
+   * unreachable for good the first time they signed in without WhatsApp.
+   */
+  skipReachabilityCheck?: boolean;
 }
 
 /**
@@ -135,6 +148,14 @@ export async function sendTemplate(input: SendTemplateInput): Promise<SendOutcom
   if (input.userId) {
     const recipient = await getWhatsappRecipient(input.userId);
     if (recipient?.optedOut) return { ok: false, reason: "opted_out" };
+  }
+
+  // A number Meta has told us has no WhatsApp. Sending would be charged for
+  // and land nowhere; the customer still gets the in-app notification. No row
+  // is claimed, same as `no_number`: there was never a message.
+  if (!input.skipReachabilityCheck) {
+    const reach = await getWhatsappReachability(to, WA_TEMPLATE.loginOtp);
+    if (reach === "not_on_whatsapp") return { ok: false, reason: "not_on_whatsapp" };
   }
 
   const claim = await claimMessage({

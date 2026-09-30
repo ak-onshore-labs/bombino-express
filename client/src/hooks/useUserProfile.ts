@@ -27,6 +27,11 @@ export interface UserProfile {
   last_login_at: string | null;
   /** Whether a password is stored, which decides if changing the number asks for one. */
   has_password: boolean;
+  /**
+   * Whether this number is on WhatsApp, from Meta's delivery receipts on the
+   * login code. `not_on_whatsapp` shows the "Verify WhatsApp" prompt.
+   */
+  whatsapp: 'on_whatsapp' | 'not_on_whatsapp' | 'unknown';
 }
 
 export const USER_PROFILE_KEY = ['/api/user/profile'] as const;

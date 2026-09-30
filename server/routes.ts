@@ -77,6 +77,10 @@ import { applicationToFix, assertFixedSlotsReplaced, FIX_NOT_OPEN_MESSAGE, merge
 import { US_STATE_ERROR, US_ZIP_ERROR, isUsZip, usStateName } from "../shared/usAddress.js";
 import { explainDocketError } from "../shared/docketError.js";
 import { registerWhatsappRoutes } from "./routes/whatsapp.js";
+import { registerUserWhatsappRoutes } from "./routes/userWhatsapp.js";
+import { toWaMsisdn } from "./whatsapp.js";
+import { getWhatsappReachability } from "./whatsappDb.js";
+import { WA_TEMPLATE } from "./whatsappTemplates.js";
 import { registerWhatsappScheduleRoutes } from "./routes/whatsappSchedule.js";
 import { registerOpsRoutes } from "./routes/ops.js";
 import { listPublicSettings } from "./settingsDb.js";
@@ -291,6 +295,7 @@ export async function registerRoutes(
   // WhatsApp delivery receipts, and the STOP word. Unauthenticated by design
   // too — the secret in the path is what the provider was given.
   registerWhatsappRoutes(app);
+  registerUserWhatsappRoutes(app);
 
   // The agent digest and slot reminders, driven by an external scheduler.
   registerWhatsappScheduleRoutes(app);
@@ -443,7 +448,7 @@ export async function registerRoutes(
       return;
     }
 
-    const delivered = await deliverOtp(phone, code);
+    const delivered = await deliverOtp(phone, code, inserted.id);
     if (!delivered) {
       res.status(502).json({ message: "Could not send OTP. Please try again.", code: "OTP_SEND_FAILED" });
       return;
@@ -2343,7 +2348,13 @@ export async function registerRoutes(
       // Derived, not the column itself — drives whether the "change number"
       // flow asks for a password. Accounts created here have none.
       const has_password = await itdUserHasStoredPassword(req.session.dbUserId);
-      return res.json({ ...profile, has_password });
+      // Whether this number is on WhatsApp, as far as Meta's receipts tell us.
+      // Drives the profile's "Verify WhatsApp" prompt (routes/userWhatsapp.ts).
+      const msisdn = toWaMsisdn(profile.phone ? String(profile.phone) : null);
+      const whatsapp = msisdn
+        ? await getWhatsappReachability(msisdn, WA_TEMPLATE.loginOtp)
+        : "unknown";
+      return res.json({ ...profile, has_password, whatsapp });
     }
   );
 
