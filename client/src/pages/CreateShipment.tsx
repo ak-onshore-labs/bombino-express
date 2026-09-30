@@ -856,15 +856,32 @@ export default function CreateShipment() {
     setSelectedCurrency(destCurrency == null || destCurrency === 'INR' ? 'INR' : destCurrency);
   }, [destinationCountry]);
 
+  // Its own instance, not the default `confetti()`. The default draws in a Web
+  // Worker on an OffscreenCanvas and only removes its full-screen canvas when
+  // the worker reports back; in the app's WebView that worker can stall, and
+  // the order-placed screen froze under a canvas that never went away. On the
+  // main thread 120 particles cost nothing, and the timer below clears the
+  // canvas even if the animation never finishes.
   useEffect(() => {
     if (!newOrderNo) return;
-    confetti({
+    const fire = confetti.create(undefined, {
+      resize: true,
+      useWorker: false,
+      disableForReducedMotion: true,
+    });
+    void fire({
       particleCount: 120,
       spread: 70,
       origin: { x: 0.5, y: 0.5 },
       startVelocity: 40,
+      ticks: 150,
       colors: ['#14567C', '#ffffff'],
     });
+    const stop = window.setTimeout(() => fire.reset(), 4000);
+    return () => {
+      window.clearTimeout(stop);
+      fire.reset();
+    };
   }, [newOrderNo]);
 
   // ── Steps and the back button ──────────────────────────────────────────
