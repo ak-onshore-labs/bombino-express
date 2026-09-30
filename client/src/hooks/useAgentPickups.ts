@@ -184,6 +184,36 @@ export function useOrderAction() {
         throw error;
       }
     },
+    // Put the server's answer into the lists before they refetch, so the job's
+    // screen shows its new state at once: a job just taken is already "mine",
+    // not a free job still offering Take. The refetch below then confirms it.
+    onSuccess: (result, { orderId }) => {
+      const available = queryClient.getQueryData<PickupEntry[]>(AVAILABLE_PICKUPS_KEY) ?? [];
+      const mine = queryClient.getQueryData<PickupEntry[]>(MY_PICKUPS_KEY) ?? [];
+      const previous =
+        mine.find((e) => e.order.id === orderId) ?? available.find((e) => e.order.id === orderId);
+      if (!previous) return;
+
+      const next: PickupEntry = {
+        order: {
+          ...previous.order,
+          ...result.order,
+          // A status write reads back no address; keep the one already shown.
+          origin_address: result.order.origin_address ?? previous.order.origin_address,
+        },
+        availableActions: result.availableActions,
+      };
+      queryClient.setQueryData<PickupEntry[]>(
+        AVAILABLE_PICKUPS_KEY,
+        available.filter((e) => e.order.id !== orderId),
+      );
+      queryClient.setQueryData<PickupEntry[]>(
+        MY_PICKUPS_KEY,
+        mine.some((e) => e.order.id === orderId)
+          ? mine.map((e) => (e.order.id === orderId ? next : e))
+          : [next, ...mine],
+      );
+    },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: AVAILABLE_PICKUPS_KEY });
       void queryClient.invalidateQueries({ queryKey: MY_PICKUPS_KEY });

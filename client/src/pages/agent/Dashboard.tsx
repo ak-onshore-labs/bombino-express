@@ -1,6 +1,6 @@
 import { useMemo, useRef } from 'react';
 import { Loader2, ChevronLeft, ChevronRight, MapPin, Clock, Wallet } from 'lucide-react';
-import { Link } from 'wouter';
+import { Link, useLocation } from 'wouter';
 import { cn } from '@/lib/utils';
 import { AgentShell } from '@/components/agent/AgentShell';
 import { BandHeader } from '@/components/agent/BandHeader';
@@ -251,6 +251,7 @@ export default function Dashboard() {
   const { data: mine, isLoading: loadingMine } = useMyPickups();
   const { data: collections } = useCollections();
   const action = useOrderAction();
+  const [, setLocation] = useLocation();
 
   const today = todayInIst();
   const isLoading = loadingAvailable || loadingMine;
@@ -279,30 +280,16 @@ export default function Dashboard() {
   }, [mine, today]);
 
   /**
-   * Every free job, late first, then today's, then the undated, then the ones
-   * dated ahead.
-   *
-   * The rail used to drop anything dated forward, on the theory that home was
-   * today's work and the rest was New's job. In practice a booking made for
-   * Thursday landed on no screen the agent looks at, and "my new job isn't
-   * showing" is the only report that matters — a free job that exists is work
-   * that can be taken, whatever its date. Ordering carries the distinction that
-   * the filter used to: what is due now sits at the head of the rail, and each
-   * card states its own date.
+   * Every free job, newest booking first, oldest at the end. Each card still
+   * states its own date, so a late or future job reads as one without the
+   * rail being grouped by it.
    */
   const freeJobs = useMemo(() => {
-    const rank: Record<string, number> = { overdue: 0, today: 1, undated: 2, scheduled: 3 };
     // Copied before sorting: `available` is React Query's cached array and
     // sorting in place rewrites what every other screen reads.
-    return [...(available ?? [])]
-      .sort((a, b) => {
-        const byBand =
-          rank[bandForDate(a.order.pickup_date, today)] -
-          rank[bandForDate(b.order.pickup_date, today)];
-        if (byBand !== 0) return byBand;
-        // Within a band, newest booking first.
-        return new Date(b.order.created_at).getTime() - new Date(a.order.created_at).getTime();
-      });
+    return [...(available ?? [])].sort(
+      (a, b) => new Date(b.order.created_at).getTime() - new Date(a.order.created_at).getTime(),
+    );
   }, [available, today]);
 
   /**
@@ -339,7 +326,13 @@ export default function Dashboard() {
           <NewJobsRail
             entries={freeJobs}
             today={today}
-            onTake={(orderId, actionName) => action.mutate({ orderId, action: actionName })}
+            onTake={(orderId, actionName) =>
+              // Straight to the job once it is ours; a lost race stays here.
+              action.mutate(
+                { orderId, action: actionName },
+                { onSuccess: () => setLocation(`/agent/pickup/${orderId}`) },
+              )
+            }
             pendingId={action.isPending ? action.variables?.orderId : undefined}
             disabled={action.isPending}
           />

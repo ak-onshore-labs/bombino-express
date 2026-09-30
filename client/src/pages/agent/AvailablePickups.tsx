@@ -1,5 +1,5 @@
 import { Loader2 } from 'lucide-react';
-import { Link } from 'wouter';
+import { Link, useLocation } from 'wouter';
 import { cn } from '@/lib/utils';
 import { AgentShell } from '@/components/agent/AgentShell';
 import { BandHeader } from '@/components/agent/BandHeader';
@@ -41,17 +41,21 @@ export default function AvailablePickups() {
   const { data: pickups, isLoading, isError, refetch } = useAvailablePickups();
   const action = useOrderAction();
   const today = todayInIst();
+  const [, setLocation] = useLocation();
 
   /**
-   * Taking a job says nothing on success: it leaves this list and appears in My
-   * jobs, which is a louder answer than any confirmation. The agent surface
-   * carries no toasts at all (see `SurfaceToaster` in App.tsx).
+   * A taken job opens straight away: the next thing the agent does is on that
+   * job's screen, so that is where the tap goes, as soon as the server says
+   * the job is theirs. Not before: a lost race (409) must stay here and say so.
    *
-   * A failure still has to be said, and is said at the top of the list — a
-   * claim that silently does nothing is the exact failure §5 warns about.
+   * A failure is said at the top of the list — a claim that silently does
+   * nothing is the exact failure §5 warns about.
    */
   const handleAccept = (orderId: string, actionName: string): void => {
-    action.mutate({ orderId, action: actionName });
+    action.mutate(
+      { orderId, action: actionName },
+      { onSuccess: () => setLocation(`/agent/pickup/${orderId}`) },
+    );
   };
 
   // 409 is the expected outcome of a lost race, not a malfunction.
