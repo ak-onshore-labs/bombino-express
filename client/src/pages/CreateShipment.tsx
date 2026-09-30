@@ -242,12 +242,16 @@ const steps = [
 interface CountryComboboxProps {
   value: string;
   onValueChange: (code: string) => void;
+  /** Error styling from the step's field validation. */
+  className?: string;
 }
 
-function CountryCombobox({ value, onValueChange }: CountryComboboxProps) {
+function CountryCombobox({ value, onValueChange, className }: CountryComboboxProps) {
   const [open, setOpen] = useState(false);
   const country = ITD_COUNTRY_MAP[value];
-  const displayName = country ? formatCountryDisplay(country.name) : value;
+  // No default: the customer picks where the parcel is going. Pre-selecting
+  // the US booked non-US parcels to the US whenever nobody noticed the field.
+  const displayName = country ? formatCountryDisplay(country.name) : value || null;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -257,9 +261,15 @@ function CountryCombobox({ value, onValueChange }: CountryComboboxProps) {
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          className="w-full h-11 justify-between font-normal text-sm bg-muted/30 border-border rounded-xl px-3"
+          data-testid="select-destination-country"
+          className={cn(
+            'w-full h-11 justify-between font-normal text-sm bg-muted/30 border-border rounded-xl px-3',
+            className
+          )}
         >
-          <span className="truncate text-left">{displayName}</span>
+          <span className={cn('truncate text-left', !displayName && 'text-muted-foreground')}>
+            {displayName ?? 'Select destination country'}
+          </span>
           <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
@@ -628,7 +638,7 @@ export default function CreateShipment() {
   const [receiverZip, setReceiverZip] = useState('');
   const [receiverAddress, setReceiverAddress] = useState('');
 
-  const [destinationCountry, setDestinationCountry] = useState('US');
+  const [destinationCountry, setDestinationCountry] = useState('');
   const [selectedCurrency, setSelectedCurrency] = useState('USD');
 
   const [weightUnit, setWeightUnit] = useState<'lb' | 'kg'>('lb');
@@ -1607,6 +1617,7 @@ export default function CreateShipment() {
     }
     if (currentStep === 2) {
       const e: Record<string, boolean> = {};
+      if (!destinationCountry) e.destinationCountry = true;
       if (!receiverName.trim()) e.receiverName = true;
       const phoneDigits = receiverPhone.replace(/\D/g, '');
       if (phoneDigits.length < 6 || phoneDigits.length > 15) e.receiverPhone = true;
@@ -2569,21 +2580,27 @@ export default function CreateShipment() {
 
         {currentStep === 2 && (
           <div className="space-y-4 animate-fade-in">
-            <CorridorRouteInfo
-              destinationCode={destinationCountry}
-              destinationName={formatCountryDisplay(
-                ITD_COUNTRY_MAP[destinationCountry]?.name ?? destinationCountry
-              )}
-            />
+            {destinationCountry && (
+              <CorridorRouteInfo
+                destinationCode={destinationCountry}
+                destinationName={formatCountryDisplay(
+                  ITD_COUNTRY_MAP[destinationCountry]?.name ?? destinationCountry
+                )}
+              />
+            )}
             <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)] space-y-2">
               <Label className="text-xs text-muted-foreground">Destination Country</Label>
               <CountryCombobox
                 value={destinationCountry}
+                className={fieldBorderClass('destinationCountry')}
                 onValueChange={(code) => {
                   setDestinationCountry(code);
                   clearFieldError('destinationCountry');
                 }}
               />
+              {fieldErrors.destinationCountry && (
+                <p className="text-xs text-red-600 mt-1">Select the destination country</p>
+              )}
             </div>
             <AddressPicker
               type="recipient"
