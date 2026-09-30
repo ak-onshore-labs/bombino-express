@@ -99,8 +99,13 @@ export function hashOtp(code: string): string {
  * The code is logged in DEVELOPMENT ONLY. Production logs must not hold a
  * plaintext login code.
  *
- * @returns whether MSG91 accepted the send. Not whether the handset has it —
- *          DLT can still drop a message MSG91 has accepted.
+ * With OTP_FIXED_CODE set the SMS is still attempted, but a failed send does
+ * not fail the request: the customer already knows the code, and the fixed
+ * code exists precisely for when SMS cannot be relied on.
+ *
+ * @returns whether MSG91 accepted the send (always true under OTP_FIXED_CODE).
+ *          Not whether the handset has it — DLT can still drop a message
+ *          MSG91 has accepted.
  */
 export async function deliverOtp(phone: string, code: string): Promise<boolean> {
   if (process.env.NODE_ENV === "development") {
@@ -108,5 +113,9 @@ export async function deliverOtp(phone: string, code: string): Promise<boolean> 
   }
 
   const result = await sendOtpBySms(phone, code);
+  if (!result.ok && fixedOtpCode() !== null) {
+    console.warn("[otp] SMS not delivered; OTP_FIXED_CODE is set, so login continues", { phone });
+    return true;
+  }
   return result.ok;
 }
