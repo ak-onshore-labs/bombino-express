@@ -35,7 +35,7 @@ export const WA_TEMPLATE = {
   paymentReceived: "bombino_payment_received",
   paymentFailed: "bombino_payment_failed",
   pickupConfirmed: "bombino_pickup_confirmed",
-  agentOnTheWay: "bombino_agent_on_the_way",
+  agentOnTheWay: "bombino_agent_on_the_way_v3",
   parcelPickedUp: "bombino_parcel_picked_up",
   arrivedAtHub: "bombino_arrived_at_hub",
   amountDue: "bombino_amount_due",
@@ -196,6 +196,10 @@ export function pickupConfirmedMessage(input: {
  * "{{1}} is your verification code" with no room for an agent or an order. So
  * the message sends the customer to the order screen, which shows the code
  * (OrderDetails.tsx, #handover-code) and always shows the current one.
+ *
+ * _v3 because the rejected name cannot be reused through the API, and _v2,
+ * which still said "see your pickup code… share it", was rejected by Meta's
+ * automatic check on submission. Don't mention the code here at all.
  *
  * Once per order: nothing in it changes between sends.
  */
