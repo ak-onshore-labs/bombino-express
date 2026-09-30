@@ -2,6 +2,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { LayoutGrid, PackageSearch, ClipboardList, Wallet } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import { cn } from '@/lib/utils';
+import { useShellBottomColor } from '@/hooks/useShellBottomColor';
 import { INDICATOR, POP, POP_VARIANTS } from '@/lib/motion';
 import { useAvailablePickups, useMyPickups } from '@/hooks/useAgentPickups';
 
@@ -58,6 +59,8 @@ export function AgentNav() {
     { icon: ClipboardList, label: 'My jobs', path: '/agent/mine', badge: mine?.length },
     { icon: Wallet, label: 'Money', path: '/agent/collections' },
   ];
+
+  useShellBottomColor('#1B2A41');
 
   return (
     <nav

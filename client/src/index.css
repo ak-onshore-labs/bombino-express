@@ -146,6 +146,24 @@ html.native-shell body {
   overflow: hidden;
 }
 
+/* Pinned, the page ends above the home indicator and the strip below it shows
+   the document background. A bottom bar sets --shell-bottom to its own colour
+   (useShellBottomColor) so the strip reads as the rest of the bar; otherwise
+   it is the page colour. */
+html.native-shell {
+  background: var(--shell-bottom, rgb(var(--background)));
+  /* The bars carry no inset padding here (below), so the space pages reserve
+     for them does not either. */
+  --nav-stack: 4rem;
+  --agent-nav-stack: 70px;
+}
+
+/* ...and the bar drops its own home-indicator padding, which the strip now
+   provides. Left in, the bar was that much taller than it should be. */
+html.native-shell nav.fixed.bottom-0.safe-bottom {
+  padding-bottom: 0;
+}
+
 html.native-shell #root {
   height: 100%;
   overflow-y: auto;

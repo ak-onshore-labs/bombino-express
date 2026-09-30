@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import { cn } from '@/lib/utils';
+import { useShellBottomColor } from '@/hooks/useShellBottomColor';
 
 /**
  * The customer surface's bottom navigation.
@@ -98,6 +99,7 @@ export function TabBar({
   testId?: string;
 }) {
   const [location] = useLocation();
+  useShellBottomColor('var(--primary)');
 
   return (
     <nav
