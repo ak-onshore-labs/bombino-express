@@ -300,12 +300,8 @@ export default function Dashboard() {
           rank[bandForDate(a.order.pickup_date, today)] -
           rank[bandForDate(b.order.pickup_date, today)];
         if (byBand !== 0) return byBand;
-        // `pickup_date` sorts as a plain `YYYY-MM-DD` string, which is calendar
-        // order. Within a day, oldest booking first — there is no finer time on
-        // a pickup any more to break the tie with.
-        const byDate = (a.order.pickup_date ?? '').localeCompare(b.order.pickup_date ?? '');
-        if (byDate !== 0) return byDate;
-        return new Date(a.order.created_at).getTime() - new Date(b.order.created_at).getTime();
+        // Within a band, newest booking first.
+        return new Date(b.order.created_at).getTime() - new Date(a.order.created_at).getTime();
       });
   }, [available, today]);
 

@@ -76,11 +76,7 @@ export default function AvailablePickups() {
   // and it agrees with the nav badge, which counts the same list.
   const shown = late.length + now.length + later.length;
 
-  // Within Later the queue is by date rather than by booking order: what an
-  // agent wants to know about a job three days out is which day.
-  later.sort((a, b) =>
-    (a.order.pickup_date ?? '').localeCompare(b.order.pickup_date ?? ''),
-  );
+  // Every band keeps the server's order: newest booking first.
 
   const bands = [
     { key: 'overdue' as const, entries: late },

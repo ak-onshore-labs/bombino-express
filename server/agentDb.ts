@@ -68,8 +68,9 @@ const logSupabaseError = (operation: string, error: DbError): void =>
 const getSupabaseClient = () => dbClient("agentDb");
 
 /**
- * Jobs nobody has claimed. Oldest first — the queue is FIFO so a pickup cannot
- * sit at the bottom of every agent's list forever.
+ * Jobs nobody has claimed. Newest booking first, at Bombino's request: agents
+ * see what just came in at the top. (It was oldest first, FIFO; a job left
+ * untaken now drifts down rather than up, so watch for stale ones.)
  *
  * Returns null on DB error, distinct from `[]` which means "none available".
  * Callers must not collapse the two: an empty screen and a broken screen say
@@ -84,7 +85,7 @@ export async function getAvailablePickups(): Promise<AgentPickup[] | null> {
     .select(PICKUP_COLUMNS)
     .eq("status", "pickup_requested")
     .is("agent_id", null)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: false });
 
   if (error) {
     logSupabaseError("getAvailablePickups", error);
@@ -122,8 +123,7 @@ export async function getMyPickups(agentId: string): Promise<AgentPickup[] | nul
       "in",
       "(received_at_hub,weighed,settled,ready_for_docket,dispatched,cancelled)"
     )
-    .order("pickup_date", { ascending: true })
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: false });
 
   if (error) {
     logSupabaseError("getMyPickups", error);
