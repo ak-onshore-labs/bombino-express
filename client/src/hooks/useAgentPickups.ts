@@ -78,6 +78,11 @@ export function useMyPickups(enabled = true) {
     staleTime: 0,
     refetchOnMount: true,
     refetchOnWindowFocus: true,
+    // Polled like the free list: ops assigning a job or moving one, or a
+    // customer cancelling, has to reach "Doing now" without the agent leaving
+    // the screen.
+    refetchInterval: 10_000,
+    refetchIntervalInBackground: false,
   });
 }
 

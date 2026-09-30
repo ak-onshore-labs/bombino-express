@@ -256,8 +256,10 @@ export default function Dashboard() {
   const today = todayInIst();
   const isLoading = loadingAvailable || loadingMine;
 
-  // Today's jobs, and only today's. A held job dated forward is a commitment,
-  // not work, and lives under Later in My jobs.
+  // Every held job, today's work first. A job dated forward used to be left
+  // off entirely, so taking one for tomorrow left "Doing now" saying "Take a
+  // job above to start" as if nothing had happened. It now shows when there is
+  // nothing due today; each panel states its own date.
   //
   // Furthest along leads, because that is the parcel physically in their hands.
   // Only then does lateness break the tie: two jobs both merely accepted are
@@ -265,8 +267,11 @@ export default function Dashboard() {
   // window opens first.
   const liveJobs = useMemo(() => {
     return [...(mine ?? [])]
-      .filter((e) => isTodaysWork(e, today))
       .sort((a, b) => {
+        const todayA = isTodaysWork(a, today) ? 0 : 1;
+        const todayB = isTodaysWork(b, today) ? 0 : 1;
+        if (todayA !== todayB) return todayA - todayB;
+
         const byProgress =
           (PROGRESS_RANK[b.order.status] ?? 0) - (PROGRESS_RANK[a.order.status] ?? 0);
         if (byProgress !== 0) return byProgress;
