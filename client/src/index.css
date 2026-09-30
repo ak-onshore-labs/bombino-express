@@ -135,6 +135,29 @@ body::-webkit-scrollbar {
   display: none;
 }
 
+/* The iOS app shell (class set in main.tsx). overscroll-behavior above does
+   not stop the WebView's own bounce, so there the document is pinned and
+   #root is the scroller: a bounce can only move #root's content, and the
+   fixed bottom nav and sticky headers stay where they are. Sticky still works,
+   against #root instead of the viewport. */
+html.native-shell,
+html.native-shell body {
+  height: 100%;
+  overflow: hidden;
+}
+
+html.native-shell #root {
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+html.native-shell #root::-webkit-scrollbar {
+  display: none;
+}
+
 html {
   scroll-behavior: smooth;
   -webkit-tap-highlight-color: transparent;

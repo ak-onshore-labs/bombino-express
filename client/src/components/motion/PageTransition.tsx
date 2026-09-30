@@ -1,6 +1,7 @@
 import { useLayoutEffect } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { PAGE_IN, PAGE_OUT, PAGE_SCALE, REDUCED } from '@/lib/motion';
+import { scrollToTop } from '@/lib/platform';
 
 /**
  * One screen, arriving and leaving.
@@ -49,7 +50,7 @@ export function PageTransition({
    * document.
    */
   useLayoutEffect(() => {
-    window.scrollTo(0, 0);
+    scrollToTop();
   }, []);
 
   // Reduced motion keeps the crossfade — some signal that the screen changed is

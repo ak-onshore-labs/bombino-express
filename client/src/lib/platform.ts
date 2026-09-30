@@ -25,6 +25,23 @@ export function isCapacitorNative(): boolean {
   return getCapacitor()?.isNativePlatform?.() === true;
 }
 
+/** Inside the iOS app shell (not iOS Safari). */
+export function isCapacitorIos(): boolean {
+  return isCapacitorNative() && getCapacitor()?.getPlatform?.() === 'ios';
+}
+
+/**
+ * Back to the top of the screen, wherever the screen scrolls.
+ *
+ * In the iOS shell the document does not scroll — `#root` does (see
+ * `.native-shell` in index.css) — so `window.scrollTo` alone would do nothing
+ * there. Both are called; the one that is not scrolling ignores it.
+ */
+export function scrollToTop(): void {
+  window.scrollTo(0, 0);
+  document.getElementById('root')?.scrollTo(0, 0);
+}
+
 export function getCapacitorShare(): CapacitorPlugin | null {
   return getCapacitor()?.Plugins?.Share ?? null;
 }
