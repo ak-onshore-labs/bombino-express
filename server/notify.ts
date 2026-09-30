@@ -30,7 +30,6 @@ import type { Order } from "../shared/orderContract.js";
 import { deriveCustomerStatus, isInternalOnlyStatus } from "../shared/orderContract.js";
 import { insertOrderStatusNotification, type NotificationOwner } from "./appDb.js";
 import { customerStatusDetail } from "./notificationCopy.js";
-import { getCodeForOwner } from "./handoverCodes.js";
 import { getUserContactsByIds } from "./ordersDb.js";
 import { sendTemplate } from "./whatsapp.js";
 import { getWhatsappRecipient } from "./whatsappDb.js";
@@ -219,18 +218,11 @@ async function buildCustomerMessage(order: Order): Promise<WhatsappMessage | nul
         agentName: await agentName(order.agent_id),
       });
 
-    case "out_for_pickup": {
-      // The handover code, at the moment it starts to matter. `getCodeForOwner`
-      // is called with the customer's own kind — they are the party who shows
-      // this code, never the party who types it.
-      const handover = await getCodeForOwner(order.id, "pickup");
-      if (!handover) return null;
+    case "out_for_pickup":
       return agentOnTheWayMessage({
         order,
         agentName: await agentName(order.agent_id),
-        handoverCode: handover.code,
       });
-    }
 
     case "weighed": {
       if (order.quoted_amount === null || order.final_amount === null) return null;
@@ -444,33 +436,6 @@ export async function notifyDispatched(input: {
     userId: input.userId,
     orderId: input.orderId,
     scope: input.orderId ?? `awb:${input.awb}`,
-  });
-}
-
-/**
- * A regenerated pickup code.
- *
- * Only meaningful once the agent is on their way — before that the customer is
- * reading it off their own screen and nothing has gone wrong. The new code is
- * its own dedupe suffix, which is what makes this a different message from the
- * one carrying the code it replaced.
- */
-export async function notifyHandoverCodeReissued(input: {
-  order: Order;
-  code: string;
-}): Promise<void> {
-  if (input.order.status !== "out_for_pickup") return;
-
-  await deliver({
-    message: agentOnTheWayMessage({
-      order: input.order,
-      agentName: await agentName(input.order.agent_id),
-      handoverCode: input.code,
-    }),
-    to: await orderCustomerPhone(input.order),
-    userId: input.order.user_id,
-    orderId: input.order.id,
-    scope: input.order.id,
   });
 }
 

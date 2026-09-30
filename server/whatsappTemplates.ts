@@ -188,30 +188,24 @@ export function pickupConfirmedMessage(input: {
 }
 
 /**
- * The one that changes how the handover works.
+ * The agent is on the way.
  *
- * Until now the code lived only on the order screen: the customer had to have
- * the app open, logged in, on the right page, while the agent stood waiting.
- * Here it arrives on their phone before the doorbell.
+ * No handover code in it. It used to carry the code, and Meta rejected the
+ * template as INCORRECT_CATEGORY: a Utility template may not deliver a code,
+ * that is Authentication's job, and an Authentication template is Meta's fixed
+ * "{{1}} is your verification code" with no room for an agent or an order. So
+ * the message sends the customer to the order screen, which shows the code
+ * (OrderDetails.tsx, #handover-code) and always shows the current one.
  *
- * The code itself is the dedupe suffix. Same code, same message — so replaying
- * `start_pickup` sends nothing, while regenerating a locked code sends the new
- * number. Keying on anything else risks the second message being swallowed as
- * a duplicate, leaving the customer reading out a number that opens nothing.
+ * Once per order: nothing in it changes between sends.
  */
 export function agentOnTheWayMessage(input: {
   order: Order;
   agentName: string | null;
-  handoverCode: string;
 }): WhatsappMessage {
   return {
     template: WA_TEMPLATE.agentOnTheWay,
-    variables: [
-      v(input.order.order_no),
-      v(input.agentName, "Your Bombino agent"),
-      v(input.handoverCode),
-    ],
-    dedupeSuffix: input.handoverCode,
+    variables: [v(input.order.order_no), v(input.agentName, "Your Bombino agent")],
   };
 }
 

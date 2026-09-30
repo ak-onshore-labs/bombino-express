@@ -51,7 +51,7 @@ Sent to `itd_users.phone` — the OTP-verified account number. Never
 | 2 | `bombino_payment_received` | Razorpay verify or webhook credits the order | 1 order no, 2 amount, 3 txn id | Payment of {{2}} received for order {{1}}, transaction {{3}}. Thank you. |
 | 3 | `bombino_payment_failed` | Gateway reports a failed attempt | 1 order no, 2 amount | Your payment of {{2}} for order {{1}} did not go through. Your booking is safe. Open the Bombino app to try again. |
 | 4 | `bombino_pickup_confirmed` | `agent_accepted` | 1 order no, 2 agent name, 3 date and window | Your pickup for order {{1}} is confirmed. {{2}} will collect it on {{3}}. See you then. |
-| 5 | `bombino_agent_on_the_way` | `out_for_pickup`, and on every code regeneration | 1 order no, 2 agent name, 3 **the 4-digit code** | Your agent {{2}} is on the way to collect order {{1}}. Your handover code is {{3}}. Share it only once the agent has your parcel in hand. |
+| 5 | `bombino_agent_on_the_way` | `out_for_pickup` | 1 order no, 2 agent name | Your Bombino agent {{2}} is on the way to collect order {{1}}. Open this order in the Bombino app to see your pickup code, and share it only once the agent has your parcel in hand. |
 | 6 | `bombino_parcel_picked_up` | `picked_up` | 1 order no | Order {{1}} has been collected. We will let you know when it reaches our hub. |
 | 7 | `bombino_arrived_at_hub` | `received_at_hub` | 1 order no | Order {{1}} has arrived at the Bombino hub. We will weigh it and confirm the final amount before it is dispatched. |
 | 8 | `bombino_amount_due` | `weighed` and final > quoted | 1 order no, 2 actual weight, 3 difference | Order {{1}} weighed {{2}}, more than booked. An additional {{3}} is due. Open the Bombino app to pay. Your parcel is dispatched once this is settled. |
@@ -66,7 +66,7 @@ Sent to `itd_users.phone` — the OTP-verified account number. Never
 | # | Why it reads the way it does |
 |---|---|
 | 1 | The closing sentence is not padding. The quote is an estimate against a weight the customer guessed; someone never told that reads a later request for ₹340 as a bait-and-switch |
-| 5 | **The important one.** "only once the agent has your parcel in hand" is the entire control — the code proves the handover happened, and a customer who reads it out over the phone in advance has handed over nothing. **Goes to the customer's number and no other**: the agent types this code and must never be able to read it (`handoverCodes.ts` §THE ONE RULE) |
+| 5 | **No code in it.** The first version carried the handover code and Meta rejected it as `INCORRECT_CATEGORY`: a Utility template may not deliver a code. The code stays on the order screen (`#handover-code`), which also always shows the current one after a regeneration. "only once the agent has your parcel in hand" is still the entire control. The code goes to the customer and no one else: the agent types it and must never be able to read it (`handoverCodes.ts` §THE ONE RULE) |
 | 8 | "dispatched once this is settled" is a fact, not a threat — `settle` is gated on payment, so an unpaid difference genuinely holds the parcel |
 | 9 | Promises a person will act, not that money is already moving. Refunds are recorded, never issued by the app (`open-items.md` §2) |
 | 10 | `{{3}}` is `{PUBLIC_URL}/shipment/{awb}`. With `PUBLIC_URL` unset the code substitutes a readable fallback rather than sending a broken link |

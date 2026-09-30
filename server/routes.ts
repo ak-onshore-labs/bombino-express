@@ -50,7 +50,6 @@ import {
 } from "./orderLifecycle.js";
 import {
   notifyAgentsOfNewJob,
-  notifyHandoverCodeReissued,
   notifyOrderBooked,
   notifyOrderTransition,
 } from "./notify.js";
@@ -4086,15 +4085,6 @@ export async function registerRoutes(
         actor_user_id: callerId,
         metadata: { action: "regenerate_handover_code", handover: kind, role },
       });
-
-      // Push the new pickup code to the customer's WhatsApp, but only once the
-      // agent is actually on the way — before that the customer is reading it
-      // off their own screen and has nothing to be told. `notifyHandoverCodeReissued`
-      // keys its dedupe on the new code, so this is a different message from
-      // the one carrying the code it replaced rather than a suppressed duplicate.
-      if (kind === "pickup") {
-        void notifyHandoverCodeReissued({ order, code });
-      }
 
       res.json({ handover: { kind, code, locked: false } });
     }
