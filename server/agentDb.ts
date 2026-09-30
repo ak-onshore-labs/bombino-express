@@ -38,6 +38,19 @@ const PICKUP_ADDRESS_EMBED =
 
 const PICKUP_COLUMNS = `${ORDER_COLUMNS}, ${PICKUP_ADDRESS_EMBED}`;
 
+/**
+ * What a status write reads back. ORDER_COLUMNS plus the guest fields, because
+ * that row goes straight to notifyOrderTransition, and a guest booking's only
+ * phone number is `guest_phone` (its in-app bell is keyed on `guest_ref`).
+ * Without them every agent-driven message to a guest (pickup confirmed, agent
+ * on the way, picked up) was dropped as "no usable number".
+ *
+ * Kept off PICKUP_COLUMNS on purpose: those rows are what the agent app lists,
+ * and the booker's verified number is not the agent's to read. The agent has
+ * the pickup contact on the address.
+ */
+const ORDER_WRITE_COLUMNS = `${ORDER_COLUMNS}, guest_ref, guest_name, guest_email, guest_phone`;
+
 export type PickupAddress = {
   id: string;
   full_name: string | null;
@@ -169,7 +182,7 @@ export async function claimPickup(
     // land on an order that had since been cancelled.
     .eq("status", "pickup_requested")
     .is("agent_id", null)
-    .select(ORDER_COLUMNS)
+    .select(ORDER_WRITE_COLUMNS)
     .maybeSingle();
 
   if (error) {
@@ -209,7 +222,7 @@ export async function advanceOrderStatus(input: {
     .eq("id", input.orderId)
     .eq("status", input.expectedFrom)
     .eq("agent_id", input.agentId)
-    .select(ORDER_COLUMNS)
+    .select(ORDER_WRITE_COLUMNS)
     .maybeSingle();
 
   if (error) {
@@ -239,7 +252,7 @@ export async function transitionOrderStatus(input: {
     .update({ status: input.to, updated_at: new Date().toISOString() })
     .eq("id", input.orderId)
     .eq("status", input.expectedFrom)
-    .select(ORDER_COLUMNS)
+    .select(ORDER_WRITE_COLUMNS)
     .maybeSingle();
 
   if (error) {
