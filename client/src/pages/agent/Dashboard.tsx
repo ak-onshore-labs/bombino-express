@@ -21,7 +21,6 @@ import {
   useAvailablePickups,
   useMyPickups,
   useCollections,
-  useOrderAction,
   type PickupEntry,
 } from '@/hooks/useAgentPickups';
 import { todayInIst } from '@shared/istTime';
@@ -79,15 +78,11 @@ const RAIL_STEP = RAIL_CARD + 12;
 function NewJobsRail({
   entries,
   today,
-  onTake,
-  pendingId,
-  disabled,
+  onView,
 }: {
   entries: PickupEntry[];
   today: string;
-  onTake: (orderId: string, action: string) => void;
-  pendingId?: string;
-  disabled: boolean;
+  onView: (orderId: string) => void;
 }) {
   const rail = useRef<HTMLDivElement>(null);
 
@@ -161,7 +156,6 @@ function NewJobsRail({
         {entries.map((entry) => {
           const pickup = entry.order;
           const late = bandForDate(pickup.pickup_date, today) === 'overdue';
-          const take = entry.availableActions.find((a) => a.action === 'claim');
           const edge = late ? 'border-[#FECACA]!' : 'border-[#E8EDF2]!';
 
           return (
@@ -224,17 +218,17 @@ function NewJobsRail({
                   </span>
                 </Link>
 
-                {take && (
-                  <PanelAction
-                    label="Take job"
-                    height={60}
-                    onClick={() => onTake(pickup.id, take.action)}
-                    pending={pendingId === pickup.id}
-                    disabled={disabled}
-                    className={cn('border-t', edge)}
-                    testId={`button-take-${pickup.order_no}`}
-                  />
-                )}
+                {/* View, not Take. A one-tap claim from a rail card was pressed
+                    by agents who only meant to look — it claimed the job and
+                    told the customer an agent was coming. Taking happens on
+                    the job's own screen, with the whole job in front of them. */}
+                <PanelAction
+                  label="View job"
+                  height={60}
+                  onClick={() => onView(pickup.id)}
+                  className={cn('border-t', edge)}
+                  testId={`button-view-${pickup.order_no}`}
+                />
               </div>
             </JobCard>
           );
@@ -250,7 +244,6 @@ export default function Dashboard() {
   const { data: available, isLoading: loadingAvailable } = useAvailablePickups();
   const { data: mine, isLoading: loadingMine } = useMyPickups();
   const { data: collections } = useCollections();
-  const action = useOrderAction();
   const [, setLocation] = useLocation();
 
   const today = todayInIst();
@@ -297,19 +290,6 @@ export default function Dashboard() {
     );
   }, [available, today]);
 
-  /**
-   * Taking a job says nothing on success: it leaves the rail and appears under
-   * Doing now, which is a louder answer than any confirmation.
-   *
-   * A failure still has to be said. 409 is the expected outcome of a lost race,
-   * not a malfunction.
-   */
-  const failure = action.error
-    ? action.error.status === 409
-      ? 'Someone else took it'
-      : action.error.message
-    : null;
-
   return (
     <AgentShell gap={22}>
       {isLoading ? (
@@ -319,27 +299,10 @@ export default function Dashboard() {
         </div>
       ) : (
         <>
-          {failure && (
-            <p
-              className="bg-white border border-[#B91C1C]! px-4 py-3.5 text-[15px] font-bold text-[#B91C1C]"
-              data-testid="claim-error"
-            >
-              {failure}
-            </p>
-          )}
-
           <NewJobsRail
             entries={freeJobs}
             today={today}
-            onTake={(orderId, actionName) =>
-              // Straight to the job once it is ours; a lost race stays here.
-              action.mutate(
-                { orderId, action: actionName },
-                { onSuccess: () => setLocation(`/agent/pickup/${orderId}`) },
-              )
-            }
-            pendingId={action.isPending ? action.variables?.orderId : undefined}
-            disabled={action.isPending}
+            onView={(orderId) => setLocation(`/agent/pickup/${orderId}`)}
           />
 
           {/* The rail above is deliberately not staggered: it drives its own
@@ -355,7 +318,7 @@ export default function Dashboard() {
               ) : (
                 <JobCard>
                   <p className="px-4 py-6 text-[17px] font-medium text-[#334155]">
-                    {freeJobs.length > 0 ? 'Take a job above to start.' : 'No jobs yet.'}
+                    {freeJobs.length > 0 ? 'View a job above to take it.' : 'No jobs yet.'}
                   </p>
                 </JobCard>
               )}
