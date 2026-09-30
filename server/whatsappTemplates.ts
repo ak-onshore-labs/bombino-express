@@ -22,6 +22,7 @@
  * ONE RULE). No agent template below takes a code, and none ever should.
  */
 
+import { createHash } from "crypto";
 import type { Order, OrderStatus } from "../shared/orderContract.js";
 
 // ── Template names ────────────────────────────────────────────────────────
@@ -31,7 +32,10 @@ import type { Order, OrderStatus } from "../shared/orderContract.js";
 
 export const WA_TEMPLATE = {
   // Customer
-  orderBooked: "bombino_order_booked",
+  // _v2 drops the estimated amount; the price lives in the app, and the Note
+  // line says the final figure comes after weighing. Templates cannot be
+  // edited once approved, hence the new name.
+  orderBooked: "bombino_order_booked_v2",
   paymentReceived: "bombino_payment_received",
   paymentFailed: "bombino_payment_failed",
   pickupConfirmed: "bombino_pickup_confirmed",
@@ -44,6 +48,11 @@ export const WA_TEMPLATE = {
   cancellationApproved: "bombino_cancellation_approved",
   cancellationDeclined: "bombino_cancellation_declined",
   loginOtp: "bombino_login_otp",
+  // Authentication category, so Meta fixes the wording ("{code} is your
+  // verification code.") and bolds the code. No security line (it says "do not
+  // share", and this one is shared with the courier), no expiry (it lasts until
+  // pickup). Custom button text was refused by Meta; the button is "Copy code".
+  handoverCode: "bombino_handover_code",
   // Agent
   agentNewJob: "bombino_agent_new_job",
   agentDailyDigest: "bombino_agent_daily_digest",
@@ -61,6 +70,8 @@ export interface WhatsappMessage {
   dedupeSuffix?: string;
   /** Authentication templates only. */
   otpButtonCode?: string;
+  /** The variables are a credential: store a placeholder, send the real thing. */
+  redactVariables?: boolean;
 }
 
 // ── Formatting ────────────────────────────────────────────────────────────
@@ -138,7 +149,6 @@ export function orderBookedMessage(input: {
       isPickup
         ? `Pickup on ${shortDate(input.order.pickup_date)}`
         : "Drop-off at the Bombino hub",
-      money(input.order.quoted_amount),
     ],
   };
 }
@@ -210,6 +220,24 @@ export function agentOnTheWayMessage(input: {
   return {
     template: WA_TEMPLATE.agentOnTheWay,
     variables: [v(input.order.order_no), v(input.agentName, "Your Bombino agent")],
+  };
+}
+
+/**
+ * The customer's pickup code, on its own. Sent right after `agentOnTheWay`,
+ * which is what gives it meaning, and again whenever the code is regenerated.
+ *
+ * To the customer ONLY — see the header. The suffix is a hash of the code so a
+ * regenerated code is a new message while a retried send of the same one is
+ * not, without the code itself sitting in the dedupe key.
+ */
+export function handoverCodeMessage(code: string): WhatsappMessage {
+  return {
+    template: WA_TEMPLATE.handoverCode,
+    variables: [code],
+    otpButtonCode: code,
+    redactVariables: true,
+    dedupeSuffix: createHash("sha256").update(code).digest("hex").slice(0, 12),
   };
 }
 

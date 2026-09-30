@@ -53,6 +53,7 @@ import {
   notifyAgentsOfNewJob,
   notifyOrderBooked,
   notifyOrderTransition,
+  notifyPickupCodeRegenerated,
 } from "./notify.js";
 import {
   getCodeForOwner,
@@ -4013,6 +4014,64 @@ export async function registerRoutes(
   // so a customer cannot ask for the agent's hub code by naming it.
   app.post(
     "/api/orders/:id/handover-code",
+    // A guest who booked without an account holds the pickup (or drop-off)
+    // code for their own order just as an account customer does, and needs the
+    // same way out when it locks. Proven the same way the guest order screen
+    // is: the order's guest_ref is this session's, and no account has claimed
+    // it. An account session falls through to the account path below.
+    async (req: Request, res: Response, next: NextFunction) => {
+      if (req.session.user) {
+        next();
+        return;
+      }
+      const owner = ownerFrom(req, OWNER_PROFILES.payment);
+      if (!owner || owner.kind !== "guest" || !owner.guestRef) {
+        res.status(401).json({ message: "Login required" });
+        return;
+      }
+
+      const order = await getOrderById(req.params.id);
+      // Someone else's order reads as no order, as on every customer route.
+      if (!order || order.user_id !== null || order.guest_ref !== owner.guestRef) {
+        res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
+        return;
+      }
+
+      const kind: HandoverKind | null =
+        order.pickup_request === 2 && order.status === "awaiting_dropoff"
+          ? "dropoff"
+          : order.pickup_request === 1 &&
+              (order.status === "agent_accepted" || order.status === "out_for_pickup")
+            ? "pickup"
+            : null;
+      if (!kind) {
+        res.status(409).json({
+          message: "This order has no handover code to refresh right now.",
+          code: "NO_HANDOVER_DUE",
+        });
+        return;
+      }
+
+      const code = await issueCode(order.id, kind);
+      if (!code) {
+        res.status(502).json({
+          message: "Could not generate a new code. Try again.",
+          code: "CODE_ISSUE_FAILED",
+        });
+        return;
+      }
+
+      void insertOrderEvent({
+        order_id: order.id,
+        status: order.status,
+        note: `New ${kind} handover code issued`,
+        actor_user_id: null,
+        metadata: { action: "regenerate_handover_code", handover: kind, role: "guest" },
+      });
+      if (kind === "pickup") void notifyPickupCodeRegenerated(order, code);
+
+      res.json({ handover: { kind, code, locked: false } });
+    },
     requireUser,
     ensureDbUser,
     async (req: Request, res: Response) => {
@@ -4094,6 +4153,10 @@ export async function registerRoutes(
         actor_user_id: callerId,
         metadata: { action: "regenerate_handover_code", handover: kind, role },
       });
+
+      // The customer's new pickup code on WhatsApp too, once the agent is on
+      // the way. Fire-and-forget: the code is already on their screen.
+      if (kind === "pickup") void notifyPickupCodeRegenerated(order, code);
 
       res.json({ handover: { kind, code, locked: false } });
     }

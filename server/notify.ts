@@ -34,11 +34,13 @@ import { getUserContactsByIds } from "./ordersDb.js";
 import { sendTemplate } from "./whatsapp.js";
 import { getWhatsappRecipient } from "./whatsappDb.js";
 import { getAgent, listAgentsForPincode } from "./whatsappAgents.js";
+import { getCodeForOwner } from "./handoverCodes.js";
 import {
   agentJobCancelledMessage,
   agentNewJobMessage,
   agentOnTheWayMessage,
   cancellationDeclinedMessage,
+  handoverCodeMessage,
   dispatchedMessage,
   orderBookedMessage,
   paymentFailedMessage,
@@ -84,6 +86,7 @@ async function deliver(input: {
       orderId: input.orderId,
       userId: input.userId,
       otpButtonCode: input.message.otpButtonCode,
+      redactVariables: input.message.redactVariables,
     });
   } catch (error) {
     console.error("[notify] send threw (swallowed)", {
@@ -193,8 +196,41 @@ async function notifyCustomerWhatsapp(order: Order, actorUserId: string | null):
   const message = await buildCustomerMessage(order);
   if (!message) return;
 
+  const to = await orderCustomerPhone(order);
+  await deliver({ message, to, userId: order.user_id, orderId: order.id, scope: order.id });
+
+  // The pickup code follows "agent on the way" as its own message: Meta will
+  // not let a Utility template carry a code. Awaited in order so it lands
+  // second, where the first message explains it.
+  if (order.status === "out_for_pickup" && order.pickup_request === 1) {
+    await sendPickupCode(order, to);
+  }
+}
+
+async function sendPickupCode(order: Order, to: string | null): Promise<void> {
+  const held = await getCodeForOwner(order.id, "pickup");
+  // No code (the write failed at claim) or a locked one: the order screen
+  // offers a regenerate, and that sends the fresh code.
+  if (!held || held.locked) return;
   await deliver({
-    message,
+    message: handoverCodeMessage(held.code),
+    to,
+    userId: order.user_id,
+    orderId: order.id,
+    scope: order.id,
+  });
+}
+
+/**
+ * A regenerated pickup code, sent to the customer.
+ *
+ * Only once the agent is on the way. Before that the code is not yet needed,
+ * and the out-for-pickup message sends whatever is current then.
+ */
+export async function notifyPickupCodeRegenerated(order: Order, code: string): Promise<void> {
+  if (order.status !== "out_for_pickup" || order.pickup_request !== 1) return;
+  await deliver({
+    message: handoverCodeMessage(code),
     to: await orderCustomerPhone(order),
     userId: order.user_id,
     orderId: order.id,

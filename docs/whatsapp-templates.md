@@ -47,7 +47,7 @@ Sent to `itd_users.phone` — the OTP-verified account number. Never
 
 | # | Template | Fires when | Variables | Body |
 |---|---|---|---|---|
-| 1 | `bombino_order_booked` | Order created, `POST /api/orders` | 1 name, 2 order no, 3 pickup/drop-off line, 4 quoted amount | Hi {{1}}, your Bombino booking is confirmed. Order ID {{2}}. {{3}}. Estimated amount {{4}}. The final amount is confirmed after we weigh your parcel at our hub. |
+| 1 | `bombino_order_booked_v2` | Order created, `POST /api/orders` | 1 name, 2 order no, 3 pickup/drop-off line | Hi {{1}}, your Bombino booking is confirmed.<br><br>Order ID: {{2}}<br>{{3}}<br><br>Note: Final amount is confirmed after your parcel is weighed at our hub. |
 | 2 | `bombino_payment_received` | Razorpay verify or webhook credits the order | 1 order no, 2 amount, 3 txn id | Payment of {{2}} received for order {{1}}, transaction {{3}}. Thank you. |
 | 3 | `bombino_payment_failed` | Gateway reports a failed attempt | 1 order no, 2 amount | Your payment of {{2}} for order {{1}} did not go through. Your booking is safe. Open the Bombino app to try again. |
 | 4 | `bombino_pickup_confirmed` | `agent_accepted` | 1 order no, 2 agent name, 3 date and window | Your pickup for order {{1}} is confirmed. {{2}} will collect it on {{3}}. See you then. |
@@ -59,19 +59,26 @@ Sent to `itd_users.phone` — the OTP-verified account number. Never
 | 10 | `bombino_dispatched` | AWB issued | 1 order no, 2 AWB, 3 tracking URL | Order {{1}} is on its way. Tracking number {{2}}. Track it at {{3}} at any time. |
 | 11 | `bombino_cancellation_approved` | `cancelled` | 1 order no | Order {{1}} has been cancelled. If you have paid for it, our accounts team will be in touch about a refund. |
 | 12 | `bombino_cancellation_declined` | `reject_cancellation` | 1 order no, 2 ops note | We could not cancel order {{1}}. Reason: {{2}}. Call us on +91 22 6640 0000 if you need to discuss it. |
-| 13 | `bombino_login_otp` **(Authentication)** | OTP requested | 1 the code | Meta's preset — see the note below. Do not type a body for this one. |
+| 13 | `bombino_login_otp` **(Authentication)** | Login OTP requested (sent with the MSG91 SMS, not instead of it); profile "Verify WhatsApp" (WhatsApp only) | 1 the code | Meta's preset — see the note below. Do not type a body for this one. |
+| 14 | `bombino_handover_code` **(Authentication)** | Right after #5 at `out_for_pickup`; again when the customer regenerates the pickup code while the agent is on the way | 1 the pickup code | Meta's preset ("{{1}} is your verification code.", code in bold) with a "Copy code" button. No security line (it says do not share, and this code is shared with the courier), no expiry. Meta refused custom button text. |
 
 ### Notes on the customer set
 
 | # | Why it reads the way it does |
 |---|---|
-| 1 | The closing sentence is not padding. The quote is an estimate against a weight the customer guessed; someone never told that reads a later request for ₹340 as a bait-and-switch |
+| 1 | No amount in it. v1 carried the estimated amount with a full sentence explaining it; v2 (30 Sep) leaves the price to the app and keeps only a quiet Note that the final figure comes after weighing, so a later amount-due message is still expected |
 | 5 | **No code in it, and no mention of one.** `bombino_agent_on_the_way` carried the handover code and Meta rejected it as `INCORRECT_CATEGORY`: a Utility template may not deliver a code. `_v2` only pointed at the code ("see your pickup code… share it") and was still rejected on submission. The code stays on the order screen (`#handover-code`), which also always shows the current one after a regeneration. "only once the agent has your parcel in hand" is still the entire control. The code goes to the customer and no one else: the agent types it and must never be able to read it (`handoverCodes.ts` §THE ONE RULE) |
 | 8 | "dispatched once this is settled" is a fact, not a threat — `settle` is gated on payment, so an unpaid difference genuinely holds the parcel |
 | 9 | Promises a person will act, not that money is already moving. Refunds are recorded, never issued by the app (`open-items.md` §2) |
 | 10 | `{{3}}` is `{PUBLIC_URL}/shipment/{awb}`. With `PUBLIC_URL` unset the code substitutes a readable fallback rather than sending a broken link |
 | 12 | `{{2}}` is ops' note, or a default sentence when they gave none. Ops writes it and the customer reads it, so it is never an id or a code |
 | 13 | **Not a free-text template.** Build it with the panel's Authentication flow: pick the preset body, tick the security disclaimer, and set expiry to **5 minutes**. The preset is what produces the copy-code button, which `server/whatsapp.ts` fills as a button parameter — a template without that button makes the send fail. It is also why this is the one body that may open with a variable. 5 minutes is `OTP_TTL_MINUTES`; change one, change both |
+
+### Reachability — is this number on WhatsApp?
+
+Meta has no lookup for it. A send to a number with no WhatsApp is accepted, then the status webhook reports `failed` with error **131026**. `getWhatsappReachability` (`server/whatsappDb.ts`) reads the newest `bombino_login_otp` rows for the number: `delivered`/`read` means on WhatsApp, a 131026 failure means not, anything else is passed over. Every login sends one, so the answer stays fresh.
+
+A number marked not on WhatsApp gets no other WhatsApp messages (`sendTemplate` returns `not_on_whatsapp`; in-app notifications still go). The login code and the profile "Verify WhatsApp" code skip that check, which is how a number gets re-tested. Typing the verify code back stamps `itd_users.metadata.whatsapp_verified_at`, which outranks any older 131026 failure.
 
 ---
 
