@@ -32,6 +32,7 @@ import type { ShipmentDocumentKind } from "./appDb.js";
 import {
   getOrderById,
   getOrderByNumberForUser,
+  findOrderForOwner,
   getUserContactsByIds,
   claimGuestOrdersForUser,
   insertOrderAndReturnRow,
@@ -4174,13 +4175,26 @@ export async function registerRoutes(
   }
 
   app.get("/api/orders/:orderNo", ensureDbUser, async (req: Request, res: Response) => {
-    const userId = req.session.dbUserId;
-    if (!userId) {
+    // An account, or a guest who verified their number: a guest booking has no
+    // account to open it with, and without this the guest could not open the
+    // order at all, pickup code included. `findOrderForOwner` keeps the owner in
+    // the WHERE, and a guest only matches orders no account has claimed.
+    const owner = ownerFrom(req, OWNER_PROFILES.payment);
+    if (!owner) {
       res.status(401).json({ message: "Login required" });
       return;
     }
+    const userId = owner.userId;
 
-    const order = await getOrderByNumberForUser(req.params.orderNo, userId);
+    const order =
+      owner.kind === "account" && userId
+        ? await getOrderByNumberForUser(req.params.orderNo, userId)
+        : owner.guestRef
+          ? await findOrderForOwner(
+              { orderNo: req.params.orderNo },
+              { kind: "guest", guestRef: owner.guestRef }
+            )
+          : null;
     if (!order) {
       // An order that belongs to someone else is reported the same way as one
       // that does not exist — the distinction is not the caller's business.
@@ -4256,7 +4270,7 @@ export async function registerRoutes(
         note: ev.note,
         action: typeof meta.action === "string" ? meta.action : null,
         actorName: actor?.full_name ?? null,
-        actorKind: eventActorKind(meta.role, ev.actor_user_id === userId),
+        actorKind: eventActorKind(meta.role, userId !== null && ev.actor_user_id === userId),
         amount: typeof meta.amount === "number" ? meta.amount : null,
       };
     });
@@ -4287,7 +4301,9 @@ export async function registerRoutes(
         collectedByName: p.collected_by ? contacts.get(p.collected_by)?.full_name ?? null : null,
       })),
       // Lets the page render its actions without knowing the state machine.
-      availableActions: availableActions(order, "customer", { userId }),
+      // A guest gets none: the action endpoint is account-only, so offering a
+      // button that answers 401 would be worse than no button.
+      availableActions: userId ? availableActions(order, "customer", { userId }) : [],
       /**
        * `kind` is sent even when there is no code, so the page can offer a
        * regenerate instead of silently showing nothing at the one moment the
