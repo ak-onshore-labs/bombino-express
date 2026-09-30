@@ -309,20 +309,8 @@ export default function Orders() {
   // are keyed differently — an order has only its BOM number until ops issues
   // an AWB — so each gets its own detail screen.
   const openRow = (row: DisplayRow) => {
-    // A guest has no order-detail screen — /api/orders/:orderNo answers only
-    // to an account. Once the parcel has an AWB, public tracking is theirs as
-    // much as anyone's; before that, the order number is what support needs.
-    if (isGuest) {
-      if (row.awb) {
-        setLocation(`/shipment/${encodeURIComponent(row.awb)}`);
-      } else {
-        toast({
-          title: row.statusLabel,
-          description: `Tracking opens once this parcel has an AWB. Quote ${row.displayId} to support in the meantime.`,
-        });
-      }
-      return;
-    }
+    // Guests too: /api/orders/:orderNo answers a verified guest for their own
+    // unclaimed orders, so the pickup code is on the same screen for everyone.
     const path = row.isOrder ? '/order' : '/shipment';
     setLocation(`${path}/${encodeURIComponent(row.displayId)}`);
   };

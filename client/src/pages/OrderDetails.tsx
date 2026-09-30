@@ -14,6 +14,7 @@
  * take, and the page renders exactly those.
  */
 
+import { useAppStore } from '@/lib/store';
 import { useState } from 'react';
 import { useRoute, useLocation, Link } from 'wouter';
 import {
@@ -274,6 +275,9 @@ export default function OrderDetails() {
   const [copied, setCopied] = useState(false);
 
   const orderNo = params?.orderNo ? decodeURIComponent(params.orderNo) : '';
+  // A guest can read this screen but not act on it: the regenerate and action
+  // endpoints are account-only.
+  const { isLoggedIn } = useAppStore();
 
   // Polls every 20s while the order can still move, and stops at dispatched or
   // cancelled. This screen is where a customer waits out a pickup, so an agent
@@ -591,27 +595,31 @@ export default function OrderDetails() {
                   ? handover.kind === 'pickup'
                     ? 'Read this out to the agent when they arrive. Do not share it with anyone else — it is what proves the parcel went to us.'
                     : 'Read this out at the Bombino hub counter when you drop your parcel off.'
-                  : 'No code has been generated yet. Tap below to get one.'}
+                  : isLoggedIn
+                    ? 'No code has been generated yet. Tap below to get one.'
+                    : 'No code has been generated yet. Call us and we will issue one.'}
             </p>
 
-            <Button
-              variant="outline"
-              className="mt-3 w-full h-10 rounded-lg"
-              disabled={regenerateHandover.isPending}
-              onClick={() => regenerateHandover.mutate(order.id)}
-              data-testid="button-regenerate-handover"
-            >
-              {regenerateHandover.isPending ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Getting a new code
-                </>
-              ) : handover.code ? (
-                'Get a new code'
-              ) : (
-                'Generate code'
-              )}
-            </Button>
+            {isLoggedIn && (
+              <Button
+                variant="outline"
+                className="mt-3 w-full h-10 rounded-lg"
+                disabled={regenerateHandover.isPending}
+                onClick={() => regenerateHandover.mutate(order.id)}
+                data-testid="button-regenerate-handover"
+              >
+                {regenerateHandover.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Getting a new code
+                  </>
+                ) : handover.code ? (
+                  'Get a new code'
+                ) : (
+                  'Generate code'
+                )}
+              </Button>
+            )}
           </div>
         )}
 

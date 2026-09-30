@@ -15,10 +15,9 @@ import {
  * rather than a lookalike: two copies of a card that quotes an order number
  * and a payment state is two places for them to disagree.
  *
- * `/orders` lists the same bookings as rows (see guestOrderToRow), but
- * `GET /api/orders/:orderNo` answers only to a `dbUserId`, so there is no
- * detail screen behind them. It is a record of what we were told, not live
- * tracking — the copy says so, and nothing here polls.
+ * `/orders` lists the same bookings as rows (see guestOrderToRow), and each
+ * opens the order screen, which answers a verified guest too. This list is a
+ * record of what we were told, not live tracking, and nothing here polls.
  */
 
 interface GuestOrdersProps {
