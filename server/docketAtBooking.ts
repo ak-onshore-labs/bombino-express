@@ -7,11 +7,18 @@
  * instead of waiting for ops to do it at `settled`. Who that applies to, and
  * why it applies to nobody else, is documented on `docketAtBooking` below.
  *
- * OFF unless explicitly set, and it must be turned on per environment rather
- * than defaulted, because THERE IS NO ITD SANDBOX. `ADMIN_BASE` in
- * server/itd.ts points at https://admin.bombinoexp.com — production. Every
- * docket this fires is a real shipment against real customer accounts, and ITD
- * permits no amendment to one once filed.
+ * ON by default in production builds (NODE_ENV=production), OFF by default
+ * everywhere else. `ITD_DOCKET_AT_BOOKING=1` forces it on and `=0` forces it
+ * off, in either.
+ *
+ * Defaulted on in production because the app is served by more than one
+ * deployment, and a deployment missing the variable silently booked every
+ * order without an AWB (BOM-100317, 100318, 100324). Defaulted off in
+ * development because THERE IS NO ITD SANDBOX: `ADMIN_BASE` in server/itd.ts
+ * points at https://admin.bombinoexp.com — production — and local servers
+ * share the production database. Every docket this fires is a real shipment
+ * against real customer accounts, and ITD permits no amendment to one once
+ * filed.
  *
  * Two things are worth knowing before switching it on:
  *
@@ -38,7 +45,10 @@ import { kycForOrder } from "./kycPolicy.js";
 import type { Order } from "../shared/orderContract.js";
 
 export function isDocketAtBookingEnabled(): boolean {
-  return process.env.ITD_DOCKET_AT_BOOKING === "1";
+  const flag = process.env.ITD_DOCKET_AT_BOOKING?.trim();
+  if (flag === "1") return true;
+  if (flag === "0") return false;
+  return process.env.NODE_ENV === "production";
 }
 
 /** Called once at boot. Silent when the flag is off. */
@@ -52,7 +62,7 @@ export function warnIfDocketAtBookingEnabled(): void {
     [
       "",
       "  ############################################################",
-      "  ##  ITD_DOCKET_AT_BOOKING=1",
+      `  ##  ITD_DOCKET_AT_BOOKING ${process.env.ITD_DOCKET_AT_BOOKING?.trim() === "1" ? "=1" : "on (production default)"}`,
       "  ##  Bookings by ITD-linked accounts file a REAL ITD docket",
       "  ##  immediately. ITD has no sandbox and permits no amendment.",
       `  ##  Running in ${where}.`,
