@@ -120,9 +120,9 @@ export function otpDedupeKey(otpId: string, purpose = "otp"): string {
  *
  * SMS carries the login code and nothing else.
  *
- * With OTP_FIXED_CODE set, no SMS is sent: the code is already known, so texting
- * it only spends MSG91 credit. WhatsApp still goes, because the reachability
- * check is worth having now, and the code in it is the known fixed one.
+ * With OTP_FIXED_CODE set, both channels still send the fixed code, so testers
+ * see the real SMS and WhatsApp deliveries. Neither result gates login then:
+ * the code is already known, so a failed send must not block anyone.
  *
  * The code is logged in DEVELOPMENT ONLY. Production logs must not hold a
  * plaintext login code.
@@ -153,7 +153,7 @@ export async function deliverOtp(
       redactVariables: true,
       skipReachabilityCheck: true,
     }),
-    fixed ? Promise.resolve(null) : sendOtpBySms(phone, code),
+    sendOtpBySms(phone, code),
   ]);
 
   if (fixed) return true;
