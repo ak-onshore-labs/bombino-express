@@ -1118,6 +1118,21 @@ export default function CreateShipment() {
     setExpandedById({ [bestId]: true });
   }, [displayRates]);
 
+  // The inputs a quote depends on. Rates are only good for the values they
+  // were fetched with: change the weight, pieces or box size afterwards and
+  // the shown prices (and the picked service's amount) are someone else's
+  // parcel, so they are dropped and the next "choose service" fetches again.
+  const quoteInputs = `${weight}|${weightUnit}|${pieces}|${dimL}|${dimW}|${dimH}|${dimUnit}`;
+  const quotedForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (quotedForRef.current === null || quotedForRef.current === quoteInputs) return;
+    quotedForRef.current = null;
+    setRateResults(null);
+    setSelectedService(null);
+    setServiceSelectionError('');
+    setRatesError('Weight, pieces or box size changed. Tap Get Rates for the new price.');
+  }, [quoteInputs]);
+
   const handleGetRates = (): void => {
     if (!productType.trim()) return;
     setRatesError('');
@@ -1137,6 +1152,7 @@ export default function CreateShipment() {
       setRatesError('Enter the package weight and box length, width and height to see rates.');
       return;
     }
+    quotedForRef.current = quoteInputs;
     rateMutation.mutate({
       product_code: productType,
       destination_code: destinationCountry,
