@@ -19,6 +19,38 @@ export interface RateParams {
   ori_pincode?: string;
   dest_city?: string;
   dest_pincode?: string;
+  /** Box sizes, when known, so ITD can price volumetric weight. */
+  boxes?: RateBox[];
+}
+
+/** One box for a rate quote: centimetres and kilograms, as ITD's rate API takes them. */
+export interface RateBox {
+  length_cm: number;
+  width_cm: number;
+  height_cm: number;
+  weight_kg: number;
+}
+
+/**
+ * The boxes for a quote from the booking form's single size and total weight,
+ * or undefined when any size is missing — then ITD quotes by weight alone.
+ */
+export function rateBoxesFromForm(input: {
+  length: string;
+  width: string;
+  height: string;
+  unit: 'in' | 'cm';
+  pieces: number;
+  weightKg: number;
+}): RateBox[] | undefined {
+  const toCm = input.unit === 'in' ? 2.54 : 1;
+  const l = parseFloat(input.length) * toCm;
+  const w = parseFloat(input.width) * toCm;
+  const h = parseFloat(input.height) * toCm;
+  if (![l, w, h].every((n) => Number.isFinite(n) && n > 0)) return undefined;
+  const pieces = Math.max(1, Math.floor(input.pieces) || 1);
+  const each = input.weightKg / pieces;
+  return Array.from({ length: pieces }, () => ({ length_cm: l, width_cm: w, height_cm: h, weight_kg: each }));
 }
 
 export interface ITDChargeApplyEntry {

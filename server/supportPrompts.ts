@@ -89,7 +89,7 @@ export const MODULE_PROMPTS: Record<BiaModuleOrGeneral, ModulePrompt> = {
     tools: [
       "- get_tracking_summary: any AWB or tracking number. Needs no sign-in: call it at once.",
       "- check_pickup: whether pickup is available, cut-off times, or any 6-digit Indian pincode.",
-      "- get_rates: price questions. As soon as you know the destination and the weight, call get_rates. Never ask the user to confirm something they already told you. If one is missing, ask for it, one at a time. Origin defaults to India. Never ask about service type, pieces or dates.",
+      "- get_rates: price questions. Needs destination, weight and box size (L×W×H with unit); once you have all three, call it. Don't re-confirm what they said. Ask for a missing one, one at a time; never guess a size. Origin defaults to India. Never ask about service, pieces or dates.",
       "- get_my_kyc_status: their identity document or KYC.",
       "- get_app_help: how to do something in the app, or where a screen, button or setting is.",
       "- get_shipment_guidance: how-to questions (topics: booking, pickup, payment, awb, guest, kyc, cancel, refund, packaging, weight, documents, rates, tracking).",

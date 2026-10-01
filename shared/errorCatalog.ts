@@ -365,6 +365,12 @@ export const ERROR_CATALOG = {
     why: "The product type decides the customs paperwork for the parcel.",
     fix: "Choose one on the package step: Documents (DOX) for paper only, Package (SPX) for other goods, or Commercial for goods you're selling.",
   },
+  BOX_SIZE_REQUIRED: {
+    area: "booking",
+    title: "Add the box size",
+    why: "Shipping is charged on whichever is greater, the parcel's weight or the space its box takes up, so a rate can't be worked out without the size.",
+    fix: "Measure the outside of the box and enter its length, width and height.",
+  },
   PAY_AT_PICKUP_NEEDS_PICKUP: {
     area: "booking",
     title: "Pay at pickup needs a doorstep pickup",

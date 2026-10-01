@@ -5,6 +5,7 @@ import {
   formatInr,
   itemizedChargesEmpty,
   normalizeRateRow,
+  rateBoxesFromForm,
   type ITDChargeApplyEntry,
   type ITDRateResponse,
   type ITDRateRow,
@@ -1120,8 +1121,22 @@ export default function CreateShipment() {
   const handleGetRates = (): void => {
     if (!productType.trim()) return;
     setRatesError('');
-    const w = parseFloat(weight) || 1;
+    const w = parseFloat(weight);
     const weightKg = weightUnit === 'kg' ? w : lbToKg(w);
+    // No quote without the parcel's weight and box size: a rate on a guess is
+    // a price the customer will see change at pickup.
+    const boxes = rateBoxesFromForm({
+      length: dimL,
+      width: dimW,
+      height: dimH,
+      unit: dimUnit,
+      pieces: parseInt(pieces) || 1,
+      weightKg,
+    });
+    if (!(weightKg > 0) || !boxes) {
+      setRatesError('Enter the package weight and box length, width and height to see rates.');
+      return;
+    }
     rateMutation.mutate({
       product_code: productType,
       destination_code: destinationCountry,
@@ -1133,6 +1148,7 @@ export default function CreateShipment() {
       ori_pincode: senderZip,
       dest_city: receiverCity.toUpperCase(),
       dest_pincode: receiverZip,
+      boxes,
     });
   };
 
@@ -1642,9 +1658,12 @@ export default function CreateShipment() {
       if (!weight || parseFloat(weight) <= 0) e.weight = true;
       if (!shipmentValue || parseFloat(shipmentValue) <= 0) e.shipmentValue = true;
       if (!shipmentContent.trim()) e.shipmentContent = true;
-      if (!dimL.trim()) e.dimL = true;
-      if (!dimW.trim()) e.dimW = true;
-      if (!dimH.trim()) e.dimH = true;
+      // Box size is priced (ITD charges the greater of weight and size), so
+      // each side has to be a real measurement, not just filled in.
+      const positive = (v: string): boolean => parseFloat(v) > 0;
+      if (!positive(dimL)) e.dimL = true;
+      if (!positive(dimW)) e.dimW = true;
+      if (!positive(dimH)) e.dimH = true;
       if (Object.keys(e).length) {
         setFieldErrors(e);
         scrollToFirstError();

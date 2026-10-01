@@ -43,6 +43,8 @@ const FALLBACK_RATES_NO_DESTINATION =
   "Please tell me which country you're shipping to so I can quote a rate.";
 const FALLBACK_RATES_INVALID_WEIGHT =
   "Please provide a valid parcel weight in kilograms (e.g. 2 or 2.5).";
+const FALLBACK_RATES_NO_BOX_SIZE =
+  "What size is the box? Please give the length, width and height, with the unit (for example 40 × 30 × 30 cm). Larger boxes are charged by size, so I need it to quote.";
 const FALLBACK_TRACKING =
   "I couldn't find tracking for that number. Please check the AWB or contact support.";
 const FALLBACK_TRACKING_NO_INPUT = "Please provide an AWB or tracking number.";
@@ -191,6 +193,20 @@ function countryName(code: string): string {
   }
 }
 
+/**
+ * "40x30x30 cm", "16 x 12 x 12 in", "40*30*30" → centimetres. A size with no
+ * unit is read as cm, the unit the app asks in. Null unless all three sides
+ * are positive numbers.
+ */
+function parseBoxSizeCm(raw: string): { l: number; w: number; h: number } | null {
+  const s = raw.trim().toLowerCase();
+  const nums = s.match(/\d+(?:\.\d+)?/g)?.map(Number) ?? [];
+  if (nums.length !== 3 || nums.some((n) => !(n > 0))) return null;
+  const toCm = /\b(in|inch|inches)\b|"/.test(s) ? 2.54 : 1;
+  const [l, w, h] = nums.map((n) => n * toCm) as [number, number, number];
+  return { l, w, h };
+}
+
 function parseWeightKg(raw: string): number {
   const s = raw.trim().toLowerCase();
   if (!s) return Number.NaN;
@@ -218,6 +234,10 @@ export async function executeGetRates(
     if (Number.isNaN(kg) || kg <= 0) {
       return { content: FALLBACK_RATES_INVALID_WEIGHT };
     }
+    const box = parseBoxSizeCm(String(args.box_size ?? ""));
+    if (!box) {
+      return { content: FALLBACK_RATES_NO_BOX_SIZE };
+    }
 
     const originCode = normalizeCountryToCode(
       String(args.origin_country ?? "").trim() || "IN"
@@ -232,6 +252,7 @@ export async function executeGetRates(
       origin_code: originCode,
       pcs: "1",
       actual_weight: kg.toFixed(2),
+      boxes: [{ length_cm: box.l, width_cm: box.w, height_cm: box.h, weight_kg: kg }],
     };
 
     const data = (await itdClient.getRates(params)) as Record<string, unknown>;
@@ -461,7 +482,7 @@ export const GENERAL_TOOLS: readonly BiaTool[] = [
       function: {
         name: "get_rates",
         description:
-          "Get shipping rates. Ask the user where they are shipping to and the weight in kg. Nothing else.",
+          "Get shipping rates. Needs where they are shipping to, the weight in kg, and the box size (length × width × height with unit). Ask for whichever is missing; never guess. Nothing else.",
         parameters: {
           type: "object",
           properties: {
@@ -477,8 +498,12 @@ export const GENERAL_TOOLS: readonly BiaTool[] = [
               type: "string",
               description: "Weight in kg as a number",
             },
+            box_size: {
+              type: "string",
+              description: "Box length x width x height with unit as the user gave it, e.g. '40x30x30 cm' or '16x12x12 in'",
+            },
           },
-          required: ["destination_country", "weight_kg"],
+          required: ["destination_country", "weight_kg", "box_size"],
         },
       },
     },
@@ -488,6 +513,7 @@ export const GENERAL_TOOLS: readonly BiaTool[] = [
           origin_country: args.origin_country != null ? String(args.origin_country) : undefined,
           destination_country: str(args.destination_country),
           weight_kg: str(args.weight_kg),
+          box_size: str(args.box_size),
         },
         context
       ),

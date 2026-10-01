@@ -89,6 +89,8 @@ export interface GetRatesArgs {
   origin_country?: string;
   destination_country: string;
   weight_kg: string;
+  /** Box size, e.g. "40x30x30 cm" or "16x12x12 in". Required: rates are priced on size too. */
+  box_size: string;
 }
 
 export interface GetTrackingSummaryArgs {

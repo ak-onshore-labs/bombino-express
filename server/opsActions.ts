@@ -7,7 +7,7 @@
 
 import { z } from "zod";
 import { transitionOrderStatus } from "./agentDb.js";
-import { itdClient, type RateParams } from "./itd.js";
+import { itdClient, rateBoxesFromDocketItems, type RateParams } from "./itd.js";
 import { withTimeout } from "./itdTokenRefresh.js";
 import { decryptPassword } from "./crypto.js";
 import { supabase } from "./supabaseClient.js";
@@ -143,6 +143,10 @@ export async function itdRateAtWeight(
   const destinationCode =
     strField(items, "destination_code") ?? strField(consignee, "country_code");
   if (!productCode || !destinationCode || !apiServiceCode) return null;
+  // No box sizes on the order means no price: the booking is marked
+  // unverified (and the hub reprices by hand) rather than quoted on weight.
+  const boxes = rateBoxesFromDocketItems(items?.docket_items, weightKg);
+  if (!boxes) return null;
 
   const oriCity = input.origin?.city ?? strField(items, "shipper_city");
   const oriPincode = input.origin?.pincode ?? strField(items, "shipper_zip_code");
@@ -161,6 +165,7 @@ export async function itdRateAtWeight(
     ...(oriPincode ? { ori_pincode: oriPincode } : {}),
     ...(destCity ? { dest_city: destCity.toUpperCase() } : {}),
     ...(destPincode ? { dest_pincode: destPincode } : {}),
+    boxes,
   };
 
   try {

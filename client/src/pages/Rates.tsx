@@ -6,6 +6,7 @@ import {
   formatInr,
   itemizedChargesEmpty,
   normalizeRateRow,
+  rateBoxesFromForm,
   type ITDChargeApplyEntry,
   type ITDRateResponse,
   type ITDRateRow,
@@ -100,8 +101,14 @@ export default function Rates() {
   const { waHref, telHref } = useSupportContacts();
 
   const [weightUnit, setWeightUnit] = useState<'lb' | 'kg'>('kg');
-  const [weight, setWeight] = useState('2');
+  const [weight, setWeight] = useState('');
   const [pieces, setPieces] = useState('1');
+  const [dimUnit, setDimUnit] = useState<'in' | 'cm'>('cm');
+  const [dimL, setDimL] = useState('');
+  const [dimW, setDimW] = useState('');
+  const [dimH, setDimH] = useState('');
+  /** Which required inputs were missing on the last Get Rates. */
+  const [missing, setMissing] = useState<ReadonlySet<'weight' | 'dimL' | 'dimW' | 'dimH'>>(new Set());
   const [originPincode, setOriginPincode] = useState('');
   const [destPincode, setDestPincode] = useState('');
 
@@ -182,19 +189,35 @@ export default function Rates() {
 
   const handleGetRates = () => {
     setApiError('');
-    const w = parseFloat(weight) || 1;
+    const w = parseFloat(weight);
     const weightKg = weightUnit === 'kg' ? w : lbToKg(w);
+    const pcs = parseInt(pieces) || 1;
+    const boxes = rateBoxesFromForm({ length: dimL, width: dimW, height: dimH, unit: dimUnit, pieces: pcs, weightKg });
+
+    // ITD prices the greater of weight and box size, so a quote needs both.
+    // Nothing is assumed: a missing value is asked for, not filled in.
+    const gaps = new Set<'weight' | 'dimL' | 'dimW' | 'dimH'>();
+    if (!(w > 0)) gaps.add('weight');
+    if (!(parseFloat(dimL) > 0)) gaps.add('dimL');
+    if (!(parseFloat(dimW) > 0)) gaps.add('dimW');
+    if (!(parseFloat(dimH) > 0)) gaps.add('dimH');
+    setMissing(gaps);
+    if (gaps.size > 0 || !boxes) {
+      setApiError('Enter the weight and the box length, width and height to see rates.');
+      return;
+    }
 
     rateMutation.mutate({
       product_code: 'SPX',
       destination_code: selectedDestination,
       booking_date: new Date().toISOString().split('T')[0],
       origin_code: selectedOrigin,
-      pcs: String(parseInt(pieces) || 1),
+      pcs: String(pcs),
       actual_weight: String(weightKg.toFixed(2)),
       ori_city: 'MUMBAI',
       ori_pincode: originPincode.trim() || '400001',
       ...(destPincode.trim() ? { dest_pincode: destPincode.trim() } : {}),
+      boxes,
     });
   };
 
@@ -529,8 +552,12 @@ export default function Rates() {
                   type="number"
                   value={weight}
                   onChange={(e) => setWeight(e.target.value)}
-                  placeholder="2"
-                  className="h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl md:h-12 md:text-base md:font-semibold md:tabular-nums"
+                  placeholder="e.g. 2"
+                  aria-invalid={missing.has('weight')}
+                  className={cn(
+                    'h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl md:h-12 md:text-base md:font-semibold md:tabular-nums',
+                    missing.has('weight') && 'border-2 border-primary',
+                  )}
                   step="0.1"
                   min="0.1"
                   data-testid="input-weight"
@@ -549,6 +576,61 @@ export default function Rates() {
                 />
               </div>
             </div>
+          </div>
+
+          {/* Box size: required, ITD prices volumetric weight from it */}
+          <div className="bg-card rounded-xl border border-border p-4 shadow-sm md:p-5 md:rounded-2xl md:border-[#E2E8F0] md:shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)]">
+            <div className="flex items-center justify-between mb-3 md:mb-4">
+              <Label className="text-sm font-semibold md:text-[13px] md:font-bold md:tracking-tight">Box size</Label>
+              <div className="flex bg-muted rounded-lg p-0.5">
+                {(['cm', 'in'] as const).map((u) => (
+                  <button
+                    key={u}
+                    type="button"
+                    onClick={() => setDimUnit(u)}
+                    className={cn(
+                      'px-3 py-1 text-xs font-medium rounded-md transition-colors',
+                      dimUnit === u ? 'bg-white text-primary shadow-sm' : 'text-muted-foreground'
+                    )}
+                    data-testid={`button-dim-unit-${u}`}
+                  >
+                    {u}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3 md:gap-4">
+              {(
+                [
+                  ['dimL', 'Length', dimL, setDimL],
+                  ['dimW', 'Width', dimW, setDimW],
+                  ['dimH', 'Height', dimH, setDimH],
+                ] as const
+              ).map(([key, label, value, set]) => (
+                <div key={key}>
+                  <Label className="text-[10px] text-muted-foreground md:text-[10px] md:font-bold md:uppercase md:tracking-[0.12em]">
+                    {label} ({dimUnit})
+                  </Label>
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    value={value}
+                    onChange={(e) => set(e.target.value)}
+                    min="0.1"
+                    step="0.1"
+                    aria-invalid={missing.has(key)}
+                    className={cn(
+                      'h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl md:h-12 md:text-base md:font-semibold md:tabular-nums',
+                      missing.has(key) && 'border-2 border-primary',
+                    )}
+                    data-testid={`input-${key}`}
+                  />
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-2">
+              Large, light boxes are charged by size. Measure the outside of the box.
+            </p>
           </div>
 
           {/* Optional pincodes */}

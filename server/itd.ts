@@ -200,6 +200,78 @@ export interface RateParams {
   ori_pincode?: string;
   dest_city?: string;
   dest_pincode?: string;
+  /**
+   * The boxes. ITD prices each at the greater of its weight and its
+   * volumetric weight (L×W×H in cm ÷ 5000). Required: there is no quote on
+   * weight alone, because a large, light box quoted that way is a price the
+   * customer sees go up at pickup.
+   */
+  boxes: RateBox[];
+}
+
+/** One box for a rate quote, in the units ITD's rate API takes. */
+export interface RateBox {
+  length_cm: number;
+  width_cm: number;
+  height_cm: number;
+  weight_kg: number;
+}
+
+const MAX_RATE_BOXES = 50;
+
+/**
+ * Boxes from an untrusted source (a request body), or undefined unless every
+ * box has a real size and weight. One bad box drops the whole set rather than
+ * quoting on half of it.
+ */
+export function parseRateBoxes(raw: unknown): RateBox[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_RATE_BOXES) return undefined;
+  const boxes: RateBox[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") return undefined;
+    const r = item as Record<string, unknown>;
+    const nums = [r.length_cm, r.width_cm, r.height_cm, r.weight_kg].map(Number);
+    if (nums.some((n) => !Number.isFinite(n) || n <= 0)) return undefined;
+    const [length_cm, width_cm, height_cm, weight_kg] = nums as [number, number, number, number];
+    boxes.push({ length_cm, width_cm, height_cm, weight_kg });
+  }
+  return boxes;
+}
+
+/**
+ * Boxes from a booking's `docket_items`, which hold sizes in inches (the
+ * docket's unit), priced at `weightKg` split evenly across them — the booking
+ * form takes one size and one total weight for every piece. Undefined unless
+ * every box has all three sizes: a half-sized booking is not priced.
+ */
+export function rateBoxesFromDocketItems(
+  docketItems: unknown,
+  weightKg: number
+): RateBox[] | undefined {
+  if (!Array.isArray(docketItems)) return undefined;
+  const sized: Array<{ l: number; w: number; h: number; count: number }> = [];
+  for (const item of docketItems) {
+    if (!item || typeof item !== "object") return undefined;
+    const r = item as Record<string, unknown>;
+    const l = Number(r.length);
+    const w = Number(r.width);
+    const h = Number(r.height);
+    if (![l, w, h].every((n) => Number.isFinite(n) && n > 0)) return undefined;
+    const count = Math.max(1, Math.floor(Number(r.number_of_boxes)) || 1);
+    sized.push({ l, w, h, count });
+  }
+  const total = sized.reduce((n, s) => n + s.count, 0);
+  if (total === 0 || total > MAX_RATE_BOXES || !(weightKg > 0)) return undefined;
+  const each = weightKg / total;
+  const IN_TO_CM = 2.54;
+  return sized.flatMap((s) =>
+    Array.from({ length: s.count }, () => ({
+      length_cm: s.l * IN_TO_CM,
+      width_cm: s.w * IN_TO_CM,
+      height_cm: s.h * IN_TO_CM,
+      weight_kg: each,
+    }))
+  );
 }
 
 // ─── Client ───────────────────────────────────────────────────────────────────
@@ -410,6 +482,20 @@ class ITDClient {
     form.append("origin_code", params.origin_code);
     form.append("pcs", params.pcs);
     form.append("actual_weight", params.actual_weight);
+    // ITD now prices from `dimesion` (sic), not `actual_weight`: without it
+    // the weight is read as 0 and every quote comes back at the 0.5 kg
+    // minimum, whatever was sent. It charges each item at the greater of
+    // `item_wt` and L×W×H (cm) ÷ 5000, summed. No boxes, no quote.
+    if (!params.boxes?.length) {
+      throw new Error("Box size is required to quote a rate.");
+    }
+    const dimesion = params.boxes.map((b) => ({
+      item_length: Math.round(b.length_cm * 100) / 100,
+      item_width: Math.round(b.width_cm * 100) / 100,
+      item_height: Math.round(b.height_cm * 100) / 100,
+      item_wt: Math.round(b.weight_kg * 1000) / 1000,
+    }));
+    form.append("dimesion", JSON.stringify(dimesion));
     form.append("customer_code", customerCode ?? process.env.ITD_CUSTOMER_CODE ?? "");
     form.append("username", username);
     form.append("password", password);

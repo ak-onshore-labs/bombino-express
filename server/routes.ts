@@ -183,7 +183,7 @@ import type { Server } from "http";
 import crypto from "crypto";
 import multer from "multer";
 import { z } from "zod";
-import { itdClient } from "./itd.js";
+import { itdClient, parseRateBoxes } from "./itd.js";
 import type { CreateShipmentPayload, RateParams } from "./itd.js";
 import { persistShipmentAfterCreate } from "./persistShipment.js";
 import { docketAtBooking } from "./docketAtBooking.js";
@@ -2990,6 +2990,15 @@ export async function registerRoutes(
         res.status(400).json({ message: "product_code, destination_code, and actual_weight are required" });
         return;
       }
+      // Priced on weight AND size: no box sizes, no quote.
+      const boxes = parseRateBoxes((req.body as { boxes?: unknown }).boxes);
+      if (!boxes) {
+        res.status(400).json({
+          message: "Enter the box length, width and height to see rates.",
+          code: "BOX_SIZE_REQUIRED",
+        });
+        return;
+      }
 
       const rateParams: RateParams = {
         product_code,
@@ -3002,6 +3011,7 @@ export async function registerRoutes(
         ori_pincode,
         dest_city,
         dest_pincode,
+        boxes,
       };
 
       try {
