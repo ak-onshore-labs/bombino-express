@@ -9,8 +9,15 @@ import "./index.css";
 installSessionInterceptor();
 
 function setVh() {
-  const vh = window.visualViewport?.height ?? window.innerHeight;
+  const vv = window.visualViewport;
+  const vh = vv?.height ?? window.innerHeight;
   document.documentElement.style.setProperty("--vh", `${vh}px`);
+  // How much of the layout viewport the on-screen keyboard covers. iOS (and
+  // the iOS app shell) lays the keyboard over the page without resizing it,
+  // so anything pinned to `bottom: 0` ends up underneath it; Android resizes
+  // the page instead and this stays 0 there.
+  const kb = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
+  document.documentElement.style.setProperty("--kb", `${Math.round(kb)}px`);
 }
 
 if (window.visualViewport) {

@@ -30,8 +30,20 @@ export function BiaSheet(): React.JSX.Element | null {
         side={isMobile ? 'bottom' : 'right'}
         className={
           isMobile
-            ? 'h-[88dvh] rounded-t-2xl border-white/10 bg-[#080808] p-0 overflow-hidden [&>button:first-child]:hidden'
+            ? 'rounded-t-2xl border-white/10 bg-[#080808] p-0 overflow-hidden [&>button:first-child]:hidden'
             : 'w-full sm:max-w-[440px] border-white/10 bg-[#080808] p-0 overflow-hidden [&>button:first-child]:hidden'
+        }
+        // Sits on top of the keyboard rather than under it: lifted by the
+        // keyboard's height (--kb) and never taller than what is still
+        // visible (--vh), so the message box stays on screen while typing.
+        style={
+          isMobile
+            ? {
+                bottom: 'var(--kb, 0px)',
+                height: 'min(88dvh, calc(var(--vh, 100dvh) - 12px))',
+                transition: 'bottom 150ms ease-out, height 150ms ease-out',
+              }
+            : undefined
         }
         data-testid="bia-sheet"
       >
