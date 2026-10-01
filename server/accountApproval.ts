@@ -154,7 +154,8 @@ export interface ApproveOutcome {
   emailSent: boolean;
 }
 
-function accountName(app: ApplicationRow): string {
+/** The account holder's name as it goes on the contract: the person, or the company. */
+export function accountName(app: ApplicationRow): string {
   return (app.account_type === "company" ? app.details.company_name : app.details.full_name)?.trim() || app.phone;
 }
 

@@ -38,7 +38,8 @@ import {
 } from "../accountApplications.js";
 import { alertEmailsSchema, getApplicationAlertRecipients, setApplicationAlertRecipients } from "../opsSettings.js";
 import { mailSender } from "../mailer.js";
-import { approveApplication, finalizeApplication, replaceItdCredentials } from "../accountApproval.js";
+import { accountName, approveApplication, finalizeApplication, replaceItdCredentials } from "../accountApproval.js";
+import { signContractPdf } from "../contractPdf.js";
 import {
   getSignupDocumentWithFile,
   getUserDocumentWithFile,
@@ -311,6 +312,42 @@ export function registerAccountApplicationRoutes(app: Express): void {
       }
       console.error("[GET /api/ops/applications/:id/documents/:slot/file] failed:", err);
       res.status(500).json({ message: "Failed to retrieve document." });
+    }
+  });
+
+  // GET /api/ops/applications/:id/contract — the contract as the customer
+  // signed it. Not stored as a file: rebuilt from the signature recorded on
+  // the application, by the same function that made the preview they signed
+  // and the copy attached to their welcome email, so all three are one
+  // document. `?download=1` asks for a saved copy rather than a view.
+  app.get("/api/ops/applications/:id/contract", ...opsDbGate, async (req: Request, res: Response) => {
+    const row = await getApplicationById(req.params.id);
+    if (!row) {
+      res.status(404).json({ message: "Application not found." });
+      return;
+    }
+    if (!row.contract_signed_name || !row.contract_accepted_at) {
+      res.status(404).json({ message: "This application has no signed contract." });
+      return;
+    }
+    try {
+      const pdf = await signContractPdf({
+        signedName: row.contract_signed_name,
+        accountName: accountName(row),
+        signedAt: new Date(row.contract_accepted_at),
+      });
+      const filename = `bombino-contract-${row.phone}.pdf`;
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Length", String(pdf.length));
+      res.setHeader(
+        "Content-Disposition",
+        `${wantsDownload(req) ? "attachment" : "inline"}; filename="${filename}"`
+      );
+      res.setHeader("Cache-Control", "no-store");
+      res.end(pdf);
+    } catch (err) {
+      console.error("[GET /api/ops/applications/:id/contract] failed:", err);
+      res.status(500).json({ message: "Could not prepare the contract." });
     }
   });
 

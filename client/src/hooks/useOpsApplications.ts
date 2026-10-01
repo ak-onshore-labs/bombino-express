@@ -225,3 +225,19 @@ export async function fetchOpsApplicationDocumentFile(
   }
   return res.blob();
 }
+
+/**
+ * The contract as the customer signed it, rebuilt by the server from the
+ * recorded signature. `download` asks for a saved copy rather than a view.
+ */
+export async function fetchOpsApplicationContract(id: string, download = false): Promise<Blob> {
+  const res = await fetch(
+    `/api/ops/applications/${encodeURIComponent(id)}/contract${download ? '?download=1' : ''}`,
+    { credentials: 'include', cache: 'no-store' },
+  );
+  if (!res.ok) {
+    const text = (await res.text()) || res.statusText;
+    throw new Error(`${res.status}: ${text}`);
+  }
+  return res.blob();
+}

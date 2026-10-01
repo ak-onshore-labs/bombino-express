@@ -11,7 +11,11 @@ import { DocumentsSection } from '@/components/ops/application/ApplicationDocume
 import { HistorySection } from '@/components/ops/application/ApplicationHistory';
 import { Properties } from '@/components/ops/application/ApplicationSummary';
 import { OpsShell } from '@/components/ops/OpsShell';
-import { fetchOpsApplicationDocumentFile, useOpsApplicationDetail } from '@/hooks/useOpsApplications';
+import {
+  fetchOpsApplicationContract,
+  fetchOpsApplicationDocumentFile,
+  useOpsApplicationDetail,
+} from '@/hooks/useOpsApplications';
 import { isForbiddenError, isNotFoundError } from '@/lib/apiError';
 
 /**
@@ -136,6 +140,14 @@ export default function OpsApplicationDetail() {
                 onDownload={(doc) =>
                   void downloadBlob(doc.slot, doc.label, () =>
                     fetchOpsApplicationDocumentFile(data.application.id, doc.slot, true),
+                  )
+                }
+                onViewContract={() =>
+                  void openBlob('contract', 'Signed contract', () => fetchOpsApplicationContract(data.application.id))
+                }
+                onDownloadContract={() =>
+                  void downloadBlob('contract', 'Signed contract', () =>
+                    fetchOpsApplicationContract(data.application.id, true),
                   )
                 }
               />
