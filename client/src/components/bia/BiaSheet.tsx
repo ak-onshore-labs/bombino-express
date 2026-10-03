@@ -34,14 +34,14 @@ export function BiaSheet(): React.JSX.Element | null {
             : 'w-full sm:max-w-[440px] border-white/10 bg-[#080808] p-0 overflow-hidden [&>button:first-child]:hidden'
         }
         // Sits on top of the keyboard rather than under it: lifted by the
-        // keyboard's height (--kb) and never taller than what is still
-        // visible (--vh), so the message box stays on screen while typing.
+        // keyboard's height (--kb) and never taller than the space left
+        // above it (--visible), so the message box stays right on the
+        // keyboard while typing (lib/keyboardInset.ts).
         style={
           isMobile
             ? {
                 bottom: 'var(--kb, 0px)',
-                height: 'min(88dvh, calc(var(--vh, 100dvh) - 12px))',
-                transition: 'bottom 150ms ease-out, height 150ms ease-out',
+                height: 'min(88dvh, calc(var(--visible, 100dvh) - 12px))',
               }
             : undefined
         }

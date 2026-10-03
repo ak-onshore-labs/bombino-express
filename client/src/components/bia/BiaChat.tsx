@@ -35,6 +35,7 @@ import type { BiaScreen } from "@shared/biaScreen";
 import { useAppStore } from "@/lib/store";
 import { useGuestProfile } from "@/hooks/useGuestProfile";
 import { useSupportContacts } from "@/hooks/useSupportContacts";
+import { useKeyboardOverlay } from "@/lib/keyboardInset";
 
 /**
  * One turn. `cards` ride along on BIA's replies for this conversation only;
@@ -193,6 +194,9 @@ export function BiaChat({
     if (messages.length === 0) return;
     scrollToBottom();
   }, [messages, loading]);
+
+  // Report the keyboard's height on Android too, so the input can sit on it.
+  useKeyboardOverlay();
 
   useEffect(() => {
     return () => {
@@ -439,9 +443,23 @@ export function BiaChat({
   return (
     <div
       className={cn(
-        "relative isolate flex flex-col overflow-hidden",
-        isSheet ? "h-full" : "h-viewport safe-top safe-bottom"
+        "isolate flex flex-col overflow-hidden",
+        isSheet ? "relative h-full" : "fixed inset-x-0 safe-top"
       )}
+      // The page fills exactly what is visible above the keyboard, so the
+      // input (the last row) always sits on top of it and the chat does not
+      // move with the page. The sheet is positioned by BiaSheet instead.
+      style={
+        isSheet
+          ? undefined
+          : {
+              top: "var(--vv-top, 0px)",
+              height: "var(--visible, 100dvh)",
+              // Home-indicator space only while the keyboard is down.
+              paddingBottom: "max(0px, calc(env(safe-area-inset-bottom, 0px) - var(--kb, 0px)))",
+            }
+      }
+      data-keyboard-pinned
       data-testid={isSheet ? "bia-sheet-chat" : "screen-support"}
     >
       <style>{`
@@ -749,6 +767,9 @@ export function BiaChat({
               if (!e.target.value.trim()) setSuggested(null);
             }}
             onKeyDown={handleKeyDown}
+            // The keyboard takes the bottom of the screen; keep the latest
+            // message in view above the input once it has opened.
+            onFocus={() => window.setTimeout(scrollToBottom, 300)}
             disabled={loading}
             rows={1}
             className={cn(

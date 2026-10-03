@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import { installSessionInterceptor } from "./lib/session";
+import { installKeyboardInset } from "./lib/keyboardInset";
 import "./index.css";
 
 // Before anything renders or fetches: a 401 on our API means the session is
@@ -8,24 +9,8 @@ import "./index.css";
 // carry on from localStorage with every action failing.
 installSessionInterceptor();
 
-function setVh() {
-  const vv = window.visualViewport;
-  const vh = vv?.height ?? window.innerHeight;
-  document.documentElement.style.setProperty("--vh", `${vh}px`);
-  // How much of the layout viewport the on-screen keyboard covers. iOS (and
-  // the iOS app shell) lays the keyboard over the page without resizing it,
-  // so anything pinned to `bottom: 0` ends up underneath it; Android resizes
-  // the page instead and this stays 0 there.
-  const kb = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
-  document.documentElement.style.setProperty("--kb", `${Math.round(kb)}px`);
-}
-
-if (window.visualViewport) {
-  window.visualViewport.addEventListener("resize", setVh);
-  window.visualViewport.addEventListener("scroll", setVh);
-}
-window.addEventListener("resize", setVh);
-setVh();
+// --vh, --kb, --vv-top and --visible: where the keyboard is (lib/keyboardInset.ts).
+installKeyboardInset();
 
 let focusScrollTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -40,6 +25,9 @@ document.addEventListener("focusin", (e) => {
     target.isContentEditable;
 
   if (!isInput) return;
+  // Surfaces pinned to the keyboard (BIA) already keep their input in view;
+  // scrolling them as well is what made the chat jump up and down.
+  if (target.closest("[data-keyboard-pinned]")) return;
 
   if (focusScrollTimeout !== null) {
     clearTimeout(focusScrollTimeout);
