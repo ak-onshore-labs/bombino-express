@@ -314,25 +314,6 @@ export default function Rates() {
           </header>
 
           <main className="pb-2 md:pb-8">
-            {quotedOnWeightOnly && (
-              <div
-                className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4"
-                data-testid="text-weight-only-note"
-              >
-                <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" aria-hidden />
-                <p className="text-xs text-amber-900 leading-snug">
-                  Priced on weight only. Large, light boxes are charged by size, so the final
-                  price can be higher once the box is measured.
-                </p>
-              </div>
-            )}
-            <p
-              className="flex items-start gap-1.5 mb-3 text-[11px] leading-snug text-muted-foreground"
-              data-testid="text-rate-origin-note"
-            >
-              <Info className="w-3 h-3 shrink-0 mt-[2px]" aria-hidden />
-              <span>{rateNote}</span>
-            </p>
             {!bookable ? (
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
                 <div className="flex gap-3">
@@ -513,9 +494,40 @@ export default function Rates() {
               })}
             </div>
 
-            <p className="text-[10px] text-muted-foreground text-center mt-6 px-4 leading-relaxed md:text-xs md:px-0">
-              Rates are indicative and subject to change based on actual shipment weight and dimensions at the time of pickup. Final charges may vary.
-            </p>
+            {/* The fine print, after the prices rather than in front of them:
+                what the quote covers, then how it can move. Numbered so each
+                point reads on its own; the badge stays quiet (tinted navy,
+                not amber, which this app keeps for money). */}
+            <ol
+              className="mt-6 space-y-2.5 border-t border-[#E2E8F0] pt-4 text-[11px] leading-relaxed text-muted-foreground md:text-xs"
+              data-testid="rates-fine-print"
+            >
+              {[
+                { id: 'text-rate-origin-note', text: rateNote },
+                ...(quotedOnWeightOnly
+                  ? [
+                      {
+                        id: 'text-weight-only-note',
+                        text: 'Priced on weight only. Large, light boxes are charged by size once measured.',
+                      },
+                    ]
+                  : []),
+                {
+                  id: 'text-rates-indicative',
+                  text: 'Rates are indicative; final charges follow the weight and size measured at pickup.',
+                },
+              ].map((note, i) => (
+                <li key={note.id} className="flex items-start gap-2.5" data-testid={note.id}>
+                  <span
+                    aria-hidden
+                    className="mt-px flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-[#2F4468]/[0.08] font-mono text-[10px] font-semibold text-[#2F4468]"
+                  >
+                    {i + 1}
+                  </span>
+                  <span>{note.text}</span>
+                </li>
+              ))}
+            </ol>
           </main>
         </div>
 
@@ -723,14 +735,6 @@ export default function Rates() {
                 />
               </div>
             </div>
-            {originNote && (
-              <p
-                className="mt-2 text-[11px] leading-snug text-muted-foreground"
-                data-testid="text-rate-origin-note-form"
-              >
-                {originNote}
-              </p>
-            )}
           </div>
 
           {apiError && (
