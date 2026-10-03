@@ -66,7 +66,7 @@ import {
   pickupCutoffHour,
 } from '@shared/pickupPincodes';
 import { usePickupCoverage } from '@/hooks/usePickupCoverage';
-import { rateOriginFor, rateOriginNote } from '@shared/rateOrigin';
+import { rateOriginFor, rateOriginNote, rateRouteNote } from '@shared/rateOrigin';
 import { lbToKg, inToCm } from '@/lib/units';
 import { apiRequest } from '@/lib/queryClient';
 import { parseApiErrorCode, parseApiErrorMessage } from '@/lib/apiError';
@@ -605,7 +605,6 @@ export default function CreateShipment() {
   // Rates are priced from Mumbai. Sending from another city, the leg to Mumbai
   // is extra and the team quotes it, which the customer is told beside the rates.
   const rateOrigin = rateOriginFor(senderZip, coverage, senderCity);
-  const rateOriginNoteText = rateOrigin.outsideMumbai ? rateOriginNote(rateOrigin.city) : null;
 
   // Covers a pincode typed after pickup was chosen, and one arriving whole
   // from a saved address.
@@ -645,6 +644,14 @@ export default function CreateShipment() {
   const [receiverAddress, setReceiverAddress] = useState('');
 
   const [destinationCountry, setDestinationCountry] = useState('');
+  // Every quote says it runs Mumbai to the destination; a sender known to be
+  // elsewhere gets the version naming their city.
+  const rateOriginNoteText = rateOrigin.outsideMumbai
+    ? rateOriginNote(rateOrigin.city)
+    : rateRouteNote(
+        formatCountryDisplay(ITD_COUNTRY_MAP[destinationCountry]?.name ?? destinationCountry) ||
+          'your destination'
+      );
   const [selectedCurrency, setSelectedCurrency] = useState('USD');
 
   const [weightUnit, setWeightUnit] = useState<'lb' | 'kg'>('lb');
@@ -1449,10 +1456,10 @@ export default function CreateShipment() {
                     : '—'}
                   {rateOrigin.outsideMumbai && (
                     <span
-                      className="block text-[10px] font-normal text-amber-700"
+                      className="block text-[10px] font-normal text-muted-foreground"
                       data-testid="text-review-rate-origin"
                     >
-                      Priced from Mumbai. {rateOrigin.city ?? 'Your city'} to Mumbai is extra
+                      From Mumbai · {rateOrigin.city ?? 'your city'} to Mumbai added separately
                     </span>
                   )}
                 </span>
@@ -4020,7 +4027,7 @@ export default function CreateShipment() {
             <div className="overflow-y-auto p-4" style={ratesResultsShellStyle} data-testid="invoice-rate-results">
               {rateOriginNoteText && (
                 <p
-                  className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-snug text-amber-900"
+                  className="mb-3 text-[11px] leading-snug text-muted-foreground"
                   data-testid="text-service-rate-origin"
                 >
                   {rateOriginNoteText}
@@ -4326,10 +4333,10 @@ export default function CreateShipment() {
                     : '—'}
                   {rateOrigin.outsideMumbai && (
                     <span
-                      className="block text-[10px] font-normal text-amber-700"
+                      className="block text-[10px] font-normal text-muted-foreground"
                       data-testid="text-review-rate-origin"
                     >
-                      Priced from Mumbai. {rateOrigin.city ?? 'Your city'} to Mumbai is extra
+                      From Mumbai · {rateOrigin.city ?? 'your city'} to Mumbai added separately
                     </span>
                   )}
                 </span>

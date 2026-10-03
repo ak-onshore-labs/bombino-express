@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { STATIC_COVERAGE } from "./pickupPincodes.js";
-import { rateOriginFor, rateOriginNote } from "./rateOrigin.js";
+import { rateOriginFor, rateOriginNote, rateRouteNote } from "./rateOrigin.js";
 
 test("Mumbai, Thane and Navi Mumbai pincodes are priced where they are", () => {
   for (const pin of ["400001", "400053"]) {
@@ -33,4 +33,10 @@ test("a blank or part-typed pincode shows no note", () => {
 test("the note names the city when it is known", () => {
   assert.match(rateOriginNote("Delhi"), /from Delhi to Mumbai/);
   assert.doesNotMatch(rateOriginNote(null), /from null/);
+});
+
+test("every quote names the Mumbai-to-destination route and the extra for elsewhere", () => {
+  const note = rateRouteNote("United Kingdom");
+  assert.match(note, /from Mumbai to United Kingdom/);
+  assert.match(note, /another city or pincode/);
 });

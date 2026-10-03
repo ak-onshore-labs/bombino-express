@@ -31,7 +31,7 @@ import { apiRequest } from '@/lib/queryClient';
 import { cn } from '@/lib/utils';
 import { useSupportContacts } from '@/hooks/useSupportContacts';
 import { usePickupCoverage } from '@/hooks/usePickupCoverage';
-import { rateOriginFor, rateOriginNote } from '@shared/rateOrigin';
+import { rateOriginFor, rateOriginNote, rateRouteNote } from '@shared/rateOrigin';
 
 interface ShipmentMeta {
   weightLb: number;
@@ -268,6 +268,11 @@ export default function Rates() {
       shipmentMeta.pieces === 1 ? '1 piece' : `${shipmentMeta.pieces} pieces`;
 
     const bookable = isBookableCorridor(selectedOrigin, selectedDestination);
+    // Always said: the price is Mumbai to the destination. A sender known to
+    // be elsewhere gets the version naming their city.
+    const rateNote =
+      originNote ??
+      rateRouteNote(formatCountryDisplay(COUNTRY_MAP[selectedDestination] ?? selectedDestination));
     const corridorLabel = `${formatCountryDisplay(COUNTRY_MAP[selectedOrigin] ?? selectedOrigin)} → ${formatCountryDisplay(COUNTRY_MAP[selectedDestination] ?? selectedDestination)}`;
 
     return (
@@ -321,15 +326,13 @@ export default function Rates() {
                 </p>
               </div>
             )}
-            {originNote && (
-              <div
-                className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4"
-                data-testid="text-rate-origin-note"
-              >
-                <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" aria-hidden />
-                <p className="text-xs text-amber-900 leading-snug">{originNote}</p>
-              </div>
-            )}
+            <p
+              className="flex items-start gap-1.5 mb-3 text-[11px] leading-snug text-muted-foreground"
+              data-testid="text-rate-origin-note"
+            >
+              <Info className="w-3 h-3 shrink-0 mt-[2px]" aria-hidden />
+              <span>{rateNote}</span>
+            </p>
             {!bookable ? (
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
                 <div className="flex gap-3">
@@ -722,7 +725,7 @@ export default function Rates() {
             </div>
             {originNote && (
               <p
-                className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-snug text-amber-900"
+                className="mt-2 text-[11px] leading-snug text-muted-foreground"
                 data-testid="text-rate-origin-note-form"
               >
                 {originNote}

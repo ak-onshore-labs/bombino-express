@@ -62,11 +62,23 @@ export function rateOriginFor(
   return { outsideMumbai: true, city: hint ? hint : null };
 }
 
+/**
+ * The note every quote carries, whoever is asking: what the price covers, and
+ * that sending from anywhere else costs more. Replaced by `rateOriginNote`
+ * when the sender's pincode tells us they are outside Mumbai.
+ */
+export function rateRouteNote(destination: string): string {
+  return (
+    `Rates shown are from ${RATE_ORIGIN_CITY} to ${destination}. From another city or pincode, ` +
+    `getting your parcel to ${RATE_ORIGIN_CITY} is added separately and we'll let you know.`
+  );
+}
+
 /** The note shown beside a quote for a parcel sent from outside Mumbai. */
 export function rateOriginNote(city: string | null): string {
   const from = city ? `from ${city} ` : '';
   return (
-    `These rates are from ${RATE_ORIGIN_CITY}. Extra charges for bringing your parcel ` +
-    `${from}to ${RATE_ORIGIN_CITY} will be calculated and shared with you by the Bombino team.`
+    `Rates shown are from ${RATE_ORIGIN_CITY}. Getting your parcel ${from}to ` +
+    `${RATE_ORIGIN_CITY} is added separately and we'll let you know.`
   );
 }
