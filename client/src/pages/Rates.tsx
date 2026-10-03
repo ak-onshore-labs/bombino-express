@@ -29,6 +29,8 @@ import { lbToKg, kgToLb } from '@/lib/units';
 import { apiRequest } from '@/lib/queryClient';
 import { cn } from '@/lib/utils';
 import { useSupportContacts } from '@/hooks/useSupportContacts';
+import { usePickupCoverage } from '@/hooks/usePickupCoverage';
+import { rateOriginFor, rateOriginNote } from '@shared/rateOrigin';
 
 interface ShipmentMeta {
   weightLb: number;
@@ -111,6 +113,11 @@ export default function Rates() {
   const [missing, setMissing] = useState<ReadonlySet<'weight' | 'dimL' | 'dimW' | 'dimH'>>(new Set());
   const [originPincode, setOriginPincode] = useState('');
   const [destPincode, setDestPincode] = useState('');
+  // Every quote is priced from Mumbai. A From pincode elsewhere gets a note
+  // that the leg to Mumbai is extra and quoted by the team.
+  const coverage = usePickupCoverage();
+  const rateOrigin = rateOriginFor(originPincode, coverage);
+  const originNote = rateOrigin.outsideMumbai ? rateOriginNote(rateOrigin.city) : null;
 
   const [rateResults, setRateResults] = useState<ITDRateRow[] | null>(null);
   const [shipmentMeta, setShipmentMeta] = useState<ShipmentMeta | null>(null);
@@ -283,6 +290,15 @@ export default function Rates() {
           </header>
 
           <main className="pb-2 md:pb-8">
+            {originNote && (
+              <div
+                className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4"
+                data-testid="text-rate-origin-note"
+              >
+                <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" aria-hidden />
+                <p className="text-xs text-amber-900 leading-snug">{originNote}</p>
+              </div>
+            )}
             {!bookable ? (
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
                 <div className="flex gap-3">
@@ -671,6 +687,14 @@ export default function Rates() {
                 />
               </div>
             </div>
+            {originNote && (
+              <p
+                className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-snug text-amber-900"
+                data-testid="text-rate-origin-note-form"
+              >
+                {originNote}
+              </p>
+            )}
           </div>
 
           {apiError && (

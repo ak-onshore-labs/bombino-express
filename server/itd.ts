@@ -3,6 +3,8 @@
 //   admin: https://admin.bombinoexp.com
 //   app:   https://app.bombinoexp.com (Rate API only)
 
+import { RATE_ORIGIN_HUB_CODE } from "../shared/rateOrigin.js";
+
 const ADMIN_BASE = "https://admin.bombinoexp.com";
 const APP_BASE = "https://app.bombinoexp.com";
 
@@ -480,6 +482,11 @@ class ITDClient {
     form.append("destination_code", params.destination_code);
     form.append("booking_date", params.booking_date);
     form.append("origin_code", params.origin_code);
+    // Always Mumbai, whoever is asking and wherever the parcel is: it is the
+    // only India hub ITD has a rate card for. Left out, ITD picks the hub
+    // itself, and an account on any other hub gets "No Rate Found". The leg
+    // from the customer's city to Mumbai is priced by ops, not here.
+    form.append("origin_hub_code", RATE_ORIGIN_HUB_CODE);
     form.append("pcs", params.pcs);
     form.append("actual_weight", params.actual_weight);
     // ITD now prices from `dimesion` (sic), not `actual_weight`: without it

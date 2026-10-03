@@ -66,6 +66,7 @@ import {
   pickupCutoffHour,
 } from '@shared/pickupPincodes';
 import { usePickupCoverage } from '@/hooks/usePickupCoverage';
+import { rateOriginFor, rateOriginNote } from '@shared/rateOrigin';
 import { lbToKg, inToCm } from '@/lib/units';
 import { apiRequest } from '@/lib/queryClient';
 import { parseApiErrorCode, parseApiErrorMessage } from '@/lib/apiError';
@@ -601,6 +602,10 @@ export default function CreateShipment() {
   );
   const pickupBlocked = isPickupBlocked(senderZip, coverage);
   const pickupSurcharge = pickupCoverage.serviceable && pickupCoverage.remark === 'out_of_city';
+  // Rates are priced from Mumbai. Sending from another city, the leg to Mumbai
+  // is extra and the team quotes it, which the customer is told beside the rates.
+  const rateOrigin = rateOriginFor(senderZip, coverage, senderCity);
+  const rateOriginNoteText = rateOrigin.outsideMumbai ? rateOriginNote(rateOrigin.city) : null;
 
   // Covers a pincode typed after pickup was chosen, and one arriving whole
   // from a saved address.
@@ -1442,6 +1447,14 @@ export default function CreateShipment() {
                   {selectedService
                     ? selectedService.internal_api_service_code || selectedService.code
                     : '—'}
+                  {rateOrigin.outsideMumbai && (
+                    <span
+                      className="block text-[10px] font-normal text-amber-700"
+                      data-testid="text-review-rate-origin"
+                    >
+                      Priced from Mumbai. {rateOrigin.city ?? 'Your city'} to Mumbai is extra
+                    </span>
+                  )}
                 </span>
               </div>
               <div className="flex justify-between gap-3">
@@ -4005,6 +4018,14 @@ export default function CreateShipment() {
             </div>
 
             <div className="overflow-y-auto p-4" style={ratesResultsShellStyle} data-testid="invoice-rate-results">
+              {rateOriginNoteText && (
+                <p
+                  className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-snug text-amber-900"
+                  data-testid="text-service-rate-origin"
+                >
+                  {rateOriginNoteText}
+                </p>
+              )}
               {rateMutation.isPending ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
@@ -4303,6 +4324,14 @@ export default function CreateShipment() {
                   {selectedService
                     ? selectedService.internal_api_service_code || selectedService.code
                     : '—'}
+                  {rateOrigin.outsideMumbai && (
+                    <span
+                      className="block text-[10px] font-normal text-amber-700"
+                      data-testid="text-review-rate-origin"
+                    >
+                      Priced from Mumbai. {rateOrigin.city ?? 'Your city'} to Mumbai is extra
+                    </span>
+                  )}
                 </span>
               </div>
               <div className="flex justify-between gap-3">
