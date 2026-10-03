@@ -7,6 +7,7 @@ import {
   itemizedChargesEmpty,
   normalizeRateRow,
   rateBoxesFromForm,
+  weightOnlyRateBoxes,
   type ITDChargeApplyEntry,
   type ITDRateResponse,
   type ITDRateRow,
@@ -113,6 +114,8 @@ export default function Rates() {
   const [missing, setMissing] = useState<ReadonlySet<'weight' | 'dimL' | 'dimW' | 'dimH'>>(new Set());
   const [originPincode, setOriginPincode] = useState('');
   const [destPincode, setDestPincode] = useState('');
+  /** The last quote had no box size, so it may rise if the box is large and light. */
+  const [quotedOnWeightOnly, setQuotedOnWeightOnly] = useState(false);
   // Every quote is priced from Mumbai. A From pincode elsewhere gets a note
   // that the leg to Mumbai is extra and quoted by the team.
   const coverage = usePickupCoverage();
@@ -199,20 +202,36 @@ export default function Rates() {
     const w = parseFloat(weight);
     const weightKg = weightUnit === 'kg' ? w : lbToKg(w);
     const pcs = parseInt(pieces) || 1;
-    const boxes = rateBoxesFromForm({ length: dimL, width: dimW, height: dimH, unit: dimUnit, pieces: pcs, weightKg });
 
-    // ITD prices the greater of weight and box size, so a quote needs both.
-    // Nothing is assumed: a missing value is asked for, not filled in.
+    // Weight is required. Box size is optional here: left blank, the quote is
+    // on weight alone and says so. Half a box size is asked to be finished
+    // rather than dropped, since the customer clearly meant to give one.
+    const dims = { dimL, dimW, dimH } as const;
+    const anySize = Object.values(dims).some((v) => v.trim() !== '');
     const gaps = new Set<'weight' | 'dimL' | 'dimW' | 'dimH'>();
     if (!(w > 0)) gaps.add('weight');
-    if (!(parseFloat(dimL) > 0)) gaps.add('dimL');
-    if (!(parseFloat(dimW) > 0)) gaps.add('dimW');
-    if (!(parseFloat(dimH) > 0)) gaps.add('dimH');
+    if (anySize) {
+      (Object.keys(dims) as Array<keyof typeof dims>).forEach((key) => {
+        if (!(parseFloat(dims[key]) > 0)) gaps.add(key);
+      });
+    }
     setMissing(gaps);
-    if (gaps.size > 0 || !boxes) {
-      setApiError('Enter the weight and the box length, width and height to see rates.');
+    if (gaps.has('weight')) {
+      setApiError('Enter the weight to see rates.');
       return;
     }
+    if (gaps.size > 0) {
+      setApiError('Enter the box length, width and height, or leave all three blank.');
+      return;
+    }
+    const boxes = anySize
+      ? rateBoxesFromForm({ length: dimL, width: dimW, height: dimH, unit: dimUnit, pieces: pcs, weightKg })
+      : weightOnlyRateBoxes(pcs, weightKg);
+    if (!boxes) {
+      setApiError('Enter the box length, width and height, or leave all three blank.');
+      return;
+    }
+    setQuotedOnWeightOnly(!anySize);
 
     rateMutation.mutate({
       product_code: 'SPX',
@@ -290,6 +309,18 @@ export default function Rates() {
           </header>
 
           <main className="pb-2 md:pb-8">
+            {quotedOnWeightOnly && (
+              <div
+                className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4"
+                data-testid="text-weight-only-note"
+              >
+                <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" aria-hidden />
+                <p className="text-xs text-amber-900 leading-snug">
+                  Priced on weight only. Large, light boxes are charged by size, so the final
+                  price can be higher once the box is measured.
+                </p>
+              </div>
+            )}
             {originNote && (
               <div
                 className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4"
@@ -594,10 +625,12 @@ export default function Rates() {
             </div>
           </div>
 
-          {/* Box size: required, ITD prices volumetric weight from it */}
+          {/* Box size: optional here; blank quotes on weight alone */}
           <div className="bg-card rounded-xl border border-border p-4 shadow-sm md:p-5 md:rounded-2xl md:border-[#E2E8F0] md:shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)]">
             <div className="flex items-center justify-between mb-3 md:mb-4">
-              <Label className="text-sm font-semibold md:text-[13px] md:font-bold md:tracking-tight">Box size</Label>
+              <Label className="text-sm font-semibold md:text-[13px] md:font-bold md:tracking-tight">
+                Box size <span className="font-normal text-muted-foreground">(optional)</span>
+              </Label>
               <div className="flex bg-muted rounded-lg p-0.5">
                 {(['cm', 'in'] as const).map((u) => (
                   <button
@@ -645,7 +678,7 @@ export default function Rates() {
               ))}
             </div>
             <p className="text-[11px] text-muted-foreground mt-2">
-              Large, light boxes are charged by size. Measure the outside of the box.
+              Large, light boxes are charged by size. Add the outside measurements for a closer price.
             </p>
           </div>
 

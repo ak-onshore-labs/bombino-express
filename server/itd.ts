@@ -204,9 +204,10 @@ export interface RateParams {
   dest_pincode?: string;
   /**
    * The boxes. ITD prices each at the greater of its weight and its
-   * volumetric weight (L×W×H in cm ÷ 5000). Required: there is no quote on
-   * weight alone, because a large, light box quoted that way is a price the
-   * customer sees go up at pickup.
+   * volumetric weight (L×W×H in cm ÷ 5000). Required, but a box may have all
+   * three sizes 0: the Rates page's quick quote, priced on weight alone. ITD
+   * reads 0 as no volumetric weight. Left out entirely, ITD reads the weight
+   * as 0 too and quotes its minimum.
    */
   boxes: RateBox[];
 }
@@ -223,8 +224,9 @@ const MAX_RATE_BOXES = 50;
 
 /**
  * Boxes from an untrusted source (a request body), or undefined unless every
- * box has a real size and weight. One bad box drops the whole set rather than
- * quoting on half of it.
+ * box has a real weight and either a real size or no size at all (all three 0,
+ * a weight-only quote). One bad box drops the whole set rather than quoting on
+ * half of it.
  */
 export function parseRateBoxes(raw: unknown): RateBox[] | undefined {
   if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_RATE_BOXES) return undefined;
@@ -233,8 +235,13 @@ export function parseRateBoxes(raw: unknown): RateBox[] | undefined {
     if (!item || typeof item !== "object") return undefined;
     const r = item as Record<string, unknown>;
     const nums = [r.length_cm, r.width_cm, r.height_cm, r.weight_kg].map(Number);
-    if (nums.some((n) => !Number.isFinite(n) || n <= 0)) return undefined;
+    if (nums.some((n) => !Number.isFinite(n) || n < 0)) return undefined;
     const [length_cm, width_cm, height_cm, weight_kg] = nums as [number, number, number, number];
+    if (!(weight_kg > 0)) return undefined;
+    const sizes = [length_cm, width_cm, height_cm];
+    // All sized or none: a box with only some of its sizes is a typo, not a
+    // request to quote on weight.
+    if (!sizes.every((n) => n > 0) && !sizes.every((n) => n === 0)) return undefined;
     boxes.push({ length_cm, width_cm, height_cm, weight_kg });
   }
   return boxes;

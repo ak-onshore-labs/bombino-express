@@ -53,6 +53,17 @@ export function rateBoxesFromForm(input: {
   return Array.from({ length: pieces }, () => ({ length_cm: l, width_cm: w, height_cm: h, weight_kg: each }));
 }
 
+/**
+ * Boxes for a quote on weight alone: every size 0, which ITD reads as "no
+ * volumetric weight" and prices on `item_wt`. Only the quick quote on the
+ * Rates page sends these; a booking still needs the real box size.
+ */
+export function weightOnlyRateBoxes(pieces: number, weightKg: number): RateBox[] {
+  const count = Math.max(1, Math.floor(pieces) || 1);
+  const each = weightKg / count;
+  return Array.from({ length: count }, () => ({ length_cm: 0, width_cm: 0, height_cm: 0, weight_kg: each }));
+}
+
 export interface ITDChargeApplyEntry {
   name: string;
   amount: number;
