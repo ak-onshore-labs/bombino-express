@@ -625,15 +625,15 @@ export default function OrderDetails() {
 
         {/* Not yet a docket. Said once, here, rather than as a toast the
             customer has to dismiss to see anything at all. */}
-        {/* The airway bill was tried at booking and refused: why, in the
-            customer's words (shared/docketError.ts). */}
+        {/* Only when the AWB is waiting on the customer (shared/docketError.ts
+            returns a note for nothing else). */}
         {!order.awb_no && awbNote && (
           <div
             className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5"
             role="status"
             data-testid="order-awb-note"
           >
-            <p className="text-xs font-semibold text-amber-900">Airway bill still to be issued</p>
+            <p className="text-xs font-semibold text-amber-900">One thing needed from you</p>
             <p className="mt-1 text-[11px] leading-relaxed text-amber-800/90">{awbNote}</p>
           </div>
         )}

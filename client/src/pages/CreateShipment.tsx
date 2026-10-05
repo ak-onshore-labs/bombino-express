@@ -1430,18 +1430,16 @@ export default function CreateShipment() {
               </div>
             )}
 
-            {/* The booking is safe; only the airway bill is missing. Said
-                plainly rather than hidden, because the customer would
-                otherwise find no AWB where they expected one and assume the
-                booking itself had gone wrong. */}
+            {/* Only when the AWB is waiting on the customer (an ID document to
+                add). A refused or slow docket is ops' to fix and is not shown:
+                the AWB reads "Not issued yet" like any order before dispatch. */}
             {docketMessage && (
               <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
                 <p className="text-xs font-semibold text-amber-900">
-                  Airway bill still to be issued
+                  One thing needed from you
                 </p>
                 <p className="text-[11px] text-amber-800/90 mt-1 leading-relaxed">
-                  {/* The server's customer note (shared/docketError.ts): why, and
-                      whether anything is theirs to check. */}
+                  {/* The server's customer note (shared/docketError.ts). */}
                   {docketMessage}
                 </p>
               </div>
