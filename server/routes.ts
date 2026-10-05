@@ -16,6 +16,8 @@ import {
   listShipmentsByUserId,
   insertNotification,
   markNotificationRead,
+  markAllNotificationsRead,
+  deleteNotifications,
   mergeItdUserMetadataById,
   clearItdUserPhoneById,
   itdUserHasStoredPassword,
@@ -51,10 +53,12 @@ import {
 } from "./orderLifecycle.js";
 import {
   notifyAgentsOfNewJob,
+  notifyHandoverCodeInApp,
   notifyOrderBooked,
   notifyOrderTransition,
   notifyPickupCodeRegenerated,
 } from "./notify.js";
+import { withOrderRefs } from "./notificationRefs.js";
 import {
   getCodeForOwner,
   issueCode,
@@ -2815,7 +2819,7 @@ export async function registerRoutes(
       const guestRef = sessionGuestRef(req);
       if (!guestRef) return next();
       const rows = await listNotificationsForOwner({ guestRef });
-      return res.json(rows ?? []);
+      return res.json(await withOrderRefs(rows ?? [], { guestRef }));
     },
     requireUser,
     ensureDbUser,
@@ -2824,7 +2828,52 @@ export async function registerRoutes(
         return res.json([]);
       }
       const rows = await listNotificationsByUserId(req.session.dbUserId);
-      return res.json(rows ?? []);
+      return res.json(await withOrderRefs(rows ?? [], { userId: req.session.dbUserId }));
+    }
+  );
+
+  // The bell's "Clear" on one tab: the ids on it, deleted for this owner only.
+  const clearBody = z.object({ ids: z.array(z.string().min(1).max(64)).min(1).max(500) });
+  app.post(
+    "/api/notifications/clear",
+    async (req: Request, res: Response, next: NextFunction) => {
+      const guestRef = sessionGuestRef(req);
+      if (!guestRef) return next();
+      const body = clearBody.safeParse(req.body);
+      if (!body.success) return res.status(400).json({ message: "Nothing to clear" });
+      const deleted = await deleteNotifications(body.data.ids, { guestRef });
+      if (deleted === null) return res.status(500).json({ message: "Database error" });
+      return res.json({ deleted });
+    },
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      if (!req.session.dbUserId) return res.json({ deleted: 0 });
+      const body = clearBody.safeParse(req.body);
+      if (!body.success) return res.status(400).json({ message: "Nothing to clear" });
+      const deleted = await deleteNotifications(body.data.ids, { userId: req.session.dbUserId });
+      if (deleted === null) return res.status(500).json({ message: "Database error" });
+      return res.json({ deleted });
+    }
+  );
+
+  // The bell's "Mark all read". Same two owners as the single-row route below.
+  app.post(
+    "/api/notifications/read-all",
+    async (req: Request, res: Response, next: NextFunction) => {
+      const guestRef = sessionGuestRef(req);
+      if (!guestRef) return next();
+      const updated = await markAllNotificationsRead({ guestRef });
+      if (updated === null) return res.status(500).json({ message: "Database error" });
+      return res.json({ updated });
+    },
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      if (!req.session.dbUserId) return res.json({ updated: 0 });
+      const updated = await markAllNotificationsRead({ userId: req.session.dbUserId });
+      if (updated === null) return res.status(500).json({ message: "Database error" });
+      return res.json({ updated });
     }
   );
 
@@ -3571,6 +3620,7 @@ export async function registerRoutes(
     // code waits for the claim — nobody needs a code for a job no agent holds.
     if (!isPickup) {
       await issueCode(order.id, "dropoff");
+      void notifyHandoverCodeInApp(toOrder(order), "dropoff");
     }
 
     // The booking confirmation, and — for a pickup — the shout to the agents

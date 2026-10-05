@@ -384,7 +384,7 @@ export default function Profile() {
                   <p className="font-medium text-sm truncate text-foreground">{displayEmail}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-3 p-4">
+              <div id="phone" className="flex items-center gap-3 p-4 scroll-mt-24">
                 <div className="w-9 h-9 bg-muted rounded-xl flex items-center justify-center shrink-0">
                   <Phone className="w-4 h-4 text-secondary" />
                 </div>

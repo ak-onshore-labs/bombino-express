@@ -160,6 +160,49 @@ export async function getOrderById(orderId: string): Promise<Order | null> {
   return toOrder(data as unknown as OrderRow);
 }
 
+export type OrderRef = {
+  order_no: string;
+  awb_no: string | null;
+  consignee: unknown;
+};
+
+/**
+ * Order number, AWB and consignee for a batch of the owner's orders, matched
+ * by either reference — so a bell row that knows one can show the other.
+ *
+ * Scoped to the owner in the query, like `getOrderByNumberForUser`: the
+ * service-role key bypasses RLS, so this predicate is what stops one
+ * customer's bell from naming another's parcel.
+ */
+export async function listOrderRefsForOwner(
+  owner: { userId: string } | { guestRef: string },
+  refs: { orderNos: string[]; awbs: string[] }
+): Promise<OrderRef[]> {
+  const client = getSupabaseClient();
+  if (!client) return [];
+  const orderNos = Array.from(new Set(refs.orderNos)).slice(0, 200);
+  const awbs = Array.from(new Set(refs.awbs)).slice(0, 200);
+  if (orderNos.length === 0 && awbs.length === 0) return [];
+
+  const [column, value] = "userId" in owner ? ["user_id", owner.userId] : ["guest_ref", owner.guestRef];
+  const run = async (field: "order_no" | "awb_no", values: string[]): Promise<OrderRef[]> => {
+    if (values.length === 0) return [];
+    const { data, error } = await client
+      .from("orders")
+      .select("order_no, awb_no, consignee")
+      .eq(column, value)
+      .in(field, values);
+    if (error) {
+      logSupabaseError("listOrderRefsForOwner", error);
+      return [];
+    }
+    return (data ?? []) as OrderRef[];
+  };
+
+  const [byNo, byAwb] = await Promise.all([run("order_no", orderNos), run("awb_no", awbs)]);
+  return [...byNo, ...byAwb];
+}
+
 /**
  * The pickup address, embedded via the orders → addresses FK.
  *

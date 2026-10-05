@@ -1547,6 +1547,59 @@ export async function markNotificationRead(
   return data ?? [];
 }
 
+/**
+ * Mark every unread row of one owner read — the bell's "Mark all read".
+ * Returns how many rows changed, or null on a database error.
+ */
+/**
+ * Delete some of one owner's rows — the bell's "Clear" on a tab.
+ *
+ * The ids come from the client, which knows which tab it is clearing; the
+ * owner predicate is what makes that safe — an id belonging to anyone else
+ * matches nothing. Returns how many went, or null on a database error.
+ */
+export async function deleteNotifications(ids: string[], owner: NotificationOwner): Promise<number | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+  if (ids.length === 0) return 0;
+
+  const [column, value] = ownerColumn(owner);
+  const { data, error } = await client
+    .from("notifications")
+    .delete()
+    .in("id", ids)
+    .eq(column, value)
+    .select("id");
+
+  if (error) {
+    logSupabaseError("deleteNotifications", error);
+    return null;
+  }
+  return (data ?? []).length;
+}
+
+export async function markAllNotificationsRead(owner: NotificationOwner): Promise<number | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const [column, value] = ownerColumn(owner);
+  const { data, error } = await client
+    .from("notifications")
+    .update({
+      is_read: true,
+      read_at: new Date().toISOString(),
+    })
+    .eq(column, value)
+    .or("is_read.is.null,is_read.eq.false")
+    .select("id");
+
+  if (error) {
+    logSupabaseError("markAllNotificationsRead", error);
+    return null;
+  }
+  return (data ?? []).length;
+}
+
 export async function insertAddressAndReturnId(
   input: AddressInsert
 ): Promise<{ id: string } | null> {

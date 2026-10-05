@@ -28,8 +28,9 @@
 
 import type { Order } from "../shared/orderContract.js";
 import { deriveCustomerStatus, isInternalOnlyStatus } from "../shared/orderContract.js";
-import { insertOrderStatusNotification, type NotificationOwner } from "./appDb.js";
+import { insertNotification, insertOrderStatusNotification, type NotificationOwner } from "./appDb.js";
 import { customerStatusDetail } from "./notificationCopy.js";
+import { destinationOf } from "./notificationRefs.js";
 import { getUserContactsByIds } from "./ordersDb.js";
 import { sendTemplate } from "./whatsapp.js";
 import { getWhatsappRecipient } from "./whatsappDb.js";
@@ -167,9 +168,25 @@ export async function notifyOrderTransition(notice: OrderTransitionNotice): Prom
 }
 
 /**
- * The in-app half. Byte-for-byte what the inline block in `routes.ts` did —
- * same gates, same title, same body, same `data` shape. Changing it is out of
- * scope for the WhatsApp work; anything that reads differently here is a bug.
+ * What every order's bell row carries so the card can show it as fields
+ * rather than prose: the order number, the AWB once there is one, and where
+ * the parcel is going. Additive — older rows have only the first, and the
+ * client shows what it finds.
+ */
+function orderNoticeData(order: Order): Record<string, unknown> {
+  const destination = destinationOf(order.consignee);
+  return {
+    order_id: order.id,
+    order_no: order.order_no,
+    ...(order.awb_no ? { awb: order.awb_no } : {}),
+    ...(destination ? { destination } : {}),
+  };
+}
+
+/**
+ * The in-app half. Same gates, title and body as the inline block in
+ * `routes.ts` it replaced; `data` has since grown the card's fields
+ * (`orderNoticeData`).
  */
 async function notifyCustomerInApp(order: Order, actorUserId: string | null): Promise<void> {
   if (isInternalOnlyStatus(order.status)) return;
@@ -186,8 +203,50 @@ async function notifyCustomerInApp(order: Order, actorUserId: string | null): Pr
     owner,
     title: deriveCustomerStatus(order),
     body: `${order.order_no} — ${customerStatusDetail(order.status)}`,
-    data: { order_id: order.id, order_no: order.order_no, status: order.status },
+    data: { ...orderNoticeData(order), status: order.status },
   });
+
+  // The pickup code is issued at the claim (`orderActions.ts`, ops assign), so
+  // the moment the order reaches `agent_accepted` is the moment it is worth
+  // pointing the customer at it.
+  if (order.status === "agent_accepted" && order.pickup_request === 1) {
+    await notifyHandoverCodeInApp(order, "pickup");
+  }
+}
+
+/**
+ * A bell row saying a handover code is waiting on the order page.
+ *
+ * NEVER THE CODE ITSELF. A bell row is permanent; the code is not — it can be
+ * regenerated after a lock, and it is spent at the handover. A number sitting
+ * in the bell would go stale and get read out at a doorstep where it opens
+ * nothing. The row points at `#handover-code`, which always shows the live one.
+ *
+ * Own `type` so the bell can file it under Codes, with `order_status` to fall
+ * back on if the table only takes known types — `data.kind` still tells the
+ * client what it is (same approach as `supportNudges.notifyNudge`).
+ */
+export async function notifyHandoverCodeInApp(order: Order, kind: "pickup" | "dropoff"): Promise<void> {
+  try {
+    const owner = orderNotificationOwner(order);
+    if (!owner) return;
+    const note = {
+      ...("userId" in owner ? { user_id: owner.userId } : { guest_ref: owner.guestRef }),
+      title: kind === "pickup" ? "Your pickup OTP is ready" : "Your drop-off OTP is ready",
+      body:
+        kind === "pickup"
+          ? `${order.order_no} — Read this 4-digit OTP to the agent when they collect your parcel.`
+          : `${order.order_no} — Read this 4-digit OTP at the Bombino counter when you drop off your parcel.`,
+      data: { ...orderNoticeData(order), kind: "handover_code", handover: kind },
+    };
+    (await insertNotification({ ...note, type: "handover_code" })) ||
+      (await insertNotification({ ...note, type: "order_status" }));
+  } catch (error) {
+    console.error("[notify] handover code bell row threw (swallowed)", {
+      order: order.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 async function notifyCustomerWhatsapp(order: Order, actorUserId: string | null): Promise<void> {
@@ -386,8 +445,7 @@ export async function notifyCancellationDeclined(input: {
             ? `${order.order_no} — ${note}`
             : `${order.order_no} — your cancellation request was declined. Your shipment is still going ahead.`,
           data: {
-            order_id: order.id,
-            order_no: order.order_no,
+            ...orderNoticeData(order),
             status: order.status,
             cancellation: "rejected",
           },
