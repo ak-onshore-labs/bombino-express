@@ -59,6 +59,18 @@ export interface Transition {
 
 // ── Guards ────────────────────────────────────────────────────────────────
 
+/**
+ * How a failed docket on this order is to be retried, or null when there is
+ * nothing to retry: it has an AWB, no failure on record, or no account to file
+ * under. See shared/docketRules.ts.
+ */
+const docketRetryMode = (order: Order): string | null => {
+  if (order.awb_no !== null || !order.user_id) return null;
+  const err = (order.metadata ?? {})["docket_error"] as { retry?: unknown } | undefined;
+  if (!err) return null;
+  return typeof err.retry === "string" ? err.retry : "ops";
+};
+
 /** The order is unclaimed. Race-prone: mirror as `.is('agent_id', null)`. */
 const isUnclaimed = (order: Order): boolean => order.agent_id === null;
 
@@ -286,6 +298,56 @@ export const TRANSITIONS: readonly Transition[] = [
     // would strand a shipment ITD has already accepted.
     guard: (order) => order.awb_no !== null,
   },
+
+  {
+    from: "settled",
+    action: "record_awb",
+    role: "admin",
+    to: "dispatched",
+    label: "Enter AWB from ITD portal",
+    requiresPayload: true,
+    // For the customer with no ITD login to file under (guests, OTP signups):
+    // ops files it in ITD's portal and records the AWB. Offered beside
+    // `generate_docket`; the console shows whichever fits the customer
+    // (`owner_has_itd_login` on the ops order detail).
+    guard: (order) => order.awb_no === null,
+  },
+
+  // ── AWB retry ──────────────────────────────────────────────────────────
+  //
+  // A real ITD filing again, for an order whose docket failed. Any status
+  // before dispatch; the order does not move. Two rows, same action, so the
+  // button says what ops must do first when ITD may already hold a docket.
+  ...(
+    [
+      "pickup_requested",
+      "agent_accepted",
+      "out_for_pickup",
+      "picked_up",
+      "awaiting_dropoff",
+      "received_at_hub",
+      "weighed",
+      "settled",
+      "ready_for_docket",
+    ] as const
+  ).flatMap((from): Transition[] => [
+    {
+      from,
+      action: "retry_docket",
+      role: "admin",
+      to: null,
+      label: "Checked ITD portal: retry AWB",
+      guard: (order) => docketRetryMode(order) === "check_itd",
+    },
+    {
+      from,
+      action: "retry_docket",
+      role: "admin",
+      to: null,
+      label: "Retry AWB",
+      guard: (order) => docketRetryMode(order) !== null,
+    },
+  ]),
 
   // ── Cancellation ───────────────────────────────────────────────────────
   //

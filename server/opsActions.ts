@@ -126,27 +126,47 @@ const ratesCodeCache = new Map<string, { code: string; expiresAt: number }>();
  * repriced at its real weight. Both must ask the same question on the same
  * login, or a customer is quoted one number and charged by another rule.
  */
+export type ItdRateLookup =
+  | { status: "priced"; total: number; serviceCode: string }
+  /** ITD answered and offers no price for this service as booked ("Freight amount is 0" territory). */
+  | { status: "unpriced" }
+  /** The question could not be asked or answered: missing inputs, or ITD did not respond. */
+  | { status: "unknown" };
+
+type RateInput = {
+  items: unknown;
+  consignee: unknown;
+  origin: { city: string | null; pincode: string | null } | null;
+  /** Whose tariff: see itdRatesLoginFor. Null prices on the company login. */
+  login?: ItdRatesLogin | null;
+};
+
 export async function itdRateAtWeight(
-  input: {
-    items: unknown;
-    consignee: unknown;
-    origin: { city: string | null; pincode: string | null } | null;
-    /** Whose tariff: see itdRatesLoginFor. Null prices on the company login. */
-    login?: ItdRatesLogin | null;
-  },
+  input: RateInput,
   weightKg: number
 ): Promise<{ total: number; serviceCode: string } | null> {
+  const r = await itdRateLookup(input, weightKg);
+  return r.status === "priced" ? { total: r.total, serviceCode: r.serviceCode } : null;
+}
+
+/**
+ * `itdRateAtWeight`, saying why there is no price. The docket pre-check
+ * (docketFiling.ts) blocks only on "unpriced": ITD answering that it cannot
+ * price the shipment is the refusal create_docket would give as "Freight
+ * amount is 0", whereas ITD not answering says nothing about the shipment.
+ */
+export async function itdRateLookup(input: RateInput, weightKg: number): Promise<ItdRateLookup> {
   const items = asRecord(input.items);
   const consignee = asRecord(input.consignee);
   const apiServiceCode = strField(items, "api_service_code");
   const productCode = strField(items, "product_code");
   const destinationCode =
     strField(items, "destination_code") ?? strField(consignee, "country_code");
-  if (!productCode || !destinationCode || !apiServiceCode) return null;
+  if (!productCode || !destinationCode || !apiServiceCode) return { status: "unknown" };
   // No box sizes on the order means no price: the booking is marked
   // unverified (and the hub reprices by hand) rather than quoted on weight.
   const boxes = rateBoxesFromDocketItems(items?.docket_items, weightKg);
-  if (!boxes) return null;
+  if (!boxes) return { status: "unknown" };
 
   const oriCity = input.origin?.city ?? strField(items, "shipper_city");
   const oriPincode = input.origin?.pincode ?? strField(items, "shipper_zip_code");
@@ -192,12 +212,14 @@ export async function itdRateAtWeight(
       if (code !== apiServiceCode) continue;
       const total = Number(row.total);
       if (!Number.isFinite(total) || total <= 0) continue;
-      return { total: Math.round(total * 100) / 100, serviceCode: code };
+      return { status: "priced", total: Math.round(total * 100) / 100, serviceCode: code };
     }
+    // ITD answered, and nothing it offered prices this service.
+    return { status: "unpriced" };
   } catch (err) {
     console.error("[opsActions] ITD getRates failed:", err);
   }
-  return null;
+  return { status: "unknown" };
 }
 
 /**
@@ -413,53 +435,6 @@ export async function handleSettle(input: {
       quoted_amount: q,
       final_amount: f,
       payment_status: updated.payment_status,
-    },
-  };
-}
-
-function mockAwbNo(): string {
-  const d = new Date();
-  const yy = String(d.getFullYear()).slice(-2);
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const rand = String(Math.floor(Math.random() * 1_000_000)).padStart(6, "0");
-  return `BMB${yy}${mm}${dd}${rand}`;
-}
-
-export async function handleGenerateDocket(input: {
-  order: Order;
-  callerId: string;
-}): Promise<OpsActionResult> {
-  const awbNo = mockAwbNo();
-  const generatedAt = new Date().toISOString();
-  const docketId = Math.floor(Math.random() * 900_000) + 100_000;
-
-  const updated = await applyGenerateDocket({
-    orderId: input.order.id,
-    awbNo,
-    docketResponse: {
-      mock: true,
-      docket_id: docketId,
-      awb_no: awbNo,
-      generated_at: generatedAt,
-    },
-  });
-  if (!updated) {
-    return {
-      error: {
-        status: 409,
-        message: "This order has already moved on. Refresh and try again.",
-        code: "ORDER_STATE_CHANGED",
-      },
-    };
-  }
-
-  return {
-    order: updated,
-    eventNote: `Docket generated · AWB ${awbNo}`,
-    eventMeta: {
-      action: "generate_docket",
-      awb_no: awbNo,
     },
   };
 }

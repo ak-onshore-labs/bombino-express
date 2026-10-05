@@ -94,7 +94,6 @@ import { registerAccountApplicationRoutes } from "./routes/accountApplications.j
 import { isAccountReviewEnabled } from "./accountApplications.js";
 import { getLatestApplicationByPhone, isOpenApplicationRef, toCustomerView } from "./accountApplicationsDb.js";
 import {
-  handleGenerateDocket,
   handleMarkDispatched,
   handleSettle,
   handleWeigh,
@@ -191,6 +190,8 @@ import { itdClient, parseRateBoxes } from "./itd.js";
 import type { CreateShipmentPayload, RateParams } from "./itd.js";
 import { persistShipmentAfterCreate } from "./persistShipment.js";
 import { docketAtBooking } from "./docketAtBooking.js";
+import { handleGenerateDocket, handleRecordAwb, handleRetryDocket } from "./docketActions.js";
+import { retryDocketsDue } from "./docketFiling.js";
 import { lookupPostal } from "./postalLookup.js";
 import {
   getKycByCapabilityId,
@@ -1126,6 +1127,21 @@ export async function registerRoutes(
       });
     } catch (err) {
       console.error("[retention] sweep failed:", err);
+      res.status(500).json({ message: "Sweep failed." });
+    }
+  });
+
+  /**
+   * POST /api/admin/dockets/retry — file the dockets that failed in a way a
+   * retry fixes (server/docketFiling.ts). Also runs in-process every 10
+   * minutes; this is for an external scheduler and for running it by hand.
+   * Safe to call repeatedly: each order is filed under its own lock.
+   */
+  app.post("/api/admin/dockets/retry", requireCronSecret, async (_req: Request, res: Response) => {
+    try {
+      res.json(await retryDocketsDue());
+    } catch (err) {
+      console.error("[dockets] retry sweep failed:", err);
       res.status(500).json({ message: "Sweep failed." });
     }
   });
@@ -3657,6 +3673,8 @@ export async function registerRoutes(
         docket.status === "failed"
           ? { ...docket, message: explainDocketError(docket.message ?? "").customerNote }
           : docket,
+      // `message` is null unless the customer has something to do (an ID
+      // document to add); a refused or slow docket is ops' to fix, not theirs.
     });
   });
 
@@ -3965,6 +3983,20 @@ export async function registerRoutes(
               return;
             }
             const ok = applyResult(await handleGenerateDocket({ order, callerId }));
+            if (!ok) return;
+            break;
+          }
+
+          if (action === "record_awb") {
+            const ok = applyResult(
+              await handleRecordAwb({ order, callerId, payload: parsed.data.payload })
+            );
+            if (!ok) return;
+            break;
+          }
+
+          if (action === "retry_docket") {
+            const ok = applyResult(await handleRetryDocket({ order, callerId }));
             if (!ok) return;
             break;
           }

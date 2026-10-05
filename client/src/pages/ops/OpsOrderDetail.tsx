@@ -12,6 +12,15 @@ import { OpsDropoffOtpSheet } from '@/components/ops/OpsDropoffOtpSheet';
 import { OpsWeighSheet } from '@/components/ops/OpsWeighSheet';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   Select,
   SelectContent,
@@ -111,6 +120,10 @@ export default function OpsOrderDetail() {
     null,
   );
   const [pendingAction, setPendingAction] = useState<string | null>(null);
+  // Enter AWB from ITD portal: the number ops filed by hand.
+  const [awbOpen, setAwbOpen] = useState(false);
+  const [awbValue, setAwbValue] = useState('');
+  const [awbError, setAwbError] = useState<string | null>(null);
 
   const forbidden =
     isError &&
@@ -137,6 +150,7 @@ export default function OpsOrderDetail() {
           setCollectOpen(false);
           setDropoffOpen(false);
           setDropoffError(null);
+          setAwbOpen(false);
           toast({
             title: 'Updated',
             description: `${result.order.order_no} — ${getOrderStatusLabel(result.order.status)}`,
@@ -144,6 +158,16 @@ export default function OpsOrderDetail() {
         },
         onError: (err: OpsActionError) => {
           setPendingAction(null);
+          if (actionName === 'record_awb') {
+            setAwbError(err.message);
+            return;
+          }
+          // A failed filing writes its reason onto the order: show it.
+          if (actionName === 'generate_docket' || actionName === 'retry_docket') {
+            void queryClient.invalidateQueries({ queryKey: opsOrderDetailKey(orderId) });
+            toast({ title: 'AWB not issued', description: err.message, variant: 'destructive' });
+            return;
+          }
           const isOtpError =
             actionName === 'mark_received_dropoff' &&
             typeof err.code === 'string' &&
@@ -191,6 +215,16 @@ export default function OpsOrderDetail() {
     }
     if (actionName === 'settle') {
       if (!window.confirm('Settle this order?')) return;
+    }
+    if (actionName === 'record_awb') {
+      setAwbValue('');
+      setAwbError(null);
+      setAwbOpen(true);
+      return;
+    }
+    if (actionName === 'generate_docket' || actionName === 'retry_docket') {
+      // A real ITD shipment, and ITD cannot amend one once filed.
+      if (!window.confirm('File a real ITD docket for this order now? ITD cannot change it afterwards.')) return;
     }
     runAction(actionName);
   };
@@ -242,7 +276,18 @@ export default function OpsOrderDetail() {
     );
   }
 
-  const { order, events, availableActions, handover } = data;
+  const { order, events, handover } = data;
+  // One way to an AWB is offered, whichever fits the customer: a real filing
+  // on their own ITD login, or ops entering one filed in ITD's portal.
+  const availableActions = data.availableActions.filter((a) =>
+    data.owner_has_itd_login ? a.action !== 'record_awb' : a.action !== 'generate_docket'
+  );
+  const docketRetryLabel =
+    order.docket_retry === 'auto'
+      ? 'Retrying automatically'
+      : order.docket_retry === 'check_itd'
+        ? 'Check ITD portal first'
+        : 'Needs ops';
   const consignee = consigneeLines(order.consignee);
   const dueAmount = order.final_amount ?? order.quoted_amount ?? 0;
   const needsNewHubCode = Boolean(handover && (handover.locked || !handover.code));
@@ -312,21 +357,35 @@ export default function OpsOrderDetail() {
         </div>
       )}
 
-      {/* An AWB this order was supposed to have and does not. The order itself
-          is fine — it simply falls back to being docketed here, at Settled,
-          like a guest's. What ops needs is the reason, because a refusal ITD
-          gave once it will give again. */}
+      {/* An AWB this order was supposed to have and does not, why, and who acts
+          next (server/docketFiling.ts): the automatic retry, ops after a
+          correction, or a check of ITD's portal before filing again. */}
       {!order.awb_no && order.docket_error && (
         <div
           className="rounded-2xl border border-destructive bg-destructive/10 px-4 py-3 mb-4"
           data-testid="ops-order-docket-error"
         >
-          <p className="text-[11px] uppercase tracking-[0.14em] font-bold text-destructive">
-            Airway bill not issued at booking
-          </p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] uppercase tracking-[0.14em] font-bold text-destructive">
+              Airway bill not issued
+            </p>
+            <span
+              className="shrink-0 rounded-full border border-destructive/40 bg-white px-2 py-0.5 text-[11px] font-semibold text-destructive"
+              data-testid="ops-order-docket-retry"
+            >
+              {docketRetryLabel}
+            </span>
+          </div>
           <p className="text-sm font-semibold text-foreground mt-1 leading-snug">
             {order.docket_error}
           </p>
+          {order.docket_error_problems && order.docket_error_problems.length > 0 && (
+            <ul className="mt-1.5 list-disc pl-5 text-sm text-foreground space-y-0.5" data-testid="ops-order-docket-problems">
+              {order.docket_error_problems.map((p) => (
+                <li key={p}>{p}</li>
+              ))}
+            </ul>
+          )}
           {order.docket_error_hint && (
             <p className="text-xs text-foreground mt-1.5 leading-relaxed" data-testid="ops-order-docket-hint">
               {order.docket_error_hint}
@@ -477,6 +536,54 @@ export default function OpsOrderDetail() {
           disabled={action.isPending}
         />
       </section>
+
+      <Dialog open={awbOpen} onOpenChange={(open) => !action.isPending && setAwbOpen(open)}>
+        <DialogContent className="max-w-[calc(100vw-32px)] sm:max-w-md rounded-lg">
+          <DialogHeader>
+            <DialogTitle>Enter AWB from ITD portal</DialogTitle>
+            <DialogDescription>
+              This customer has no ITD login of their own. File the docket in ITD's portal, then enter
+              the AWB it gave you. The order moves to Dispatched.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setAwbError(null);
+              runAction('record_awb', { awb_no: awbValue.trim() });
+            }}
+          >
+            <Label htmlFor="ops-awb-input">AWB</Label>
+            <Input
+              id="ops-awb-input"
+              value={awbValue}
+              onChange={(e) => setAwbValue(e.target.value)}
+              autoFocus
+              autoComplete="off"
+              className="mt-1.5 font-mono"
+              aria-invalid={awbError ? true : undefined}
+              aria-describedby={awbError ? 'ops-awb-error' : undefined}
+              data-testid="input-ops-awb"
+            />
+            {awbError && (
+              <p id="ops-awb-error" className="mt-1.5 text-sm text-destructive" role="alert">
+                {awbError}
+              </p>
+            )}
+            <DialogFooter className="mt-4">
+              <Button type="button" variant="outline" onClick={() => setAwbOpen(false)} disabled={action.isPending}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={action.isPending || awbValue.trim().length < 6} data-testid="button-ops-awb-save">
+                {action.isPending && pendingAction === 'record_awb' ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : null}
+                Save AWB
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <section data-testid="ops-order-timeline">
         <h2 className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground mb-3">

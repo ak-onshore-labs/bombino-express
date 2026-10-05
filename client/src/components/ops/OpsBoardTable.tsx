@@ -120,7 +120,11 @@ export function OpsBoardTable({
                         title={order.docket_error}
                         data-testid={`ops-docket-failed-row-${order.order_no}`}
                       >
-                        AWB failed
+                        {order.docket_retry === 'auto'
+                          ? 'AWB retrying'
+                          : order.docket_retry === 'check_itd'
+                            ? 'AWB: check ITD'
+                            : 'AWB failed'}
                       </span>
                     ) : (
                       '—'

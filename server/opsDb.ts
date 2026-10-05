@@ -86,6 +86,10 @@ export type OpsBoardOrder = {
   docket_error: string | null;
   /** What usually causes that refusal and what to do (shared/docketError.ts). */
   docket_error_hint: string | null;
+  /** What the pre-check found missing, for ops to fix. */
+  docket_error_problems: string[];
+  /** Who acts next on a failed docket: "auto", "ops" or "check_itd". */
+  docket_retry: string | null;
 };
 
 export type OpsOrderDetail = {
@@ -120,6 +124,10 @@ export type OpsOrderDetail = {
   docket_error: string | null;
   /** What usually causes that refusal and what to do (shared/docketError.ts). */
   docket_error_hint: string | null;
+  /** What the pre-check found missing, for ops to fix. */
+  docket_error_problems: string[];
+  /** Who acts next on a failed docket: "auto", "ops" or "check_itd". */
+  docket_retry: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -145,9 +153,26 @@ function docketFailure(metadata: unknown): DocketFailure | null {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
   const err = (metadata as Record<string, unknown>).docket_error;
   if (!err || typeof err !== "object" || Array.isArray(err)) return null;
-  const { message, stage } = err as Record<string, unknown>;
+  const { message, stage, retry } = err as Record<string, unknown>;
   if (typeof message !== "string" || message.trim() === "") return null;
-  return explainDocketError(message, typeof stage === "string" ? stage : null);
+  return explainDocketError(
+    message,
+    typeof stage === "string" ? stage : null,
+    typeof retry === "string" ? retry : null
+  );
+}
+
+/** What the pre-check found missing (server/docketFiling.ts), for ops to fix. */
+function docketErrorProblems(metadata: unknown): string[] {
+  const err = (metadata as Record<string, unknown> | null)?.docket_error as { problems?: unknown } | undefined;
+  return Array.isArray(err?.problems) ? err.problems.filter((p): p is string => typeof p === "string") : [];
+}
+
+/** Who acts next: "auto" (the retry sweep), "ops", or "check_itd". Null when nothing failed. */
+function docketErrorRetry(metadata: unknown): string | null {
+  const err = (metadata as Record<string, unknown> | null)?.docket_error as { retry?: unknown } | undefined;
+  if (!err) return null;
+  return typeof err.retry === "string" ? err.retry : "ops";
 }
 
 /** ITD's own reason, without the HTTP wrapping it was stored in. */
@@ -198,6 +223,8 @@ function mapBoardRow(row: Record<string, unknown>): OpsBoardOrder {
     awb_no: (row.awb_no as string | null) ?? null,
     docket_error: docketErrorMessage(row.metadata),
     docket_error_hint: docketErrorHint(row.metadata),
+    docket_error_problems: docketErrorProblems(row.metadata),
+    docket_retry: docketErrorRetry(row.metadata),
   };
 }
 
@@ -233,6 +260,8 @@ function mapDetailRow(row: Record<string, unknown>): OpsOrderDetail {
     metadata: row.metadata ?? null,
     docket_error: docketErrorMessage(row.metadata),
     docket_error_hint: docketErrorHint(row.metadata),
+    docket_error_problems: docketErrorProblems(row.metadata),
+    docket_retry: docketErrorRetry(row.metadata),
     created_at: String(row.created_at),
     updated_at: String(row.updated_at),
   };
@@ -575,13 +604,13 @@ export type MockDocketResponse = {
 };
 
 /**
- * Mock docket write: settled → dispatched with a fake AWB.
- * Double-fire guard is `awb_no IS NULL` plus status = settled.
+ * settled → dispatched with an AWB entered by ops (`record_awb`, filed in
+ * ITD's portal). Double-fire guard is `awb_no IS NULL` plus status = settled.
  */
 export async function applyGenerateDocket(input: {
   orderId: string;
   awbNo: string;
-  docketResponse: MockDocketResponse;
+  docketResponse: Record<string, unknown>;
 }): Promise<Order | null> {
   const client = getSupabaseClient();
   if (!client) return null;

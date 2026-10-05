@@ -17,10 +17,23 @@ test("a zero freight explains the address and product type", () => {
   assert.match(f.reason, /couldn't price/);
   assert.match(f.opsHint, /5-digit ZIP/);
   assert.match(f.opsHint, /DOX/);
-  assert.doesNotMatch(f.customerNote, /ITD|500|Freight amount/);
+  // Ours to fix with the customer, not something to show them.
+  assert.equal(f.customerNote, null);
 });
 
 test("the stage decides the advice when ITD's words don't", () => {
   assert.match(explainDocketError("Could not sign in to ITD to issue an airway bill.", "token").opsHint, /password/);
-  assert.match(explainDocketError("No identity document on file.", "kyc").customerNote, /identity document/);
+  assert.match(explainDocketError("No identity document on file.", "kyc").customerNote ?? "", /ID document/);
+});
+
+test("the customer hears nothing unless there is something for them to do", () => {
+  for (const raw of [
+    "ITD create_docket (booking) timed out after 15000ms",
+    'ITD create shipment error: 500 Internal Server Error — {"success":false,"errors":"AUTH TOKEN EXPIRED","Response Code":500}',
+    "Could not sign in to ITD to issue an airway bill.",
+    "ITD issued AWB 123 but it could not be saved against this order.",
+  ]) {
+    assert.equal(explainDocketError(raw).customerNote, null, raw);
+  }
+  assert.doesNotMatch(explainDocketError("No identity document on file.", "kyc").customerNote ?? "", /ITD|airway|docket/i);
 });

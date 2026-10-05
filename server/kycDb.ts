@@ -242,6 +242,15 @@ export async function upsertKycDocument(input: UpsertKycInput): Promise<KycDocum
     logError("upsertKycDocument:insert", error);
     return null;
   }
+  // A first document is what an order held at "no identity document on file"
+  // was waiting for: file those now rather than at the next sweep. Imported
+  // lazily because docketFiling reaches back here through kycPolicy.
+  if (input.user_id) {
+    const userId = input.user_id;
+    void import("./docketFiling.js")
+      .then((m) => m.retryDocketsDue({ userId, force: true }))
+      .catch((err) => console.error("[kycDb] docket retry after upload failed:", err));
+  }
   return decodeKycMeta(data as KycDocumentMeta);
 }
 

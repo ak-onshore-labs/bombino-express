@@ -40,6 +40,10 @@ export type OpsBoardOrder = {
   docket_error: string | null;
   /** What usually causes that refusal and what to do. */
   docket_error_hint?: string | null;
+  /** What the pre-check found missing, for ops to fix. */
+  docket_error_problems?: string[];
+  /** Who acts next: "auto" (retrying by itself), "ops", or "check_itd". */
+  docket_retry?: string | null;
 };
 
 export type OpsOrderEvent = {
@@ -73,6 +77,12 @@ export type OpsOrderDetailResponse = {
   events: OpsOrderEvent[];
   availableActions: AvailableAction[];
   handover: OpsHubHandover | null;
+  /**
+   * The customer has an ITD login of their own: their AWB is a real filing
+   * (Generate docket / Retry AWB). Otherwise ops files it in ITD's portal and
+   * enters it (Enter AWB from ITD portal).
+   */
+  owner_has_itd_login?: boolean;
 };
 
 export type OpsActionResult = {

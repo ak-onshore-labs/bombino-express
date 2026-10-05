@@ -79,7 +79,7 @@ export function OpsOrderCard({ order }: { order: OpsBoardOrder }) {
             data-testid={`ops-docket-failed-${order.order_no}`}
           >
             <AlertTriangle className="w-3 h-3" aria-hidden />
-            AWB failed
+            {order.docket_retry === 'auto' ? 'AWB retrying' : order.docket_retry === 'check_itd' ? 'AWB: check ITD' : 'AWB failed'}
           </span>
         )}
       </div>

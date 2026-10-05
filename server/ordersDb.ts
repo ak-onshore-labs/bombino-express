@@ -551,7 +551,18 @@ export async function applyBookingDocket(input: {
  */
 export async function recordBookingDocketError(
   orderId: string,
-  detail: { stage: string; message: string }
+  detail: {
+    stage: string;
+    message: string;
+    /**
+     * Who acts next (server/docketFiling.ts): `auto` the retry sweep, `ops`
+     * a person after a correction, `check_itd` a person after checking ITD's
+     * portal for a docket that may already exist. Absent on older rows.
+     */
+    retry?: "auto" | "ops" | "check_itd";
+    /** What the pre-check found missing, for ops to fix. */
+    problems?: string[];
+  }
 ): Promise<boolean> {
   const client = getSupabaseClient();
   if (!client) return false;
@@ -568,6 +579,8 @@ export async function recordBookingDocketError(
   }
 
   const metadata = ((row?.metadata as Record<string, unknown> | null) ?? {});
+  const previous = metadata.docket_error as { attempts?: unknown } | undefined;
+  const attempts = (typeof previous?.attempts === "number" ? previous.attempts : previous ? 1 : 0) + 1;
 
   const { error } = await client
     .from("orders")
@@ -578,6 +591,9 @@ export async function recordBookingDocketError(
           at: new Date().toISOString(),
           stage: detail.stage,
           message: detail.message,
+          ...(detail.retry ? { retry: detail.retry } : {}),
+          ...(detail.problems?.length ? { problems: detail.problems } : {}),
+          attempts,
         },
       },
       updated_at: new Date().toISOString(),
@@ -589,6 +605,123 @@ export async function recordBookingDocketError(
     return false;
   }
   return true;
+}
+
+/** Drop the failure note once the order has its AWB. Best-effort. */
+export async function clearBookingDocketError(orderId: string): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client) return;
+  const { data: row, error: readError } = await client
+    .from("orders")
+    .select("metadata")
+    .eq("id", orderId)
+    .maybeSingle();
+  if (readError) {
+    logSupabaseError("clearBookingDocketError:read", readError);
+    return;
+  }
+  const metadata = { ...((row?.metadata as Record<string, unknown> | null) ?? {}) };
+  if (!("docket_error" in metadata) && !("docket_lock" in metadata)) return;
+  delete metadata.docket_error;
+  delete metadata.docket_lock;
+  const { error } = await client.from("orders").update({ metadata }).eq("id", orderId);
+  if (error) logSupabaseError("clearBookingDocketError:update", error);
+}
+
+/** A held lock older than this is presumed to belong to a process that died. */
+export const DOCKET_LOCK_STALE_MS = 5 * 60 * 1000;
+
+/**
+ * Take the right to file this order's docket.
+ *
+ * ITD has no idempotency key and permits no amendment, so two filings for one
+ * order would be two real shipments. The booking request, the retry sweep, an
+ * ops click and a second deployment can all reach the same order; this is the
+ * one place they queue.
+ *
+ * Compare-and-set on `updated_at` (no schema change needed): read the row,
+ * refuse if it has an AWB or a live lock, then write the lock only if the row
+ * is still exactly as read. A concurrent taker changes `updated_at` first and
+ * this one matches nothing.
+ */
+export async function acquireDocketLock(orderId: string, holder: string): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  const { data: row, error: readError } = await client
+    .from("orders")
+    .select("awb_no, metadata, updated_at")
+    .eq("id", orderId)
+    .maybeSingle();
+  if (readError || !row) {
+    if (readError) logSupabaseError("acquireDocketLock:read", readError);
+    return false;
+  }
+  if (row.awb_no) return false;
+
+  const metadata = (row.metadata as Record<string, unknown> | null) ?? {};
+  const lock = metadata.docket_lock as { at?: unknown } | undefined;
+  const lockAt = typeof lock?.at === "string" ? Date.parse(lock.at) : NaN;
+  if (Number.isFinite(lockAt) && Date.now() - lockAt < DOCKET_LOCK_STALE_MS) return false;
+
+  const { data, error } = await client
+    .from("orders")
+    .update({
+      metadata: { ...metadata, docket_lock: { at: new Date().toISOString(), by: holder } },
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", orderId)
+    .eq("updated_at", row.updated_at as string)
+    .is("awb_no", null)
+    .select("id");
+  if (error) {
+    logSupabaseError("acquireDocketLock:update", error);
+    return false;
+  }
+  return (data ?? []).length === 1;
+}
+
+/** Give the lock back. Leaves everything else on `metadata` alone. */
+export async function releaseDocketLock(orderId: string): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client) return;
+  const { data: row, error: readError } = await client
+    .from("orders")
+    .select("metadata")
+    .eq("id", orderId)
+    .maybeSingle();
+  if (readError || !row) return;
+  const metadata = { ...((row.metadata as Record<string, unknown> | null) ?? {}) };
+  if (!("docket_lock" in metadata)) return;
+  delete metadata.docket_lock;
+  const { error } = await client.from("orders").update({ metadata }).eq("id", orderId);
+  if (error) logSupabaseError("releaseDocketLock", error);
+}
+
+/**
+ * Orders whose docket failed in a way a retry can fix by itself
+ * (`docket_error.retry = "auto"`), still waiting for an AWB, still ours.
+ * Optionally one customer's, for the retry that follows a document upload.
+ */
+export async function listOrdersForDocketRetry(opts: { userId?: string } = {}): Promise<Order[]> {
+  const client = getSupabaseClient();
+  if (!client) return [];
+  let q = client
+    .from("orders")
+    .select(ORDER_COLUMNS)
+    .is("awb_no", null)
+    .not("user_id", "is", null)
+    .not("status", "in", "(cancelled,dispatched)")
+    .eq("metadata->docket_error->>retry", "auto")
+    .order("created_at", { ascending: true })
+    .limit(25);
+  if (opts.userId) q = q.eq("user_id", opts.userId);
+  const { data, error } = await q;
+  if (error) {
+    logSupabaseError("listOrdersForDocketRetry", error);
+    return [];
+  }
+  return ((data ?? []) as unknown as OrderRow[]).map((r) => toOrder(r));
 }
 
 export type OrderEventRow = {

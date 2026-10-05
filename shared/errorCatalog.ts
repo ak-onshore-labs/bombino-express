@@ -516,8 +516,11 @@ export function identityFailureCode(failure: string): ErrorCode {
 export const UNCATALOGUED_CODES = [
   "ACCOUNT_SESSION",
   "ACTION_NOT_AVAILABLE",
+  "BAD_AWB",
   "BAD_TRANSITION",
   "CODE_ISSUE_FAILED",
+  "DOCKET_BUSY",
+  "DOCKET_FAILED",
   "FORBIDDEN",
   "INVALID_AGENT",
   // Ops console: marking an application's document verified by hand.
@@ -540,6 +543,7 @@ export const UNCATALOGUED_CODES = [
   "NO_HANDOVER_DUE",
   "NO_OPEN_REQUEST",
   "NO_ORDER",
+  "NEEDS_MANUAL_AWB",
   "NOT_IMPLEMENTED",
   "NUDGES_NOT_SET_UP",
   "ORDER_MISMATCH",

@@ -45,6 +45,7 @@ import {
   getCustomerForOps,
   getStaffUserById,
   insertStaffUser,
+  itdUserHasStoredPassword,
   listCustomerAccounts,
   listCustomersForOps,
   listStaffUsers,
@@ -467,7 +468,12 @@ export function registerOpsRoutes(app: Express): void {
         };
       }
 
-      res.json({ order, events, availableActions: actions, handover });
+      // Which way to an AWB this order has: a real filing on the customer's own
+      // ITD login (Generate docket / Retry AWB), or ops filing it in ITD's
+      // portal and entering the number (Enter AWB from ITD portal).
+      const ownerHasItdLogin = order.user_id ? await itdUserHasStoredPassword(order.user_id) : false;
+
+      res.json({ order, events, availableActions: actions, handover, owner_has_itd_login: ownerHasItdLogin });
     }
   );
 

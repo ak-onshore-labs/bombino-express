@@ -169,6 +169,13 @@ export type Action =
   // guarded on `awb_no` being null and not-null respectively, so exactly one
   // is ever offered.
   | 'mark_dispatched'
+  // ops — file the real ITD docket again after a failure (server/docketFiling.ts).
+  // Does not move the order.
+  | 'retry_docket'
+  // ops — for a customer with no ITD login of their own: ops files the docket
+  // in ITD's portal and enters the AWB here. Same destination as
+  // `generate_docket`.
+  | 'record_awb'
   // customer — asks; does not decide. See `cancel` below.
   | 'request_cancellation'
   // ops — the other half of the decision. `cancel` approves a request;
