@@ -7,7 +7,6 @@ import {
   BadgeDollarSign,
   Send,
   Phone,
-  Bell,
   ShieldCheck,
   AlertTriangle,
   PackageOpen,
@@ -19,15 +18,8 @@ import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 import { type DisplayRow } from '@/lib/shipmentRows';
 import { useNotifications, useOrderHistory } from '@/hooks/useCustomerOrders';
 import { useSupportContacts } from '@/hooks/useSupportContacts';
+import { NeedsAttention } from '@/components/NeedsAttention';
 
-/** The subset of a notification this page renders. */
-interface HomeNotificationRow {
-  id: string;
-  title: string | null;
-  body: string | null;
-  type: string | null;
-  created_at: string;
-}
 
 // ─── Popular routes (static seed; ready to swap for an /api/popular-routes endpoint) ───
 const POPULAR_ROUTES = [
@@ -521,66 +513,6 @@ function TipsWidget() {
   );
 }
 
-// ─── Recent updates (right rail, logged-in users) ───
-function RecentUpdates({
-  notifications,
-  loading,
-}: {
-  notifications: HomeNotificationRow[];
-  loading: boolean;
-}) {
-  return (
-    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] overflow-hidden">
-      <div className="px-5 pt-5 pb-3 flex items-center justify-between">
-        <h3 className="text-sm font-bold tracking-tight text-foreground">Recent updates</h3>
-        <Link
-          href="/notifications"
-          className="text-xs font-semibold text-[#F2A123] inline-flex items-center gap-1 hover:underline"
-        >
-          View all <ChevronRight className="w-3 h-3" />
-        </Link>
-      </div>
-      <ul className="px-5 pb-5 space-y-3">
-        {loading && (
-          <>
-            <li className="flex items-start gap-3 animate-pulse">
-              <div className="w-7 h-7 rounded-lg bg-[#F3F4F6] flex-shrink-0" />
-              <div className="flex-1 space-y-2">
-                <div className="h-3 w-2/3 bg-[#F3F4F6] rounded" />
-                <div className="h-2.5 w-1/2 bg-[#F3F4F6] rounded" />
-              </div>
-            </li>
-            <li className="flex items-start gap-3 animate-pulse">
-              <div className="w-7 h-7 rounded-lg bg-[#F3F4F6] flex-shrink-0" />
-              <div className="flex-1 space-y-2">
-                <div className="h-3 w-2/3 bg-[#F3F4F6] rounded" />
-                <div className="h-2.5 w-1/2 bg-[#F3F4F6] rounded" />
-              </div>
-            </li>
-          </>
-        )}
-        {!loading && notifications.length === 0 && (
-          <li className="text-xs text-muted-foreground py-4 text-center">No recent updates.</li>
-        )}
-        {!loading &&
-          notifications.slice(0, 4).map((n) => (
-            <li key={n.id} className="flex items-start gap-3 text-xs" data-testid={`notification-${n.id}`}>
-              <div className="w-7 h-7 rounded-lg bg-[#FFF6E5] text-[#F2A123] flex items-center justify-center flex-shrink-0">
-                <Bell className="w-3.5 h-3.5" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-[13px] font-semibold leading-tight text-foreground line-clamp-1">
-                  {n.title ?? '—'}
-                </p>
-                <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1">{n.body ?? ''}</p>
-              </div>
-            </li>
-          ))}
-      </ul>
-    </section>
-  );
-}
-
 // ─── My Shipments table (logged-in main column) ───
 function MyShipmentsTable({
   rows,
@@ -719,12 +651,14 @@ export default function HomeDesktop() {
 
         {/* RIGHT — sidebar */}
         <aside className="col-span-12 lg:col-span-4 space-y-5">
+          {/* First in the rail: what the customer has to do. Absent when
+              nothing is due, so the rail falls back to support and tips. */}
+          {isLoggedIn && (
+            <NeedsAttention rows={shipmentRows} bell={apiNotifications} loading={shipmentsLoading} />
+          )}
           <SupportWidget />
           {isLoggedIn ? (
-            <>
-              <KycHomeTip />
-              <RecentUpdates notifications={apiNotifications} loading={shipmentsLoading} />
-            </>
+            <KycHomeTip />
           ) : (
             <TipsWidget />
           )}

@@ -24,6 +24,26 @@ export interface OrderApiRow {
   awb_no: string | null;
   created_at: string;
   updated_at: string;
+  /** Present on account orders (`listOrdersByUserId` selects them); optional for older callers. */
+  pickup_request?: number | null;
+  pickup_date?: string | null;
+  payment_method?: string | null;
+  payment_status?: string | null;
+}
+
+/**
+ * The order facts Home's "Needs your attention" reads. Only on order rows —
+ * a bare ITD shipment has no pickup, OTP or payment of ours to chase.
+ */
+export interface OrderFacts {
+  status: string;
+  /** ITD's convention: 1 = pickup, 2 = drop-off. */
+  pickupRequest: number | null;
+  pickupDate: string | null;
+  paymentMethod: string | null;
+  paymentStatus: string | null;
+  /** What is owed: the final (weighed) amount once there is one, else the quote. */
+  amountDue: number | null;
 }
 
 /** Unified display row — either a real ITD shipment or a pre-docket Bombino order. */
@@ -62,6 +82,8 @@ export interface DisplayRow {
    * from `isOrder` because an AWB no longer answers "is this an order".
    */
   awb: string | null;
+  /** Order rows only. */
+  order?: OrderFacts;
 }
 
 export function formatShipmentAmount(amount: string | number | null, currency: string | null): string | null {
@@ -123,6 +145,14 @@ export function orderToRow(order: OrderApiRow): DisplayRow {
     updatedAt: order.updated_at ?? order.created_at,
     isLive: !isTerminalOrderStatus(order.status),
     awb: order.awb_no,
+    order: {
+      status: order.status,
+      pickupRequest: order.pickup_request ?? null,
+      pickupDate: order.pickup_date ?? null,
+      paymentMethod: order.payment_method ?? null,
+      paymentStatus: order.payment_status ?? null,
+      amountDue: order.final_amount ?? order.quoted_amount ?? null,
+    },
   };
 }
 

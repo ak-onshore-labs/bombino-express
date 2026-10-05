@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useLocation, Link } from 'wouter';
 import { openBia } from '@/lib/biaStore';
-import { Search, ArrowRight, BadgeDollarSign, Send, Phone, Bell, ChevronRight, Sparkles } from 'lucide-react';
+import { Search, ArrowRight, BadgeDollarSign, Send, Phone, ChevronRight, Sparkles } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { BottomNav } from '@/components/BottomNav';
 import { SideMenu } from '@/components/SideMenu';
@@ -18,6 +18,7 @@ import { useSupportContacts } from '@/hooks/useSupportContacts';
 import { GuestOrders } from '@/components/GuestOrders';
 import { ApplicationStatusCard } from '@/components/ApplicationStatusCard';
 import HomeDesktop from '@/pages/HomeDesktop';
+import { NeedsAttention } from '@/components/NeedsAttention';
 
 function HomeShipmentsSkeleton() {
   return (
@@ -28,20 +29,6 @@ function HomeShipmentsSkeleton() {
           <div className="h-3 w-20 bg-gray-100 rounded-md" />
         </div>
         <div className="h-5 w-14 bg-gray-100 rounded-full" />
-      </div>
-    </div>
-  );
-}
-
-function HomeNotificationsSkeleton() {
-  return (
-    <div className="bg-white rounded-xl border border-[rgba(198,40,40,0.08)] p-4 animate-pulse">
-      <div className="flex items-start gap-3">
-        <div className="w-9 h-9 bg-gray-100 rounded-full shrink-0" />
-        <div className="space-y-2 flex-1">
-          <div className="h-4 w-36 bg-gray-100 rounded-md" />
-          <div className="h-3 w-48 bg-gray-100 rounded-md" />
-        </div>
       </div>
     </div>
   );
@@ -114,15 +101,13 @@ function HomeMobile() {
     isLoading: historyLoading,
     isError: shipmentsError,
   } = useOrderHistory(isLoggedIn);
-  const { data: notificationsData, isError: notificationsError } =
-    useNotifications(isLoggedIn);
+  const { data: notificationsData } = useNotifications(isLoggedIn);
 
   const shipmentRows: DisplayRow[] = historyData ?? [];
   const apiNotifications = notificationsData ?? [];
   const shipmentsLoading = isLoggedIn && historyLoading;
 
   const userShipments = shipmentRows.slice(0, 2);
-  const userNotifications = apiNotifications.slice(0, 3);
 
   const handleTrack = () => {
     if (trackingNumber.trim()) {
@@ -303,7 +288,7 @@ function HomeMobile() {
         )}
 
         {isLoggedIn && (
-          <div className="space-y-7 md:space-y-0 md:grid md:grid-cols-[1fr_320px] md:gap-8 md:items-start">
+          <div className="space-y-7">
             <div className="space-y-7">
               {!shipmentsError && (
                 <div>
@@ -377,53 +362,15 @@ function HomeMobile() {
                   </div>
                 </div>
               )}
+              {/* Replaces Recent Updates, which repeated My Shipments as
+                  notifications. Only what the customer has to act on; drawn
+                  only when there is something. */}
+              <NeedsAttention rows={shipmentRows} bell={apiNotifications} loading={shipmentsLoading} />
               <div className="hidden md:block">
                 <WhyBombinoSection />
               </div>
             </div>
 
-            <div>
-              {!notificationsError && (
-                <div className="md:sticky md:top-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <h2 className="text-sm font-medium text-foreground md:text-base md:font-semibold">Recent Updates</h2>
-                    <Link href="/notifications" className="text-xs text-[#FBAD1F] font-medium flex items-center gap-0.5 hover:underline">
-                      View all <ChevronRight className="w-3 h-3" />
-                    </Link>
-                  </div>
-                  <div className="space-y-2">
-                    {shipmentsLoading && (
-                      <>
-                        <HomeNotificationsSkeleton />
-                        <HomeNotificationsSkeleton />
-                      </>
-                    )}
-                    {!shipmentsLoading &&
-                      userNotifications.length > 0 &&
-                      userNotifications.map((notif) => (
-                        <div
-                          key={notif.id}
-                          className="flex items-start gap-3 card-accent"
-                          data-testid={`notification-${notif.id}`}
-                        >
-                          <div className="rounded-full bg-primary/8 p-2 flex items-center justify-center flex-shrink-0">
-                            <Bell className="w-4 h-4 text-primary" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-sm text-foreground">{notif.title ?? ''}</p>
-                            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{notif.body ?? ''}</p>
-                          </div>
-                        </div>
-                      ))}
-                    {!shipmentsLoading && apiNotifications.length === 0 && (
-                      <div className="card-elevated flex items-center justify-center px-4 py-8 text-center text-sm text-muted-foreground">
-                        No recent updates
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
           </div>
         )}
 
