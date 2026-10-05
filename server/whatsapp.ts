@@ -24,6 +24,7 @@ import {
   getWhatsappReachability,
 } from "./whatsappDb.js";
 import { WA_TEMPLATE } from "./whatsappTemplates.js";
+import type { WaPart } from "../shared/whatsappBiaFormat.js";
 
 const DEFAULT_BASE_URL = "https://wb.omni.tatatelebusiness.com";
 const SEND_PATH = "/whatsapp-cloud/messages";
@@ -369,4 +370,69 @@ function extractRequestId(text: string): string | null {
   } catch {
     return null;
   }
+}
+
+// ── Session messages (WhatsApp BIA) ─────────────────────────────────────────
+//
+// Free-form replies inside the 24-hour window a customer's own message opens:
+// no template, no approval. Used only by server/whatsappBia.ts. Same transport,
+// token and dry-run rule as templates; nothing is written to
+// whatsapp_messages, which is the template ledger.
+
+function sessionBody(to: string, part: WaPart): Record<string, unknown> {
+  const base = { to, source: "external" };
+  switch (part.kind) {
+    case "text":
+      return { ...base, type: "text", text: { preview_url: false, body: part.body } };
+    case "buttons":
+      return {
+        ...base,
+        type: "interactive",
+        interactive: {
+          type: "button",
+          body: { text: part.body },
+          action: { buttons: part.buttons.map((b) => ({ type: "reply", reply: { id: b.id, title: b.title } })) },
+        },
+      };
+    case "list":
+      return {
+        ...base,
+        type: "interactive",
+        interactive: {
+          type: "list",
+          body: { text: part.body },
+          action: { button: part.button, sections: [{ title: "Ask BIA", rows: part.rows }] },
+        },
+      };
+    case "cta":
+      return {
+        ...base,
+        type: "interactive",
+        interactive: {
+          type: "cta_url",
+          body: { text: part.body },
+          action: { name: "cta_url", parameters: { display_text: part.label, url: part.url } },
+        },
+      };
+  }
+}
+
+/**
+ * Send one reply part to a WhatsApp number (E.164 digits, no plus, as the
+ * webhook gives it). Never throws: a failed part is logged and reported.
+ */
+export async function sendSessionPart(waNumber: string, part: WaPart): Promise<boolean> {
+  const body = sessionBody(waNumber.replace(/\D/g, ""), part);
+  if (isDryRun()) {
+    console.log("[whatsapp] dry run, session part not sent", { kind: part.kind, to: `…${waNumber.slice(-4)}` });
+    return true;
+  }
+  const bearer = token();
+  if (!bearer) return false;
+  const result = await postOnce(bearer, body);
+  if (!result.ok) {
+    console.error("[whatsapp] session part failed", { kind: part.kind, error: result.error });
+    return false;
+  }
+  return true;
 }

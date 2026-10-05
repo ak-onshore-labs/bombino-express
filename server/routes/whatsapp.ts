@@ -1,5 +1,6 @@
 /**
- * The WhatsApp webhook — delivery receipts, and one inbound word.
+ * The WhatsApp webhook — delivery receipts, the STOP/START words, and (with
+ * WHATSAPP_BIA=1) every other inbound message, answered by BIA.
  *
  * Registered in the Tata Omni panel as
  *   {PUBLIC_URL}/api/whatsapp/webhook/{TATA_WA_WEBHOOK_SECRET}
@@ -25,6 +26,26 @@ import type { Express, Request, Response } from "express";
 import crypto from "crypto";
 import { applyDeliveryReceipt, setWhatsappOptOut, type WhatsappStatus } from "../whatsappDb.js";
 import { toWaMsisdn } from "../whatsapp.js";
+import { handleWhatsappBiaMessage, isWhatsappBiaEnabled } from "../whatsappBia.js";
+
+/**
+ * What the customer said: typed text, or the id of a button or list row they
+ * tapped (BIA's quick replies carry the question in the id), or a template
+ * button's text. Null for media, location, reactions and anything else.
+ */
+export function inboundMessageText(message: Record<string, unknown>): string | null {
+  const text = (message.text as { body?: unknown } | undefined)?.body;
+  if (typeof text === "string" && text.trim()) return text.trim();
+  const interactive = message.interactive as
+    | { button_reply?: { id?: unknown; title?: unknown }; list_reply?: { id?: unknown; title?: unknown } }
+    | undefined;
+  const reply = interactive?.button_reply ?? interactive?.list_reply;
+  const picked = reply?.id ?? reply?.title;
+  if (typeof picked === "string" && picked.trim()) return picked.trim();
+  const button = (message.button as { text?: unknown } | undefined)?.text;
+  if (typeof button === "string" && button.trim()) return button.trim();
+  return null;
+}
 
 /**
  * Timing-safe secret comparison.
@@ -183,7 +204,17 @@ export function registerWhatsappRoutes(app: Express): void {
       for (const message of messages) {
         const body = (message.text as Record<string, unknown> | undefined)?.body;
         const intent = readIntent(body);
-        if (!intent) continue;
+        if (!intent) {
+          // Everything that is not STOP/START is a question for BIA, when
+          // WhatsApp BIA is switched on here (server/whatsappBia.ts).
+          const text = inboundMessageText(message);
+          const from = typeof message.from === "string" ? message.from : null;
+          const id = typeof message.id === "string" ? message.id : null;
+          if (text && from && id && isWhatsappBiaEnabled()) {
+            void handleWhatsappBiaMessage({ from, messageId: id, text });
+          }
+          continue;
+        }
 
         // The account is keyed on the bare 10-digit number; the webhook carries
         // E.164. Normalising the inbound number the same way the send path does

@@ -141,6 +141,18 @@ const PROMPT_ORDER: readonly BiaModuleOrGeneral[] = ["orders", "general", "onboa
 function currentUserBlock(context: SupportChatContext, canLookUpSignup = false): string {
   const firstName = context.user?.fullName?.trim().split(/\s+/)[0] ?? "";
   const owner = ownerOf(context);
+  if (context.channel === "whatsapp") {
+    if (owner?.kind === "account") {
+      return `CURRENT USER
+Identified by the WhatsApp number they are messaging from, which is the number on their Bombino account${firstName ? `. First name: ${firstName}` : ""}. You can look up their orders and identity document. Do not ask for their name, email or phone, and do not ask them to sign in.`;
+    }
+    if (owner?.kind === "guest") {
+      return `CURRENT USER
+Identified by the WhatsApp number they are messaging from, which they booked with as a guest. You can look up their guest orders and identity document. Do not ask them to sign in. They have no order page: point them to My bookings.`;
+    }
+    return `CURRENT USER
+No Bombino account or booking is on the WhatsApp number they are messaging from. Tracking an AWB, rates, pickup checks and how-to questions all work here. For their own orders: they may have booked from another number, so they can message from that number, or sign in to the app.`;
+  }
   if (owner?.kind === "account") {
     return `CURRENT USER
 Signed in${firstName ? `. First name: ${firstName}` : ""}. You can look up their orders and identity document. Do not ask for their name, email or phone.`;
@@ -188,6 +200,14 @@ export function screenBlock(screen: BiaScreen | null): string {
 }
 
 /** The whole system prompt for one turn, given the modules it was offered. */
+/** Added when BIA answers on WhatsApp (server/whatsappBia.ts). */
+const WHATSAPP_CHANNEL = `CHANNEL: WHATSAPP
+- You are replying on WhatsApp, not inside the app. The customer is not looking at any app screen.
+- Buttons work the same way: each TAP_ token becomes a link that opens that page of the Bombino website. Use them as you would in the app.
+- Never state a pickup or drop-off code here, even if asked directly. Say it is on the order page and give the order-page button for it.
+- Nothing is uploaded or changed in this chat: for documents, payments or cancelling, give the button for the right page.
+- Keep replies shorter than in the app: a few short lines per message.`;
+
 export function buildSystemPrompt(context: SupportChatContext, modules: readonly BiaModule[]): string {
   const parts = PROMPT_ORDER.filter((m) => m === "general" || modules.includes(m)).map((m) => MODULE_PROMPTS[m]);
   const sections = parts.map((p) => p.sections).filter((s): s is string => !!s);
@@ -203,5 +223,6 @@ export function buildSystemPrompt(context: SupportChatContext, modules: readonly
     LANGUAGE,
     ["STYLE", ...style].join("\n"),
     currentUserBlock(context, modules.includes("onboarding")),
+    ...(context.channel === "whatsapp" ? [WHATSAPP_CHANNEL] : []),
   ].join("\n\n") + screenBlock(context.screen);
 }
