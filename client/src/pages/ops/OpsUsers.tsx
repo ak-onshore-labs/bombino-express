@@ -188,6 +188,7 @@ export default function OpsUsers() {
                 }}
                 placeholder="10-digit mobile"
                 inputMode="numeric"
+                maxLength={10}
                 className={inputClass}
                 autoComplete="tel"
                 data-testid="input-ops-user-phone"

@@ -237,6 +237,7 @@ export function GuestVerification({
                 ref={phoneRef}
                 type="tel"
                 inputMode="numeric"
+                maxLength={10}
                 value={phone}
                 onChange={(e) => {
                   setPhone(toIndianMobile(e.target.value));
