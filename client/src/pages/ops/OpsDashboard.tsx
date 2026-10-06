@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { ArrowUpRight, ChevronRight, Search } from 'lucide-react';
 import { isCodOrder, matchesOpsSection } from '@shared/opsBoardQuery';
+import { OpsMobileField, OpsMobileItem, OpsMobileList } from '@/components/ops/OpsMobileList';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -43,8 +44,10 @@ const todayLabel = new Date().toLocaleDateString('en-IN', {
 
 function SectionTitle({ title, note, action }: { title: string; note?: string; action?: React.ReactNode }) {
   return (
-    <div className="flex items-end justify-between gap-3 mb-2.5">
-      <div>
+    // Heading and its button side by side: the heading takes what is left and
+    // wraps if it must; the button stays compact and never shrinks.
+    <div className="flex items-start justify-between gap-3 mb-2.5">
+      <div className="min-w-0 flex-1">
         <h2 className="text-base font-bold text-foreground">{title}</h2>
         {note && <p className="text-xs text-muted-foreground mt-0.5">{note}</p>}
       </div>
@@ -55,8 +58,12 @@ function SectionTitle({ title, note, action }: { title: string; note?: string; a
 
 function SeeAll({ href, children }: { href: string; children: React.ReactNode }) {
   return (
-    <Link href={href} className="shrink-0 text-sm font-semibold text-[#2F4468] hover:underline">
+    <Link
+      href={href}
+      className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap h-8 sm:h-9 rounded-md border border-border bg-white pl-2.5 pr-1.5 sm:pl-3 sm:pr-2 text-xs sm:text-sm font-semibold text-foreground shadow-sm hover:bg-[#F8FAFC] hover:border-[#2F4468]/40 transition-colors"
+    >
       {children}
+      <ChevronRight className="w-4 h-4 text-muted-foreground" aria-hidden />
     </Link>
   );
 }
@@ -86,7 +93,7 @@ function WorkRow({
     <li>
       <Link
         href={href}
-        className="flex items-center gap-4 px-4 py-3.5 hover:bg-[#F8FAFC] transition-colors"
+        className="ops-press flex items-center gap-4 px-4 py-3.5 hover:bg-[#F8FAFC] active:bg-[#F3F4F6]"
         data-testid={testId}
       >
         <div className="min-w-0 flex-1">
@@ -153,7 +160,7 @@ function StockCard({
       <p className="text-xs text-muted-foreground mt-2.5 leading-snug">{hint}</p>
     </>
   );
-  const className = 'group block rounded-md border border-border bg-white px-4 py-4 transition-colors';
+  const className = 'ops-press group block rounded-md border border-border bg-white px-4 py-4';
   if (href) {
     return (
       <Link href={href} className={cn(className, 'hover:border-[#2F4468]/40 hover:bg-[#FBFCFD]')}>
@@ -339,7 +346,7 @@ export default function OpsDashboard() {
                 <LoadFailed what="orders" />
               </Frame>
             ) : (
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3" data-testid="ops-dash-stock">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 ops-rise" data-testid="ops-dash-stock">
                 <StockCard
                   label="Active pickups"
                   hint="Booked for pickup and not yet at the hub."
@@ -403,7 +410,7 @@ export default function OpsDashboard() {
               ) : seesOrders && ordersQuery.isError ? (
                 <LoadFailed what="orders" />
               ) : (
-                <ul className="divide-y divide-border">
+                <ul className="divide-y divide-border ops-rise">
                   {movesOrders && (
                     <>
                       <WorkRow
@@ -500,28 +507,28 @@ export default function OpsDashboard() {
                 ) : moneyQuery.isError || !totals ? (
                   <LoadFailed what="today's payments" />
                 ) : (
-                  <table className="ops-table">
-                    <tbody>
-                      <tr>
-                        <td>Cash collected by agents and at the counter</td>
-                        <td className="num">{formatInr(totals.cash) ?? '₹0'}</td>
-                      </tr>
-                      <tr>
-                        <td>UPI collected by agents and at the counter</td>
-                        <td className="num">{formatInr(totals.upi) ?? '₹0'}</td>
-                      </tr>
-                      <tr>
-                        <td>Paid online by customers</td>
-                        <td className="num">{formatInr(totals.gateway) ?? '₹0'}</td>
-                      </tr>
-                      <tr>
-                        <td className="font-bold">
-                          Total <span className="font-normal text-muted-foreground">({totals.count} payments)</span>
-                        </td>
-                        <td className="num text-lg font-extrabold">{formatInr(totals.all) ?? '₹0'}</td>
-                      </tr>
-                    </tbody>
-                  </table>
+                  <dl className="divide-y divide-border">
+                    {(
+                      [
+                        ['Cash collected by agents and at the counter', totals.cash],
+                        ['UPI collected by agents and at the counter', totals.upi],
+                        ['Paid online by customers', totals.gateway],
+                      ] as const
+                    ).map(([label, amount]) => (
+                      <div key={label} className="flex items-baseline justify-between gap-4 px-4 py-3 text-sm">
+                        <dt className="text-foreground">{label}</dt>
+                        <dd className="font-semibold tabular-nums whitespace-nowrap">{formatInr(amount) ?? '₹0'}</dd>
+                      </div>
+                    ))}
+                    <div className="flex items-baseline justify-between gap-4 px-4 py-3">
+                      <dt className="text-sm font-bold">
+                        Total <span className="font-normal text-muted-foreground">({totals.count} payments)</span>
+                      </dt>
+                      <dd className="text-lg font-extrabold tabular-nums whitespace-nowrap">
+                        {formatInr(totals.all) ?? '₹0'}
+                      </dd>
+                    </div>
+                  </dl>
                 )}
               </Frame>
             </section>
@@ -539,7 +546,21 @@ export default function OpsDashboard() {
                 ) : cancellations.length === 0 ? (
                   <p className="px-4 py-4 text-sm text-muted-foreground">No one is asking to cancel.</p>
                 ) : (
-                  <div className="overflow-x-auto">
+                  <>
+                  <OpsMobileList className="border-0 rounded-none">
+                    {cancellations.map((row) => (
+                      <OpsMobileItem
+                        key={row.id}
+                        href={`/ops/orders/${row.id}`}
+                        title={row.order_no}
+                        testId={`ops-dash-cancel-card-${row.order_no}`}
+                      >
+                        <OpsMobileField label="Reason">{row.reason || 'No reason given'}</OpsMobileField>
+                        <OpsMobileField label="Asked on">{formatIst(row.requested_at)}</OpsMobileField>
+                      </OpsMobileItem>
+                    ))}
+                  </OpsMobileList>
+                  <div className="hidden md:block overflow-x-auto">
                     <table className="ops-table min-w-[420px]">
                       <thead>
                         <tr>
@@ -571,6 +592,7 @@ export default function OpsDashboard() {
                       </tbody>
                     </table>
                   </div>
+                  </>
                 )}
               </Frame>
             </section>
@@ -593,7 +615,25 @@ export default function OpsDashboard() {
               ) : unverified.length === 0 ? (
                 <p className="px-4 py-4 text-sm text-muted-foreground">Every customer has sent their documents.</p>
               ) : (
-                <div className="overflow-x-auto">
+                <>
+                <OpsMobileList className="border-0 rounded-none">
+                  {unverified.slice(0, 8).map((row) => (
+                    <OpsMobileItem
+                      key={row.id}
+                      href={`/ops/customers/${row.id}`}
+                      title={row.company_name || row.full_name || 'Unnamed account'}
+                    >
+                      <OpsMobileField label="Phone">{row.phone ? `+91 ${row.phone}` : '—'}</OpsMobileField>
+                      {row.missing.length > 0 && (
+                        <OpsMobileField label="Not sent">{slotNames(row.missing)}</OpsMobileField>
+                      )}
+                      {row.unverified.length > 0 && (
+                        <OpsMobileField label="Unreadable">{slotNames(row.unverified)}</OpsMobileField>
+                      )}
+                    </OpsMobileItem>
+                  ))}
+                </OpsMobileList>
+                <div className="hidden md:block overflow-x-auto">
                   <table className="ops-table min-w-[640px]">
                     <thead>
                       <tr>
@@ -626,6 +666,7 @@ export default function OpsDashboard() {
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
             </Frame>
             {unverified.length > 0 && (

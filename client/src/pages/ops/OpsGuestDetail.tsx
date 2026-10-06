@@ -10,7 +10,6 @@ import {
   useOpsGuestOrders,
   type OpsGuestAccountType,
 } from '@/hooks/useOpsGuests';
-import { useIsMobile } from '@/hooks/use-mobile';
 import { formatIst } from '@/lib/orderDetail';
 import { useAppStore } from '@/lib/store';
 import {
@@ -22,17 +21,6 @@ import {
 } from '@shared/accountSpec';
 import { INDIA_HUBS } from '@shared/hubs';
 import { can } from '@shared/staffAccess';
-
-function DesktopOnlyNotice() {
-  return (
-    <p
-      className="text-sm text-muted-foreground py-10 text-center"
-      data-testid="ops-guests-desktop-only"
-    >
-      Guest records are available on desktop.
-    </p>
-  );
-}
 
 function Fact({ label, value }: { label: string; value: string | null | undefined }) {
   return (
@@ -118,7 +106,6 @@ function formatAddress(parts: {
 export default function OpsGuestDetail() {
   const params = useParams<{ ref: string }>();
   const ref = params.ref;
-  const isMobile = useIsMobile();
   const canViewKyc = can(useAppStore((s) => s.user?.role), 'kyc.view');
   const { data, isLoading, isError, error } = useOpsGuestDetail(ref);
   const ordersQuery = useOpsGuestOrders(ref);
@@ -140,10 +127,7 @@ export default function OpsGuestDetail() {
       subtitle="Guest profile and KYC status"
       wide
     >
-      {isMobile ? (
-        <DesktopOnlyNotice />
-      ) : (
-        <>
+      <>
           <Link
             href="/ops/guests"
             className="inline-flex items-center gap-1 text-sm font-semibold text-[#F2A123] mb-4"
@@ -220,7 +204,7 @@ export default function OpsGuestDetail() {
                               </span>
                             )}
                           </div>
-                          <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                          <p className="text-xs text-muted-foreground mt-0.5 break-words">
                             {shipment.original_filename || '—'}
                             {shipment.updated_at
                               ? ` · uploaded ${formatIst(shipment.updated_at)}`
@@ -349,7 +333,6 @@ export default function OpsGuestDetail() {
             </>
           )}
         </>
-      )}
 
       {preview && <OpsDocumentPreviewOverlay preview={preview} onClose={closePreview} />}
     </OpsShell>

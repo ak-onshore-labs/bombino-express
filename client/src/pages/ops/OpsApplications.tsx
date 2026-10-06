@@ -3,6 +3,7 @@ import { OpsAccessRequired } from '@/components/ops/OpsAccessRequired';
 import { isForbiddenError } from '@/lib/apiError';
 import { Link, useLocation } from 'wouter';
 import { AlertTriangle, Loader2 } from 'lucide-react';
+import { OpsMobileField, OpsMobileItem, OpsMobileList } from '@/components/ops/OpsMobileList';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { OpsApplicationSettings } from '@/components/ops/OpsApplicationAlerts';
 import { useOpsApplications, type OpsApplicationFilter, type OpsApplicationRow } from '@/hooks/useOpsApplications';
@@ -180,7 +181,44 @@ export default function OpsApplications() {
       )}
 
       {!list.isLoading && !list.isError && rows.length > 0 && (
-        <div className="rounded-md border border-border bg-white overflow-x-auto" data-testid="ops-applications-list">
+        <OpsMobileList testId="ops-applications-mobile">
+          {rows.map((row) => {
+            const open = isOpenApplicationStatus(row.status);
+            const slow = open && now - new Date(row.submitted_at).getTime() > SLOW_AFTER_MS;
+            const attention = needsAttention(row);
+            return (
+              <OpsMobileItem
+                key={row.id}
+                href={`/ops/applications/${row.id}`}
+                title={row.name ?? row.phone}
+                aside={<StatusPill status={row.status} />}
+                testId={`ops-application-card-${row.id}`}
+              >
+                <OpsMobileField label="Phone">{row.phone}</OpsMobileField>
+                {row.email && <OpsMobileField label="Email">{row.email}</OpsMobileField>}
+                <OpsMobileField label="Account">{row.category_label}</OpsMobileField>
+                <OpsMobileField label="Sent">{formatIst(row.submitted_at)}</OpsMobileField>
+                {open && (
+                  <OpsMobileField label="Waiting">
+                    <span className={cn(slow && 'font-bold text-red-700')}>{waitedFor(row.submitted_at, now)}</span>
+                  </OpsMobileField>
+                )}
+                {row.resubmission_count > 0 && open && (
+                  <OpsMobileField label="Resent">{row.resubmission_count}×</OpsMobileField>
+                )}
+                {attention && (
+                  <OpsMobileField label="Needs">
+                    <span className="font-bold text-red-700">{attention}</span>
+                  </OpsMobileField>
+                )}
+              </OpsMobileItem>
+            );
+          })}
+        </OpsMobileList>
+      )}
+
+      {!list.isLoading && !list.isError && rows.length > 0 && (
+        <div className="hidden md:block rounded-md border border-border bg-white overflow-x-auto" data-testid="ops-applications-list">
           <table className="ops-table min-w-[760px]" data-testid="ops-applications-table">
             <thead>
               <tr className="text-left text-xs font-semibold text-muted-foreground border-b border-border">

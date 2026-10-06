@@ -1,4 +1,7 @@
+import { useLayoutEffect } from 'react';
 import type * as React from 'react';
+import { motion, useReducedMotion } from 'framer-motion';
+import { PAGE_IN, PAGE_SCALE, REDUCED } from '@/lib/motion';
 import { signOutAndRedirect } from '@/lib/session';
 import { LogOut } from 'lucide-react';
 import { useLocation } from 'wouter';
@@ -32,7 +35,13 @@ export function OpsShell({
   children: React.ReactNode;
 }) {
   const isMobile = useIsMobile();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
+  const quiet = useReducedMotion();
+
+  // Land at the top of each new screen, before paint (as the agent app does).
+  useLayoutEffect(() => {
+    if (isMobile) window.scrollTo(0, 0);
+  }, [isMobile, location]);
   const user = useAppStore((s) => s.user);
 
   const handleLogout = (): Promise<void> => signOutAndRedirect(setLocation);
@@ -91,7 +100,16 @@ export function OpsShell({
         }
       />
 
-      <main
+      {/* The screen rises to meet you, like the agent app's PageTransition.
+          Only the content moves: TopBar and OpsNav are fixed, and a fixed
+          element inside an animating transform would drift with it. Keyed on
+          the path so moving between two orders replays it. */}
+      <motion.main
+        key={location}
+        initial={quiet ? { opacity: 0 } : { opacity: 0, scale: PAGE_SCALE }}
+        animate={quiet ? { opacity: 1 } : { opacity: 1, scale: 1 }}
+        transition={quiet ? REDUCED : { ...PAGE_IN, opacity: { duration: 0.16, ease: 'easeOut' } }}
+        style={{ transformOrigin: '50% 30%' }}
         className={cn(
           'mx-auto px-4 py-4',
           wide ? 'max-w-6xl' : 'max-w-md'
@@ -99,7 +117,7 @@ export function OpsShell({
       >
         {heading}
         {children}
-      </main>
+      </motion.main>
 
       <OpsNav />
     </div>

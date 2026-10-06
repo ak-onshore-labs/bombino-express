@@ -15,6 +15,7 @@ import { OpsAccessRequired } from '@/components/ops/OpsAccessRequired';
 import { isForbiddenError } from '@/lib/apiError';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2, Trash2 } from 'lucide-react';
+import { OpsMobileField, OpsMobileItem, OpsMobileList } from '@/components/ops/OpsMobileList';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -182,6 +183,10 @@ export default function OpsBeats() {
     setEditorError('');
     setSavedNote('');
     setPincodeFilter('');
+    // On a narrow screen the round opens below the whole list: bring it into view.
+    if (!window.matchMedia('(min-width: 1024px)').matches) {
+      document.querySelector('[data-testid="ops-beat-editor"]')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   }, [detail.data]);
 
   const parsed = useMemo(() => parsePincodes(pincodeText), [pincodeText]);
@@ -512,7 +517,41 @@ export default function OpsBeats() {
             </p>
           )}
           {!beats.isLoading && !beats.isError && (beats.data?.length ?? 0) > 0 && (
-            <div className="ops-table-frame">
+            <OpsMobileList testId="ops-beats-mobile">
+              {beats.data!.map((beat) => (
+                <li key={beat.id}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedId(beat.id === selectedId ? null : beat.id)}
+                    aria-expanded={beat.id === selectedId}
+                    className={cn('w-full text-left px-4 py-3', beat.id === selectedId && 'bg-[#EEF2F7]')}
+                    data-testid={`ops-beat-card-${beat.id}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="font-semibold text-foreground">{beat.name}</p>
+                      {!beat.is_active && (
+                        <span className="shrink-0 text-xs font-semibold text-[#B45309]">Retired</span>
+                      )}
+                    </div>
+                    <dl className="mt-1.5 space-y-1">
+                      <OpsMobileField label="Hub">{beat.hub}</OpsMobileField>
+                      <OpsMobileField label="Cut-off">{formatCutoffHour(beat.cutoff_hour)}</OpsMobileField>
+                      <OpsMobileField label="Pincodes">{beat.pincode_count}</OpsMobileField>
+                      <OpsMobileField label="Riders">
+                        {beat.agents.length > 0 ? (
+                          beat.agents.map((a) => a.full_name ?? 'Unnamed').join(', ')
+                        ) : (
+                          <span className="font-semibold text-[#B45309]">No rider</span>
+                        )}
+                      </OpsMobileField>
+                    </dl>
+                  </button>
+                </li>
+              ))}
+            </OpsMobileList>
+          )}
+          {!beats.isLoading && !beats.isError && (beats.data?.length ?? 0) > 0 && (
+            <div className="hidden md:block ops-table-frame">
               <table className="ops-table">
                 <thead>
                   <tr>
@@ -697,12 +736,74 @@ export default function OpsBeats() {
                     )}
                   </div>
 
+                  {rows.length > 0 && (
+                    <ul className="md:hidden rounded-md border border-border divide-y divide-border" data-testid="ops-beat-pincode-cards">
+                      {shownRows.map((row) => (
+                        <li key={row.pincode} className="px-3 py-3 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-mono tabular-nums font-semibold">{row.pincode}</span>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={row.remark === 'out_of_city'}
+                                onClick={() =>
+                                  patchRow(row.pincode, {
+                                    remark: row.remark === 'out_of_city' ? 'ok' : 'out_of_city',
+                                  })
+                                }
+                                className={cn(
+                                  'h-9 rounded-md border text-xs font-semibold px-3',
+                                  row.remark === 'out_of_city'
+                                    ? 'border-amber-300 bg-amber-50 text-amber-900'
+                                    : 'border-border bg-white text-foreground',
+                                )}
+                              >
+                                {row.remark === 'out_of_city' ? 'Out of city' : 'Normal'}
+                              </button>
+                              {canManage && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeRow(row.pincode)}
+                                  aria-label={`Remove ${row.pincode}`}
+                                  className="grid place-items-center w-9 h-9 rounded-md text-muted-foreground hover:bg-red-50 hover:text-red-700"
+                                >
+                                  <Trash2 className="w-4 h-4" aria-hidden />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <label className="text-xs text-muted-foreground">
+                              City shown
+                              <Input
+                                value={row.city}
+                                onChange={(e) => patchRow(row.pincode, { city: e.target.value })}
+                                className={cn(cellInputClass, 'mt-1')}
+                              />
+                            </label>
+                            <label className="text-xs text-muted-foreground">
+                              Area
+                              <Input
+                                value={row.area}
+                                onChange={(e) => patchRow(row.pincode, { area: e.target.value })}
+                                className={cn(cellInputClass, 'mt-1')}
+                              />
+                            </label>
+                          </div>
+                        </li>
+                      ))}
+                      {shownRows.length === 0 && (
+                        <li className="px-3 py-3 text-sm text-muted-foreground">No pincode matches “{pincodeFilter}”.</li>
+                      )}
+                    </ul>
+                  )}
                   {rows.length === 0 ? (
                     <p className="text-sm text-muted-foreground py-4" data-testid="ops-beat-pincode-empty">
                       No pincodes on this round yet. Add some below.
                     </p>
                   ) : (
-                    <div className="ops-table-frame max-h-[26rem] overflow-y-auto" data-testid="ops-beat-pincode-table">
+                    <div className="hidden md:block ops-table-frame max-h-[26rem] overflow-y-auto" data-testid="ops-beat-pincode-table">
                       <table className="ops-table [&_tbody_td]:!py-1.5 [&_tbody_td]:!px-2.5 [&_thead_th]:!px-2.5">
                         <thead className="sticky top-0 z-10">
                           <tr>

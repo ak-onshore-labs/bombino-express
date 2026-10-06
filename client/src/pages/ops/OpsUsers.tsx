@@ -5,6 +5,7 @@ import { isIndianMobile } from '@shared/contact';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation } from 'wouter';
 import { Loader2, Search } from 'lucide-react';
+import { OpsMobileField, OpsMobileItem, OpsMobileList } from '@/components/ops/OpsMobileList';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -316,7 +317,37 @@ export default function OpsUsers() {
                 ? `${staff.length} people`
                 : `${staff.length} of ${list.data!.length} people`}
             </p>
-            <div className="ops-table-frame">
+            <OpsMobileList testId="ops-staff-mobile">
+              {staff.map((user) => (
+                <OpsMobileItem
+                  key={user.id}
+                  href={`/ops/users/${user.id}`}
+                  title={user.full_name}
+                  aside={
+                    <span className={cn('text-xs', user.is_active ? 'text-emerald-700' : 'text-muted-foreground')}>
+                      {user.is_active ? 'Active' : 'Deactivated'}
+                    </span>
+                  }
+                  testId={`ops-staff-card-${user.id}`}
+                >
+                  <OpsMobileField label="Phone">{user.phone ?? '—'}</OpsMobileField>
+                  <OpsMobileField label="Role">{roleLabel(user.role)}</OpsMobileField>
+                  {user.role === 'agent' && (
+                    <OpsMobileField label="Rounds">
+                      {user.beats.length > 0 ? (
+                        user.beats.join(', ')
+                      ) : (
+                        <span className="font-semibold text-[#B45309]">No round yet</span>
+                      )}
+                    </OpsMobileField>
+                  )}
+                </OpsMobileItem>
+              ))}
+              {staff.length === 0 && (
+                <li className="px-4 py-3 text-sm text-muted-foreground">Nobody matches that search.</li>
+              )}
+            </OpsMobileList>
+            <div className="hidden md:block ops-table-frame">
               <table className="ops-table min-w-[760px]" data-testid="ops-staff-table">
                 <thead>
                   <tr>

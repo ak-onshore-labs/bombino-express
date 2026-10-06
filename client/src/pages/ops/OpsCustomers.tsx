@@ -5,6 +5,7 @@ import { formatIstDate } from '@/lib/orderDetail';
 import { Link } from 'wouter';
 import { Download, Loader2, Search } from 'lucide-react';
 import { OpsDocumentPreviewOverlay, useOpsDocumentPreview } from '@/components/ops/OpsDocumentPreview';
+import { OpsMobileField, OpsMobileItem, OpsMobileList } from '@/components/ops/OpsMobileList';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { Input } from '@/components/ui/input';
 import {
@@ -13,24 +14,12 @@ import {
   useOpsCustomers,
   type OpsCustomerListRow,
 } from '@/hooks/useOpsCustomers';
-import { useIsMobile } from '@/hooks/use-mobile';
 import { useAppStore } from '@/lib/store';
 import { DOC_SLOT_SPECS, isDocSlot } from '@shared/accountSpec';
 import { cn } from '@/lib/utils';
 import { can } from '@shared/staffAccess';
 
 const LIST_CAP = 200;
-
-function DesktopOnlyNotice() {
-  return (
-    <p
-      className="text-sm text-muted-foreground py-10 text-center"
-      data-testid="ops-customers-desktop-only"
-    >
-      Customer records are available on desktop.
-    </p>
-  );
-}
 
 function slotLabel(slot: string): string {
   return isDocSlot(slot) ? DOC_SLOT_SPECS[slot].label : slot;
@@ -224,7 +213,6 @@ function DocumentChips({
 }
 
 export default function OpsCustomers() {
-  const isMobile = useIsMobile();
   const canViewKyc = can(useAppStore((s) => s.user?.role), 'kyc.view');
   const [input, setInput] = useState('');
   const [q, setQ] = useState('');
@@ -270,10 +258,7 @@ export default function OpsCustomers() {
 
   return (
     <OpsShell title="Customers" subtitle="Find accounts and KYC status" wide>
-      {isMobile ? (
-        <DesktopOnlyNotice />
-      ) : (
-        <>
+      <>
           <div className="relative mb-3">
             <Search
               className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none"
@@ -378,8 +363,51 @@ export default function OpsCustomers() {
               >
                 {listCaption(list.data!.length, filtered)}
               </p>
+              {/* Phones: one card per customer. The name opens the account;
+                  the document chips open or download a file in place. */}
+              <OpsMobileList testId="ops-customers-mobile">
+                {list.data!.map((row) => (
+                  <OpsMobileItem
+                    key={row.id}
+                    title={
+                      <Link href={`/ops/customers/${row.id}`} className="hover:underline">
+                        {row.full_name}
+                      </Link>
+                    }
+                    aside={
+                      <Link
+                        href={`/ops/customers/${row.id}`}
+                        className="inline-flex h-8 items-center rounded-md border border-border bg-white px-3 text-xs font-semibold text-foreground shadow-sm"
+                        aria-label={`Open ${row.full_name}`}
+                      >
+                        Open
+                      </Link>
+                    }
+                    testId={`ops-customer-card-${row.id}`}
+                  >
+                    <OpsMobileField label="Phone">{row.phone ?? '—'}</OpsMobileField>
+                    <OpsMobileField label="Type">
+                      {row.account_type === 'company' ? 'Company' : 'Personal'}
+                    </OpsMobileField>
+                    <OpsMobileField label="Orders">{row.order_count}</OpsMobileField>
+                    <OpsMobileField label="Joined">{formatIstDate(row.created_at)}</OpsMobileField>
+                    <OpsMobileField label="Documents">
+                      <DocumentChips
+                        row={row}
+                        canView={canViewKyc}
+                        fileBusy={fileBusy}
+                        fileErrors={fileErrors}
+                        onOpenSlot={(slot) => openSlot(row.id, slot)}
+                        onOpenShipment={() => openShipment(row.id)}
+                        onDownloadSlot={(slot) => downloadSlot(row.id, slot)}
+                        onDownloadShipment={() => downloadShipment(row.id)}
+                      />
+                    </OpsMobileField>
+                  </OpsMobileItem>
+                ))}
+              </OpsMobileList>
               <div
-                className="rounded-md border border-border bg-white overflow-x-auto"
+                className="hidden md:block rounded-md border border-border bg-white overflow-x-auto"
                 data-testid="ops-customers-list"
               >
                 <table className="ops-table min-w-[860px]" data-testid="ops-customers-table">
@@ -451,7 +479,6 @@ export default function OpsCustomers() {
             </>
           )}
         </>
-      )}
 
       {preview && <OpsDocumentPreviewOverlay preview={preview} onClose={closePreview} />}
     </OpsShell>

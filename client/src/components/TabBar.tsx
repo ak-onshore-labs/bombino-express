@@ -1,5 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
+import { motion, useReducedMotion } from 'framer-motion';
+import { INDICATOR } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 
 /**
@@ -47,13 +49,17 @@ function TabChrome({
   badge,
   isActive,
   highlight = false,
+  indicatorId,
 }: {
   icon: LucideIcon;
   label: string;
   badge?: number;
   isActive: boolean;
   highlight?: boolean;
+  /** When set, the active marker is one shared element that slides between tabs. */
+  indicatorId?: string;
 }) {
+  const quiet = useReducedMotion();
   const slug = label.toLowerCase().replace(/\s+/g, '-');
   return (
     <>
@@ -86,12 +92,20 @@ function TabChrome({
       >
         {label}
       </span>
-      {isActive && (
-        <span
-          className="absolute top-0 left-1/2 -translate-x-1/2 w-5 h-0.5 bg-white rounded-full"
-          aria-hidden
-        />
-      )}
+      {isActive &&
+        (indicatorId && !quiet ? (
+          <motion.span
+            layoutId={indicatorId}
+            transition={INDICATOR}
+            className="absolute top-0 left-1/2 -ml-2.5 w-5 h-0.5 bg-white rounded-full"
+            aria-hidden
+          />
+        ) : (
+          <span
+            className="absolute top-0 left-1/2 -translate-x-1/2 w-5 h-0.5 bg-white rounded-full"
+            aria-hidden
+          />
+        ))}
     </>
   );
 }
@@ -109,10 +123,13 @@ export function TabBar({
   items,
   className,
   testId = 'tab-bar',
+  indicatorId,
 }: {
   items: TabItem[];
   className?: string;
   testId?: string;
+  /** Slide the active marker between tabs (ops). Omit for a static marker. */
+  indicatorId?: string;
 }) {
   const [location] = useLocation();
 
@@ -135,6 +152,7 @@ export function TabBar({
               badge={badge}
               isActive={isActive}
               highlight={highlight}
+              indicatorId={indicatorId}
             />
           );
 

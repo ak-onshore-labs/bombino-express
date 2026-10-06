@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'wouter';
 import { Loader2, Search } from 'lucide-react';
+import { OpsMobileField, OpsMobileItem, OpsMobileList } from '@/components/ops/OpsMobileList';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { Input } from '@/components/ui/input';
 import { useOpsGuests, type OpsGuestAccountType } from '@/hooks/useOpsGuests';
-import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 
 const LIST_CAP = 200;
@@ -17,17 +17,6 @@ function formatJoined(iso: string): string {
     month: 'short',
     year: 'numeric',
   });
-}
-
-function DesktopOnlyNotice() {
-  return (
-    <p
-      className="text-sm text-muted-foreground py-10 text-center"
-      data-testid="ops-guests-desktop-only"
-    >
-      Guest records are available on desktop.
-    </p>
-  );
 }
 
 function listCaption(n: number, filtered: boolean): string {
@@ -93,7 +82,6 @@ function PresenceChip({
 }
 
 export default function OpsGuests() {
-  const isMobile = useIsMobile();
   const [input, setInput] = useState('');
   const [q, setQ] = useState('');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
@@ -111,10 +99,7 @@ export default function OpsGuests() {
 
   return (
     <OpsShell title="Guests" subtitle="Find unverified bookers and KYC status" wide>
-      {isMobile ? (
-        <DesktopOnlyNotice />
-      ) : (
-        <>
+      <>
           <div className="relative mb-3">
             <Search
               className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none"
@@ -199,8 +184,24 @@ export default function OpsGuests() {
               >
                 {listCaption(list.data!.length, filtered)}
               </p>
+              <OpsMobileList testId="ops-guests-mobile">
+                {list.data!.map((row) => (
+                  <OpsMobileItem
+                    key={row.guest_ref}
+                    href={`/ops/guests/${row.guest_ref}`}
+                    title={guestDisplayName(row.full_name)}
+                    testId={`ops-guest-card-${row.guest_ref}`}
+                  >
+                    <OpsMobileField label="Phone">{row.phone || '—'}</OpsMobileField>
+                    <OpsMobileField label="Type">{accountTypeLabel(row.account_type)}</OpsMobileField>
+                    <OpsMobileField label="KYC">{row.kyc_on_file ? 'Shipment KYC on file' : '—'}</OpsMobileField>
+                    <OpsMobileField label="Orders">{row.order_count}</OpsMobileField>
+                    <OpsMobileField label="Joined">{formatJoined(row.created_at)}</OpsMobileField>
+                  </OpsMobileItem>
+                ))}
+              </OpsMobileList>
               <div
-                className="rounded-md border border-border bg-white overflow-x-auto"
+                className="hidden md:block rounded-md border border-border bg-white overflow-x-auto"
                 data-testid="ops-guests-list"
               >
                 <table className="ops-table min-w-[820px]" data-testid="ops-guests-table">
@@ -270,7 +271,6 @@ export default function OpsGuests() {
             </>
           )}
         </>
-      )}
     </OpsShell>
   );
 }

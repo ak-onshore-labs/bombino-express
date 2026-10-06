@@ -424,7 +424,7 @@ export function OpsSectionBoard({
                 })}
               </div>
 
-              <div className="md:hidden space-y-6" data-testid="ops-board-mobile">
+              <div className="md:hidden space-y-6 ops-rise" data-testid="ops-board-mobile">
                 {filledPhases.map((phase) => {
                   const list = grouped[phase.id];
                   return (
@@ -435,7 +435,7 @@ export function OpsSectionBoard({
                           {list.length}
                         </span>
                       </div>
-                      <div className="rounded-md border border-border bg-white px-3 divide-y divide-border">
+                      <div className="rounded-md border border-border bg-white px-3 divide-y divide-border ops-rise">
                         <OrderList orders={list} />
                       </div>
                     </section>

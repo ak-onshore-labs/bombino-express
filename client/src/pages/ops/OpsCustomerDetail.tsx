@@ -17,7 +17,6 @@ import {
   type OpsIdentityMeta,
   type OpsShipmentKycMeta,
 } from '@/hooks/useOpsCustomers';
-import { useIsMobile } from '@/hooks/use-mobile';
 import { parseApiErrorMessage, isForbiddenError, isNotFoundError } from '@/lib/apiError';
 import { formatIst, formatIstDate } from '@/lib/orderDetail';
 import { useAppStore } from '@/lib/store';
@@ -30,17 +29,6 @@ import {
 import { formatAadhaar } from '@shared/aadhaar';
 import { cn } from '@/lib/utils';
 import { can } from '@shared/staffAccess';
-
-function DesktopOnlyNotice() {
-  return (
-    <p
-      className="text-sm text-muted-foreground py-10 text-center"
-      data-testid="ops-customers-desktop-only"
-    >
-      Customer records are available on desktop.
-    </p>
-  );
-}
 
 function Fact({ label, value }: { label: string; value: string | null | undefined }) {
   return (
@@ -128,7 +116,6 @@ function viewableDocuments(data: OpsCustomerDetail): ViewableDoc[] {
 export default function OpsCustomerDetail() {
   const params = useParams<{ id: string }>();
   const id = params.id;
-  const isMobile = useIsMobile();
   const role = useAppStore((s) => s.user?.role);
   const canViewKyc = can(role, 'kyc.view');
   const { data, isLoading, isError, error } = useOpsCustomerDetail(id);
@@ -166,10 +153,7 @@ export default function OpsCustomerDetail() {
       subtitle="Account and KYC status"
       wide
     >
-      {isMobile ? (
-        <DesktopOnlyNotice />
-      ) : (
-        <>
+      <>
           <Link
             href="/ops/customers"
             className="inline-flex items-center gap-1 text-sm font-semibold text-[#F2A123] mb-4"
@@ -242,7 +226,7 @@ export default function OpsCustomerDetail() {
                                 </span>
                               )}
                             </div>
-                            <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                            <p className="text-xs text-muted-foreground mt-0.5 break-words">
                               {showSource
                                 ? `${doc.source === 'shipment' ? 'Shipment' : 'Onboarding'} · `
                                 : ''}
@@ -425,7 +409,6 @@ export default function OpsCustomerDetail() {
             </>
           )}
         </>
-      )}
 
       {preview && <OpsDocumentPreviewOverlay preview={preview} onClose={closePreview} />}
     </OpsShell>

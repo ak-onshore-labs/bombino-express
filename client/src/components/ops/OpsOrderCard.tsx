@@ -32,7 +32,7 @@ export function OpsOrderCard({ order }: { order: OpsBoardOrder }) {
   return (
     <Link
       href={`/ops/orders/${order.id}`}
-      className="block border-b border-border last:border-b-0 py-3 px-1 active:bg-muted/40 transition-colors"
+      className="ops-press block border-b border-border last:border-b-0 py-3 px-1 active:bg-muted/40"
       data-testid={`ops-order-card-${order.order_no}`}
     >
       <div className="flex items-start justify-between gap-2">

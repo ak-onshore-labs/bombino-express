@@ -11,6 +11,7 @@ import {
 import { OPS_NAV, isOpsMoreActive, isOpsNavActive, isOpsNavVisible } from '@/lib/opsNav';
 import { useOpsNavBadges } from '@/hooks/useOpsNavBadges';
 import { cn } from '@/lib/utils';
+import { AGENT_SHEET_MOTION } from '@/lib/motion';
 import { useAppStore } from '@/lib/store';
 
 /**
@@ -48,16 +49,16 @@ export function OpsNav() {
 
   return (
     <>
-      <TabBar items={items} testId="ops-nav" />
+      <TabBar items={items} testId="ops-nav" indicatorId="ops-nav-indicator" />
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
         <SheetContent
           side="bottom"
-          className="rounded-t-lg max-h-[85vh] overflow-y-auto"
+          className={cn('rounded-t-lg max-h-[85vh] overflow-y-auto', AGENT_SHEET_MOTION)}
         >
           <SheetHeader className="text-left mb-4">
             <SheetTitle>More</SheetTitle>
           </SheetHeader>
-          <nav className="space-y-1" data-testid="ops-nav-more-sheet">
+          <nav className="space-y-1 ops-rise" data-testid="ops-nav-more-sheet">
             {moreItems.map((item) => {
               const active = isOpsNavActive(location, item.path);
               const Icon = item.icon;
