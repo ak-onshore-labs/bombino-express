@@ -177,6 +177,7 @@ import {
   deliverOtp,
   OTP_TTL_MINUTES,
   OTP_MAX_REQUESTS_PER_HOUR,
+  isTestOtpNumber,
 } from "./otp.js";
 import type { OtpPurpose } from "./otpDb.js";
 import {
@@ -444,7 +445,9 @@ export async function registerRoutes(
     }
     const { phone, purpose } = parsed.data;
 
-    const recentCount = await countRecentRequests(phone, 60);
+    // Test accounts skip the hourly cap: nothing is sent to them, so there is
+    // no SMS cost to protect, and testers sign in to them many times an hour.
+    const recentCount = isTestOtpNumber(phone) ? 0 : await countRecentRequests(phone, 60);
     if (recentCount !== null && recentCount >= OTP_MAX_REQUESTS_PER_HOUR) {
       res.status(429).json({ message: "Too many OTP requests. Please try again later.", code: "OTP_RATE_LIMITED" });
       return;

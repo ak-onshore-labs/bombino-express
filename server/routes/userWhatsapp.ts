@@ -21,6 +21,7 @@ import {
   hashOtp,
   otpDedupeKey,
   OTP_MAX_REQUESTS_PER_HOUR,
+  isTestOtpNumber,
   OTP_TTL_MINUTES,
 } from "../otp.js";
 import { countRecentRequests, insertOtpCode } from "../otpDb.js";
@@ -53,7 +54,8 @@ export function registerUserWhatsappRoutes(app: Express): void {
 
       // Same ceiling as the login code, and counted together with it: both are
       // rows in otp_codes for this number.
-      const recent = await countRecentRequests(phone, 60);
+      // Test accounts skip the hourly cap (nothing is sent to them).
+      const recent = isTestOtpNumber(phone) ? 0 : await countRecentRequests(phone, 60);
       if (recent !== null && recent >= OTP_MAX_REQUESTS_PER_HOUR) {
         res.status(429).json({
           message: "Too many codes requested. Please try again later.",
