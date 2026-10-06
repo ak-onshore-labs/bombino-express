@@ -151,7 +151,13 @@ import {
   signupRefForPhone,
   signupRefForReading,
 } from "./signupRef.js";
-import { INDIAN_MOBILE_MESSAGE, INDIAN_MOBILE_PATTERN } from "../shared/contact.js";
+import {
+  INDIAN_MOBILE_MESSAGE,
+  INDIAN_MOBILE_PATTERN,
+  NANP_PHONE_MESSAGE,
+  isIndianMobile,
+  isValidReceiverPhone,
+} from "../shared/contact.js";
 import { MAX_UPLOAD_BYTES, UPLOAD_TYPE_MESSAGE, isAllowedUploadType } from "../shared/upload.js";
 import {
   formatCutoffHour,
@@ -3295,7 +3301,18 @@ export async function registerRoutes(
       (body) =>
         body.items.consignee_country !== "US" || usStateName(String(body.items.consignee_state ?? "")) !== null,
       { message: US_STATE_ERROR, params: { code: "US_STATE_INVALID" } }
-    );
+    )
+    // The phones go to ITD verbatim. A sender's +91 kept with the last digits
+    // cut, and a receiver's trunk 0 left after +1, got BOM-100333 a reply from
+    // ITD that was not JSON and no AWB. See shared/contact.ts.
+    .refine((body) => isIndianMobile(String(body.items.shipper_contact_no ?? "")), {
+      message: INDIAN_MOBILE_MESSAGE,
+      params: { code: "SENDER_PHONE_INVALID" },
+    })
+    .refine((body) => isValidReceiverPhone(String(body.items.consignee_contact_no ?? "")), {
+      message: NANP_PHONE_MESSAGE,
+      params: { code: "RECEIVER_PHONE_INVALID" },
+    });
 
   // POST /api/orders — requires login (session)
   /**

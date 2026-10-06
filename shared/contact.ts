@@ -42,6 +42,21 @@ export function withoutTrunkZero(value: string): string {
 }
 
 /**
+ * A US or Canadian number (+1) has ten digits after the dial code, and its
+ * area code never starts with 0 or 1. `+109198332075` broke both.
+ */
+export const NANP_LOCAL_PATTERN = /^[2-9]\d{9}$/;
+
+export const NANP_PHONE_MESSAGE = "Enter the receiver's 10-digit phone number, like 212 555 0100";
+
+/** A receiver number as it goes to ITD. Only +1 numbers have a rule we can check. */
+export function isValidReceiverPhone(value: string): boolean {
+  const compact = value.replace(/[\s().-]/g, "");
+  if (!compact.startsWith("+1")) return true;
+  return NANP_LOCAL_PATTERN.test(compact.slice(2));
+}
+
+/**
  * Deliberately permissive: anything with a local part, an @, a dot and a TLD.
  * A stricter pattern rejects addresses that exist, and the only real proof is
  * mail that arrives.

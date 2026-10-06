@@ -11,7 +11,7 @@ import {
   type ITDRateRow,
   type RateParams,
 } from '@/lib/itdRates';
-import { isIndianMobile, toIndianMobile, withoutTrunkZero } from '@shared/contact';
+import { isIndianMobile, isValidReceiverPhone, toIndianMobile, withoutTrunkZero } from '@shared/contact';
 import {
   ArrowLeft,
   Check,
@@ -1671,6 +1671,8 @@ export default function CreateShipment() {
       if (!receiverName.trim()) e.receiverName = true;
       const phoneDigits = withoutTrunkZero(receiverPhone);
       if (phoneDigits.length < 6 || phoneDigits.length > 15) e.receiverPhone = true;
+      const dialCode = ITD_COUNTRY_MAP[destinationCountry]?.dialCode ?? '';
+      if (dialCode && !isValidReceiverPhone(`${dialCode}${phoneDigits}`)) e.receiverPhone = true;
       if (!receiverAddress.trim()) e.receiverAddress = true;
       if (!receiverCity.trim()) e.receiverCity = true;
       if (!receiverState.trim()) e.receiverState = true;

@@ -10,6 +10,7 @@
 
 import { isUsZip, usStateName } from "./usAddress.js";
 import { isDocumentsContent } from "./bookingTerms.js";
+import { isIndianMobile, isValidReceiverPhone } from "./contact.js";
 
 /** Who acts next on a failed filing. */
 export type DocketRetry =
@@ -62,6 +63,17 @@ export function docketProblems(payload: unknown): string[] {
 
   for (const [field, label] of REQUIRED) {
     if (!str(p[field])) problems.push(`${label} is missing`);
+  }
+
+  // BOM-100333: the sender's +91 kept and the last digits cut, the receiver's
+  // trunk 0 left after +1. ITD answered with something that was not JSON.
+  const shipperPhone = str(p.shipper_contact_no);
+  if (shipperPhone && !isIndianMobile(shipperPhone)) {
+    problems.push(`Sender phone "${shipperPhone}" must be 10 digits with no country code`);
+  }
+  const consigneePhone = str(p.consignee_contact_no);
+  if (consigneePhone && !isValidReceiverPhone(consigneePhone)) {
+    problems.push(`Receiver phone "${consigneePhone}" must be +1 and 10 digits, with no 0 or 1 at the start`);
   }
 
   const weight = Number(str(p.actual_weight));

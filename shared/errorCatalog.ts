@@ -58,6 +58,19 @@ export const ERROR_CATALOG = {
     why: "A US delivery needs one of the 50 states or DC, and the one given isn't a US state.",
     fix: "Pick the state from the list on the Receiver step.",
   },
+  // ── Phone numbers on a booking ────────────────────────────────────────────
+  SENDER_PHONE_INVALID: {
+    area: "booking",
+    title: "The sender's phone number isn't right",
+    why: "The courier needs the sender's 10-digit mobile number, without +91 or a 0 in front.",
+    fix: "Enter the 10-digit number on the Sender step, like 9876543210.",
+  },
+  RECEIVER_PHONE_INVALID: {
+    area: "booking",
+    title: "The receiver's phone number isn't right",
+    why: "A US or Canadian number has 10 digits after +1, and never starts with 0 or 1.",
+    fix: "Enter the receiver's 10-digit number on the Receiver step, like 212 555 0100.",
+  },
   // ── Fixing an application the Bombino team sent back ──────────────────────
   APPLICATION_NOT_AWAITING_CHANGES: {
     area: "signup",
