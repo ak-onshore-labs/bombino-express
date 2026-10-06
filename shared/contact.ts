@@ -18,6 +18,30 @@ export function isIndianMobile(value: string): boolean {
 }
 
 /**
+ * Typed, pasted or saved input → the bare 10 digits. A leading `0` or `91`
+ * beyond ten digits is a prefix, not part of the number: keeping the first ten
+ * of `+91 7558372885` gave `9175583728` (BOM-100333), which still passes
+ * `isIndianMobile` and went to ITD as the sender's phone.
+ */
+export function toIndianMobile(value: string): string {
+  let digits = value.replace(/\D/g, "");
+  while (digits.length > 10) {
+    if (digits.startsWith("0")) digits = digits.slice(1);
+    else if (digits.startsWith("91")) digits = digits.slice(2);
+    else break;
+  }
+  return digits.slice(0, 10);
+}
+
+/**
+ * A foreign number without its trunk `0`, ready for a dial code in front.
+ * `+1` + `09198332075` reached ITD as the receiver's phone (BOM-100333).
+ */
+export function withoutTrunkZero(value: string): string {
+  return value.replace(/\D/g, "").replace(/^0+/, "");
+}
+
+/**
  * Deliberately permissive: anything with a local part, an @, a dot and a TLD.
  * A stricter pattern rejects addresses that exist, and the only real proof is
  * mail that arrives.

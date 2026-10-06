@@ -11,7 +11,7 @@ import {
   type ITDRateRow,
   type RateParams,
 } from '@/lib/itdRates';
-import { isIndianMobile } from '@shared/contact';
+import { isIndianMobile, toIndianMobile, withoutTrunkZero } from '@shared/contact';
 import {
   ArrowLeft,
   Check,
@@ -1669,7 +1669,7 @@ export default function CreateShipment() {
       const e: Record<string, boolean> = {};
       if (!destinationCountry) e.destinationCountry = true;
       if (!receiverName.trim()) e.receiverName = true;
-      const phoneDigits = receiverPhone.replace(/\D/g, '');
+      const phoneDigits = withoutTrunkZero(receiverPhone);
       if (phoneDigits.length < 6 || phoneDigits.length > 15) e.receiverPhone = true;
       if (!receiverAddress.trim()) e.receiverAddress = true;
       if (!receiverCity.trim()) e.receiverCity = true;
@@ -1885,7 +1885,7 @@ export default function CreateShipment() {
       consignee_company_name: receiverCompany || receiverName,
       consignee_contact_no:
         ITD_COUNTRY_MAP[destinationCountry]?.dialCode
-          ? `${ITD_COUNTRY_MAP[destinationCountry].dialCode}${receiverPhone}`
+          ? `${ITD_COUNTRY_MAP[destinationCountry].dialCode}${withoutTrunkZero(receiverPhone)}`
           : receiverPhone,
       consignee_email: receiverEmail || senderEmail,
       consignee_address_line_1: receiverAddress,
@@ -2220,7 +2220,7 @@ export default function CreateShipment() {
               onSelect={(address: SavedAddress) => {
                 setSenderName(address.full_name);
                 setSenderCompany(address.company ?? '');
-                setSenderPhone(address.phone.replace(/\D/g, '').slice(0, 10));
+                setSenderPhone(toIndianMobile(address.phone));
                 setSenderAddress(address.address_line_1);
                 setSenderCity(address.city);
                 setSenderState(address.state ?? '');
@@ -2277,8 +2277,7 @@ export default function CreateShipment() {
                   <Input
                     value={senderPhone}
                     onChange={(e) => {
-                      const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
-                      setSenderPhone(digits);
+                      setSenderPhone(toIndianMobile(e.target.value));
                       clearFieldError('senderPhone');
                     }}
                     placeholder="+91"
