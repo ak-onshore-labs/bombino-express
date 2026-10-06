@@ -174,10 +174,11 @@ export async function fetchOpsOrders(): Promise<OpsBoardOrder[]> {
   return data.orders;
 }
 
-export function useOpsOrders() {
+export function useOpsOrders(enabled = true) {
   return useQuery({
     queryKey: OPS_ORDERS_KEY,
     queryFn: fetchOpsOrders,
+    enabled,
     retry: false,
     refetchOnMount: 'always',
   });
@@ -255,9 +256,10 @@ export function useOpsStaffUsers() {
   });
 }
 
-export function useOpsPayments(range: OpsPaymentRange) {
+export function useOpsPayments(range: OpsPaymentRange, enabled = true) {
   return useQuery({
     queryKey: [...OPS_PAYMENTS_KEY, range],
+    enabled,
     queryFn: async () => {
       const res = await fetch(`/api/ops/payments?range=${encodeURIComponent(range)}`, {
         credentials: 'include',
@@ -344,9 +346,10 @@ export function useOpsBoardFiltered(opts: {
   });
 }
 
-export function useOpsCancellations() {
+export function useOpsCancellations(enabled = true) {
   return useQuery({
     queryKey: OPS_CANCELLATIONS_KEY,
+    enabled,
     queryFn: async () => {
       const res = await fetch('/api/ops/cancellations', { credentials: 'include' });
       return readJson<{ cancellations: OpsPendingCancellation[]; count: number }>(res);
@@ -363,9 +366,10 @@ export function useOpsCancellations() {
  * date after the account is open, and the customer is told to contact the
  * Bombino team — which needs someone at Bombino able to see who is waiting.
  */
-export function useOpsVerifications() {
+export function useOpsVerifications(enabled = true) {
   return useQuery({
     queryKey: OPS_VERIFICATIONS_KEY,
+    enabled,
     queryFn: async () => {
       const res = await fetch('/api/ops/verifications', { credentials: 'include' });
       return readJson<{ accounts: OpsVerificationRow[]; count: number }>(res);

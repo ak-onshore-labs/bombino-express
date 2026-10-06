@@ -10,15 +10,13 @@
  * keep anyone out of anything.
  */
 
-import { isRole, roleSatisfies } from '@shared/orderContract';
+import { isOpsRole, opsLandingPath } from '@shared/staffAccess';
 
 export type Surface = 'customer' | 'agent' | 'ops';
 
 /** Where each role goes on login, and when it hits a surface it doesn't own. */
 const LANDING_BY_ROLE: Record<string, string> = {
   agent: '/agent',
-  admin: '/ops',
-  super_admin: '/ops',
   customer: '/home',
 };
 
@@ -29,6 +27,8 @@ const LANDING_BY_ROLE: Record<string, string> = {
  */
 export function landingPathForRole(role: string | undefined): string {
   if (!role) return '/home';
+  // Each ops role lands on its first tab; a KYC reviewer has no dashboard.
+  if (isOpsRole(role)) return opsLandingPath(role);
   return LANDING_BY_ROLE[role] ?? '/home';
 }
 
@@ -40,7 +40,7 @@ export function surfaceForPath(path: string): Surface {
 
 export function surfaceForRole(role: string | undefined): Surface {
   if (role === 'agent') return 'agent';
-  if (isRole(role) && roleSatisfies(role, 'admin')) return 'ops';
+  if (isOpsRole(role)) return 'ops';
   return 'customer';
 }
 

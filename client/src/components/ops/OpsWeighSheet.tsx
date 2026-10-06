@@ -71,7 +71,7 @@ export function OpsWeighSheet({
             if (error) setError('');
           }}
           placeholder="0.00"
-          className="w-full rounded-xl border-2 border-border bg-white px-4 h-14 outline-none text-2xl font-extrabold tabular-nums focus:border-primary transition-colors mb-3"
+          className="w-full rounded-md border-2 border-border bg-white px-4 h-14 outline-none text-2xl font-extrabold tabular-nums focus:border-primary transition-colors mb-3"
           data-testid="input-ops-actual-weight"
         />
 
@@ -85,7 +85,7 @@ export function OpsWeighSheet({
           type="button"
           onClick={submit}
           disabled={isPending}
-          className="w-full h-14 rounded-xl bg-primary text-white text-base font-bold active:scale-[0.98] transition-transform disabled:opacity-60 grid place-items-center"
+          className="w-full h-14 rounded-md bg-primary text-white text-base font-bold active:scale-[0.98] transition-transform disabled:opacity-60 grid place-items-center"
           data-testid="button-confirm-weigh"
         >
           {isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirm weight'}

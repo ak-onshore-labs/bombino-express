@@ -23,7 +23,7 @@ import { Button } from '@/components/ui/button';
 import { parseApiErrorMessage } from '@/lib/apiError';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
-import { isRole, roleSatisfies } from '@shared/orderContract';
+import { can } from '@shared/staffAccess';
 import {
   useVerifyOpsApplicationDocument,
   type OpsApplicationDetail as Detail,
@@ -79,7 +79,7 @@ export function DocumentsSection({
   onDownloadContract: () => void;
 }) {
   const role = useAppStore((s) => s.user?.role);
-  const canViewDocs = isRole(role) && roleSatisfies(role, 'admin');
+  const canViewDocs = can(role, 'applications.review');
   const a = data.application;
   const asked = new Set(a.status === 'changes_requested' ? a.requested_changes?.slots ?? [] : []);
   const pickedSet = new Set(picked);
@@ -175,7 +175,7 @@ export function DocumentsSection({
                     <Button
                       type="button"
                       variant={hasViewed ? 'default' : 'outline'}
-                      className="h-9 rounded-lg text-xs font-semibold gap-1.5"
+                      className="h-9 rounded-md text-xs font-semibold gap-1.5"
                       disabled={!hasViewed || saving !== null}
                       title={hasViewed ? undefined : 'Open the document first'}
                       onClick={() => void markVerified(doc.slot)}
@@ -194,7 +194,7 @@ export function DocumentsSection({
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-9 w-9 rounded-lg"
+                      className="h-9 w-9 rounded-md"
                       disabled={fileBusy === doc.slot}
                       aria-label={`View ${doc.label}`}
                       title={`View ${doc.label}`}
@@ -216,7 +216,7 @@ export function DocumentsSection({
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-9 w-9 rounded-lg"
+                      className="h-9 w-9 rounded-md"
                       disabled={fileBusy === doc.slot}
                       aria-label={`Download ${doc.label}`}
                       title={`Download ${doc.label}`}
@@ -258,7 +258,7 @@ export function DocumentsSection({
                   type="button"
                   variant="outline"
                   size="icon"
-                  className="h-9 w-9 rounded-lg"
+                  className="h-9 w-9 rounded-md"
                   disabled={fileBusy === 'contract'}
                   aria-label="View signed contract"
                   title="View signed contract"
@@ -275,7 +275,7 @@ export function DocumentsSection({
                   type="button"
                   variant="outline"
                   size="icon"
-                  className="h-9 w-9 rounded-lg"
+                  className="h-9 w-9 rounded-md"
                   disabled={fileBusy === 'contract'}
                   aria-label="Download signed contract"
                   title="Download signed contract"

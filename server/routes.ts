@@ -52,7 +52,6 @@ import {
   isKnownAction,
 } from "./orderLifecycle.js";
 import {
-  notifyAgentsOfNewJob,
   notifyHandoverCodeInApp,
   notifyOrderBooked,
   notifyOrderTransition,
@@ -66,10 +65,13 @@ import {
 } from "./handoverCodes.js";
 import {
   ensureDbUser,
+  loadOpsStaffIfOps,
   requireActiveAgent,
   requireRole,
   requireUser,
 } from "./routeGuards.js";
+import { can, isOpsRole } from "../shared/staffAccess.js";
+import { isCallersOrder } from "./staffScope.js";
 import { registerAgentRoutes } from "./routes/agent.js";
 import { registerPaymentRoutes } from "./routes/payments.js";
 import { registerGuestProfileRoutes } from "./routes/guestProfile.js";
@@ -121,6 +123,7 @@ import {
   handleOverrideHandover,
   handleRejectCancellation,
   handleRequestCancellation,
+  handleReleasePickup,
   handleStartPickup,
   type AgentActionResult,
 } from "./orderActions.js";
@@ -3656,9 +3659,12 @@ export async function registerRoutes(
       void notifyHandoverCodeInApp(toOrder(order), "dropoff");
     }
 
-    // The booking confirmation, and — for a pickup — the shout to the agents
-    // rostered for that window. Neither goes through `notifyOrderTransition`:
+    // The booking confirmation. It does not go through `notifyOrderTransition`:
     // the customer is the actor here, and that function silences self-actions.
+    //
+    // No message to agents. They used to be told "first to accept gets the
+    // job"; since 6 Oct 2026 the branch head assigns every pickup and agents
+    // never see the pool (`notifyAgentsOfNewJob` is no longer called).
     //
     // Fire-and-forget. A slow provider must not delay the Order ID the customer
     // is waiting on, and a failed message must not fail a paid-for booking.
@@ -3666,10 +3672,6 @@ export async function registerRoutes(
     void notifyOrderBooked({
       order: bookedOrder,
       customerName: body.origin_address.full_name,
-    });
-    void notifyAgentsOfNewJob({
-      order: bookedOrder,
-      address: { city: body.origin_address.city, pincode: body.origin_address.pincode },
     });
 
     // The airway bill, for the accounts that can have one now.
@@ -3735,6 +3737,7 @@ export async function registerRoutes(
     requireUser,
     ensureDbUser,
     requireActiveAgent,
+    loadOpsStaffIfOps,
     async (req: Request, res: Response) => {
       const callerId = req.session.dbUserId;
       if (!callerId) {
@@ -3742,7 +3745,8 @@ export async function registerRoutes(
         return;
       }
 
-      const role = resolveRole(req.session.user?.role);
+      // Ops callers' role was just read from the database (loadOpsStaffIfOps).
+      const role = req.staff?.role ?? resolveRole(req.session.user?.role);
       if (!role) {
         res.status(403).json({
           message: "You do not have permission to perform this action.",
@@ -3789,6 +3793,11 @@ export async function registerRoutes(
       // Note RLS is bypassed everywhere (service-role key), so this check is
       // the only thing standing between a customer and someone else's order.
       if (role === "customer" && order.user_id !== callerId) {
+        res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
+        return;
+      }
+      // A branch manager acts on their own city's orders only.
+      if (!(await isCallersOrder(req, order))) {
         res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
         return;
       }
@@ -3850,6 +3859,11 @@ export async function registerRoutes(
       switch (action) {
         case "claim": {
           if (!applyResult(await handleClaim({ order, callerId }))) return;
+          break;
+        }
+
+        case "release_pickup": {
+          if (!applyResult(await handleReleasePickup({ order, callerId }))) return;
           break;
         }
 
@@ -4081,9 +4095,12 @@ export async function registerRoutes(
       // `server/notify.ts` alongside the WhatsApp half, so the two channels
       // cannot drift apart. Fire-and-forget: a provider round trip must not sit
       // in front of this response.
+      // An agent handing a pickup back is between the branch and its riders:
+      // the customer is not told their pickup went backwards, and hears from
+      // us again when the next agent is assigned.
       void notifyOrderTransition({
         order: settled,
-        moved: transition.to !== null,
+        moved: transition.to !== null && action !== "release_pickup",
         actorUserId: callerId,
       });
 
@@ -4183,6 +4200,7 @@ export async function registerRoutes(
     },
     requireUser,
     ensureDbUser,
+    loadOpsStaffIfOps,
     async (req: Request, res: Response) => {
       const callerId = req.session.dbUserId;
       if (!callerId) {
@@ -4190,14 +4208,14 @@ export async function registerRoutes(
         return;
       }
 
-      const role = resolveRole(req.session.user?.role);
+      const role = req.staff?.role ?? resolveRole(req.session.user?.role);
       if (!role) {
         res.status(403).json({ message: "Not allowed", code: "FORBIDDEN" });
         return;
       }
 
       const order = await getOrderById(req.params.id);
-      if (!order) {
+      if (!order || !(await isCallersOrder(req, order))) {
         res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
         return;
       }
@@ -4219,7 +4237,7 @@ export async function registerRoutes(
         ) {
           kind = "pickup";
         }
-      } else if (role === "admin" || role === "super_admin") {
+      } else if (can(role, "orders.act")) {
         // The hub code, and only the hub code. Ops shows that one to the agent
         // at the counter, so ops is the party entitled to refresh it.
         //
@@ -4350,7 +4368,7 @@ export async function registerRoutes(
   function eventActorKind(role: unknown, isOwner: boolean): "agent" | "ops" | "you" | "system" {
     if (isOwner) return "you";
     if (role === "agent") return "agent";
-    if (role === "admin" || role === "super_admin") return "ops";
+    if (isOpsRole(role)) return "ops";
     return "system";
   }
 

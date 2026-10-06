@@ -62,7 +62,7 @@ export function OpsShell({
           <div
             className={cn(
               'mx-auto w-full px-6 md:px-8 py-6',
-              wide ? 'max-w-6xl' : 'max-w-md'
+              wide ? 'max-w-6xl' : 'max-w-3xl'
             )}
           >
             {heading}
@@ -83,7 +83,7 @@ export function OpsShell({
             type="button"
             onClick={() => void handleLogout()}
             aria-label="Sign out"
-            className="p-2 -mr-2 rounded-xl hover:bg-muted active:scale-95 transition-all"
+            className="p-2 -mr-2 rounded-md hover:bg-muted active:scale-95 transition-all"
             data-testid="button-ops-logout"
           >
             <LogOut className="w-5 h-5 text-foreground" />

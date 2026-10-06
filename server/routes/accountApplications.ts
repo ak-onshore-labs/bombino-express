@@ -8,15 +8,16 @@
  * Customer routes answer to the guest on this session and nobody else: the
  * phone comes from the session, never from a request body.
  *
- * Ops routes are admin/super_admin, viewing an application's documents
- * included: the reviewer is usually a plain admin and cannot decide without
- * them. Every view is logged. A customer's documents, once the account is
- * open, stay super_admin (routes/ops.ts §opsKycGate).
+ * Ops routes need `applications.review` (super admin, admin, customer
+ * support, KYC reviewer — shared/staffAccess.ts), viewing an application's
+ * documents included: a reviewer cannot decide without them. Every view is
+ * logged. A customer's documents, once the account is open, need `kyc.view`
+ * (routes/ops.ts §opsKycGate).
  */
 
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
-import { opsDbGate } from "../routeGuards.js";
+import { opsGateFor } from "../routeGuards.js";
 import {
   findApplicationDuplicates,
   getApplicationById,
@@ -152,12 +153,12 @@ export function registerAccountApplicationRoutes(app: Express): void {
 
   // Who is emailed when an application arrives. Registered before
   // /api/ops/applications/:id so "settings" is never read as an id.
-  app.get("/api/ops/settings/application-alerts", ...opsDbGate, async (_req: Request, res: Response) => {
+  app.get("/api/ops/settings/application-alerts", ...opsGateFor("applications.review"), async (_req: Request, res: Response) => {
     const recipients = await getApplicationAlertRecipients();
     res.json({ ...recipients, sender: mailSender() });
   });
 
-  app.put("/api/ops/settings/application-alerts", ...opsDbGate, async (req: Request, res: Response) => {
+  app.put("/api/ops/settings/application-alerts", ...opsGateFor("applications.review"), async (req: Request, res: Response) => {
     const actorId = req.session.dbUserId;
     if (!actorId) {
       res.status(401).json({ message: "Not authenticated" });
@@ -180,7 +181,7 @@ export function registerAccountApplicationRoutes(app: Express): void {
     res.json({ ...result.value, sender: mailSender() });
   });
 
-  app.post("/api/ops/settings/application-alerts/test", ...opsDbGate, async (_req: Request, res: Response) => {
+  app.post("/api/ops/settings/application-alerts/test", ...opsGateFor("applications.review"), async (_req: Request, res: Response) => {
     const { emails } = await getApplicationAlertRecipients();
     if (emails.length === 0) {
       res.status(400).json({ message: "Add an address first.", code: "NO_RECIPIENTS" });
@@ -195,7 +196,7 @@ export function registerAccountApplicationRoutes(app: Express): void {
   });
 
   // GET /api/ops/applications?status=open|all|<status>
-  app.get("/api/ops/applications", ...opsDbGate, async (req: Request, res: Response) => {
+  app.get("/api/ops/applications", ...opsGateFor("applications.review"), async (req: Request, res: Response) => {
     const raw = typeof req.query.status === "string" ? req.query.status : "open";
     let statuses: ApplicationStatus[] | undefined;
     if (raw === "open") statuses = [...OPEN_APPLICATION_STATUSES];
@@ -210,7 +211,7 @@ export function registerAccountApplicationRoutes(app: Express): void {
   });
 
   // GET /api/ops/applications/:id — everything a reviewer needs to decide.
-  app.get("/api/ops/applications/:id", ...opsDbGate, async (req: Request, res: Response) => {
+  app.get("/api/ops/applications/:id", ...opsGateFor("applications.review"), async (req: Request, res: Response) => {
     const row = await getApplicationById(req.params.id);
     if (!row) {
       res.status(404).json({ message: "Application not found." });
@@ -279,7 +280,7 @@ export function registerAccountApplicationRoutes(app: Express): void {
   });
 
   // GET /api/ops/applications/:id/documents/:slot/file — any ops reviewer, logged.
-  app.get("/api/ops/applications/:id/documents/:slot/file", ...opsDbGate, async (req: Request, res: Response) => {
+  app.get("/api/ops/applications/:id/documents/:slot/file", ...opsGateFor("applications.review"), async (req: Request, res: Response) => {
     const row = await getApplicationById(req.params.id);
     const slot = req.params.slot;
     if (!row || !isDocSlot(slot)) {
@@ -320,7 +321,7 @@ export function registerAccountApplicationRoutes(app: Express): void {
   // the application, by the same function that made the preview they signed
   // and the copy attached to their welcome email, so all three are one
   // document. `?download=1` asks for a saved copy rather than a view.
-  app.get("/api/ops/applications/:id/contract", ...opsDbGate, async (req: Request, res: Response) => {
+  app.get("/api/ops/applications/:id/contract", ...opsGateFor("applications.review"), async (req: Request, res: Response) => {
     const row = await getApplicationById(req.params.id);
     if (!row) {
       res.status(404).json({ message: "Application not found." });
@@ -354,7 +355,7 @@ export function registerAccountApplicationRoutes(app: Express): void {
   // POST /api/ops/applications/:id/documents/:slot/verify — a reviewer has
   // looked at the document and vouches for it. Logged in the history with
   // Cashfree's earlier result.
-  app.post("/api/ops/applications/:id/documents/:slot/verify", ...opsDbGate, async (req: Request, res: Response) => {
+  app.post("/api/ops/applications/:id/documents/:slot/verify", ...opsGateFor("applications.review"), async (req: Request, res: Response) => {
     const actorId = req.session.dbUserId;
     if (!actorId) {
       res.status(401).json({ message: "Not authenticated" });
@@ -409,7 +410,7 @@ export function registerAccountApplicationRoutes(app: Express): void {
   });
 
   // POST /api/ops/applications/:id/actions  { action, ...payload }
-  app.post("/api/ops/applications/:id/actions", ...opsDbGate, async (req: Request, res: Response) => {
+  app.post("/api/ops/applications/:id/actions", ...opsGateFor("applications.review"), async (req: Request, res: Response) => {
     const actorId = req.session.dbUserId;
     if (!actorId) {
       res.status(401).json({ message: "Not authenticated" });
@@ -554,7 +555,7 @@ export function registerAccountApplicationRoutes(app: Express): void {
   });
 
   // PUT /api/ops/customers/:id/itd-credentials — a new ITD login for an account.
-  app.put("/api/ops/customers/:id/itd-credentials", ...opsDbGate, async (req: Request, res: Response) => {
+  app.put("/api/ops/customers/:id/itd-credentials", ...opsGateFor("applications.review"), async (req: Request, res: Response) => {
     const parsed = approveSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid request" });

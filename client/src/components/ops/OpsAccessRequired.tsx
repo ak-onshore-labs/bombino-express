@@ -15,7 +15,7 @@ export function OpsAccessRequired({ what = 'this screen' }: { what?: string }) {
 
   return (
     <div
-      className="rounded-2xl border border-border bg-white px-6 py-10 text-center"
+      className="rounded-md border border-border bg-white px-6 py-10 text-center"
       data-testid="ops-forbidden"
     >
       <p className="text-base font-semibold text-foreground">Ops access required</p>

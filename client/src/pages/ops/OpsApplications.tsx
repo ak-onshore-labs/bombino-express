@@ -43,7 +43,7 @@ function FilterChip({
       onClick={onClick}
       data-testid={testId}
       className={cn(
-        'h-8 px-3 rounded-lg text-xs font-bold transition-colors',
+        'h-8 px-3 rounded-md text-xs font-bold transition-colors',
         selected ? 'bg-[#C62828] text-white' : 'bg-[#F3F4F6] text-foreground hover:bg-muted',
       )}
     >
@@ -88,7 +88,7 @@ export default function OpsApplications() {
     >
       {list.data && !list.data.enabled && (
         <div
-          className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 mb-4 text-sm text-amber-900"
+          className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 mb-4 text-sm text-amber-900"
           data-testid="ops-applications-review-off"
         >
           Account review is switched off, so signup opens accounts straight away and nothing new arrives here.
@@ -128,8 +128,8 @@ export default function OpsApplications() {
       )}
 
       {!list.isLoading && !list.isError && rows.length > 0 && (
-        <div className="rounded-2xl border border-border bg-white overflow-x-auto" data-testid="ops-applications-list">
-          <table className="w-full text-sm" data-testid="ops-applications-table">
+        <div className="rounded-md border border-border bg-white overflow-x-auto" data-testid="ops-applications-list">
+          <table className="ops-table min-w-[760px]" data-testid="ops-applications-table">
             <thead>
               <tr className="text-left text-xs font-semibold text-muted-foreground border-b border-border">
                 <th className="px-4 py-3">Applicant</th>

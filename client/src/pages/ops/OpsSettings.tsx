@@ -14,7 +14,7 @@ import {
   SETTINGS_PUBLIC_KEY,
 } from '@/hooks/useSupportContacts';
 
-const inputClass = 'h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl mt-2';
+const inputClass = 'h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-md mt-2';
 
 type OpsSettingRow = {
   key: string;
@@ -131,7 +131,7 @@ export default function OpsSettings() {
   return (
     <OpsShell title="Settings" subtitle="Support contacts">
       <section
-        className="rounded-2xl border border-border bg-white p-4 mb-6"
+        className="rounded-md border border-border bg-white p-4 mb-6"
         data-testid="ops-settings-contacts"
       >
         <h2 className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground mb-1">
@@ -211,7 +211,7 @@ export default function OpsSettings() {
               type="button"
               onClick={() => void saveContacts()}
               disabled={save.isPending}
-              className="w-full h-12 rounded-xl bg-primary text-white font-bold"
+              className="w-full h-12 rounded-md bg-primary text-white font-bold"
               data-testid="button-ops-save-settings"
             >
               {save.isPending ? (
@@ -227,7 +227,7 @@ export default function OpsSettings() {
       {/* S2: guest_booking, cashfree_id_check, labels_at_booking, payments_test_mode
           drop here — same GET /api/ops/settings and PATCH /api/ops/settings. */}
       <section
-        className="rounded-2xl border border-border bg-white p-4"
+        className="rounded-md border border-border bg-white p-4"
         data-testid="ops-settings-switches"
       >
         <h2 className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground mb-1">

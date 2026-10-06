@@ -118,7 +118,7 @@ export default function OpsApplicationDetail() {
 
           <div className="min-w-0 space-y-8 xl:col-start-1 xl:row-start-1">
             <section
-              className="rounded-2xl border border-border bg-white overflow-hidden"
+              className="rounded-md border border-border bg-white overflow-hidden"
               data-testid="ops-application-sheet"
             >
               <DetailsSection
@@ -166,8 +166,8 @@ function DetailSkeleton() {
   return (
     <div className="animate-pulse motion-reduce:animate-none" aria-busy="true" data-testid="ops-application-loading">
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_21rem]">
-        <div className="h-[32rem] rounded-2xl bg-[#E9ECF0]" />
-        <div className="h-72 rounded-2xl bg-[#E9ECF0]" />
+        <div className="h-[32rem] rounded-md bg-[#E9ECF0]" />
+        <div className="h-72 rounded-md bg-[#E9ECF0]" />
       </div>
     </div>
   );

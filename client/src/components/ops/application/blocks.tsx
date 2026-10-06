@@ -102,7 +102,7 @@ export function FixTag() {
 
 export function Quote({ label, children }: { label?: string; children: ReactNode }) {
   return (
-    <div className="rounded-lg border border-border bg-white px-3 py-2">
+    <div className="rounded-md border border-border bg-white px-3 py-2">
       {label && <p className="text-[11px] font-semibold text-muted-foreground mb-0.5">{label}</p>}
       <p className="text-sm text-foreground whitespace-pre-wrap break-words">{children}</p>
     </div>

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { OPS_USERS_KEY, type OpsStaffUser } from '@/hooks/useOpsOrders';
+import type { StaffRole } from '@shared/staffAccess';
 
 export const OPS_BEATS_KEY = ['ops', 'beats'] as const;
 
@@ -66,6 +67,7 @@ export function useUpdateStaffUser(id: string) {
       phone?: string;
       email?: string;
       is_active?: boolean;
+      role?: StaffRole;
     }) => {
       const res = await apiRequest('PATCH', `/api/ops/users/${id}`, body);
       return (await res.json()) as { user: OpsStaffUser };

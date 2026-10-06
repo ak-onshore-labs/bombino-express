@@ -17,6 +17,17 @@ declare global {
         signupRef?: string;
         signupPhone?: string;
       };
+      /**
+       * The ops caller, as `loadOpsStaff` read them from the database on this
+       * request. Set only behind an ops gate (`opsGateFor`).
+       */
+      staff?: {
+        role: import("../shared/staffAccess").OpsRole;
+        /** True for a branch manager: orders, agents and beats are one city's. */
+        scoped: boolean;
+        /** Their city when scoped; null when unscoped or the account has no hub. */
+        city: string | null;
+      };
     }
   }
 }

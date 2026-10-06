@@ -48,7 +48,7 @@ function datePillLabel(filters: OpsBoardFilters): string {
 export type OpsBoardView = 'cards' | 'table';
 
 const segmentShell =
-  'inline-flex items-center gap-1 rounded-lg border border-border bg-white p-0.5 shrink-0';
+  'inline-flex items-center gap-1 rounded-md border border-border bg-white p-0.5 shrink-0';
 
 function SortToggle({
   sort,
@@ -297,7 +297,7 @@ export function OpsBoardFilterBar({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search order, consignee, sender, or AWB"
-            className="h-11 pl-9 rounded-xl bg-white"
+            className="h-11 pl-9 rounded-md bg-white"
             data-testid="ops-section-search"
             aria-label="Search order, consignee, sender, or AWB"
           />
@@ -334,7 +334,7 @@ export function OpsBoardFilterBar({
             <Sheet open={open} onOpenChange={setOpen}>
               <SheetContent
                 side="bottom"
-                className="rounded-t-2xl max-h-[85vh] overflow-y-auto"
+                className="rounded-t-lg max-h-[85vh] overflow-y-auto"
               >
                 <SheetHeader className="text-left mb-4">
                   <SheetTitle>Filters</SheetTitle>

@@ -78,9 +78,10 @@ export type OpsApplicationFilter = 'open' | 'all' | ApplicationStatus;
 
 export const OPS_APPLICATIONS_KEY = ['/api/ops/applications'] as const;
 
-export function useOpsApplications(filter: OpsApplicationFilter) {
+export function useOpsApplications(filter: OpsApplicationFilter, enabled = true) {
   return useQuery({
     queryKey: [...OPS_APPLICATIONS_KEY, filter],
+    enabled,
     queryFn: async () => {
       const res = await fetch(`/api/ops/applications?status=${encodeURIComponent(filter)}`, {
         credentials: 'include',

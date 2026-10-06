@@ -151,7 +151,7 @@ export default function MyPickups() {
       {!isLoading && !isError && count === 0 && (
         <JobCard testId="empty-mine">
           <p className="px-4 py-6 text-[17px] font-medium text-[#334155]">
-            Take a job to see it here.
+            No jobs yet. Your branch will assign you pickups.
           </p>
         </JobCard>
       )}

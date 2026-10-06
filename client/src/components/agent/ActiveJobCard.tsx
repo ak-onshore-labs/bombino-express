@@ -13,6 +13,8 @@ import { PressableBox } from '@/components/motion/Pressable';
 import { useOrderAction, type PickupEntry } from '@/hooks/useAgentPickups';
 import { bandForDate } from '@/lib/agentGrouping';
 import { todayInIst } from '@shared/istTime';
+import { useState } from 'react';
+import { ConfirmActionDialog, CONFIRMED_ACTIONS } from '@/components/agent/AgentDialogs';
 
 /**
  * The job in hand, with the next move on the row it belongs to.
@@ -54,7 +56,10 @@ export function ActiveJobCard({ entry }: { entry: PickupEntry }) {
 
   const order = entry.order;
   const owed = amountOwedAtDoor(order);
-  const next = entry.availableActions[0];
+  // Cancel pickup is never the card's button: handing a job back is a choice
+  // made on the job sheet, not the default next step.
+  const next = entry.availableActions.find((a) => a.action !== 'release_pickup');
+  const [confirming, setConfirming] = useState<string | null>(null);
   const notDueYet = notDueYetReason(order);
   const phone = order.origin_address?.phone;
   const isClaim = next?.action === 'claim';
@@ -73,6 +78,10 @@ export function ActiveJobCard({ entry }: { entry: PickupEntry }) {
    */
   const run = (): void => {
     if (!next) return;
+    if (CONFIRMED_ACTIONS.has(next.action)) {
+      setConfirming(next.action);
+      return;
+    }
     action.mutate({ orderId: order.id, action: next.action });
   };
 
@@ -86,6 +95,14 @@ export function ActiveJobCard({ entry }: { entry: PickupEntry }) {
 
   return (
     <>
+      <ConfirmActionDialog
+        action={confirming}
+        onClose={() => setConfirming(null)}
+        onConfirm={(name) => {
+          setConfirming(null);
+          action.mutate({ orderId: order.id, action: name });
+        }}
+      />
       {/* The body is a link, the action row is not — a button inside an anchor
           is invalid markup and, on a phone, an ambiguous tap. */}
       {/* The press sits on a wrapper: wouter's `Link` is the `<a>` itself, so

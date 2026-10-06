@@ -126,10 +126,10 @@ export function OpsFilterPanel({
           <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             {dateLabel}
           </p>
-          <div className="rounded-xl border border-border bg-muted/20 p-2 space-y-2">
+          <div className="rounded-md border border-border bg-muted/20 p-2 space-y-2">
             {showPickupToggle && (
               <div
-                className="inline-flex rounded-lg border border-border bg-white p-0.5 gap-0.5"
+                className="inline-flex rounded-md border border-border bg-white p-0.5 gap-0.5"
                 data-testid="ops-filter-date-field"
               >
                 {(

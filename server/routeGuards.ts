@@ -8,7 +8,9 @@
  */
 
 import type { Express, NextFunction, Request, RequestHandler, Response } from "express";
-import { findItdUserIdByCustomerId, getIsActiveById } from "./appDb.js";
+import { findItdUserIdByCustomerId, getIsActiveById, getStaffAccessById } from "./appDb.js";
+import { can, isCityScoped, isOpsRole, type OpsPermission } from "../shared/staffAccess.js";
+import { hubCityForId } from "../shared/hubs.js";
 
 /**
  * An async handler whose rejection reaches the error middleware.
@@ -115,18 +117,89 @@ export function requireRole(...roles: string[]) {
 }
 
 /**
- * The ops console's gates, as two values instead of twenty spellings.
+ * The ops console's gate: a signed-in, active ops staff member holding at least
+ * one of `permissions` (shared/staffAccess.ts).
  *
- * `requireUser` first, so a missing session is a 401 rather than a 403.
- * `super_admin` is listed explicitly because `requireRole("admin")` is an exact
- * match, not a rank.
+ *   app.get("/api/ops/payments", ...opsGateFor("payments.view"), handler);
  *
- * `opsDbGate` is the same with `ensureDbUser`, for handlers that need the row
- * id — recording who approved something, or who looked at a document.
+ * `requireUser` first, so a missing session is a 401 rather than a 403. The
+ * role is read from the database on every request, not from the session, so a
+ * super admin changing someone's role or deactivating them takes effect on
+ * their next click rather than their next login.
  */
-export const opsGate = [requireUser, requireRole("admin", "super_admin")] as const;
+export function opsGateFor(...permissions: OpsPermission[]) {
+  return [requireUser, ensureDbUser, loadOpsStaff, requirePermission(...permissions)] as const;
+}
 
-export const opsDbGate = [requireUser, ensureDbUser, requireRole("admin", "super_admin")] as const;
+/**
+ * Reads the caller's role, active flag and hub into `req.staff`.
+ *
+ * Refuses anyone who is not ops staff, and ops staff who have been
+ * deactivated. Keeps `session.user.role` in step with the database so the
+ * client's next /api/auth/me shows the new role.
+ */
+export async function loadOpsStaff(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const dbUserId = req.session.dbUserId;
+  if (!dbUserId) {
+    res.status(401).json({ message: "Login required" });
+    return;
+  }
+
+  const access = await getStaffAccessById(dbUserId);
+  if (!access) {
+    res.status(503).json({ message: "Could not check your access. Please try again." });
+    return;
+  }
+  if (!isOpsRole(access.role)) {
+    res.status(403).json({
+      message: "You do not have permission to perform this action.",
+      code: "FORBIDDEN",
+    });
+    return;
+  }
+  if (!access.is_active) {
+    res.status(403).json({
+      code: "ACCOUNT_DEACTIVATED",
+      message: "This account has been deactivated. Please contact your admin.",
+    });
+    return;
+  }
+
+  if (req.session.user && req.session.user.role !== access.role) {
+    req.session.user.role = access.role;
+  }
+  const scoped = isCityScoped(access.role);
+  req.staff = { role: access.role, scoped, city: scoped ? hubCityForId(access.hub_id) : null };
+  next();
+}
+
+/**
+ * `loadOpsStaff` for ops callers only, on routes customers and agents share
+ * (the order lifecycle endpoint). Anyone else passes through untouched.
+ */
+export async function loadOpsStaffIfOps(req: Request, res: Response, next: NextFunction): Promise<void> {
+  if (!isOpsRole(req.session.user?.role)) {
+    next();
+    return;
+  }
+  await loadOpsStaff(req, res, next);
+}
+
+/** Any one of `permissions`. Mount behind `loadOpsStaff`. */
+export function requirePermission(...permissions: OpsPermission[]) {
+  return function permissionGuard(req: Request, res: Response, next: NextFunction): void {
+    const role = req.staff?.role;
+    if (!role || !permissions.some((p) => can(role, p))) {
+      res.status(403).json({
+        message: "You do not have permission to perform this action.",
+        code: "FORBIDDEN",
+        requiredPermission: permissions,
+      });
+      return;
+    }
+    next();
+  };
+}
 
 export async function ensureDbUser(
   req: Request,

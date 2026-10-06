@@ -40,10 +40,11 @@ import {
   type OpsActionError,
 } from '@/hooks/useOpsOrders';
 import { getOrderStatusLabel } from '@/lib/orderStatus';
+import { useCan } from '@/lib/opsAccess';
 
 function Fact({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="py-2.5 border-b border-border last:border-b-0">
+    <div className="bg-white px-4 py-2.5">
       <p className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
         {label}
       </p>
@@ -86,7 +87,10 @@ export default function OpsOrderDetail() {
   const { data, isLoading, error, isError } = useOpsOrderDetail(orderId);
   const action = useOpsOrderAction(orderId);
   const assign = useOpsAssign(orderId);
+  // Customer support and accounts see the order but never move it.
+  const canAct = useCan('orders.act');
   const canAssign =
+    canAct &&
     data?.order.pickup_request === 1 &&
     data.order.status === 'pickup_requested' &&
     !data.order.agent_id;
@@ -236,7 +240,7 @@ export default function OpsOrderDetail() {
   if (forbidden) {
     return (
       <OpsShell title="Order" subtitle="Access required">
-        <div className="rounded-2xl border border-border bg-white p-6 text-center">
+        <div className="rounded-md border border-border bg-white p-6 text-center">
           <p className="text-base font-semibold">Ops access required</p>
           <Button
             type="button"
@@ -297,7 +301,7 @@ export default function OpsOrderDetail() {
   const needsNewHubCode = Boolean(handover && (handover.locked || !handover.code));
 
   return (
-    <OpsShell title={order.order_no} subtitle={getOrderStatusLabel(order.status)}>
+    <OpsShell title={order.order_no} subtitle={getOrderStatusLabel(order.status)} wide>
       <Link
         href="/ops"
         className="inline-flex items-center gap-1 text-sm font-semibold text-[#F2A123] mb-4"
@@ -307,9 +311,13 @@ export default function OpsOrderDetail() {
         Back to board
       </Link>
 
-      {handover && (
+      {/* Desktop: the order and what to do on the left, its history on the
+          right. Phones: one column, history last. */}
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] lg:gap-8 lg:items-start">
+      <div className="min-w-0">
+      {handover && canAct && (
         <div
-          className="rounded-2xl border border-[#F2A123] bg-[#F2A123]/15 px-4 py-3 mb-4"
+          className="rounded-md border border-[#F2A123] bg-[#F2A123]/15 px-4 py-3 mb-4"
           data-testid="ops-hub-handover-code"
         >
           <p className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground">
@@ -329,7 +337,7 @@ export default function OpsOrderDetail() {
                 type="button"
                 onClick={() => regenerateHandover.mutate(order.id)}
                 disabled={regenerateHandover.isPending}
-                className="mt-3 h-11 rounded-xl bg-primary text-white font-bold"
+                className="mt-3 h-11 rounded-md bg-primary text-white font-bold"
                 data-testid="button-ops-regenerate-hub-code"
               >
                 {regenerateHandover.isPending ? (
@@ -349,7 +357,7 @@ export default function OpsOrderDetail() {
 
       {order.awb_no && (
         <div
-          className="rounded-2xl border border-[#F2A123] bg-[#F2A123]/15 px-4 py-3 mb-4"
+          className="rounded-md border border-[#F2A123] bg-[#F2A123]/15 px-4 py-3 mb-4"
           data-testid="ops-order-awb"
         >
           <p className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground">
@@ -366,7 +374,7 @@ export default function OpsOrderDetail() {
           correction, or a check of ITD's portal before filing again. */}
       {!order.awb_no && order.docket_error && (
         <div
-          className="rounded-2xl border border-destructive bg-destructive/10 px-4 py-3 mb-4"
+          className="rounded-md border border-destructive bg-destructive/10 px-4 py-3 mb-4"
           data-testid="ops-order-docket-error"
         >
           <div className="flex items-center justify-between gap-2">
@@ -402,7 +410,7 @@ export default function OpsOrderDetail() {
       )}
 
       <section
-        className="rounded-2xl border border-border bg-white px-4 mb-6"
+        className="grid sm:grid-cols-2 gap-px rounded-md border border-border bg-border overflow-hidden mb-6 sm:[&>*:last-child:nth-child(odd)]:col-span-2"
         data-testid="ops-order-facts"
       >
         <Fact label="Status" value={getOrderStatusLabel(order.status)} />
@@ -458,7 +466,7 @@ export default function OpsOrderDetail() {
         order.status === 'pickup_requested' &&
         !order.agent_id && (
           <section
-            className="rounded-2xl border border-border bg-white p-4 mb-6"
+            className="rounded-md border border-border bg-white p-4 mb-6"
             data-testid="ops-assign-agent"
           >
             <h2 className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground mb-3">
@@ -479,7 +487,7 @@ export default function OpsOrderDetail() {
               onValueChange={setSelectedAgentId}
             >
               <SelectTrigger
-                className="h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl mt-2 w-full"
+                className="h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-md mt-2 w-full"
                 data-testid="select-ops-assign-agent"
               >
                 <SelectValue placeholder="Select an agent" />
@@ -524,7 +532,7 @@ export default function OpsOrderDetail() {
                   },
                 );
               }}
-              className="mt-4 w-full h-12 rounded-xl bg-primary text-white font-bold"
+              className="mt-4 w-full h-12 rounded-md bg-primary text-white font-bold"
               data-testid="button-ops-assign-agent"
             >
               {assign.isPending ? (
@@ -547,9 +555,10 @@ export default function OpsOrderDetail() {
           disabled={action.isPending}
         />
       </section>
+      </div>
 
       <Dialog open={awbOpen} onOpenChange={(open) => !action.isPending && setAwbOpen(open)}>
-        <DialogContent className="max-w-[calc(100vw-32px)] sm:max-w-md rounded-lg">
+        <DialogContent className="max-w-[calc(100vw-32px)] sm:max-w-md rounded-md">
           <DialogHeader>
             <DialogTitle>Enter AWB from ITD portal</DialogTitle>
             <DialogDescription>
@@ -596,14 +605,14 @@ export default function OpsOrderDetail() {
         </DialogContent>
       </Dialog>
 
-      <section data-testid="ops-order-timeline">
+      <section className="lg:sticky lg:top-6" data-testid="ops-order-timeline">
         <h2 className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground mb-3">
           Timeline
         </h2>
         {events.length === 0 ? (
           <p className="text-sm text-muted-foreground">No events yet.</p>
         ) : (
-          <ol className="rounded-2xl border border-border bg-white divide-y divide-border">
+          <ol className="rounded-md border border-border bg-white divide-y divide-border">
             {events.map((ev) => (
               <li key={ev.id} className="px-4 py-3">
                 <p className="text-sm font-extrabold text-foreground">
@@ -620,6 +629,7 @@ export default function OpsOrderDetail() {
           </ol>
         )}
       </section>
+      </div>
 
       <OpsWeighSheet
         open={weighOpen}

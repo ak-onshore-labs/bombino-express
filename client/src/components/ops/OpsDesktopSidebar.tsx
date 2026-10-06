@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
 import { OPS_NAV, isOpsNavActive, isOpsNavVisible } from '@/lib/opsNav';
 import { useOpsNavBadges } from '@/hooks/useOpsNavBadges';
+import { roleLabel as staffRoleLabel } from '@shared/staffAccess';
 
 function NavItem({
   icon: Icon,
@@ -27,7 +28,7 @@ function NavItem({
     <Link
       href={path}
       className={cn(
-        'flex items-center gap-3 px-3 py-2.5 rounded-xl mx-2 my-0.5 transition-all duration-150 cursor-pointer select-none group',
+        'flex items-center gap-3 px-3 py-2.5 rounded-md mx-2 my-0.5 transition-all duration-150 cursor-pointer select-none group',
         active
           ? 'bg-[#F2A123]/[0.12] text-white'
           : 'text-white/50 hover:bg-white/[0.06] hover:text-white/80'
@@ -57,9 +58,7 @@ function NavItem({
 }
 
 function roleLabel(role: string | undefined): string {
-  if (role === 'super_admin') return 'Super admin';
-  if (role === 'admin') return 'Admin';
-  return role ?? 'Operations';
+  return role ? staffRoleLabel(role) : 'Operations';
 }
 
 /**
@@ -108,7 +107,7 @@ export function OpsDesktopSidebar() {
       </div>
 
       <div className="px-4 py-4 border-b border-white/[0.07] flex items-center gap-3">
-        <div className="w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center bg-[#F2A123]/20">
+        <div className="w-9 h-9 rounded-md flex-shrink-0 flex items-center justify-center bg-[#F2A123]/20">
           {user ? (
             <span className="text-[#F2A123] text-xs font-bold">{initials}</span>
           ) : (
@@ -146,7 +145,7 @@ export function OpsDesktopSidebar() {
         <button
           type="button"
           onClick={() => void handleLogout()}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-white/40 hover:bg-red-500/[0.12] hover:text-red-400 transition-all duration-150 text-left"
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-white/40 hover:bg-red-500/[0.12] hover:text-red-400 transition-all duration-150 text-left"
           data-testid="button-ops-sidebar-logout"
         >
           <LogOut className="w-[18px] h-[18px]" />

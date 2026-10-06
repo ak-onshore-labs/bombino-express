@@ -71,9 +71,6 @@ const docketRetryMode = (order: Order): string | null => {
   return typeof err.retry === "string" ? err.retry : "ops";
 };
 
-/** The order is unclaimed. Race-prone: mirror as `.is('agent_id', null)`. */
-const isUnclaimed = (order: Order): boolean => order.agent_id === null;
-
 /** The caller is the agent holding this job. */
 const isOwningAgent = (order: Order, ctx: TransitionContext): boolean =>
   ctx.userId !== null && order.agent_id === ctx.userId;
@@ -119,28 +116,34 @@ const owesAtHub = (order: Order): boolean =>
 
 export const TRANSITIONS: readonly Transition[] = [
   // ── Agent, pickup path (A5) ────────────────────────────────────────────
-  {
-    from: "pickup_requested",
-    action: "claim",
-    role: "agent",
-    to: "agent_accepted",
-    label: "Accept pickup",
-    // Advisory only. The winner is decided by the conditional UPDATE:
-    //   .eq('status','pickup_requested').is('agent_id', null)
-    // Two agents can both pass this guard; exactly one can pass that WHERE.
-    guard: isUnclaimed,
-  },
+  //
+  // No `claim` row. Since 6 Oct 2026 agents do not take pickups themselves:
+  // the branch head assigns each one from the ops console
+  // (POST /api/ops/orders/:id/assign), which lands the order in
+  // `agent_accepted` with the agent on it. An agent's work starts here.
   {
     from: "agent_accepted",
     action: "start_pickup",
     role: "agent",
     to: "out_for_pickup",
-    label: "Start pickup",
+    label: "Start journey",
     // Only on or after the promised day. Everything downstream — collection,
     // pickup, hub handoff — is reachable only through here, so gating this one
     // transition keeps a future-dated job out of the whole flow without
     // stranding a late one mid-way.
     guard: (order, ctx) => isOwningAgent(order, ctx) && pickupDateArrived(order),
+  },
+  {
+    // The agent cannot do this pickup: it goes back to unassigned and the
+    // branch head assigns it again. Only before the journey starts — there is
+    // no row from `out_for_pickup`, so once on the way they see it through.
+    // Not date-gated: a job for next week can be handed back today.
+    from: "agent_accepted",
+    action: "release_pickup",
+    role: "agent",
+    to: "pickup_requested",
+    label: "Cancel pickup",
+    guard: isOwningAgent,
   },
   {
     // No status change — collection is a `payments` write, and the order is

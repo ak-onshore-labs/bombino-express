@@ -22,9 +22,9 @@ import {
 import { todayInIst } from '@shared/istTime';
 import { docketItem, type OrderConsignee } from '@/lib/orderDetail';
 import { HandoverOtpSheet, type HandoverOtpKind } from '@/components/agent/HandoverOtpSheet';
-import { useAvailablePickups, useMyPickups, useOrderAction } from '@/hooks/useAgentPickups';
+import { useMyPickups, useOrderAction } from '@/hooks/useAgentPickups';
 import type { AgentPickup } from '@/hooks/useAgentPickups';
-import { useSupportContacts } from '@/hooks/useSupportContacts';
+import { ConfirmActionDialog, CONFIRMED_ACTIONS, ProblemDialog } from '@/components/agent/AgentDialogs';
 
 /**
  * One job, as a single white sheet under a navy bar carrying its number.
@@ -85,20 +85,17 @@ export default function PickupDetail() {
   const [, params] = useRoute('/agent/pickup/:id');
   const [, setLocation] = useLocation();
   const mine = useMyPickups();
-  const available = useAvailablePickups();
   const action = useOrderAction();
-  const { telHref } = useSupportContacts();
   const today = todayInIst();
 
-  const entry =
-    mine.data?.find((p) => p.order.id === params?.id) ??
-    available.data?.find((p) => p.order.id === params?.id);
+  // Only the agent's own jobs: they are not shown unassigned bookings.
+  const entry = mine.data?.find((p) => p.order.id === params?.id);
   const order = entry?.order;
 
-  const isLoading = mine.isLoading || available.isLoading;
+  const isLoading = mine.isLoading;
   // Only fatal when we have nothing to show. One list failing while the other
   // holds the job is not worth an error screen.
-  const isError = (mine.isError || available.isError) && !entry;
+  const isError = mine.isError && !entry;
 
   // The order as the server returned it from a completed hub handover. Set once
   // and never cleared: the job has left both lists by then, and this is the only
@@ -117,7 +114,7 @@ export default function PickupDetail() {
   // Also suppressed once the hub handover lands. The job leaves both lists at
   // exactly that moment, and that departure is the thing being reported — this
   // is the one disappearance the agent should be shown rather than moved past.
-  const settling = mine.isFetching || available.isFetching;
+  const settling = mine.isFetching;
   const vanished = !isLoading && !settling && !isError && !entry && !handedOver;
   useEffect(() => {
     if (vanished) setLocation('/agent/mine', { replace: true });
@@ -125,9 +122,8 @@ export default function PickupDetail() {
 
   // Where "back" goes depends on where the job actually is, not on where the
   // agent happened to tap in from.
-  const isFree = !!entry && !mine.data?.some((p) => p.order.id === entry.order.id);
-  const backHref = isFree ? '/agent/available' : '/agent/mine';
-  const backLabel = isFree ? 'New jobs' : 'My jobs';
+  const backHref = '/agent/mine';
+  const backLabel = 'My jobs';
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [receipt, setReceipt] = useState<{ txnId: string | null; amount: number } | null>(null);
@@ -142,6 +138,9 @@ export default function PickupDetail() {
   // The server's verdict on the last code, held so the sheet can show it. Not
   // a toast: the agent is retyping into the field the message is about.
   const [otpError, setOtpError] = useState<string | null>(null);
+  // Start journey and Cancel pickup ask first; Problem opens the call popup.
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [problemOpen, setProblemOpen] = useState(false);
 
   const runAction = (actionName: string, payload?: Record<string, unknown>): void => {
     if (!order) return;
@@ -200,6 +199,10 @@ export default function PickupDetail() {
       setOtpAction(actionName);
       return;
     }
+    if (CONFIRMED_ACTIONS.has(actionName)) {
+      setConfirming(actionName);
+      return;
+    }
     runAction(actionName);
   };
 
@@ -254,13 +257,14 @@ export default function PickupDetail() {
                   disabled={action.isPending}
                   onAction={handleAction}
                   trailing={
-                    <a
-                      href={telHref}
+                    <button
+                      type="button"
+                      onClick={() => setProblemOpen(true)}
                       className="w-full h-full flex items-center justify-center border border-[#CBD5E1]! bg-white text-[19px] font-semibold text-[#1B2A41]"
                       data-testid="button-problem"
                     >
                       Problem
-                    </a>
+                    </button>
                   }
                 />
               </motion.div>
@@ -408,6 +412,16 @@ export default function PickupDetail() {
               {notDueYet}
             </p>
           )}
+
+          <ConfirmActionDialog
+            action={confirming}
+            onClose={() => setConfirming(null)}
+            onConfirm={(name) => {
+              setConfirming(null);
+              runAction(name);
+            }}
+          />
+          <ProblemDialog open={problemOpen} onClose={() => setProblemOpen(false)} />
 
           <CollectPaymentSheet
             open={sheetOpen}

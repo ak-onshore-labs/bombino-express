@@ -21,6 +21,7 @@ import { z } from "zod";
 import {
   advanceOrderStatus,
   claimPickup,
+  releasePickup,
   claimOrderRow,
   recordCollectedPayment,
   transitionOrderStatus,
@@ -46,6 +47,7 @@ import {
 import { notifyAgentOfCancellationRequest, notifyCancellationDeclined } from "./notify.js";
 import type { OpsActionResult } from "./opsActions.js";
 import type { Role } from "../shared/orderContract.js";
+import { can } from "../shared/staffAccess.js";
 
 /**
  * Same contract as `opsActions.ts`, with one addition: a collection answers
@@ -86,6 +88,32 @@ export async function handleClaim(input: {
   await issueCode(input.order.id, "pickup");
 
   return { order: updated, eventNote: "Pickup claimed by agent", eventMeta: {} };
+}
+
+/**
+ * The agent hands an assigned pickup back before setting off. It returns to
+ * unassigned on the ops board for the branch head to assign again; the next
+ * assignment issues the customer a fresh pickup code.
+ */
+export async function handleReleasePickup(input: {
+  order: Order;
+  callerId: string;
+}): Promise<AgentActionResult> {
+  const updated = await releasePickup(input.order.id, input.callerId);
+  if (!updated) {
+    return {
+      error: {
+        status: 409,
+        message: "This pickup has already moved on. Refresh your list.",
+        code: "ORDER_STATE_CHANGED",
+      },
+    };
+  }
+  return {
+    order: updated,
+    eventNote: "Agent cancelled the pickup; back to unassigned for the branch",
+    eventMeta: { released_agent_id: input.callerId },
+  };
 }
 
 /**
@@ -361,7 +389,9 @@ export async function handleCollectPayment(input: {
   payload: unknown;
 }): Promise<AgentActionResult> {
   const atPickup = input.role === "agent";
-  const isOps = input.role === "admin" || input.role === "super_admin";
+  // Hub-side collection is an order action: super admin, admin, branch
+  // manager. Customer support and accounts see orders but never take payment.
+  const isOps = can(input.role, "orders.act");
   if (!atPickup && !isOps) {
     return {
       error: {

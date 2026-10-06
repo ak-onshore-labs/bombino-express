@@ -38,9 +38,9 @@ function order(patch: Partial<Order> = {}): Order {
 const actions = (o: Order, role: Parameters<typeof availableActions>[1], userId: string | null = null): Action[] =>
   availableActions(o, role, { userId }).map((a) => a.action);
 
-test("an unclaimed pickup is offered to an agent, and to nobody else", () => {
+test("nobody claims a pickup: the branch head assigns it", () => {
   const unclaimed = order({ status: "pickup_requested" });
-  assert.ok(actions(unclaimed, "agent", AGENT).includes("claim"));
+  assert.equal(actions(unclaimed, "agent", AGENT).includes("claim"), false);
   assert.equal(actions(unclaimed, "customer").includes("claim"), false);
 });
 
@@ -153,4 +153,23 @@ test("a finished order offers nothing to anyone", () => {
       assert.deepEqual(actions(order({ status }), role, AGENT), [], `${role} had something to do on ${status}`);
     }
   }
+});
+
+test("an assigned agent can start the journey or cancel the pickup", () => {
+  const assigned = order({ status: "agent_accepted", agent_id: AGENT });
+  assert.deepEqual(actions(assigned, "agent", AGENT), ["start_pickup", "release_pickup"]);
+  assert.equal(
+    findTransition(assigned, "release_pickup", "agent", { userId: AGENT })?.to,
+    "pickup_requested"
+  );
+});
+
+test("another agent cannot cancel someone else's pickup", () => {
+  const assigned = order({ status: "agent_accepted", agent_id: OTHER_AGENT });
+  assert.equal(actions(assigned, "agent", AGENT).includes("release_pickup"), false);
+});
+
+test("once the journey starts the pickup cannot be cancelled", () => {
+  const onTheWay = order({ status: "out_for_pickup", agent_id: AGENT });
+  assert.equal(actions(onTheWay, "agent", AGENT).includes("release_pickup"), false);
 });

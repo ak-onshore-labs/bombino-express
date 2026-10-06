@@ -29,7 +29,7 @@ export function OpsApplicationSettings() {
     <>
       <Button
         variant="outline"
-        className="relative h-9 gap-1.5 rounded-lg text-xs font-semibold"
+        className="relative h-9 gap-1.5 rounded-md text-xs font-semibold"
         onClick={() => setOpen(true)}
         aria-label={needsSetup ? 'Settings (needs setting up)' : 'Settings'}
         data-testid="button-application-settings"
@@ -72,9 +72,9 @@ function AlertEmailsSettings() {
   }
   if (alerts.isError || !alerts.data) {
     return (
-      <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert">
+      <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert">
         <p>Couldn't load these settings. If the server was just updated, restart it, then try again.</p>
-        <Button variant="outline" className="mt-2 h-9 rounded-lg text-xs" onClick={() => void alerts.refetch()}>
+        <Button variant="outline" className="mt-2 h-9 rounded-md text-xs" onClick={() => void alerts.refetch()}>
           Try again
         </Button>
       </div>
@@ -142,7 +142,7 @@ function AlertEmailsSettings() {
       </p>
 
       {/* Who it comes from, or why nothing goes out. */}
-      <div className="mt-4 rounded-lg border border-border bg-[#F8F9FA] px-3 py-2.5 text-xs">
+      <div className="mt-4 rounded-md border border-border bg-[#F8F9FA] px-3 py-2.5 text-xs">
         {sender ? (
           <p>
             <span className="text-muted-foreground">Sent from </span>
@@ -161,7 +161,7 @@ function AlertEmailsSettings() {
       {emails.length === 0 ? (
         <p className="mt-2 text-sm text-foreground">Nobody yet. Add the team inbox below.</p>
       ) : (
-        <ul className="mt-2 divide-y divide-border rounded-lg border border-border" data-testid="ops-application-alerts-list">
+        <ul className="mt-2 divide-y divide-border rounded-md border border-border" data-testid="ops-application-alerts-list">
           {emails.map((address) => (
             <li key={address} className="flex items-center justify-between gap-2 py-1.5 pl-3 pr-1.5">
               <span className="min-w-0 break-all text-sm font-semibold text-foreground">{address}</span>
@@ -204,12 +204,12 @@ function AlertEmailsSettings() {
                 setError('');
               }}
               placeholder="ops@bombinoexp.com"
-              className="h-10 flex-1 rounded-lg"
+              className="h-10 flex-1 rounded-md"
               data-testid="input-application-alert-email"
             />
             <Button
               type="submit"
-              className="h-10 rounded-lg text-xs font-semibold"
+              className="h-10 rounded-md text-xs font-semibold"
               disabled={busy || !draft.trim()}
               data-testid="button-application-alerts-add"
             >
@@ -243,7 +243,7 @@ function AlertEmailsSettings() {
         </p>
         <Button
           variant="outline"
-          className="h-9 rounded-lg text-xs font-semibold"
+          className="h-9 rounded-md text-xs font-semibold"
           disabled={test.isPending || emails.length === 0 || !sender}
           onClick={() => void sendTest()}
           data-testid="button-application-alerts-test"

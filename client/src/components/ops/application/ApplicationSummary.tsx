@@ -165,7 +165,7 @@ export function Checks({ data }: { data: Detail }) {
                 {showDuplicates ? 'Hide' : dups.length === 1 ? 'Show it' : `Show all ${dups.length}`}
               </button>
               {showDuplicates && (
-                <ul className="mt-2 max-h-44 overflow-y-auto rounded-lg border border-border divide-y divide-border">
+                <ul className="mt-2 max-h-44 overflow-y-auto rounded-md border border-border divide-y divide-border">
                   {dups.map((dup) => (
                     <li key={`${dup.kind}-${dup.id}-${dup.field}`} className="px-2.5 py-1.5">
                       <Link

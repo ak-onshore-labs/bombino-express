@@ -194,6 +194,34 @@ export async function claimPickup(
 }
 
 /**
+ * An agent hands an assigned pickup back: unassigned again, for the branch head.
+ *
+ * `agent_id = agentId` and `status = agent_accepted` in the WHERE: only the
+ * holder can hand it back, and only before the journey starts. A double tap
+ * matches nothing the second time and returns null.
+ */
+export async function releasePickup(orderId: string, agentId: string): Promise<Order | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("orders")
+    .update({ agent_id: null, status: "pickup_requested", updated_at: new Date().toISOString() })
+    .eq("id", orderId)
+    .eq("agent_id", agentId)
+    .eq("status", "agent_accepted")
+    .select(ORDER_WRITE_COLUMNS)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("releasePickup", error);
+    return null;
+  }
+  if (!data) return null;
+  return toOrder(data as unknown as OrderRow);
+}
+
+/**
  * Move one of the caller's own jobs from `expectedFrom` to `to`.
  *
  * `agent_id = agentId` in the WHERE is what stops one agent advancing another

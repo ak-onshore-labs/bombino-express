@@ -17,6 +17,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { useAppStore } from '@/lib/store';
 import { DOC_SLOT_SPECS, isDocSlot } from '@shared/accountSpec';
 import { cn } from '@/lib/utils';
+import { can } from '@shared/staffAccess';
 
 const LIST_CAP = 200;
 
@@ -68,7 +69,7 @@ function FilterChip({
       onClick={onClick}
       data-testid={testId}
       className={cn(
-        'h-8 px-3 rounded-lg text-xs font-bold transition-colors',
+        'h-8 px-3 rounded-md text-xs font-bold transition-colors',
         selected ? 'bg-[#C62828] text-white' : 'bg-[#F3F4F6] text-foreground hover:bg-muted',
       )}
     >
@@ -224,7 +225,7 @@ function DocumentChips({
 
 export default function OpsCustomers() {
   const isMobile = useIsMobile();
-  const canViewKyc = useAppStore((s) => s.user?.role) === 'super_admin';
+  const canViewKyc = can(useAppStore((s) => s.user?.role), 'kyc.view');
   const [input, setInput] = useState('');
   const [q, setQ] = useState('');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
@@ -283,7 +284,7 @@ export default function OpsCustomers() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Search name or phone"
-              className="h-11 pl-9 rounded-xl bg-white"
+              className="h-11 pl-9 rounded-md bg-white"
               data-testid="ops-customers-search"
               aria-label="Search name or phone"
             />
@@ -378,17 +379,17 @@ export default function OpsCustomers() {
                 {listCaption(list.data!.length, filtered)}
               </p>
               <div
-                className="rounded-2xl border border-border bg-white overflow-x-auto"
+                className="rounded-md border border-border bg-white overflow-x-auto"
                 data-testid="ops-customers-list"
               >
-                <table className="w-full text-sm" data-testid="ops-customers-table">
+                <table className="ops-table min-w-[860px]" data-testid="ops-customers-table">
                   <thead>
                     <tr className="text-left text-xs font-semibold text-muted-foreground border-b border-border">
                       <th className="px-4 py-3">Customer</th>
                       <th className="px-4 py-3">Contact</th>
                       <th className="px-4 py-3">Type</th>
                       <th className="px-4 py-3">KYC/Documents</th>
-                      <th className="px-4 py-3">Orders</th>
+                      <th className="num">Orders</th>
                       <th className="px-4 py-3">Joined</th>
                     </tr>
                   </thead>
@@ -427,7 +428,7 @@ export default function OpsCustomers() {
                             onDownloadShipment={() => downloadShipment(row.id)}
                           />
                         </td>
-                        <td className="px-4 py-3 tabular-nums">
+                        <td className="num">
                           {row.order_count > 0 ? (
                             <Link
                               href={`/ops/customers/${row.id}`}

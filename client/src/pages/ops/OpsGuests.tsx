@@ -66,7 +66,7 @@ function FilterChip({
       onClick={onClick}
       data-testid={testId}
       className={cn(
-        'h-8 px-3 rounded-lg text-xs font-bold transition-colors',
+        'h-8 px-3 rounded-md text-xs font-bold transition-colors',
         selected ? 'bg-[#C62828] text-white' : 'bg-[#F3F4F6] text-foreground hover:bg-muted',
       )}
     >
@@ -125,7 +125,7 @@ export default function OpsGuests() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Search name or phone"
-              className="h-11 pl-9 rounded-xl bg-white"
+              className="h-11 pl-9 rounded-md bg-white"
               data-testid="ops-guests-search"
               aria-label="Search name or phone"
             />
@@ -200,17 +200,17 @@ export default function OpsGuests() {
                 {listCaption(list.data!.length, filtered)}
               </p>
               <div
-                className="rounded-2xl border border-border bg-white overflow-x-auto"
+                className="rounded-md border border-border bg-white overflow-x-auto"
                 data-testid="ops-guests-list"
               >
-                <table className="w-full text-sm" data-testid="ops-guests-table">
+                <table className="ops-table min-w-[820px]" data-testid="ops-guests-table">
                   <thead>
                     <tr className="text-left text-xs font-semibold text-muted-foreground border-b border-border">
                       <th className="px-4 py-3">Guest</th>
                       <th className="px-4 py-3">Contact</th>
                       <th className="px-4 py-3">Type</th>
                       <th className="px-4 py-3">KYC/Documents</th>
-                      <th className="px-4 py-3">Orders</th>
+                      <th className="num">Orders</th>
                       <th className="px-4 py-3">Joined</th>
                     </tr>
                   </thead>
@@ -247,7 +247,7 @@ export default function OpsGuests() {
                             <span className="text-xs text-muted-foreground">—</span>
                           )}
                         </td>
-                        <td className="px-4 py-3 tabular-nums">
+                        <td className="num">
                           {row.order_count > 0 ? (
                             <Link
                               href={`/ops/guests/${row.guest_ref}`}

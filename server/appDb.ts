@@ -4,6 +4,7 @@ import { supabase } from "./supabaseClient.js";
 import { dbClient, logDbError, type DbError } from "./db/client.js";
 import type { ChatMessage } from "./supportTypes.js";
 import type { CompanyCategory } from "../shared/accountSpec.js";
+import { STAFF_ROLES, type StaffRole } from "../shared/staffAccess.js";
 
 type Json = Record<string, unknown> | unknown[] | null;
 
@@ -227,7 +228,6 @@ export type StaffUserRow = {
   is_active: boolean;
 };
 
-const STAFF_ROLES = ["agent", "admin", "super_admin"] as const;
 const STAFF_USER_COLUMNS = "id, full_name, phone, email, role, is_active";
 
 function mapStaffUserRow(row: {
@@ -251,7 +251,7 @@ function mapStaffUserRow(row: {
 export type InsertStaffUserInput = {
   full_name: string;
   phone: string;
-  role: "agent" | "admin";
+  role: Exclude<StaffRole, "super_admin">;
   hub_id: number;
 };
 
@@ -349,10 +349,13 @@ export type UpdateStaffUserInput = {
   phone?: string;
   email?: string;
   is_active?: boolean;
+  /** Only a super admin sends this; the route checks. Never to or from super_admin. */
+  role?: Exclude<StaffRole, "super_admin">;
 };
 
 /**
- * Patch a staff account's name / phone / email / active flag. Never writes role.
+ * Patch a staff account's name / phone / email / active flag, and its role
+ * when a super admin changes it (the route decides who may).
  *
  * Phone is the OTP login key. A new number that already belongs to a different
  * row is `"taken"` (itd_users_phone_key). The rider's own phone is not a
@@ -377,12 +380,14 @@ export async function updateStaffUser(
     email?: string;
     username?: string;
     is_active?: boolean;
+    role?: string;
     updated_at: string;
   } = { updated_at: new Date().toISOString() };
 
   if (patch.full_name !== undefined) update.full_name = patch.full_name;
   if (patch.email !== undefined) update.email = patch.email;
   if (patch.is_active !== undefined) update.is_active = patch.is_active;
+  if (patch.role !== undefined) update.role = patch.role;
   if (patch.phone !== undefined && patch.phone !== existing.phone) {
     const owner = await findItdUserIdByPhone(patch.phone);
     if (owner && owner.id !== id) return "taken";
@@ -596,6 +601,33 @@ export async function getCustomerForOps(id: string): Promise<OpsCustomerRow | nu
   if (!data) return null;
   const row = mapOpsCustomerRow(data);
   return row.id ? row : null;
+}
+
+/**
+ * What the ops gate needs about the caller, read fresh on every ops request so
+ * a role change or a deactivation takes effect without a new login. `hub_id` is
+ * the hub the account was created with; for a branch manager it is their city.
+ */
+export type StaffAccess = { role: string; is_active: boolean; hub_id: unknown };
+
+export async function getStaffAccessById(id: string): Promise<StaffAccess | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("itd_users")
+    .select("role, is_active, metadata")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("getStaffAccessById", error);
+    return null;
+  }
+  if (!data) return null;
+  const metadata =
+    data.metadata && typeof data.metadata === "object" ? (data.metadata as Record<string, unknown>) : {};
+  return { role: String(data.role ?? ""), is_active: data.is_active !== false, hub_id: metadata.hub_id ?? null };
 }
 
 /**

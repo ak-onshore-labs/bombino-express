@@ -10,8 +10,15 @@ import {
 
 test('each role lands in its own app', () => {
   assert.equal(landingPathForRole('agent'), '/agent');
-  assert.equal(landingPathForRole('admin'), '/ops');
-  assert.equal(landingPathForRole('super_admin'), '/ops');
+  assert.equal(landingPathForRole('admin'), '/ops/dashboard');
+  assert.equal(landingPathForRole('super_admin'), '/ops/dashboard');
+  assert.equal(landingPathForRole('branch_manager'), '/ops/dashboard');
+  assert.equal(landingPathForRole('accounts'), '/ops/dashboard');
+  // No dashboard: lands on the review queue.
+  assert.equal(landingPathForRole('kyc_reviewer'), '/ops/applications');
+  for (const role of ['branch_manager', 'customer_support', 'accounts', 'kyc_reviewer']) {
+    assert.equal(surfaceForRole(role), 'ops', role);
+  }
   assert.equal(landingPathForRole('customer'), '/home');
 });
 

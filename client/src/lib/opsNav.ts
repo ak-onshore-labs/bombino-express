@@ -5,6 +5,7 @@
  */
 
 import type { LucideIcon } from 'lucide-react';
+import { canSeeTab, type OpsTab } from '@shared/staffAccess';
 import {
   ContactRound,
   Route as RouteIcon,
@@ -30,13 +31,14 @@ export type OpsNavItem = {
   mobile: boolean;
   /** In the mobile More sheet — not on the bar. */
   mobileMore: boolean;
-  /** Hidden unless the session role is super_admin. Cosmetic — the API is the lock. */
-  superAdminOnly?: boolean;
+  /** Which tab of the role table (shared/staffAccess.ts) this is. */
+  tab: OpsTab;
 };
 
 export const OPS_NAV: readonly OpsNavItem[] = [
   {
     label: 'Dashboard',
+    tab: 'dashboard',
     mobileLabel: 'Dash',
     path: '/ops/dashboard',
     icon: LayoutDashboard,
@@ -45,6 +47,7 @@ export const OPS_NAV: readonly OpsNavItem[] = [
   },
   {
     label: 'Pickups',
+    tab: 'pickups',
     mobileLabel: 'Pickups',
     path: '/ops/pickups',
     icon: Truck,
@@ -53,6 +56,7 @@ export const OPS_NAV: readonly OpsNavItem[] = [
   },
   {
     label: 'Drop-offs',
+    tab: 'dropoffs',
     mobileLabel: 'Drops',
     path: '/ops/dropoffs',
     // lucide 0.545 has no PackageDown — Package is the drop-off stand-in.
@@ -62,6 +66,7 @@ export const OPS_NAV: readonly OpsNavItem[] = [
   },
   {
     label: 'Dispatched',
+    tab: 'dispatched',
     mobileLabel: 'Sent',
     path: '/ops/dispatched',
     icon: Send,
@@ -70,6 +75,7 @@ export const OPS_NAV: readonly OpsNavItem[] = [
   },
   {
     label: 'Transactions',
+    tab: 'transactions',
     mobileLabel: 'Txns',
     path: '/ops/transactions',
     icon: Wallet,
@@ -78,6 +84,7 @@ export const OPS_NAV: readonly OpsNavItem[] = [
   },
   {
     label: 'Customers',
+    tab: 'customers',
     mobileLabel: 'Customers',
     path: '/ops/customers',
     icon: ContactRound,
@@ -86,6 +93,7 @@ export const OPS_NAV: readonly OpsNavItem[] = [
   },
   {
     label: 'Guests',
+    tab: 'guests',
     mobileLabel: 'Guests',
     path: '/ops/guests',
     icon: UserRound,
@@ -97,6 +105,7 @@ export const OPS_NAV: readonly OpsNavItem[] = [
     // A desk task (reading documents, creating the customer in ITD), so it sits
     // in the More sheet on a phone rather than on the four-tab bar.
     label: 'Applications',
+    tab: 'applications',
     mobileLabel: 'Applications',
     path: '/ops/applications',
     icon: UserPlus,
@@ -105,6 +114,7 @@ export const OPS_NAV: readonly OpsNavItem[] = [
   },
   {
     label: 'Users',
+    tab: 'users',
     mobileLabel: 'Users',
     path: '/ops/users',
     icon: Users,
@@ -115,6 +125,7 @@ export const OPS_NAV: readonly OpsNavItem[] = [
     // A desk task — editing rider coverage is not something done on a phone in
     // the street — so it sits in the More sheet rather than on the four-tab bar.
     label: 'Beats',
+    tab: 'beats',
     mobileLabel: 'Beats',
     path: '/ops/beats',
     icon: RouteIcon,
@@ -123,6 +134,7 @@ export const OPS_NAV: readonly OpsNavItem[] = [
   },
   {
     label: 'Pincodes',
+    tab: 'pincodes',
     mobileLabel: 'Pincodes',
     path: '/ops/pincodes',
     icon: MapPin,
@@ -131,12 +143,12 @@ export const OPS_NAV: readonly OpsNavItem[] = [
   },
   {
     label: 'Settings',
+    tab: 'settings',
     mobileLabel: 'Settings',
     path: '/ops/settings',
     icon: Settings,
     mobile: false,
     mobileMore: true,
-    superAdminOnly: true,
   },
 ];
 
@@ -152,9 +164,10 @@ export function isOpsMoreActive(location: string): boolean {
   );
 }
 
+/** Whether this role has the tab. Cosmetic — the API is the lock. */
 export function isOpsNavVisible(
   item: OpsNavItem,
   role: string | undefined,
 ): boolean {
-  return !item.superAdminOnly || role === 'super_admin';
+  return canSeeTab(role, item.tab);
 }

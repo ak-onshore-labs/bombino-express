@@ -373,16 +373,14 @@ export default function Profile() {
                 <BandHeader label="Your pickup area" testId="band-your-area" />
                 {beats.length === 0 ? (
                   <JobCard>
-                    {/* Not an error and not a warning. An unassigned rider works
-                        normally — they see every unclaimed job like everyone
-                        else — so this says what is true rather than implying
-                        something is broken. */}
+                    {/* Not an error and not a warning. The branch head assigns
+                        every pickup, so a rider with no round still gets work. */}
                     <p
                       className="px-4 py-[15px] text-[15px] text-[#64748B]"
                       data-testid="text-no-beat"
                     >
-                      You're not on a round yet, so you'll hear about jobs
-                      anywhere. Ops can set your area.
+                      You're not on a round yet. Your branch assigns your
+                      pickups, and can set your area.
                     </p>
                   </JobCard>
                 ) : (
@@ -411,12 +409,9 @@ export default function Profile() {
                         <PincodeList pincodes={beat.pincodes} />
                       </JobCard>
                     ))}
-                    {/* The pool is national on purpose — cover has to work when
-                        somebody is off — and a rider seeing a job two cities
-                        away would otherwise read as a bug. */}
                     <p className="px-1 text-[13px] leading-snug text-[#64748B]">
-                      These are the pincodes you're told about. You can still
-                      claim any job you see.
+                      These are the pincodes you usually cover. Your branch
+                      assigns each pickup to you.
                     </p>
                   </div>
                 )}

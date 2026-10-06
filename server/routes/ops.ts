@@ -2,13 +2,14 @@
  * Phase 3A/3B — Ops read endpoints (board + order detail + availableActions).
  *
  * Self-registering: `registerOpsRoutes(app)` is called from `routes.ts`.
- * Every route is gated requireUser + requireRole("admin","super_admin") so
- * super_admin is never rejected by an exact single-arg "admin" match.
+ * Every route is gated on a permission from shared/staffAccess.ts via
+ * `opsGateFor`. A branch manager's orders, agents and beats are filtered to
+ * their city (server/staffScope.ts).
  */
 
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
-import { isIndiaHubId } from "../../shared/hubs.js";
+import { hubCity, isIndiaHubId } from "../../shared/hubs.js";
 import {
   beatIdsForAgent,
   beatNamesByAgent,
@@ -95,7 +96,9 @@ import {
   type OpsPaymentRange,
 } from "../opsDb.js";
 import { buildPincodeReport } from "../pincodeReport.js";
-import { opsGate, requireRole, requireUser, ensureDbUser } from "../routeGuards.js";
+import { opsGateFor } from "../routeGuards.js";
+import { isCallersOrder, isScoped, keepCallersOrders } from "../staffScope.js";
+import { assignableRoles, can, STAFF_ROLES } from "../../shared/staffAccess.js";
 import { INDIAN_MOBILE_MESSAGE, INDIAN_MOBILE_PATTERN } from "../../shared/contact.js";
 import { sendDocumentFile, wantsDownload } from "../documentResponse.js";
 import { loadAgentsWithCities, pickAgentsForCity, pickupCity } from "../assignableAgents.js";
@@ -114,7 +117,7 @@ import {
 const createStaffSchema = z.object({
   full_name: z.string().trim().min(1, "Full name is required"),
   phone: z.string().trim().regex(INDIAN_MOBILE_PATTERN, INDIAN_MOBILE_MESSAGE),
-  role: z.enum(["agent", "admin"]),
+  role: z.enum(STAFF_ROLES).refine((r) => r !== "super_admin", "A super admin cannot be created here"),
   hub_id: z.coerce.number().int().refine(isIndiaHubId, "Select a valid hub"),
 });
 
@@ -137,13 +140,18 @@ const patchStaffSchema = z
       )
       .optional(),
     is_active: z.boolean().optional(),
+    role: z
+      .enum(STAFF_ROLES)
+      .refine((r) => r !== "super_admin", "A super admin cannot be made here")
+      .optional(),
   })
   .refine(
     (patch) =>
       patch.full_name !== undefined ||
       patch.phone !== undefined ||
       patch.email !== undefined ||
-      patch.is_active !== undefined,
+      patch.is_active !== undefined ||
+      patch.role !== undefined,
     "Nothing to change"
   );
 
@@ -310,11 +318,34 @@ function asOrder(row: OpsOrderDetail): Order {
   };
 }
 
+/** A branch manager sees beats whose hub is in their city. */
+function isCallersBeat(req: Request, hub: string): boolean {
+  const own = req.staff?.city ?? null;
+  return own !== null && hubCity(hub) === own;
+}
+
+/**
+ * The staff rows the caller may see. A branch manager sees their own city's
+ * pickup agents and nobody else; every other role sees all staff.
+ */
+async function keepCallersStaff<T extends { id: string; role: string }>(
+  req: Request,
+  rows: T[]
+): Promise<T[] | null> {
+  if (!isScoped(req)) return rows;
+  const own = req.staff?.city ?? null;
+  if (!own) return [];
+  const agents = await loadAgentsWithCities({ includeInactive: true });
+  if (!agents) return null;
+  const inCity = new Set(agents.filter((a) => a.cities.includes(own)).map((a) => a.id));
+  return rows.filter((r) => r.role === "agent" && inCity.has(r.id));
+}
+
 export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/orders — all orders, newest first (cap 200)
   app.get(
     "/api/ops/orders",
-    ...opsGate,
+    ...opsGateFor("orders.view"),
     async (req: Request, res: Response) => {
       const rawStatus = req.query.status;
       let status: string | undefined;
@@ -329,7 +360,8 @@ export function registerOpsRoutes(app: Express): void {
         status = rawStatus;
       }
 
-      const orders = await listAllOrdersForOps({ status, limit: 200 });
+      const all = await listAllOrdersForOps({ status, limit: 200 });
+      const orders = all === null ? null : await keepCallersOrders(req, all);
       if (orders === null) {
         res.status(502).json({ message: "Could not load orders" });
         return;
@@ -343,7 +375,7 @@ export function registerOpsRoutes(app: Express): void {
   // Registered before /orders/:id so "export" is not parsed as an id.
   app.get(
     "/api/ops/orders/export",
-    ...opsGate,
+    ...opsGateFor("orders.view"),
     async (req: Request, res: Response) => {
       const parsed = ordersExportQuerySchema.safeParse(req.query);
       if (!parsed.success) {
@@ -355,7 +387,7 @@ export function registerOpsRoutes(app: Express): void {
 
       const q = parsed.data;
       const section = q.section as OpsBoardSection;
-      const orders = await listOpsOrdersForExport({
+      const all = await listOpsOrdersForExport({
         section,
         filters: {
           assignment: q.assignment ?? DEFAULT_OPS_BOARD_FILTERS.assignment,
@@ -367,6 +399,7 @@ export function registerOpsRoutes(app: Express): void {
         query: q.q ?? "",
         sort: q.sort ?? "newest",
       });
+      const orders = all === null ? null : await keepCallersOrders(req, all);
       if (orders === null) {
         res.status(502).json({ message: "Could not export orders" });
         return;
@@ -379,7 +412,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/payments — ops-wide ledger (IST today | last 7 days)
   app.get(
     "/api/ops/payments",
-    ...opsGate,
+    ...opsGateFor("payments.view"),
     async (req: Request, res: Response) => {
       const range = parsePaymentRange(req.query.range);
       if (range === null) {
@@ -400,7 +433,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/payments/export — uncapped ledger rows (same IST window)
   app.get(
     "/api/ops/payments/export",
-    ...opsGate,
+    ...opsGateFor("payments.view"),
     async (req: Request, res: Response) => {
       const range = parsePaymentRange(req.query.range);
       if (range === null) {
@@ -421,25 +454,26 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/cancellations — pending cancellation requests
   app.get(
     "/api/ops/cancellations",
-    ...opsGate,
-    async (_req: Request, res: Response) => {
+    ...opsGateFor("orders.view"),
+    async (req: Request, res: Response) => {
       const result = await listPendingCancellationsForOps();
-      if (result === null) {
+      const cancellations = result === null ? null : await keepCallersOrders(req, result.cancellations);
+      if (cancellations === null) {
         res.status(502).json({ message: "Could not load cancellations" });
         return;
       }
 
-      res.json(result);
+      res.json({ cancellations, count: cancellations.length });
     }
   );
 
   // GET /api/ops/orders/:id — any order by id + events + availableActions
   app.get(
     "/api/ops/orders/:id",
-    ...opsGate,
+    ...opsGateFor("orders.view"),
     async (req: Request, res: Response) => {
       const order = await getOrderByIdForOps(req.params.id);
-      if (!order) {
+      if (!order || !(await isCallersOrder(req, order))) {
         res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
         return;
       }
@@ -452,6 +486,8 @@ export function registerOpsRoutes(app: Express): void {
 
       const role = isRole(req.session.user?.role) ? req.session.user!.role : null;
       const callerId = req.session.dbUserId;
+      // View-only roles (customer support, accounts) match no transition row,
+      // so they get an empty list and the page renders no buttons.
       const actions =
         role && callerId
           ? availableActions(asOrder(order), role, { userId: callerId })
@@ -482,16 +518,30 @@ export function registerOpsRoutes(app: Express): void {
   // city, for the Assign to agent picker. See server/assignableAgents.ts.
   app.get(
     "/api/ops/orders/:id/assignable-agents",
-    ...opsGate,
+    ...opsGateFor("orders.act"),
     async (req: Request, res: Response) => {
       const order = await getOrderByIdForOps(req.params.id);
-      if (!order) {
+      if (!order || !(await isCallersOrder(req, order))) {
         res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
         return;
       }
       const [city, agents] = await Promise.all([pickupCity(order.items), loadAgentsWithCities()]);
       if (!agents) {
         res.status(502).json({ message: "Could not load agents" });
+        return;
+      }
+      // A branch manager picks from their own city's agents only, never the
+      // whole-country fallback.
+      if (isScoped(req)) {
+        const own = req.staff?.city ?? null;
+        res.json({
+          city: own,
+          scoped: true,
+          agents: agents
+            .filter((a) => own !== null && a.cities.includes(own))
+            .map(({ id, full_name, phone }) => ({ id, full_name, phone }))
+            .sort((a, b) => a.full_name.localeCompare(b.full_name)),
+        });
         return;
       }
       res.json(pickAgentsForCity(agents, city));
@@ -501,7 +551,7 @@ export function registerOpsRoutes(app: Express): void {
   // POST /api/ops/orders/:id/assign — admin-directed pickup assign (auto-advance)
   app.post(
     "/api/ops/orders/:id/assign",
-    ...opsGate,
+    ...opsGateFor("orders.act"),
     async (req: Request, res: Response) => {
       const callerId = req.session.dbUserId;
       if (!callerId) {
@@ -525,6 +575,26 @@ export function registerOpsRoutes(app: Express): void {
           code: "INVALID_AGENT",
         });
         return;
+      }
+
+      // A branch manager assigns their own city's pickups to their own city's
+      // agents. Everyone else with orders.act may assign anywhere.
+      if (isScoped(req)) {
+        const target = await getOrderByIdForOps(req.params.id);
+        if (!target || !(await isCallersOrder(req, target))) {
+          res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
+          return;
+        }
+        const own = req.staff?.city ?? null;
+        const agents = await loadAgentsWithCities();
+        const inCity = agents?.some((a) => a.id === agentId && own !== null && a.cities.includes(own));
+        if (!inCity) {
+          res.status(403).json({
+            message: "You can only assign agents from your own city.",
+            code: "AGENT_OUTSIDE_CITY",
+          });
+          return;
+        }
       }
 
       const updated = await assignPickup(req.params.id, agentId);
@@ -573,7 +643,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/customers — customer directory (meta + KYC-on-file, no numbers)
   app.get(
     "/api/ops/customers",
-    ...opsGate,
+    ...opsGateFor("customers.view"),
     async (req: Request, res: Response) => {
       const parsed = customersListQuerySchema.safeParse(req.query);
       if (!parsed.success) {
@@ -637,7 +707,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/customers/:id — one customer + KYC meta (no numbers / bytes)
   app.get(
     "/api/ops/customers/:id",
-    ...opsGate,
+    ...opsGateFor("customers.view"),
     async (req: Request, res: Response) => {
       const parsedId = customerIdSchema.safeParse(req.params.id);
       if (!parsedId.success) {
@@ -684,7 +754,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/customers/:id/orders — this customer's bookings (registered only)
   app.get(
     "/api/ops/customers/:id/orders",
-    ...opsGate,
+    ...opsGateFor("customers.view"),
     async (req: Request, res: Response) => {
       const parsedId = customerIdSchema.safeParse(req.params.id);
       if (!parsedId.success) {
@@ -711,8 +781,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/guests — guest directory (meta + KYC-on-file, no numbers)
   app.get(
     "/api/ops/guests",
-    requireUser,
-    requireRole("admin", "super_admin"),
+    ...opsGateFor("guests.view"),
     async (req: Request, res: Response) => {
       const parsed = guestsListQuerySchema.safeParse(req.query);
       if (!parsed.success) {
@@ -762,8 +831,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/guests/:ref — one guest + KYC meta (no numbers / bytes)
   app.get(
     "/api/ops/guests/:ref",
-    requireUser,
-    requireRole("admin", "super_admin"),
+    ...opsGateFor("guests.view"),
     async (req: Request, res: Response) => {
       const parsedRef = guestRefSchema.safeParse(req.params.ref);
       if (!parsedRef.success) {
@@ -811,8 +879,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/guests/:ref/orders — this guest's unclaimed bookings
   app.get(
     "/api/ops/guests/:ref/orders",
-    requireUser,
-    requireRole("admin", "super_admin"),
+    ...opsGateFor("guests.view"),
     async (req: Request, res: Response) => {
       const parsedRef = guestRefSchema.safeParse(req.params.ref);
       if (!parsedRef.success) {
@@ -836,11 +903,8 @@ export function registerOpsRoutes(app: Express): void {
     }
   );
 
-  const opsKycGate = [
-    requireUser,
-    ensureDbUser,
-    requireRole("super_admin"),
-  ] as const;
+  // Super admin, customer support and KYC reviewers. Every view is logged.
+  const opsKycGate = opsGateFor("kyc.view");
 
   // GET /api/ops/customers/:id/kyc/file — shipment KYC image (super_admin, logged)
   app.get(
@@ -1056,7 +1120,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/verifications — customers who still owe documents
   app.get(
     "/api/ops/verifications",
-    ...opsGate,
+    ...opsGateFor("customers.view"),
     async (_req: Request, res: Response) => {
       const accounts = await listCustomerAccounts();
       if (accounts === null) {
@@ -1098,9 +1162,10 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/users — staff accounts (agent / admin / super_admin)
   app.get(
     "/api/ops/users",
-    ...opsGate,
-    async (_req: Request, res: Response) => {
-      const users = await listStaffUsers();
+    ...opsGateFor("users.view"),
+    async (req: Request, res: Response) => {
+      const all = await listStaffUsers();
+      const users = all === null ? null : await keepCallersStaff(req, all);
       if (users === null) {
         res.status(502).json({ message: "Could not load users" });
         return;
@@ -1127,8 +1192,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/users/:id — one staff row + this agent's beat ids
   app.get(
     "/api/ops/users/:id",
-    requireUser,
-    requireRole("admin", "super_admin"),
+    ...opsGateFor("users.view"),
     async (req: Request, res: Response) => {
       const id = staffUserIdSchema.safeParse(req.params.id);
       if (!id.success) {
@@ -1137,7 +1201,8 @@ export function registerOpsRoutes(app: Express): void {
       }
 
       const user = await getStaffUserById(id.data);
-      if (!user) {
+      const visible = user ? await keepCallersStaff(req, [user]) : [];
+      if (!user || !visible?.length) {
         res.status(404).json({ message: "User not found" });
         return;
       }
@@ -1155,8 +1220,7 @@ export function registerOpsRoutes(app: Express): void {
   // Registered before PATCH /users/:id so "beats" is never parsed as an id.
   app.put(
     "/api/ops/users/:id/beats",
-    requireUser,
-    requireRole("admin", "super_admin"),
+    ...opsGateFor("users.manage"),
     async (req: Request, res: Response) => {
       const id = staffUserIdSchema.safeParse(req.params.id);
       if (!id.success) {
@@ -1202,12 +1266,12 @@ export function registerOpsRoutes(app: Express): void {
     }
   );
 
-  // PATCH /api/ops/users/:id — name / phone / email / is_active. Never role.
+  // PATCH /api/ops/users/:id — name / phone / email / is_active, and role for
+  // a super admin. Nobody changes their own role, or anyone's to or from super
+  // admin: there is one owner of the system and it is not edited from here.
   app.patch(
     "/api/ops/users/:id",
-    requireUser,
-    requireRole("admin", "super_admin"),
-    ensureDbUser,
+    ...opsGateFor("users.manage"),
     async (req: Request, res: Response) => {
       const id = staffUserIdSchema.safeParse(req.params.id);
       if (!id.success) {
@@ -1223,16 +1287,40 @@ export function registerOpsRoutes(app: Express): void {
         return;
       }
 
+      // An admin edits pickup agents; a super admin edits anyone.
+      const target = await getStaffUserById(id.data);
+      if (!target) {
+        res.status(404).json({ message: "User not found" });
+        return;
+      }
+      if (!can(req.staff?.role, "users.assign_roles") && target.role !== "agent") {
+        res.status(403).json({
+          message: "Only a super admin can edit this account.",
+          code: "FORBIDDEN",
+        });
+        return;
+      }
+
+      if (parsed.data.role !== undefined && parsed.data.role !== target.role) {
+        if (!can(req.staff?.role, "users.assign_roles")) {
+          res.status(403).json({ message: "Only a super admin can change roles.", code: "FORBIDDEN" });
+          return;
+        }
+        if (req.session.dbUserId === id.data) {
+          res.status(400).json({ message: "You cannot change your own role." });
+          return;
+        }
+        if (target.role === "super_admin") {
+          res.status(400).json({ message: "A super admin's role cannot be changed here." });
+          return;
+        }
+      }
+
       if (parsed.data.is_active === false) {
         if (req.session.dbUserId === id.data) {
           res.status(400).json({
             message: "You cannot deactivate your own account.",
           });
-          return;
-        }
-        const target = await getStaffUserById(id.data);
-        if (!target) {
-          res.status(404).json({ message: "User not found" });
           return;
         }
         if (target.role === "super_admin") {
@@ -1275,8 +1363,7 @@ export function registerOpsRoutes(app: Express): void {
 
   app.get(
     "/api/ops/pincodes/:pincode",
-    requireUser,
-    requireRole("admin", "super_admin"),
+    ...opsGateFor("pincodes.view"),
     async (req: Request, res: Response) => {
       const parsed = pincodeParamSchema.safeParse(req.params.pincode);
       if (!parsed.success) {
@@ -1301,13 +1388,14 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/beats — every beat, retired ones included
   app.get(
     "/api/ops/beats",
-    ...opsGate,
-    async (_req: Request, res: Response) => {
-      const beats = await listBeats();
-      if (beats === null) {
+    ...opsGateFor("beats.view"),
+    async (req: Request, res: Response) => {
+      const all = await listBeats();
+      if (all === null) {
         res.status(502).json({ message: "Could not load beats" });
         return;
       }
+      const beats = isScoped(req) ? all.filter((b) => isCallersBeat(req, b.hub)) : all;
       res.json({ beats });
     }
   );
@@ -1315,7 +1403,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/beats/:id — one beat with its full pincode list
   app.get(
     "/api/ops/beats/:id",
-    ...opsGate,
+    ...opsGateFor("beats.view"),
     async (req: Request, res: Response) => {
       const id = beatIdSchema.safeParse(req.params.id);
       if (!id.success) {
@@ -1324,7 +1412,7 @@ export function registerOpsRoutes(app: Express): void {
       }
 
       const beat = await getBeat(id.data);
-      if (beat === "missing") {
+      if (beat === "missing" || (beat !== null && isScoped(req) && !isCallersBeat(req, beat.hub))) {
         res.status(404).json({ message: "No such beat" });
         return;
       }
@@ -1339,7 +1427,7 @@ export function registerOpsRoutes(app: Express): void {
   // POST /api/ops/beats — create one
   app.post(
     "/api/ops/beats",
-    ...opsGate,
+    ...opsGateFor("beats.manage"),
     async (req: Request, res: Response) => {
       const parsed = createBeatSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -1365,7 +1453,7 @@ export function registerOpsRoutes(app: Express): void {
   // PATCH /api/ops/beats/:id — name, hub, cut-off, or retire it
   app.patch(
     "/api/ops/beats/:id",
-    ...opsGate,
+    ...opsGateFor("beats.manage"),
     async (req: Request, res: Response) => {
       const id = beatIdSchema.safeParse(req.params.id);
       if (!id.success) {
@@ -1408,7 +1496,7 @@ export function registerOpsRoutes(app: Express): void {
    */
   app.put(
     "/api/ops/beats/:id/pincodes",
-    ...opsGate,
+    ...opsGateFor("beats.manage"),
     async (req: Request, res: Response) => {
       const id = beatIdSchema.safeParse(req.params.id);
       if (!id.success) {
@@ -1454,7 +1542,7 @@ export function registerOpsRoutes(app: Express): void {
    */
   app.put(
     "/api/ops/beats/:id/agents",
-    ...opsGate,
+    ...opsGateFor("beats.manage"),
     async (req: Request, res: Response) => {
       const id = beatIdSchema.safeParse(req.params.id);
       if (!id.success) {
@@ -1494,7 +1582,7 @@ export function registerOpsRoutes(app: Express): void {
   // POST /api/ops/users — mint a real itd_users staff row (seed-script shape)
   app.post(
     "/api/ops/users",
-    ...opsGate,
+    ...opsGateFor("users.manage"),
     async (req: Request, res: Response) => {
       const parsed = createStaffSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -1504,6 +1592,15 @@ export function registerOpsRoutes(app: Express): void {
         return;
       }
       const { full_name, phone, role, hub_id } = parsed.data;
+
+      // An admin creates pickup agents; only a super admin creates other staff.
+      if (!assignableRoles(req.staff?.role).includes(role)) {
+        res.status(403).json({
+          message: "Only a super admin can create this kind of account.",
+          code: "FORBIDDEN",
+        });
+        return;
+      }
 
       const existing = await findItdUserIdByPhone(phone);
       if (existing) {
@@ -1534,11 +1631,7 @@ export function registerOpsRoutes(app: Express): void {
     }
   );
 
-  const opsSettingsGate = [
-    requireUser,
-    ensureDbUser,
-    requireRole("super_admin"),
-  ] as const;
+  const opsSettingsGate = opsGateFor("settings");
 
   // GET /api/ops/settings — every registry key + last-write audit. Super_admin.
   app.get(

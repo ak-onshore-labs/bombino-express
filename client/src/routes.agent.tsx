@@ -1,9 +1,8 @@
 import { AnimatePresence } from 'framer-motion';
-import { Route, Switch, useLocation } from 'wouter';
+import { Redirect, Route, Switch, useLocation } from 'wouter';
 import { AgentNav } from '@/components/agent/AgentNav';
 import { PageTransition } from '@/components/motion/PageTransition';
 import Dashboard from '@/pages/agent/Dashboard';
-import AvailablePickups from '@/pages/agent/AvailablePickups';
 import MyPickups from '@/pages/agent/MyPickups';
 import PickupDetail from '@/pages/agent/PickupDetail';
 import Collections from '@/pages/agent/Collections';
@@ -68,7 +67,11 @@ export function AgentRoutes() {
           */}
           <Switch location={location}>
             <Route path="/agent" component={Dashboard} />
-            <Route path="/agent/available" component={AvailablePickups} />
+            {/* Agents no longer see new bookings; the branch head assigns
+                them. An old link lands on their own jobs. */}
+            <Route path="/agent/available">
+              <Redirect to="/agent/mine" />
+            </Route>
             <Route path="/agent/mine" component={MyPickups} />
             <Route path="/agent/pickup/:id" component={PickupDetail} />
             <Route path="/agent/collections" component={Collections} />

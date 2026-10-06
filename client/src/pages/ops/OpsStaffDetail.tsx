@@ -17,6 +17,15 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { parseApiErrorMessage } from '@/lib/apiError';
 import { cn } from '@/lib/utils';
+import { useAppStore } from '@/lib/store';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { assignableRoles, can, roleLabel, type StaffRole } from '@shared/staffAccess';
 import { useOpsStaffUsers, type OpsStaffUser } from '@/hooks/useOpsOrders';
 import {
   useOpsBeatsList,
@@ -26,7 +35,7 @@ import {
   type OpsBeatSummary,
 } from '@/hooks/useOpsStaff';
 
-const inputClass = 'h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl mt-2';
+const inputClass = 'h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-md mt-2';
 
 function beatsLeftEmpty(
   riderId: string,
@@ -71,6 +80,19 @@ export default function OpsStaffDetail() {
   const setBeats = useSetAgentBeats(id ?? '');
 
   const user = detail.data?.user;
+  const callerRole = useAppStore((s) => s.user?.role);
+  // An admin edits pickup agents; a super admin edits anyone but another super
+  // admin's role. A branch manager only looks.
+  const canEdit =
+    !!user &&
+    (can(callerRole, 'users.assign_roles') ||
+      (can(callerRole, 'users.manage') && user.role === 'agent'));
+  const canChangeRole =
+    !!user && can(callerRole, 'users.assign_roles') && user.role !== 'super_admin';
+  const roleOptions = assignableRoles(callerRole);
+  const [newRole, setNewRole] = useState<StaffRole | ''>('');
+  const [roleError, setRoleError] = useState('');
+  const [roleNote, setRoleNote] = useState('');
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -93,7 +115,21 @@ export default function OpsStaffDetail() {
     setEmail(user.email ?? '');
     setFormError('');
     setFormNote('');
+    setNewRole('');
   }, [user]);
+
+  const saveRole = (): void => {
+    if (!newRole || !user || newRole === user.role) return;
+    setRoleError('');
+    setRoleNote('');
+    update.mutate(
+      { role: newRole },
+      {
+        onSuccess: () => setRoleNote(`Now ${roleLabel(newRole)}. It applies on their next click.`),
+        onError: (err) => setRoleError(parseApiErrorMessage(err, 'Could not change the role')),
+      },
+    );
+  };
 
   useEffect(() => {
     if (!detail.data) return;
@@ -264,7 +300,7 @@ export default function OpsStaffDetail() {
   }
 
   return (
-    <OpsShell title={user.full_name} subtitle={user.role.replace(/_/g, ' ')}>
+    <OpsShell title={user.full_name} subtitle={roleLabel(user.role)} wide>
       <Link
         href="/ops/users"
         className="inline-flex items-center gap-1 text-sm font-semibold text-[#F2A123] mb-4"
@@ -283,12 +319,12 @@ export default function OpsStaffDetail() {
         </div>
         <div className="shrink-0 text-right">
           <span className="inline-block text-[11px] font-bold uppercase tracking-wide rounded-md bg-[#F3F4F6] px-2 py-1">
-            {user.role.replace(/_/g, ' ')}
+            {roleLabel(user.role)}
           </span>
           <p className="text-[11px] text-muted-foreground mt-1">
             {user.is_active ? 'Active' : 'Inactive'}
           </p>
-          {(user.role === 'agent' || user.role === 'admin') && (
+          {canEdit && user.role !== 'super_admin' && (
             <button
               type="button"
               onClick={user.is_active ? tryDeactivate : activateStaff}
@@ -318,9 +354,64 @@ export default function OpsStaffDetail() {
         </p>
       )}
 
+      <div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start">
+      <div className="min-w-0">
+      {canChangeRole && (
+        <section
+          className="rounded-md border border-border bg-white p-4 mb-6"
+          data-testid="ops-staff-role"
+        >
+          <h2 className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground mb-1">
+            Role
+          </h2>
+          <p className="text-[11px] text-muted-foreground mb-3">
+            Decides which ops console tabs they see and what they can do there.
+          </p>
+          <Select
+            value={newRole || user.role}
+            onValueChange={(value) => {
+              setNewRole(value as StaffRole);
+              setRoleError('');
+              setRoleNote('');
+            }}
+          >
+            <SelectTrigger className={cn(inputClass, 'w-full mt-0')} data-testid="select-ops-staff-role">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {roleOptions.map((value) => (
+                <SelectItem key={value} value={value}>
+                  {roleLabel(value)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {roleError && (
+            <p className="text-sm font-semibold text-red-600 mt-3" data-testid="error-ops-staff-role">
+              {roleError}
+            </p>
+          )}
+          {roleNote && (
+            <p className="text-sm font-semibold text-emerald-700 mt-3" data-testid="note-ops-staff-role">
+              {roleNote}
+            </p>
+          )}
+          <Button
+            type="button"
+            onClick={saveRole}
+            disabled={update.isPending || !newRole || newRole === user.role}
+            className="mt-4 w-full h-12 rounded-md bg-primary text-white font-bold"
+            data-testid="button-ops-save-staff-role"
+          >
+            Change role
+          </Button>
+        </section>
+      )}
+
+      {canEdit && (
       <form
         onSubmit={saveProfile}
-        className="rounded-2xl border border-border bg-white p-4 mb-6"
+        className="rounded-md border border-border bg-white p-4 mb-6"
         data-testid="ops-edit-user-form"
       >
         <h2 className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground mb-4">
@@ -391,16 +482,22 @@ export default function OpsStaffDetail() {
         <Button
           type="submit"
           disabled={update.isPending}
-          className="w-full h-12 rounded-xl bg-primary text-white font-bold"
+          className="w-full h-12 rounded-md bg-primary text-white font-bold"
           data-testid="button-ops-save-user"
         >
           {update.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save details'}
         </Button>
       </form>
+      )}
 
-      {user.role === 'agent' && (
+      </div>
+      <div className="min-w-0">
+      {!canEdit && (
+        <p className="text-sm text-muted-foreground mb-4">View only.</p>
+      )}
+      {user.role === 'agent' && canEdit && (
         <section
-          className="rounded-2xl border border-border bg-white p-4"
+          className="rounded-md border border-border bg-white p-4"
           data-testid="ops-staff-beats"
         >
           <h2 className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground mb-1">
@@ -408,7 +505,7 @@ export default function OpsStaffDetail() {
           </h2>
           <p className="text-[11px] text-muted-foreground mb-4">
             {user.is_active
-              ? 'Rounds they run. New jobs in these pincodes WhatsApp them. Anyone can still claim the job if they are off.'
+              ? 'Rounds they usually cover. The branch head still assigns each pickup.'
               : 'This rider must be active to change rounds.'}
           </p>
 
@@ -438,7 +535,7 @@ export default function OpsStaffDetail() {
                     disabled={setBeats.isPending || !user.is_active}
                     onClick={() => toggleBeat(beat.id)}
                     className={cn(
-                      'h-11 rounded-xl border text-sm font-semibold px-3 text-left',
+                      'h-11 rounded-md border text-sm font-semibold px-3 text-left',
                       on
                         ? 'border-primary bg-primary text-white'
                         : 'border-[#E2E8F0] bg-[#F3F4F6] text-foreground',
@@ -475,7 +572,7 @@ export default function OpsStaffDetail() {
             type="button"
             onClick={trySaveBeats}
             disabled={setBeats.isPending || beatsQuery.isLoading || !user.is_active}
-            className="mt-4 w-full h-12 rounded-xl bg-primary text-white font-bold"
+            className="mt-4 w-full h-12 rounded-md bg-primary text-white font-bold"
             data-testid="button-ops-save-staff-beats"
           >
             {setBeats.isPending ? (
@@ -486,6 +583,9 @@ export default function OpsStaffDetail() {
           </Button>
         </section>
       )}
+
+      </div>
+      </div>
 
       <AlertDialog open={warnOpen} onOpenChange={setWarnOpen}>
         <AlertDialogContent data-testid="dialog-ops-empty-beat">

@@ -1,10 +1,11 @@
-import { Link } from 'wouter';
+import { Link, useLocation } from 'wouter';
 import { StatusBadge } from '@/components/StatusBadge';
 import { OpsSenderCell } from '@/components/ops/OpsSenderCell';
 import type { OpsBoardOrder } from '@/hooks/useOpsOrders';
 import {
   formatInr,
   formatIst,
+  formatIstDate,
   paymentMethodLabel,
   paymentStatusLabel,
 } from '@/lib/orderDetail';
@@ -15,29 +16,32 @@ const PHASE_LABEL: Record<string, string> = Object.fromEntries(
   OPS_PHASES.map((phase) => [phase.id, phase.label]),
 );
 
-function paymentLabel(order: OpsBoardOrder): string {
-  if (order.is_cod || order.payment_method === 'cod') return 'COD';
-  return `${paymentMethodLabel(order.payment_method)} · ${paymentStatusLabel(order.payment_status)}`;
-}
-
-function consigneeLabel(order: OpsBoardOrder): string {
-  return (
-    [order.consignee_name, order.consignee_city].filter(Boolean).join(' · ') ||
-    'Consignee unavailable'
-  );
-}
-
-function agentLabel(order: OpsBoardOrder): string {
-  return order.agent_id ? order.agent_name || 'Assigned' : 'Unassigned';
-}
-
 function stageLabel(status: string): string {
   return PHASE_LABEL[phaseIdForStatus(status)] ?? phaseIdForStatus(status);
 }
 
+function AwbCell({ order }: { order: OpsBoardOrder }) {
+  if (order.awb_no) return <span className="font-mono text-[13px]">{order.awb_no}</span>;
+  if (!order.docket_error) return <span className="text-muted-foreground">Not yet</span>;
+  return (
+    <span
+      className="font-semibold text-destructive"
+      title={order.docket_error}
+      data-testid={`ops-docket-failed-row-${order.order_no}`}
+    >
+      {order.docket_retry === 'auto'
+        ? 'Retrying'
+        : order.docket_retry === 'check_itd'
+          ? 'Check ITD'
+          : 'Failed'}
+    </span>
+  );
+}
+
 /**
- * Dense desktop scan of the same `visible` array the cards use.
- * One flat table — stages are a column, not nested tables. Hidden below md.
+ * Every board order as one row, every field visible. Desktop and tablet only;
+ * phones get the cards. Nothing is cut off: cells wrap, and the frame scrolls
+ * sideways before a column is squeezed. The whole row opens the order.
  */
 export function OpsBoardTable({
   orders,
@@ -46,98 +50,85 @@ export function OpsBoardTable({
   orders: OpsBoardOrder[];
   showStage: boolean;
 }) {
+  const [, setLocation] = useLocation();
+
   return (
-    <div
-      className="hidden md:block rounded-2xl border border-border bg-white overflow-x-auto"
-      data-testid="ops-board-table"
-    >
-      <table className="w-full text-sm">
+    <div className="hidden md:block ops-table-frame" data-testid="ops-board-table">
+      <table className="ops-table min-w-[900px]">
         <thead>
-          <tr className="text-left text-xs font-semibold text-muted-foreground border-b border-border">
-            <th className="px-4 py-3">Order</th>
-            {showStage && <th className="px-4 py-3">Stage</th>}
-            <th className="px-4 py-3">Status</th>
-            <th className="px-4 py-3">Mode</th>
-            <th className="px-4 py-3">Customer</th>
-            <th className="px-4 py-3">Consignee</th>
-            <th className="px-4 py-3">Agent</th>
-            <th className="px-4 py-3">Payment</th>
-            <th className="px-4 py-3">Amount</th>
-            <th className="px-4 py-3">Age</th>
-            <th className="px-4 py-3">AWB</th>
-            <th className="px-4 py-3">Open</th>
+          <tr>
+            <th>Order</th>
+            <th>Status</th>
+            <th>Sender</th>
+            <th>Going to</th>
+            <th>Agent</th>
+            <th className="num">Payment</th>
+            <th>AWB</th>
           </tr>
         </thead>
         <tbody>
           {orders.map((order) => {
             const href = `/ops/orders/${order.id}`;
-            const amount =
-              formatInr(order.final_amount) ?? formatInr(order.quoted_amount);
-            const mode = order.pickup_request === 2 ? 'Drop-off' : 'Pickup';
+            const amount = formatInr(order.final_amount) ?? formatInr(order.quoted_amount);
+            const isDropoff = order.pickup_request === 2;
+            const cod = order.is_cod || order.payment_method === 'cod';
             return (
               <tr
                 key={order.id}
-                className="border-b border-border last:border-b-0"
+                data-href={href}
+                onClick={(event) => {
+                  // Links and buttons inside the row keep their own behaviour.
+                  if ((event.target as HTMLElement).closest('a,button')) return;
+                  setLocation(href);
+                }}
                 data-testid={`ops-board-row-${order.order_no}`}
               >
-                <td className="px-4 py-3">
-                  <Link
-                    href={href}
-                    className="font-semibold text-foreground hover:underline"
-                  >
+                <td className="nowrap">
+                  <Link href={href} className="font-semibold text-foreground hover:underline">
                     {order.order_no}
                   </Link>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {isDropoff ? 'Drop-off' : `Pickup on ${formatIstDate(order.pickup_date)}`}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Booked {formatIst(order.created_at)}</p>
                 </td>
-                {showStage && (
-                  <td className="px-4 py-3 text-muted-foreground">
-                    {stageLabel(order.status)}
-                  </td>
-                )}
-                <td className="px-4 py-3">
+                <td className="nowrap">
                   <StatusBadge
                     status={getOrderStatusLabel(order.status)}
                     tone={getOrderStatusTone(order.status)}
                   />
-                </td>
-                <td className="px-4 py-3">{mode}</td>
-                <td className="px-4 py-3">
-                  <OpsSenderCell order={order} />
-                </td>
-                <td className="px-4 py-3">{consigneeLabel(order)}</td>
-                <td className="px-4 py-3">{agentLabel(order)}</td>
-                <td className="px-4 py-3">{paymentLabel(order)}</td>
-                <td className="px-4 py-3 font-semibold tabular-nums">
-                  {amount ?? '—'}
-                </td>
-                <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
-                  {formatIst(order.created_at)}
-                </td>
-                <td className="px-4 py-3">
-                  {order.awb_no ?? (
-                    order.docket_error ? (
-                      <span
-                        className="font-bold text-destructive"
-                        title={order.docket_error}
-                        data-testid={`ops-docket-failed-row-${order.order_no}`}
-                      >
-                        {order.docket_retry === 'auto'
-                          ? 'AWB retrying'
-                          : order.docket_retry === 'check_itd'
-                            ? 'AWB: check ITD'
-                            : 'AWB failed'}
-                      </span>
-                    ) : (
-                      '—'
-                    )
+                  {showStage && (
+                    <p className="text-xs text-muted-foreground mt-1">{stageLabel(order.status)}</p>
                   )}
                 </td>
-                <td className="px-4 py-3">
-                  <Link
-                    href={href}
-                    className="font-semibold text-foreground hover:underline"
-                  >
-                    Open
-                  </Link>
+                <td>
+                  <OpsSenderCell order={order} />
+                </td>
+                <td>
+                  <p className="text-foreground">{order.consignee_name || 'Not given'}</p>
+                  {order.consignee_city && (
+                    <p className="text-xs text-muted-foreground mt-0.5">{order.consignee_city}</p>
+                  )}
+                </td>
+                <td>
+                  {order.agent_id ? (
+                    order.agent_name || 'Assigned'
+                  ) : isDropoff ? (
+                    <span className="text-muted-foreground">Not needed</span>
+                  ) : (
+                    <span className="font-semibold text-[#B45309]">No agent yet</span>
+                  )}
+                </td>
+                <td className="num">
+                  <p className="font-semibold text-foreground">{amount ?? '—'}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {cod
+                      ? 'COD'
+                      : `${paymentMethodLabel(order.payment_method)} · ${paymentStatusLabel(order.payment_status)}`}
+                  </p>
+                </td>
+                <td className="nowrap">
+                  <AwbCell order={order} />
                 </td>
               </tr>
             );

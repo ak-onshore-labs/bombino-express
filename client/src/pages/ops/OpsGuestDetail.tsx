@@ -21,6 +21,7 @@ import {
   type ExtraField,
 } from '@shared/accountSpec';
 import { INDIA_HUBS } from '@shared/hubs';
+import { can } from '@shared/staffAccess';
 
 function DesktopOnlyNotice() {
   return (
@@ -118,7 +119,7 @@ export default function OpsGuestDetail() {
   const params = useParams<{ ref: string }>();
   const ref = params.ref;
   const isMobile = useIsMobile();
-  const canViewKyc = useAppStore((s) => s.user?.role) === 'super_admin';
+  const canViewKyc = can(useAppStore((s) => s.user?.role), 'kyc.view');
   const { data, isLoading, isError, error } = useOpsGuestDetail(ref);
   const ordersQuery = useOpsGuestOrders(ref);
   const { preview, closePreview, openBlob, fileBusy, fileErrors } = useOpsDocumentPreview();
@@ -185,7 +186,7 @@ export default function OpsGuestDetail() {
               </div>
 
               <section
-                className="rounded-2xl border border-border bg-white p-4 mb-6"
+                className="rounded-md border border-border bg-white p-4 mb-6"
                 data-testid="ops-guest-kyc-documents"
               >
                 <h2 className="text-base font-extrabold text-foreground mb-3">Documents</h2>
@@ -201,7 +202,7 @@ export default function OpsGuestDetail() {
                   </p>
                 ) : (
                   <>
-                    <ul className="divide-y divide-border rounded-xl border border-border">
+                    <ul className="divide-y divide-border rounded-md border border-border">
                       <li className="flex items-start justify-between gap-3 px-3 py-2.5">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
@@ -233,7 +234,7 @@ export default function OpsGuestDetail() {
                           <Button
                             type="button"
                             variant="outline"
-                            className="h-9 rounded-lg text-xs font-semibold shrink-0"
+                            className="h-9 rounded-md text-xs font-semibold shrink-0"
                             disabled={!ref || fileBusy === 'shipment-kyc'}
                             onClick={() =>
                               void openBlob(
@@ -254,7 +255,7 @@ export default function OpsGuestDetail() {
                           <Button
                             type="button"
                             variant="outline"
-                            className="h-9 rounded-lg text-xs font-semibold shrink-0"
+                            className="h-9 rounded-md text-xs font-semibold shrink-0"
                             disabled
                             data-testid="ops-guest-kyc-view-shipment"
                           >
@@ -277,7 +278,7 @@ export default function OpsGuestDetail() {
               </section>
 
               <section
-                className="rounded-2xl border border-border bg-white px-4 mb-6"
+                className="rounded-md border border-border bg-white px-4 mb-6"
                 data-testid="ops-guest-facts"
               >
                 <Fact label="Phone" value={data.guest.phone} />
@@ -318,7 +319,7 @@ export default function OpsGuestDetail() {
               </section>
 
               <section
-                className="rounded-2xl border border-border bg-white p-4 mb-6"
+                className="rounded-md border border-border bg-white p-4 mb-6"
                 data-testid="ops-guest-orders"
               >
                 <h2 className="text-base font-extrabold text-foreground mb-3">Orders</h2>
@@ -338,7 +339,7 @@ export default function OpsGuestDetail() {
                 {!ordersQuery.isLoading &&
                   !ordersQuery.isError &&
                   (ordersQuery.data?.length ?? 0) > 0 && (
-                    <div className="rounded-xl border border-border px-3">
+                    <div className="rounded-md border border-border px-3">
                       {ordersQuery.data!.map((order) => (
                         <OpsOrderCard key={order.id} order={order} />
                       ))}

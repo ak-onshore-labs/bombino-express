@@ -54,23 +54,43 @@ export function isOrderStatus(value: unknown): value is OrderStatus {
 
 // ── Roles ─────────────────────────────────────────────────────────────────
 
-export type Role = 'customer' | 'agent' | 'admin' | 'super_admin';
+export type Role =
+  | 'customer'
+  | 'agent'
+  | 'admin'
+  | 'super_admin'
+  | 'branch_manager'
+  | 'customer_support'
+  | 'accounts'
+  | 'kyc_reviewer';
 
-export const ROLES: readonly Role[] = ['customer', 'agent', 'admin', 'super_admin'] as const;
+export const ROLES: readonly Role[] = [
+  'customer',
+  'agent',
+  'admin',
+  'super_admin',
+  'branch_manager',
+  'customer_support',
+  'accounts',
+  'kyc_reviewer',
+] as const;
 
 export function isRole(value: unknown): value is Role {
   return typeof value === 'string' && (ROLES as readonly string[]).includes(value);
 }
 
 /**
- * Anything ops can do, super_admin can do. Kept as a helper rather than
- * baked into each transition row so M7 landing (or not landing) changes one
- * place. Note this is *not* a general hierarchy — an admin is not an agent,
- * because ops must never claim a pickup on an agent's behalf (§1).
+ * Anything ops can do, super_admin can do, and so can a branch manager for
+ * their own city (the city check is the route's, not this table's). Kept as a
+ * helper rather than baked into each transition row so the roles that move
+ * orders change in one place. Note this is *not* a general hierarchy — an
+ * admin is not an agent, because ops must never claim a pickup on an agent's
+ * behalf (§1). Customer support, accounts and KYC reviewers match no row:
+ * they see orders but never move them (shared/staffAccess.ts).
  */
 export function roleSatisfies(callerRole: Role, requiredRole: Role): boolean {
   if (callerRole === requiredRole) return true;
-  return callerRole === 'super_admin' && requiredRole === 'admin';
+  return requiredRole === 'admin' && (callerRole === 'super_admin' || callerRole === 'branch_manager');
 }
 
 // ── Payment ───────────────────────────────────────────────────────────────
@@ -150,6 +170,10 @@ export type Action =
   // agent (A5)
   | 'claim'
   | 'start_pickup'
+  // agent — hands an assigned pickup back to the branch before setting off.
+  // Not a cancellation of the order: it returns to unassigned for the branch
+  // head to give to someone else.
+  | 'release_pickup'
   | 'mark_picked_up'
   | 'mark_received_at_hub'
   // collection — agent at the door (A5), ops at the counter (M3)

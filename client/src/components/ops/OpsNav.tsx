@@ -42,6 +42,7 @@ export function OpsNav() {
       onPress: () => setMoreOpen(true),
       active: isOpsMoreActive(location),
       badge: moreBadge,
+      highlight: true,
     },
   ];
 
@@ -51,7 +52,7 @@ export function OpsNav() {
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
         <SheetContent
           side="bottom"
-          className="rounded-t-2xl max-h-[85vh] overflow-y-auto"
+          className="rounded-t-lg max-h-[85vh] overflow-y-auto"
         >
           <SheetHeader className="text-left mb-4">
             <SheetTitle>More</SheetTitle>
@@ -67,7 +68,7 @@ export function OpsNav() {
                   href={item.path}
                   onClick={() => setMoreOpen(false)}
                   className={cn(
-                    'flex items-center gap-3 px-3 py-3 rounded-xl transition-colors',
+                    'flex items-center gap-3 px-3 py-3 rounded-md transition-colors',
                     active
                       ? 'bg-muted font-semibold text-foreground'
                       : 'text-foreground hover:bg-muted/50',

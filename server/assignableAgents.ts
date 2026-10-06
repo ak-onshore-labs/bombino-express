@@ -80,13 +80,21 @@ function firstOf<T>(value: T | T[] | null): T | null {
   return Array.isArray(value) ? value[0] ?? null : value;
 }
 
-/** Every active agent with the cities they're linked to. `null` on a DB miss. */
-export async function loadAgentsWithCities(): Promise<AgentWithCities[] | null> {
+/**
+ * Every active agent with the cities they're linked to. `null` on a DB miss.
+ * `includeInactive` adds deactivated agents, for a branch manager's staff list.
+ */
+export async function loadAgentsWithCities(
+  opts: { includeInactive?: boolean } = {}
+): Promise<AgentWithCities[] | null> {
   const client = getSupabaseClient();
   if (!client) return null;
 
+  let agents = client.from("itd_users").select("id, full_name, phone, metadata").eq("role", "agent");
+  if (!opts.includeInactive) agents = agents.eq("is_active", true);
+
   const [users, beats] = await Promise.all([
-    client.from("itd_users").select("id, full_name, phone, metadata").eq("role", "agent").eq("is_active", true),
+    agents,
     client.from("pickup_beat_agents").select("agent_id, pickup_beats(hub)"),
   ]);
   if (users.error) {

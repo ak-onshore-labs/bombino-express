@@ -34,7 +34,7 @@ export function OpsDocumentPreviewOverlay({
         <p className="text-sm font-semibold truncate">{preview.title}</p>
         <div className="flex items-center gap-2 shrink-0">
           {/* The bytes are already here, so saving a copy costs no second fetch. */}
-          <Button asChild type="button" variant="outline" className="h-9 rounded-lg">
+          <Button asChild type="button" variant="outline" className="h-9 rounded-md">
             <a
               href={preview.objectUrl}
               download={preview.filename}
@@ -47,7 +47,7 @@ export function OpsDocumentPreviewOverlay({
           <Button
             type="button"
             variant="outline"
-            className="h-9 rounded-lg"
+            className="h-9 rounded-md"
             onClick={onClose}
             data-testid="ops-kyc-preview-close"
           >
@@ -61,14 +61,14 @@ export function OpsDocumentPreviewOverlay({
           <img
             src={preview.objectUrl}
             alt={preview.title}
-            className="max-w-full max-h-full object-contain bg-white rounded-lg"
+            className="max-w-full max-h-full object-contain bg-white rounded-md"
           />
         )}
         {isPdf && !isImage && (
           <iframe
             title={preview.title}
             src={preview.objectUrl}
-            className="w-full h-full min-h-[70vh] bg-white rounded-lg"
+            className="w-full h-full min-h-[70vh] bg-white rounded-md"
           />
         )}
         {!isImage && !isPdf && (

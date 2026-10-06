@@ -140,7 +140,11 @@ export function OpsSectionBoard({
     isError,
   } = useOpsOrders();
   const [exporting, setExporting] = useState(false);
-  const [view, setView] = useState<OpsBoardView>('cards');
+  // A table reads faster than cards once there is room for one; phones only
+  // ever get cards (the table is hidden below md).
+  const [view, setView] = useState<OpsBoardView>(() =>
+    typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches ? 'table' : 'cards'
+  );
   const [debouncedQuery, setDebouncedQuery] = useState('');
 
   const forbidden =
@@ -237,7 +241,7 @@ export function OpsSectionBoard({
     return (
       <OpsShell title="Operations" subtitle="Access required">
         <div
-          className="rounded-2xl border border-border bg-white p-6 text-center"
+          className="rounded-md border border-border bg-white p-6 text-center"
           data-testid="ops-forbidden"
         >
           <p className="text-base font-semibold text-foreground">Ops access required</p>
@@ -379,7 +383,7 @@ export function OpsSectionBoard({
           {mode === 'flat' && (
             <div
               className={cn(
-                'rounded-2xl border border-border bg-white px-3 divide-y divide-border',
+                'rounded-md border border-border bg-white px-3 divide-y divide-border',
                 hideCardsOnDesktop && 'md:hidden',
               )}
               data-testid="ops-board-flat"
@@ -403,7 +407,7 @@ export function OpsSectionBoard({
                   return (
                     <section
                       key={phase.id}
-                      className="min-w-0 rounded-2xl border border-border bg-white overflow-hidden"
+                      className="min-w-0 rounded-md border border-border bg-white overflow-hidden"
                       data-testid={`ops-phase-col-${phase.id}`}
                     >
                       <div className="px-3 pt-3 flex items-start justify-between gap-2">
@@ -431,7 +435,7 @@ export function OpsSectionBoard({
                           {list.length}
                         </span>
                       </div>
-                      <div className="rounded-2xl border border-border bg-white px-3 divide-y divide-border">
+                      <div className="rounded-md border border-border bg-white px-3 divide-y divide-border">
                         <OrderList orders={list} />
                       </div>
                     </section>

@@ -1084,3 +1084,63 @@ input[type="date"] {
     animation: none;
   }
 }
+
+/* ── Ops console tables ──────────────────────────────────────────────────────
+   One table look for every list in the ops console: a tinted header band,
+   top-aligned cells so a two-line cell does not float its neighbours, numbers
+   right-aligned in tabular figures (`.num`), and a quiet row hover. The table
+   sets a min-width at the call site so a narrow screen scrolls sideways inside
+   its frame instead of squeezing columns until words break. Wrap it in
+   `.ops-table-frame`. */
+.ops-table-frame {
+  @apply rounded-md border border-border bg-white overflow-x-auto;
+}
+
+.ops-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.ops-table thead th {
+  background: oklch(96.5% 0.006 246);
+  color: oklch(45% 0.03 246);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: left;
+  white-space: nowrap;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ops-table tbody td {
+  padding: 12px 14px;
+  vertical-align: top;
+  border-bottom: 1px solid oklch(93% 0.008 246);
+}
+
+.ops-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.ops-table tbody tr:hover td {
+  background: oklch(98.5% 0.004 246);
+}
+
+.ops-table tbody tr[data-href] {
+  cursor: pointer;
+}
+
+.ops-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ops-table .nowrap {
+  white-space: nowrap;
+}

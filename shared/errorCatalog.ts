@@ -536,6 +536,8 @@ export const UNCATALOGUED_CODES = [
   "DOCKET_FAILED",
   "FORBIDDEN",
   "INVALID_AGENT",
+  // Ops console: a branch manager assigning an agent from another city.
+  "AGENT_OUTSIDE_CITY",
   // Ops console: marking an application's document verified by hand.
   "ALREADY_VERIFIED",
   "DOCUMENT_NOT_UPLOADED",

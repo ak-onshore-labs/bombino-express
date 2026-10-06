@@ -131,14 +131,14 @@ export default function OpsPincodeLookup() {
                   if (formError) setFormError('');
                 }}
                 placeholder="Six-digit pincode"
-                className="h-12 pl-9 rounded-xl bg-white"
+                className="h-12 pl-9 rounded-md bg-white"
                 data-testid="ops-pincode-search"
                 aria-label="Pincode"
               />
             </div>
             <Button
               type="submit"
-              className="h-12 rounded-xl bg-primary text-white font-bold px-5"
+              className="h-12 rounded-md bg-primary text-white font-bold px-5"
               data-testid="ops-pincode-lookup"
             >
               Lookup
@@ -197,7 +197,7 @@ function ReportCard({
 
   return (
     <section
-      className="rounded-2xl border border-border bg-white p-4"
+      className="rounded-md border border-border bg-white p-4"
       data-testid="ops-pincode-report"
     >
       <div className="flex items-start justify-between gap-3 mb-1">
@@ -226,7 +226,7 @@ function ReportCard({
           </p>
           {report.resolved.remark === 'out_of_city' && (
             <p
-              className="text-[11px] leading-snug text-amber-900 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2"
+              className="text-[11px] leading-snug text-amber-900 rounded-md border border-amber-200 bg-amber-50 px-3 py-2"
               data-testid="ops-pincode-out-of-city"
             >
               Out of city — extra charge confirmed at weigh
@@ -255,8 +255,8 @@ function ReportCard({
           <p className="text-sm text-muted-foreground">No active round covers this pincode.</p>
         )}
         {report.rounds.length > 0 && (
-          <div className="rounded-xl border border-border overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="rounded-md border border-border overflow-x-auto">
+            <table className="ops-table min-w-[640px]">
               <thead>
                 <tr className="text-left text-xs font-semibold text-muted-foreground border-b border-border">
                   <th className="px-3 py-2">Round</th>

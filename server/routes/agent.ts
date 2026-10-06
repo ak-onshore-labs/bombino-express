@@ -18,7 +18,6 @@
 import type { Express, Request, Response } from "express";
 import { beatsForAgent } from "../beatsDb.js";
 import {
-  getAvailablePickups,
   getCollectionsToday,
   getMyPickups,
   type AgentPickup,
@@ -46,7 +45,7 @@ function withActions(orders: AgentPickup[], agentId: string) {
 export function registerAgentRoutes(app: Express): void {
   // Rejections reach the error middleware instead of hanging the request.
   const routes = asyncRoutes(app);
-  // GET /api/agent/pickups/available — unclaimed jobs, oldest first
+  // GET /api/agent/pickups/available — always empty now; see below
   routes.get(
     "/api/agent/pickups/available",
     requireUser,
@@ -60,13 +59,10 @@ export function registerAgentRoutes(app: Express): void {
         return;
       }
 
-      const pickups = await getAvailablePickups();
-      if (pickups === null) {
-        res.status(502).json({ message: "Could not load available pickups" });
-        return;
-      }
-
-      res.json({ pickups: withActions(pickups, agentId) });
+      // Agents are not shown new bookings: the branch head assigns every pickup
+      // (orderLifecycle.ts has no `claim` row). Kept answering, empty, so an app
+      // build that still asks gets a quiet "nothing new" rather than an error.
+      res.json({ pickups: [] });
     }
   );
 

@@ -134,7 +134,7 @@ export function ActionPanel({
     Boolean(notice || error || asked || rejectedNote) || a.status === 'approved' || mode !== null || hasPrimary;
 
   return (
-    <section className="rounded-2xl border border-border bg-white overflow-hidden" data-testid="ops-application-actions">
+    <section className="rounded-md border border-border bg-white overflow-hidden" data-testid="ops-application-actions">
       <header className="px-5 pt-4 pb-4">
         <div className="flex items-center justify-between gap-2">
           <Eyebrow>Decision</Eyebrow>
@@ -150,7 +150,7 @@ export function ActionPanel({
       <div className="border-t border-border px-5 py-4 space-y-3">
         {notice && (
           <p
-            className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900"
+            className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900"
             role="status"
             data-testid="ops-application-notice"
           >
@@ -159,7 +159,7 @@ export function ActionPanel({
         )}
         {error && (
           <p
-            className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+            className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
             role="alert"
             data-testid="ops-application-action-error"
           >
@@ -209,7 +209,7 @@ export function ActionPanel({
           <div className="space-y-2">
             {allowed.has('claim') && (
               <Button
-                className="w-full h-11 rounded-xl font-semibold"
+                className="w-full h-11 rounded-md font-semibold"
                 disabled={busy}
                 onClick={() => void run({ action: 'claim' }, 'Picked up. It is yours to review.')}
                 data-testid="button-application-claim"
@@ -221,7 +221,7 @@ export function ActionPanel({
               <div>
                 <Button
                   variant={allowed.has('claim') || docsLeft > 0 ? 'outline' : 'default'}
-                  className="w-full h-11 rounded-xl font-semibold"
+                  className="w-full h-11 rounded-md font-semibold"
                   disabled={busy || docsLeft > 0}
                   onClick={() => setMode('approve')}
                   data-testid="ops-application-approve-open"
@@ -238,7 +238,7 @@ export function ActionPanel({
             {allowed.has('request_changes') && (
               <Button
                 variant="outline"
-                className="w-full h-11 rounded-xl font-semibold"
+                className="w-full h-11 rounded-md font-semibold"
                 disabled={busy}
                 onClick={() => setMode('changes')}
                 data-testid="ops-application-changes-open"
@@ -257,7 +257,7 @@ export function ActionPanel({
           {allowed.has('release') && (
             <Button
               variant="ghost"
-              className="h-9 rounded-lg text-xs font-semibold text-muted-foreground hover:text-foreground"
+              className="h-9 rounded-md text-xs font-semibold text-muted-foreground hover:text-foreground"
               disabled={busy}
               onClick={() => void run({ action: 'release' }, 'Put back in the queue.')}
               data-testid="button-application-release"
@@ -268,7 +268,7 @@ export function ActionPanel({
           {allowed.has('reject') && (
             <Button
               variant="ghost"
-              className="ml-auto h-9 rounded-lg text-xs font-semibold text-red-700 hover:bg-red-50 hover:text-red-800"
+              className="ml-auto h-9 rounded-md text-xs font-semibold text-red-700 hover:bg-red-50 hover:text-red-800"
               disabled={busy}
               onClick={() => setMode('reject')}
               data-testid="ops-application-reject-open"
@@ -307,14 +307,14 @@ function FormButtons({
     <div className="flex gap-2 pt-1">
       <Button
         variant={destructive ? 'destructive' : 'default'}
-        className="flex-1 h-10 rounded-lg font-semibold"
+        className="flex-1 h-10 rounded-md font-semibold"
         disabled={busy || disabled}
         onClick={onSubmit}
         data-testid={testId}
       >
         {busy ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden /> : label}
       </Button>
-      <Button variant="outline" className="h-10 rounded-lg" onClick={onCancel} disabled={busy}>
+      <Button variant="outline" className="h-10 rounded-md" onClick={onCancel} disabled={busy}>
         Cancel
       </Button>
     </div>
@@ -363,7 +363,7 @@ function ApproveForm({ data, busy, run, onCancel }: { data: Detail; busy: boolea
           autoComplete="off"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="h-10 rounded-lg"
+          className="h-10 rounded-md"
           data-testid="input-itd-email"
         />
       </div>
@@ -376,7 +376,7 @@ function ApproveForm({ data, busy, run, onCancel }: { data: Detail; busy: boolea
             autoComplete="new-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="h-10 rounded-lg pr-10"
+            className="h-10 rounded-md pr-10"
             data-testid="input-itd-password"
           />
           <button
@@ -484,7 +484,7 @@ function ChangesForm({
           rows={4}
           maxLength={1000}
           placeholder="e.g. Your PAN card photo is blurred. Please upload a clear photo of the original."
-          className="rounded-lg"
+          className="rounded-md"
           data-testid="input-changes-note"
         />
       </div>
@@ -518,7 +518,7 @@ function RejectForm({ busy, run, onCancel }: { busy: boolean; run: RunFn; onCanc
           onChange={(e) => setReason(e.target.value)}
           rows={3}
           maxLength={1000}
-          className="rounded-lg"
+          className="rounded-md"
           data-testid="input-reject-reason"
         />
       </div>
@@ -547,7 +547,7 @@ function ApprovedBody({ data, busy, run }: { data: Detail; busy: boolean; run: R
       )}
 
       {a.finalize_error ? (
-        <div className="rounded-lg bg-amber-50 border border-amber-200 p-3">
+        <div className="rounded-md bg-amber-50 border border-amber-200 p-3">
           <p className="flex items-center gap-1.5 text-xs font-bold text-amber-900">
             <AlertTriangle className="w-3.5 h-3.5" aria-hidden />
             Moving to the account didn't finish
@@ -555,7 +555,7 @@ function ApprovedBody({ data, busy, run }: { data: Detail; busy: boolean; run: R
           <p className="text-xs text-amber-900 mt-1 break-words">{a.finalize_error}</p>
           <Button
             variant="outline"
-            className="mt-2 h-9 rounded-lg text-xs font-semibold"
+            className="mt-2 h-9 rounded-md text-xs font-semibold"
             disabled={busy}
             onClick={() => void run({ action: 'retry_finalize' }, 'Done. Everything is on the account now.')}
             data-testid="button-application-retry"
@@ -581,7 +581,7 @@ function ApprovedBody({ data, busy, run }: { data: Detail; busy: boolean; run: R
         )}
         <Button
           variant="outline"
-          className="mt-2 h-9 rounded-lg text-xs font-semibold"
+          className="mt-2 h-9 rounded-md text-xs font-semibold"
           disabled={busy}
           onClick={() => void run({ action: 'resend_email' }, 'Email sent again.')}
           data-testid="button-application-resend"
