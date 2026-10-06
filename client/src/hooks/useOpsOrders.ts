@@ -375,6 +375,30 @@ export function useOpsVerifications() {
   });
 }
 
+export interface OpsAssignableAgents {
+  /** The pickup's city, or null when it can't be told. */
+  city: string | null;
+  /** False when the list is every active agent rather than the city's. */
+  scoped: boolean;
+  agents: { id: string; full_name: string; phone: string | null }[];
+}
+
+/** The agents in this pickup's city, for the Assign to agent picker. */
+export function useOpsAssignableAgents(orderId: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: ['/api/ops/orders', orderId, 'assignable-agents'] as const,
+    queryFn: async () => {
+      const res = await fetch(`/api/ops/orders/${orderId}/assignable-agents`, {
+        credentials: 'include',
+      });
+      return readJson<OpsAssignableAgents>(res);
+    },
+    enabled: !!orderId && enabled,
+    retry: false,
+    refetchOnMount: 'always',
+  });
+}
+
 export function useOpsAssign(orderId: string | undefined) {
   const queryClient = useQueryClient();
 

@@ -98,6 +98,7 @@ import { buildPincodeReport } from "../pincodeReport.js";
 import { opsGate, requireRole, requireUser, ensureDbUser } from "../routeGuards.js";
 import { INDIAN_MOBILE_MESSAGE, INDIAN_MOBILE_PATTERN } from "../../shared/contact.js";
 import { sendDocumentFile, wantsDownload } from "../documentResponse.js";
+import { loadAgentsWithCities, pickAgentsForCity, pickupCity } from "../assignableAgents.js";
 import {
   AuditLogUnavailableError,
   logDocumentAccess,
@@ -474,6 +475,26 @@ export function registerOpsRoutes(app: Express): void {
       const ownerHasItdLogin = order.user_id ? await itdUserHasStoredPassword(order.user_id) : false;
 
       res.json({ order, events, availableActions: actions, handover, owner_has_itd_login: ownerHasItdLogin });
+    }
+  );
+
+  // GET /api/ops/orders/:id/assignable-agents — the agents in the pickup's
+  // city, for the Assign to agent picker. See server/assignableAgents.ts.
+  app.get(
+    "/api/ops/orders/:id/assignable-agents",
+    ...opsGate,
+    async (req: Request, res: Response) => {
+      const order = await getOrderByIdForOps(req.params.id);
+      if (!order) {
+        res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
+        return;
+      }
+      const [city, agents] = await Promise.all([pickupCity(order.items), loadAgentsWithCities()]);
+      if (!agents) {
+        res.status(502).json({ message: "Could not load agents" });
+        return;
+      }
+      res.json(pickAgentsForCity(agents, city));
     }
   );
 

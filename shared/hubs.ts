@@ -26,3 +26,26 @@ export type IndiaHubId = (typeof INDIA_HUBS)[number]["id"];
 export function isIndiaHubId(value: number): value is IndiaHubId {
   return INDIA_HUBS.some((h) => h.id === value);
 }
+
+/**
+ * The city a hub or beat hub belongs to, for grouping agents by city.
+ *
+ * Mumbai runs out of several offices: the Mumbai, Fort Office and Lower Parel
+ * hubs, and beats whose hub is "Fort" or "Mumbai (Andheri)". They are one city
+ * when ops pick an agent for a pickup. Everything else is its own name.
+ */
+const MUMBAI_HUBS = new Set(["mumbai", "fort", "fort office", "lower parel", "andheri", "mumbai (andheri)"]);
+
+export function hubCity(name: string | null | undefined): string | null {
+  const key = (name ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  if (!key) return null;
+  if (MUMBAI_HUBS.has(key) || key.startsWith("mumbai")) return "Mumbai";
+  return key.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** `hubCity` for an India hub id, as staff carry it in `metadata.hub_id`. */
+export function hubCityForId(id: unknown): string | null {
+  const n = Number(id);
+  const hub = INDIA_HUBS.find((h) => h.id === n);
+  return hub ? hubCity(hub.name) : null;
+}

@@ -36,7 +36,7 @@ import {
   useOpsAssign,
   useOpsOrderAction,
   useOpsOrderDetail,
-  useOpsStaffUsers,
+  useOpsAssignableAgents,
   type OpsActionError,
 } from '@/hooks/useOpsOrders';
 import { getOrderStatusLabel } from '@/lib/orderStatus';
@@ -86,7 +86,11 @@ export default function OpsOrderDetail() {
   const { data, isLoading, error, isError } = useOpsOrderDetail(orderId);
   const action = useOpsOrderAction(orderId);
   const assign = useOpsAssign(orderId);
-  const staff = useOpsStaffUsers();
+  const canAssign =
+    data?.order.pickup_request === 1 &&
+    data.order.status === 'pickup_requested' &&
+    !data.order.agent_id;
+  const agents = useOpsAssignableAgents(orderId, canAssign);
   const [selectedAgentId, setSelectedAgentId] = useState('');
 
   const regenerateHandover = useMutation({
@@ -461,6 +465,15 @@ export default function OpsOrderDetail() {
               Assign to agent
             </h2>
             <Label className="text-sm font-medium">Pickup agent</Label>
+            {agents.data && (
+              <p className="text-xs text-muted-foreground mt-1" data-testid="ops-assign-agent-scope">
+                {agents.data.scoped
+                  ? `Agents in ${agents.data.city}`
+                  : agents.data.city
+                    ? `No agents set up for ${agents.data.city} yet. Showing all agents.`
+                    : "Couldn't tell the pickup city. Showing all agents."}
+              </p>
+            )}
             <Select
               value={selectedAgentId || undefined}
               onValueChange={setSelectedAgentId}
@@ -472,17 +485,15 @@ export default function OpsOrderDetail() {
                 <SelectValue placeholder="Select an agent" />
               </SelectTrigger>
               <SelectContent>
-                {(staff.data ?? [])
-                  .filter((user) => user.role === 'agent' && user.is_active)
-                  .map((user) => (
-                    <SelectItem key={user.id} value={user.id}>
-                      {user.full_name}
-                      {user.phone ? ` · ${user.phone}` : ''}
-                    </SelectItem>
-                  ))}
+                {(agents.data?.agents ?? []).map((user) => (
+                  <SelectItem key={user.id} value={user.id}>
+                    {user.full_name}
+                    {user.phone ? ` · ${user.phone}` : ''}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
-            {staff.isError && (
+            {agents.isError && (
               <p className="text-sm text-red-600 mt-2">Could not load agents.</p>
             )}
             <Button
