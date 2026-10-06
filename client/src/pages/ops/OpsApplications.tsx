@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { OpsAccessRequired } from '@/components/ops/OpsAccessRequired';
 import { isForbiddenError } from '@/lib/apiError';
-import { Link } from 'wouter';
+import { Link, useLocation } from 'wouter';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { OpsApplicationSettings } from '@/components/ops/OpsApplicationAlerts';
@@ -9,11 +9,19 @@ import { useOpsApplications, type OpsApplicationFilter, type OpsApplicationRow }
 import { OPS_STATUS_LABEL, OPS_STATUS_TONE, SLOW_AFTER_MS, waitedFor } from '@/lib/opsApplications';
 import { formatIst } from '@/lib/orderDetail';
 import { cn } from '@/lib/utils';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { isOpenApplicationStatus } from '@shared/applicationStatus';
 
 /**
  * Account applications: signups waiting for the Bombino team (account review,
- * docs/account-review.md). Oldest first, so the longest wait is at the top.
+ * docs/account-review.md). Newest first by default; the sort menu brings the
+ * longest wait, recent changes or names to the top instead.
  */
 
 const FILTERS: Array<{ value: OpsApplicationFilter; label: string }> = [
@@ -25,6 +33,31 @@ const FILTERS: Array<{ value: OpsApplicationFilter; label: string }> = [
   { value: 'rejected', label: 'Rejected' },
   { value: 'all', label: 'All' },
 ];
+
+type SortKey = 'newest' | 'oldest' | 'updated' | 'name';
+
+const SORTS: Array<{ value: SortKey; label: string }> = [
+  { value: 'newest', label: 'Newest first' },
+  { value: 'oldest', label: 'Oldest first (longest wait)' },
+  { value: 'updated', label: 'Recently changed' },
+  { value: 'name', label: 'Name A to Z' },
+];
+
+const time = (iso: string | null | undefined): number => (iso ? new Date(iso).getTime() || 0 : 0);
+
+function sortRows(rows: OpsApplicationRow[], key: SortKey): OpsApplicationRow[] {
+  const copy = [...rows];
+  switch (key) {
+    case 'newest':
+      return copy.sort((a, b) => time(b.submitted_at) - time(a.submitted_at));
+    case 'oldest':
+      return copy.sort((a, b) => time(a.submitted_at) - time(b.submitted_at));
+    case 'updated':
+      return copy.sort((a, b) => time(b.updated_at) - time(a.updated_at));
+    case 'name':
+      return copy.sort((a, b) => (a.name ?? a.phone).localeCompare(b.name ?? b.phone));
+  }
+}
 
 function FilterChip({
   selected,
@@ -75,8 +108,10 @@ function needsAttention(row: OpsApplicationRow): string | null {
 
 export default function OpsApplications() {
   const [filter, setFilter] = useState<OpsApplicationFilter>('open');
+  const [sort, setSort] = useState<SortKey>('newest');
+  const [, setLocation] = useLocation();
   const list = useOpsApplications(filter);
-  const rows = list.data?.applications ?? [];
+  const rows = useMemo(() => sortRows(list.data?.applications ?? [], sort), [list.data, sort]);
   const now = Date.now();
 
   return (
@@ -95,17 +130,34 @@ export default function OpsApplications() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-1.5 mb-4" data-testid="ops-applications-filter">
-        {FILTERS.map((f) => (
-          <FilterChip
-            key={f.value}
-            selected={filter === f.value}
-            onClick={() => setFilter(f.value)}
-            testId={`ops-applications-filter-${f.value}`}
-          >
-            {f.label}
-          </FilterChip>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div className="flex flex-wrap items-center gap-1.5" data-testid="ops-applications-filter">
+          {FILTERS.map((f) => (
+            <FilterChip
+              key={f.value}
+              selected={filter === f.value}
+              onClick={() => setFilter(f.value)}
+              testId={`ops-applications-filter-${f.value}`}
+            >
+              {f.label}
+            </FilterChip>
+          ))}
+        </div>
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          Sort
+          <Select value={sort} onValueChange={(value) => setSort(value as SortKey)}>
+            <SelectTrigger className="h-9 w-60 rounded-md bg-white text-foreground" data-testid="select-ops-applications-sort">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SORTS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </label>
       </div>
 
       {list.isLoading && (
@@ -148,14 +200,18 @@ export default function OpsApplications() {
                 return (
                   <tr
                     key={row.id}
-                    className="border-b border-border last:border-b-0 hover:bg-muted/40"
+                    data-href={`/ops/applications/${row.id}`}
+                    onClick={(event) => {
+                      if ((event.target as HTMLElement).closest('a,button')) return;
+                      setLocation(`/ops/applications/${row.id}`);
+                    }}
                     data-testid={`ops-application-row-${row.id}`}
                   >
                     <td className="px-4 py-3">
                       <Link href={`/ops/applications/${row.id}`} className="font-extrabold text-foreground hover:underline">
                         {row.name ?? row.phone}
                       </Link>
-                      <p className="text-xs text-muted-foreground truncate max-w-[16rem]">{row.email}</p>
+                      <p className="text-xs text-muted-foreground break-all">{row.email}</p>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground tabular-nums whitespace-nowrap">{row.phone}</td>
                     <td className="px-4 py-3">
