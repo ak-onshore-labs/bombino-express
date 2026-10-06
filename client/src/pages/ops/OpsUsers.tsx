@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { OpsAccessRequired } from '@/components/ops/OpsAccessRequired';
 import { isForbiddenError } from '@/lib/apiError';
-import { isIndianMobile } from '@shared/contact';
+import { isIndianMobile, toIndianMobile } from '@shared/contact';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation } from 'wouter';
 import { Loader2, Search } from 'lucide-react';
@@ -183,12 +183,11 @@ export default function OpsUsers() {
               <Input
                 value={phone}
                 onChange={(e) => {
-                  setPhone(e.target.value.replace(/\D/g, '').slice(0, 10));
+                  setPhone(toIndianMobile(e.target.value));
                   if (formError) setFormError('');
                 }}
                 placeholder="10-digit mobile"
                 inputMode="numeric"
-                maxLength={10}
                 className={inputClass}
                 autoComplete="tel"
                 data-testid="input-ops-user-phone"

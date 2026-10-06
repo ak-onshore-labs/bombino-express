@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { isIndianMobile } from '@shared/contact';
+import { isIndianMobile, toIndianMobile } from '@shared/contact';
 import { User, Mail, Phone, Building2, Loader2, ShieldCheck, UserRound, MapPin, ArrowRight } from 'lucide-react';
 import { useLocation, Link } from 'wouter';
 import { Button } from '@/components/ui/button';
@@ -1314,7 +1314,7 @@ function PhoneField({
           type="tel"
           inputMode="numeric"
           value={value}
-          onChange={(e) => onChange(e.target.value.replace(/\D/g, '').slice(0, 10))}
+          onChange={(e) => onChange(toIndianMobile(e.target.value))}
           // Already verified upstream — editing it here would silently detach
           // the code from the number being saved.
           disabled={disabled}

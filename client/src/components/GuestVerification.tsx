@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { isIndianMobile } from '@shared/contact';
+import { isIndianMobile, toIndianMobile } from '@shared/contact';
 import { Loader2, ShieldCheck, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -237,10 +237,9 @@ export function GuestVerification({
                 ref={phoneRef}
                 type="tel"
                 inputMode="numeric"
-                maxLength={10}
                 value={phone}
                 onChange={(e) => {
-                  setPhone(e.target.value.replace(/\D/g, '').slice(0, 10));
+                  setPhone(toIndianMobile(e.target.value));
                   setError('');
                 }}
                 onKeyDown={(e) => {

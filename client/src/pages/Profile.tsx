@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { useRefreshUserProfile, useUserProfile } from '@/hooks/useUserProfile';
-import { isIndianMobile } from '@shared/contact';
+import { isIndianMobile, toIndianMobile } from '@shared/contact';
 import { useAppStore } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import {
@@ -668,7 +668,7 @@ export default function Profile() {
                 inputMode="numeric"
                 value={newPhone}
                 onChange={(e) => {
-                  setNewPhone(e.target.value.replace(/\D/g, '').slice(0, 10));
+                  setNewPhone(toIndianMobile(e.target.value));
                   setChangeError('');
                 }}
                 onKeyDown={(e) => e.key === 'Enter' && void handleSendChangeOtp()}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { isIndianMobile } from '@shared/contact';
+import { isIndianMobile, toIndianMobile } from '@shared/contact';
 import {
   Loader2,
   Mail,
@@ -386,7 +386,7 @@ export default function Login() {
               inputMode="numeric"
               value={phone}
               onChange={(e) => {
-                setPhone(e.target.value.replace(/\D/g, '').slice(0, 10));
+                setPhone(toIndianMobile(e.target.value));
                 setError('');
               }}
               onKeyDown={(e) => e.key === 'Enter' && handleSendOtp()}

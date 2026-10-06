@@ -41,3 +41,9 @@ test("receiver numbers outside +1 are not judged here", () => {
   assert.equal(isValidReceiverPhone("+442079460958"), true);
   assert.equal(isValidReceiverPhone("+97150123456"), true);
 });
+
+test("iOS contact autofill keeps the number, not the country code", () => {
+  // What iOS pastes from the contact card: "+91 755-8372885".
+  assert.equal(toIndianMobile("+91 755-8372885"), "7558372885");
+  assert.equal(toIndianMobile("+91 75583 72885"), "7558372885");
+});

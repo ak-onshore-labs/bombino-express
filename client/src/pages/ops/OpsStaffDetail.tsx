@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { assignableRoles, can, roleLabel, type StaffRole } from '@shared/staffAccess';
+import { toIndianMobile } from '@shared/contact';
 import { useOpsStaffUsers, type OpsStaffUser } from '@/hooks/useOpsOrders';
 import {
   useOpsBeatsList,
@@ -437,12 +438,11 @@ export default function OpsStaffDetail() {
           <Input
             value={phone}
             onChange={(e) => {
-              setPhone(e.target.value.replace(/\D/g, '').slice(0, 10));
+              setPhone(toIndianMobile(e.target.value));
               if (formError) setFormError('');
             }}
             placeholder="10-digit mobile"
             inputMode="numeric"
-            maxLength={10}
             className={inputClass}
             autoComplete="tel"
             data-testid="input-ops-staff-phone"
