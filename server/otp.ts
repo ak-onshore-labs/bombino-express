@@ -58,7 +58,55 @@ export function fixedOtpCode(): string | null {
   return raw;
 }
 
-/** Called once at boot. Silent when the flag is unset. */
+/**
+ * Test accounts that always take 121212, while every other number gets a real
+ * random code. Built in, not a setting. The list is the "Test Accounts" tab of
+ * the "Bombino Ops Console – Team Access" sheet; keep the two in step.
+ *
+ * Exact numbers only, never a range. Nothing is sent to them by SMS or
+ * WhatsApp: they are dummies that cannot receive it, and every send costs
+ * MSG91 credit.
+ *
+ * KNOWN TRADE-OFF, Aditya's call (6 Oct 2026): the code is public, so anyone
+ * who knows one of these numbers can sign in as it, the super admin and admin
+ * included. Deactivate an account in Users rather than keep it here once
+ * nobody is testing with it.
+ */
+export const TEST_OTP_CODE = "121212";
+
+export const TEST_OTP_NUMBERS: ReadonlySet<string> = new Set([
+  // Ops console
+  "9000000011", // Test Super Admin
+  "9000000010", // Test Admin
+  // Customers
+  "9000000090", // Test Customer (seed)
+  "9000000016", // E2E Test Logistics (company)
+  "9000000095", // E2E Customer Two
+  // Agents
+  "9000000014", // Ravi Deshmukh
+  "9000000012", // Imran Shaikh
+  "9000000013", // Sunita Pawar
+  "9000000001", // Test Agent One
+  "9000000031", // Demo User
+  "9000000055", // Demo Agent
+  "9898989898", // Pickup Agent
+  "9797979797", // Ganesh
+  // Guest booking (no account)
+  "9000000096",
+]);
+
+/** The last ten digits, or null when there are fewer. */
+function lastTen(phone: string): string | null {
+  const digits = phone.replace(/\D/g, "");
+  return digits.length >= 10 ? digits.slice(-10) : null;
+}
+
+export function isTestOtpNumber(phone: string, numbers: ReadonlySet<string> = TEST_OTP_NUMBERS): boolean {
+  const ten = lastTen(phone);
+  return ten !== null && numbers.has(ten);
+}
+
+/** Called once at boot. Silent when neither flag is set. */
 export function warnIfFixedOtpEnabled(): void {
   const code = fixedOtpCode();
   if (!code) return;
@@ -81,9 +129,11 @@ export function warnIfFixedOtpEnabled(): void {
   );
 }
 
-export function generateOtp(): string {
+/** A new login code. Pass the phone so a listed test account gets 121212. */
+export function generateOtp(phone?: string): string {
   const fixed = fixedOtpCode();
   if (fixed) return fixed;
+  if (phone && isTestOtpNumber(phone)) return TEST_OTP_CODE;
 
   const n = crypto.randomInt(0, 10 ** OTP_LENGTH);
   return String(n).padStart(OTP_LENGTH, "0");
@@ -138,6 +188,9 @@ export async function deliverOtp(
   if (process.env.NODE_ENV === "development") {
     console.log(`[otp] OTP for ${phone}: ${code}`);
   }
+
+  // A test account: the code is known, and the number cannot receive it.
+  if (isTestOtpNumber(phone)) return true;
 
   const fixed = fixedOtpCode() !== null;
   const message = loginOtpMessage(code);

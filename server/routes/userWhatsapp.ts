@@ -62,7 +62,7 @@ export function registerUserWhatsappRoutes(app: Express): void {
         return;
       }
 
-      const code = generateOtp();
+      const code = generateOtp(phone);
       const inserted = await insertOtpCode({
         phone,
         code_hash: hashOtp(code),

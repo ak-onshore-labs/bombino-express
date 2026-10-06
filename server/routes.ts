@@ -450,7 +450,7 @@ export async function registerRoutes(
       return;
     }
 
-    const code = generateOtp();
+    const code = generateOtp(phone);
     const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60_000).toISOString();
     const inserted = await insertOtpCode({
       phone,
