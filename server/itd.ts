@@ -4,6 +4,7 @@
 //   app:   https://app.bombinoexp.com (Rate API only)
 
 import { RATE_ORIGIN_HUB_CODE } from "../shared/rateOrigin.js";
+import { parseItdJson } from "./itdJson.js";
 
 const ADMIN_BASE = "https://admin.bombinoexp.com";
 const APP_BASE = "https://app.bombinoexp.com";
@@ -424,7 +425,7 @@ class ITDClient {
       );
     }
 
-    return (await res.json()) as CreateShipmentResponse;
+    return parseItdJson<CreateShipmentResponse>(await res.text(), "createShipment");
   }
 
   // POST /api/customer_api/add_customer — registers a corporate customer with
