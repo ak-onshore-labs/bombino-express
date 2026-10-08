@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from 'react';
+import { useState } from 'react';
 import { AskBiaTopButton } from '@/components/bia/AskBiaTopButton';
 import { useRoute, useLocation } from 'wouter';
 import {
@@ -6,104 +6,32 @@ import {
   Copy,
   Check,
   Plane,
-  Download,
-  FileText,
   Phone,
   AlertTriangle,
   Loader2,
   RefreshCw,
 } from 'lucide-react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { formatDistanceToNow, format, parseISO, isValid } from 'date-fns';
 import { BottomNav } from '@/components/BottomNav';
 import { StatusBadge } from '@/components/StatusBadge';
 import { TrackingTimeline } from '@/components/TrackingTimeline';
-import type { TrackingEvent } from '@/lib/trackingTypes';
-import { getStatusLabel, getStatusColor, isAwbStatusFinal } from '@/lib/awbStatus';
+import { getStatusLabel, getStatusColor } from '@/lib/awbStatus';
 import { cn } from '@/lib/utils';
-import { useToast } from '@/hooks/use-toast';
 import { useSupportContacts } from '@/hooks/useSupportContacts';
-import {
-  base64ToPdfFile,
-  canSharePdfFile,
-  downloadPdfBlob,
-  openPdfOverlayOrDownload,
-} from '@/lib/pdfUtils';
-import {
-  SHIPMENT_DOCUMENT_META,
-  SHIPMENT_DOCUMENT_ORDER,
-  type ShipmentDocumentKind,
-} from '@/lib/shipmentDocuments';
-import { isAndroid } from '@/lib/platform';
-import { shareViaCapacitor } from '@/lib/nativeShare';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
-
-const PdfCanvasViewer = lazy(() => import('@/components/PdfCanvasViewer'));
-
-// ─── Types (unchanged) ──────────────────────────────────────────────────────
-interface DocketEvent {
-  id?: string;
-  event_at: string;
-  event_description: string;
-  event_remark: string;
-  event_state: string;
-  event_location: string;
-}
-
-interface ITDTrackingResult {
-  errors: boolean;
-  tracking_no: string;
-  chargeable_weight: string;
-  forwarding_no: string;
-  docket_info: [string, string][];
-  docket_events: DocketEvent[];
-}
-
-export type TrackingResponse =
-  | { results: ITDTrackingResult[]; fromCache: false; lastTrackedAt: string }
-  | { fromCache: true; lastTrackedAt: string; currentStatus: string; message: string };
-
-/**
- * The carrier's latest scan state, across both response shapes.
- *
- * Mirrors how the badge picks `rawStateForBadge` further down — the last docket
- * event wins, then the docket's own Status field. Used to decide whether this
- * shipment is still worth polling; null means "cannot tell", which is treated
- * as still moving.
- */
-function latestScanState(data: TrackingResponse | undefined): string | null {
-  if (!data) return null;
-  if (data.fromCache) return data.currentStatus?.trim() || null;
-  const result = data.results?.[0];
-  if (!result) return null;
-  const events = result.docket_events ?? [];
-  const last = events.length > 0 ? events[events.length - 1] : undefined;
-  return (
-    last?.event_state?.trim() || getDocketValue(result.docket_info ?? [], 'Status') || null
-  );
-}
+import { ShipmentDocuments } from '@/components/ShipmentDocuments';
+import {
+  getDocketValue,
+  mapEvents,
+  trackingKey,
+  useAwbTracking,
+  withKg,
+} from '@/hooks/useAwbTracking';
 
 // ─── Small helpers ──────────────────────────────────────────────────────────
-function getDocketValue(docketInfo: [string, string][], label: string): string {
-  const entry = docketInfo.find(([key]) => key.trim() === label);
-  return entry?.[1]?.trim() ?? '';
-}
-
 function joinLocationParts(...parts: string[]): string {
   return parts.map((p) => p.trim()).filter(Boolean).join(', ');
-}
-
-function withKg(value: string): string {
-  let trimmed = value.trim();
-  if (!trimmed) return '';
-  // Drop trailing zeros: "2.000" -> "2", "2.50" -> "2.5"
-  const num = parseFloat(trimmed.replace(/[^0-9.]/g, ''));
-  if (Number.isFinite(num)) {
-    const hasKg = /\bkg\b/i.test(trimmed);
-    trimmed = num.toString();
-    return hasKg || !/^\d/.test(value) ? `${trimmed} kg` : `${trimmed} kg`;
-  }
-  return /\bkg\b/i.test(trimmed) ? trimmed : `${trimmed} kg`;
 }
 
 /** Format "2026-05-17" or "2026-05-17T..." -> "17 May 2026". Falls back to original if unparseable. */
@@ -115,32 +43,6 @@ function formatNiceDate(value: string): string {
   const d = parseISO(candidate);
   if (isValid(d)) return format(d, 'dd MMM yyyy');
   return trimmed;
-}
-
-function mapEvents(docketEvents: DocketEvent[]): TrackingEvent[] {
-  return docketEvents.map((e, index) => ({
-    id: e.id || `${e.event_at}-${index}`,
-    status: e.event_description,
-    note: e.event_remark || e.event_state || '',
-    location: e.event_location || '',
-    timestamp: new Date(e.event_at),
-  }));
-}
-
-function isTrackingResponse(body: unknown): body is TrackingResponse {
-  if (!body || typeof body !== 'object') return false;
-  const o = body as Record<string, unknown>;
-  if (o.fromCache === true) {
-    return (
-      typeof o.lastTrackedAt === 'string' &&
-      typeof o.currentStatus === 'string' &&
-      typeof o.message === 'string'
-    );
-  }
-  if (o.fromCache === false) {
-    return Array.isArray(o.results) && typeof o.lastTrackedAt === 'string';
-  }
-  return false;
 }
 
 // ─── Reusable shell pieces ──────────────────────────────────────────────────
@@ -297,52 +199,14 @@ function Field({ label, value }: { label: string; value: string }) {
 }
 
 // ─── Action row (documents · WhatsApp · Call) ──────────────────────────────
-const DOCUMENT_BUTTONS: Record<
-  ShipmentDocumentKind,
-  { testId: string; text: string; icon: typeof Download }
-> = {
-  label: { testId: 'button-download-label', text: 'AWB Label', icon: Download },
-  boxLabel: { testId: 'button-download-box-label', text: 'Box Label', icon: Download },
-  postalLabel: {
-    testId: 'button-download-postal-label',
-    text: 'Postal Label',
-    icon: Download,
-  },
-  invoice: { testId: 'button-download-invoice', text: 'Invoice', icon: FileText },
-};
-
-function ActionRow({
-  onDownloadDocument,
-  documents,
-}: {
-  onDownloadDocument: (kind: ShipmentDocumentKind) => void;
-  documents: ShipmentDocumentKind[];
-}) {
+/** `awb` null: no document buttons (tracking served from cache). */
+function ActionRow({ awb }: { awb: string | null }) {
   const { waHref, telHref } = useSupportContacts();
-  const available = SHIPMENT_DOCUMENT_ORDER.filter((k) => documents.includes(k));
 
   return (
     <section className="mt-10 md:mt-12 pt-6 border-t border-border">
       <div className="flex flex-wrap items-center gap-2">
-        {available.map((kind, i) => {
-          const { testId, text, icon: Icon } = DOCUMENT_BUTTONS[kind];
-          return (
-            <button
-              key={kind}
-              type="button"
-              onClick={() => onDownloadDocument(kind)}
-              className={
-                i === 0
-                  ? 'inline-flex items-center gap-2 h-10 px-4 rounded-lg bg-[lab(34.0831_-9.57756_-27.7093)] text-white text-sm font-semibold hover:bg-[#2F4468] transition-colors'
-                  : 'inline-flex items-center gap-2 h-10 px-4 rounded-lg border border-border bg-white text-sm font-semibold text-foreground hover:border-foreground/30 hover:bg-muted/40 transition-colors'
-              }
-              data-testid={testId}
-            >
-              <Icon className={i === 0 ? 'w-4 h-4' : 'w-4 h-4 text-muted-foreground'} />
-              {text}
-            </button>
-          );
-        })}
+        {awb && <ShipmentDocuments awb={awb} />}
         <div className="flex-1" />
         <a
           href={waHref}
@@ -373,70 +237,11 @@ export default function ShipmentDetails() {
   const [, setLocation] = useLocation();
   const { waHref } = useSupportContacts();
   const [copied, setCopied] = useState(false);
-  const [pdfDataUrl, setPdfDataUrl] = useState<string | null>(null);
-  const [pdfTitle, setPdfTitle] = useState('Shipment Label');
-  const [pdfFileName, setPdfFileName] = useState('shipment-label.pdf');
   const queryClient = useQueryClient();
-  const { toast } = useToast();
 
   const awb = params?.awb ? decodeURIComponent(params.awb) : '';
 
-  const { data, isLoading, isFetching, error } = useQuery<TrackingResponse>({
-    queryKey: ['/api/track', awb],
-    queryFn: async () => {
-      const res = await fetch(`/api/track/${encodeURIComponent(awb)}`, {
-        credentials: 'include',
-      });
-      const body: unknown = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const msg =
-          typeof body === 'object' &&
-          body !== null &&
-          'message' in body &&
-          typeof (body as { message: unknown }).message === 'string'
-            ? (body as { message: string }).message
-            : res.statusText;
-        throw new Error(`${res.status}: ${msg}`);
-      }
-      if (!isTrackingResponse(body)) {
-        throw new Error('Invalid tracking response');
-      }
-      return body;
-    },
-    enabled: !!awb,
-    retry: false,
-    // Carrier scans arrive while the customer is watching. The global default
-    // is `staleTime: Infinity`, which on a tracking screen means the page was
-    // only ever as fresh as the moment it was opened.
-    //
-    // Two minutes, not twenty seconds: each call is a round trip to ITD, and a
-    // parcel does not change state faster than that. Stops once ITD has said
-    // its last word (`isAwbStatusFinal`) — a delivered parcel is not going to
-    // move again, and this screen is one people leave open.
-    staleTime: 0,
-    refetchOnMount: true,
-    refetchOnWindowFocus: true,
-    refetchInterval: (query) =>
-      isAwbStatusFinal(latestScanState(query.state.data)) ? false : 120_000,
-  });
-
-  // Which printables this shipment actually has — invoice and postal label are
-  // only present on some shipments, so buttons are driven by this.
-  const { data: documentsData } = useQuery<{ documents: ShipmentDocumentKind[] }>({
-    queryKey: ['/api/shipments', awb, 'documents'],
-    queryFn: async () => {
-      const res = await fetch(
-        `/api/shipments/${encodeURIComponent(awb)}/documents`,
-        { credentials: 'include' }
-      );
-      if (!res.ok) return { documents: [] };
-      return (await res.json()) as { documents: ShipmentDocumentKind[] };
-    },
-    enabled: !!awb,
-    retry: false,
-  });
-
-  const availableDocuments = documentsData?.documents ?? [];
+  const { data, isLoading, isFetching, error } = useAwbTracking(awb);
 
   const copyAWB = () => {
     void navigator.clipboard.writeText(awb);
@@ -445,83 +250,12 @@ export default function ShipmentDetails() {
   };
 
   const invalidateTrack = () => {
-    void queryClient.invalidateQueries({ queryKey: ['/api/track', awb] });
+    void queryClient.invalidateQueries({ queryKey: trackingKey(awb) });
   };
 
   const handleBack = () => {
     if (window.history.length > 1) window.history.back();
     else setLocation('/home');
-  };
-
-  const handleDownloadDocument = async (kind: ShipmentDocumentKind) => {
-    const doc = SHIPMENT_DOCUMENT_META[kind];
-    try {
-      const res = await fetch(
-        `/api/shipments/${encodeURIComponent(awb)}/${doc.path}`,
-        { credentials: 'include' }
-      );
-      if (!res.ok) {
-        toast({
-          title: `${doc.title} not available`,
-          description: `The ${doc.title.toLowerCase()} for this shipment could not be found.`,
-          variant: 'destructive',
-        });
-        return;
-      }
-      const body = (await res.json()) as Record<string, string>;
-      const base64 = body[doc.responseKey];
-      if (!base64) {
-        toast({
-          title: `${doc.title} not available`,
-          description: `The ${doc.title.toLowerCase()} for this shipment could not be found.`,
-          variant: 'destructive',
-        });
-        return;
-      }
-      setPdfFileName(doc.fileName);
-      openPdfOverlayOrDownload(
-        base64,
-        doc.fileName,
-        doc.title,
-        setPdfTitle,
-        setPdfDataUrl
-      );
-    } catch {
-      toast({
-        title: 'Download failed',
-        description: `Could not open the ${doc.title.toLowerCase()}.`,
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const handleShareLabel = async (dataUrl: string) => {
-    try {
-      const base64 = dataUrl.split(',')[1];
-      const fileName = pdfFileName;
-
-      if (isAndroid()) {
-        const ok = await shareViaCapacitor(base64, fileName, pdfTitle);
-        if (ok) return;
-      }
-
-      const file = base64ToPdfFile(base64, fileName);
-
-      if (canSharePdfFile(file)) {
-        await navigator.share({ files: [file], title: pdfTitle });
-      } else if (!isAndroid()) {
-        downloadPdfBlob(file, fileName);
-      }
-      // Android with no native plugin: silent no-op (as today)
-    } catch (err) {
-      if (err instanceof Error && err.name !== 'AbortError') {
-        toast({
-          title: 'Share failed',
-          description: 'Could not share the label.',
-          variant: 'destructive',
-        });
-      }
-    }
   };
 
   // ─── Loading ─────────────────────────────────────────────────────────────
@@ -611,10 +345,7 @@ export default function ShipmentDetails() {
           </div>
         </div>
 
-        <ActionRow
-          onDownloadDocument={(kind) => void handleDownloadDocument(kind)}
-          documents={[]}
-        />
+        <ActionRow awb={null} />
       </PageShell>
     );
   }
@@ -776,48 +507,7 @@ export default function ShipmentDetails() {
         </div>
       </section>
 
-      <ActionRow
-        onDownloadDocument={(kind) => void handleDownloadDocument(kind)}
-        documents={availableDocuments}
-      />
-
-      {/* PDF preview overlay (label or invoice) */}
-      {pdfDataUrl && (
-        <div className="fixed inset-0 z-[100] bg-white flex flex-col" data-testid="label-preview">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-white safe-top">
-            <span className="font-semibold text-sm text-foreground">{pdfTitle}</span>
-            <div className="flex items-center gap-4">
-              <button
-                type="button"
-                onClick={() => void handleShareLabel(pdfDataUrl)}
-                className="text-sm font-medium text-[#F2A123] hover:underline"
-              >
-                Share
-              </button>
-              <button
-                type="button"
-                onClick={() => setPdfDataUrl(null)}
-                className="text-sm font-medium text-foreground hover:underline"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-          {isAndroid() ? (
-            <Suspense
-              fallback={
-                <div className="flex-1 grid place-items-center text-sm text-muted-foreground">
-                  Loading PDF…
-                </div>
-              }
-            >
-              <PdfCanvasViewer base64={pdfDataUrl.split(',')[1]} title={pdfTitle} />
-            </Suspense>
-          ) : (
-            <iframe src={pdfDataUrl} className="flex-1 w-full border-0" title={pdfTitle} />
-          )}
-        </div>
-      )}
+      <ActionRow awb={awb} />
     </PageShell>
   );
 }

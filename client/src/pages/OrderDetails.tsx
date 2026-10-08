@@ -1,42 +1,44 @@
 /**
- * Customer-facing detail for a pre-docket order (`BOM-xxxxxx`).
+ * Customer-facing detail for an order (`BOM-xxxxxx`).
  *
- * The counterpart to ShipmentDetails, which needs an AWB and therefore only
- * exists once ops has generated a docket. Between booking and dispatch there
- * was previously nothing to open — the list toasted "Not yet trackable" — even
- * though the order carries everything the customer entered plus a full
- * lifecycle log.
+ * Read top to bottom, one column, and it answers three questions in order:
  *
- * Two things it shows that ShipmentDetails cannot: the booking as submitted,
- * and the pickup agent's progress. Both come from `GET /api/orders/:orderNo`;
- * this page derives nothing about the state machine itself — the server sends
- * the customer-facing status phrase and the list of actions the customer may
- * take, and the page renders exactly those.
+ *   1. Where is it?       The status in words, the route, a progress bar.
+ *   2. What do I do now?  One panel, the only boxed thing on the page, holding
+ *                         just what needs the customer's hand: pay, print
+ *                         labels, read out a code, call the agent, find a
+ *                         counter. Nothing to do, no panel.
+ *   3. What happened?     Updates, then the booking as submitted.
+ *
+ * Everything else sits on the page with hairline dividers rather than in
+ * cards: one radius (8px), one container, one reading path.
+ *
+ * Everything comes from `GET /api/orders/:orderNo`; this page derives nothing
+ * about the state machine beyond which step of the progress bar to light. The
+ * server sends the customer-facing status phrase and the actions the customer
+ * may take, and the page renders exactly those.
+ *
+ * The `id`s `#handover-code`, `#labels`, `#pay` and `#cancel` are where BIA's
+ * buttons land: the customer presses the real button here.
  */
 
 import { useAppStore } from '@/lib/store';
 import { useState } from 'react';
 import { useRoute, useLocation, Link } from 'wouter';
 import {
+  AlertTriangle,
   ArrowLeft,
   ArrowRight,
-  AlertTriangle,
   Check,
+  ChevronDown,
   Copy,
   Loader2,
-  MapPin,
-  Package,
   Phone,
   RefreshCw,
-  Sparkles,
-  Truck,
-  User,
-  Wallet,
 } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, parseISO, isValid } from 'date-fns';
 import { BottomNav } from '@/components/BottomNav';
-import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -49,10 +51,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { getOrderStatusTone } from '@/lib/orderStatus';
 import { apiRequest } from '@/lib/queryClient';
 import { payForOrder } from '@/lib/razorpay';
-import { openBia } from '@/lib/biaStore';
 import { PaymentTestModeSwitch } from '@/components/PaymentTestModeSwitch';
 import { DropoffBranches } from '@/components/DropoffBranches';
 import { cn } from '@/lib/utils';
@@ -74,8 +74,17 @@ import {
 } from '@/hooks/useCustomerOrders';
 import { useSupportContacts } from '@/hooks/useSupportContacts';
 import { AskBiaTopButton } from '@/components/bia/AskBiaTopButton';
+import { ShipmentDocuments, useShipmentDocuments } from '@/components/ShipmentDocuments';
+import { TrackingTimeline } from '@/components/TrackingTimeline';
+import { getStatusLabel } from '@/lib/awbStatus';
+import {
+  getDocketValue,
+  mapEvents,
+  useAwbTracking,
+  withKg,
+} from '@/hooks/useAwbTracking';
 
-const BRAND_NAVY = 'lab(34.0831 -9.57756 -27.7093)';
+const NAVY = 'lab(34.0831 -9.57756 -27.7093)';
 
 // ─── Small helpers ──────────────────────────────────────────────────────────
 
@@ -88,7 +97,7 @@ function niceDate(value: string | null | undefined): string {
 
 function niceDateTime(value: string): string {
   const d = parseISO(value);
-  return isValid(d) ? format(d, "dd MMM yyyy 'at' h:mm a") : value;
+  return isValid(d) ? format(d, "dd MMM yyyy, h:mm a") : value;
 }
 
 /** Weight the customer entered, in the unit they think in. */
@@ -97,12 +106,90 @@ function formatKg(value: number | null): string | null {
   return `${Number.isInteger(value) ? value : value.toFixed(2)} kg`;
 }
 
-// ─── Layout primitives ──────────────────────────────────────────────────────
+/** Copy to clipboard; `copied` holds the value for two seconds after. */
+function useCopy(): [string | null, (value: string) => void] {
+  const [copied, setCopied] = useState<string | null>(null);
+  const copy = (value: string) => {
+    void navigator.clipboard.writeText(value);
+    setCopied(value);
+    setTimeout(() => setCopied((c) => (c === value ? null : c)), 2000);
+  };
+  return [copied, copy];
+}
+
+// ─── Progress ───────────────────────────────────────────────────────────────
+
+const HUB_STATUSES = new Set(['received_at_hub', 'weighed', 'settled', 'ready_for_docket']);
+
+/**
+ * The steps the customer can see, and which one they are on.
+ *
+ * The hub phase is one step on purpose, same reasoning as the status phrase
+ * (see `getCustomerStatusLabel`): weighed/settled/ready are ours, not theirs.
+ * A drop-off has no separate "collected": handing it in IS reaching the hub.
+ */
+function progressFor(
+  status: string,
+  isPickup: boolean,
+  delivered: boolean
+): { steps: string[]; current: number } {
+  const steps = isPickup
+    ? ['Booked', 'Collected', 'At hub', 'Shipped', 'Delivered']
+    : ['Booked', 'At hub', 'Shipped', 'Delivered'];
+  const last = steps.length - 1;
+
+  let current = 0;
+  if (status === 'dispatched') current = delivered ? last : last - 1;
+  else if (HUB_STATUSES.has(status)) current = isPickup ? 2 : 1;
+  else if (status === 'picked_up') current = 1;
+
+  return { steps, current };
+}
+
+/** Segmented bar: done segments navy, the current one amber, the rest grey. */
+function ProgressBar({ steps, current }: { steps: string[]; current: number }) {
+  return (
+    <ol
+      className="grid gap-1.5"
+      style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}
+      aria-label={`Step ${current + 1} of ${steps.length}: ${steps[current]}`}
+      data-testid="order-progress"
+    >
+      {steps.map((label, i) => (
+        <li key={label} aria-current={i === current ? 'step' : undefined}>
+          <span
+            className={cn(
+              'block h-1 rounded-full transition-colors duration-200',
+              i < current && 'bg-[lab(34.0831_-9.57756_-27.7093)]',
+              i === current && 'bg-[#F2A123]',
+              i > current && 'bg-[#E2E8F0]'
+            )}
+            aria-hidden
+          />
+          <span
+            className={cn(
+              'mt-1.5 block text-[11px] leading-tight truncate',
+              i === current
+                ? 'font-semibold text-foreground'
+                : i < current
+                  ? 'text-foreground/70'
+                  : 'text-muted-foreground'
+            )}
+          >
+            {label}
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+// ─── Primitives ─────────────────────────────────────────────────────────────
 
 function PageShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-order">
-      <main className="max-w-3xl mx-auto px-5 md:px-0 pt-4 pb-10 md:pt-6 md:pb-14">
+      <main className="max-w-2xl mx-auto px-4 md:px-6 pt-3 pb-12 md:pt-6 md:pb-16">
         {children}
       </main>
       <BottomNav />
@@ -120,81 +207,201 @@ function TopBar({
   isFetching?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between mb-7 md:mb-10">
+    <div className="flex items-center justify-between mb-4 md:mb-6">
       <button
         type="button"
         onClick={onBack}
-        className="-ml-2 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-2 py-1.5 rounded-lg"
+        className="-ml-2 inline-flex items-center gap-1.5 h-10 px-2 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-lg"
         data-testid="button-back"
       >
         <ArrowLeft className="w-4 h-4" />
-        Back
+        My shipments
       </button>
       <div className="-mr-2 flex items-center gap-1">
-      {onRefresh && (
-        <button
-          type="button"
-          onClick={onRefresh}
-          disabled={isFetching}
-          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1.5 rounded-lg disabled:opacity-50"
-          aria-label="Refresh order"
-          data-testid="button-refresh-order"
-        >
-          <RefreshCw className={cn('w-3.5 h-3.5', isFetching && 'animate-spin')} />
-          {isFetching ? 'Refreshing' : 'Refresh'}
-        </button>
-      )}
-      <AskBiaTopButton withLabel />
+        {onRefresh && (
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={isFetching}
+            className="grid place-items-center w-10 h-10 text-muted-foreground hover:text-foreground transition-colors rounded-lg disabled:opacity-50"
+            aria-label={isFetching ? 'Refreshing order' : 'Refresh order'}
+            data-testid="button-refresh-order"
+          >
+            <RefreshCw className={cn('w-4 h-4', isFetching && 'animate-spin')} />
+          </button>
+        )}
+        <AskBiaTopButton withLabel />
       </div>
     </div>
   );
 }
 
-function Section({
-  icon: Icon,
-  title,
-  children,
-  action,
+/**
+ * One identifier: label, the number large, and the whole cell is the copy
+ * button, so the target is the size of the thing being copied.
+ */
+function IdCell({
+  label,
+  value,
+  mono = false,
+  copied,
+  onCopy,
+  testId,
+  valueTestId,
 }: {
-  icon: React.ComponentType<{ className?: string }>;
-  title: string;
-  children: React.ReactNode;
-  action?: React.ReactNode;
+  label: string;
+  value: string;
+  mono?: boolean;
+  copied: boolean;
+  onCopy: (v: string) => void;
+  testId: string;
+  valueTestId: string;
 }) {
   return (
-    <section className="pt-6 mt-6 border-t border-border first:mt-0 first:pt-0 first:border-t-0">
-      <div className="flex items-center justify-between gap-3 mb-3.5">
-        <h2 className="inline-flex items-center gap-2 text-[11px] font-bold tracking-[0.12em] uppercase text-muted-foreground">
-          <Icon className="w-3.5 h-3.5 text-[#F2A123]" />
-          {title}
-        </h2>
-        {action}
-      </div>
+    <button
+      type="button"
+      onClick={() => onCopy(value)}
+      className="group min-w-0 px-4 py-3 text-left transition-colors hover:bg-[#F8F9FA] active:bg-[#F3F4F6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#2F4468]/40"
+      aria-label={copied ? `${label} copied` : `Copy ${label} ${value}`}
+      data-testid={testId}
+    >
+      <span className="flex items-center justify-between gap-2">
+        <span className="text-[11px] font-semibold tracking-[0.09em] uppercase text-muted-foreground truncate">
+          {label}
+        </span>
+        {copied ? (
+          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-green-700 shrink-0">
+            <Check className="w-3.5 h-3.5" aria-hidden />
+            Copied
+          </span>
+        ) : (
+          <Copy
+            className="w-3.5 h-3.5 shrink-0 text-muted-foreground/70 group-hover:text-foreground transition-colors"
+            aria-hidden
+          />
+        )}
+      </span>
+      <span
+        className={cn(
+          'mt-1 block text-[17px] md:text-[19px] font-bold leading-tight tabular-nums break-all',
+          mono ? 'font-mono tracking-tight' : 'tracking-tight'
+        )}
+        style={{ color: NAVY }}
+        data-testid={valueTestId}
+      >
+        {value}
+      </span>
+    </button>
+  );
+}
+
+/** A page section: heading on the page, hairline above, no box. */
+function Section({
+  title,
+  children,
+  id,
+}: {
+  title: string;
+  children: React.ReactNode;
+  id?: string;
+}) {
+  return (
+    <section id={id} className="mt-8 pt-6 border-t border-[#E2E8F0] scroll-mt-24">
+      <h2 className="text-base font-semibold text-foreground mb-4">{title}</h2>
       {children}
     </section>
   );
 }
 
-/**
- * A label/value pair. Renders nothing at all when the value is empty — an
- * order booked before a field existed should leave no gap, not show a dash for
- * every optional thing the flow has ever collected.
- */
-function Field({ label, value }: { label: string; value: string | null | undefined }) {
+/** Label left, value right. Renders nothing when the value is empty. */
+function Row({ label, value }: { label: string; value: string | null | undefined }) {
   if (!value) return null;
   return (
-    <div className="min-w-0">
-      <dt className="text-[11px] text-muted-foreground">{label}</dt>
-      <dd className="text-sm text-foreground mt-0.5 break-words">{value}</dd>
+    <div className="flex items-baseline justify-between gap-4 py-2">
+      <dt className="text-sm text-muted-foreground shrink-0">{label}</dt>
+      <dd className="text-sm text-foreground text-right break-words min-w-0 whitespace-pre-line">
+        {value}
+      </dd>
     </div>
   );
 }
 
-function FieldGrid({ children }: { children: React.ReactNode }) {
-  return <dl className="grid grid-cols-2 gap-x-6 gap-y-3.5">{children}</dl>;
+function Group({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <h3 className="text-[11px] font-semibold tracking-[0.09em] uppercase text-muted-foreground">
+        {title}
+      </h3>
+      <dl className="mt-1 divide-y divide-[#E2E8F0]">{children}</dl>
+    </div>
+  );
 }
 
-// ─── Agent updates ──────────────────────────────────────────────────────────
+/** One line in the to-do panel: what, why, and the control to do it. */
+function Task({
+  title,
+  hint,
+  action,
+  children,
+  id,
+  testId,
+}: {
+  title: string;
+  hint?: React.ReactNode;
+  action?: React.ReactNode;
+  children?: React.ReactNode;
+  id?: string;
+  testId?: string;
+}) {
+  return (
+    <div id={id} className="px-4 py-4 scroll-mt-24" data-testid={testId}>
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-foreground">{title}</p>
+          {hint && <p className="mt-0.5 text-[13px] text-muted-foreground leading-snug">{hint}</p>}
+        </div>
+        {action && <div className="shrink-0">{action}</div>}
+      </div>
+      {children && <div className="mt-3">{children}</div>}
+    </div>
+  );
+}
+
+/** A warning line in the panel: icon, words, colour only as reinforcement. */
+function Notice({
+  tone,
+  title,
+  children,
+  testId,
+}: {
+  tone: 'amber' | 'red';
+  title: string;
+  children: React.ReactNode;
+  testId?: string;
+}) {
+  return (
+    <div
+      className={cn('px-4 py-3.5 flex gap-3', tone === 'amber' ? 'bg-amber-50' : 'bg-red-50')}
+      role="status"
+      data-testid={testId}
+    >
+      <AlertTriangle
+        className={cn('w-4 h-4 shrink-0 mt-0.5', tone === 'amber' ? 'text-amber-700' : 'text-red-700')}
+        aria-hidden
+      />
+      <div className="min-w-0 text-[13px] leading-snug">
+        <p className={cn('font-semibold', tone === 'amber' ? 'text-amber-900' : 'text-red-900')}>
+          {title}
+        </p>
+        <div className={cn('mt-0.5', tone === 'amber' ? 'text-amber-900/80' : 'text-red-900/80')}>
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Order log ──────────────────────────────────────────────────────────────
 
 const ACTOR_LABELS: Record<OrderDetailEvent['actorKind'], string> = {
   agent: 'Pickup agent',
@@ -203,65 +410,67 @@ const ACTOR_LABELS: Record<OrderDetailEvent['actorKind'], string> = {
   system: 'Bombino',
 };
 
-/**
- * The lifecycle log, newest first — the same reading order as the tracking
- * timeline on a dispatched shipment, so the two screens do not disagree about
- * which end of the list is "now".
- */
+/** The lifecycle log, newest first, same reading order as carrier scans. */
 function UpdatesTimeline({ events }: { events: OrderDetailEvent[] }) {
   const ordered = [...events].sort(
     (a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()
   );
 
   return (
-    <div className="relative">
+    <ol>
       {ordered.map((event, index) => {
         const isLatest = index === 0;
         const isLast = index === ordered.length - 1;
         const who = event.actorName
-          ? `${ACTOR_LABELS[event.actorKind]} · ${event.actorName}`
+          ? `${ACTOR_LABELS[event.actorKind]}, ${event.actorName}`
           : ACTOR_LABELS[event.actorKind];
 
         return (
-          <div
+          <li
             key={event.id}
-            className="relative flex gap-4 pb-5 last:pb-0"
+            className="relative flex gap-3.5 pb-5 last:pb-0"
             data-testid={`order-event-${event.id}`}
           >
-            <div className="flex flex-col items-center pt-1">
-              <div
+            <div className="flex flex-col items-center pt-1.5">
+              <span
                 className={cn(
-                  'h-3 w-3 rounded-full border-2 shrink-0',
-                  isLatest
-                    ? 'border-[#F2A123] bg-[#F2A123]'
-                    : 'border-muted-foreground/40 bg-muted'
+                  'h-2 w-2 rounded-full shrink-0',
+                  isLatest ? 'bg-[#F2A123]' : 'bg-[#CBD5E1]'
                 )}
               />
-              {!isLast && <div className="mt-1.5 w-0.5 flex-1 bg-border" />}
+              {!isLast && <span className="mt-1.5 w-px flex-1 bg-[#E2E8F0]" />}
             </div>
-
             <div className="flex-1 min-w-0 -mt-0.5">
-              <p
-                className={cn(
-                  'text-sm font-semibold',
-                  isLatest ? 'text-foreground' : 'text-foreground/80'
-                )}
-              >
+              <p className={cn('text-sm', isLatest ? 'font-semibold text-foreground' : 'text-foreground/85')}>
                 {event.label}
               </p>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {who}
-                {event.amount != null && ` · ${formatInr(event.amount)} collected`}
-              </p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground tabular-nums">
-                {niceDateTime(event.at)}
+                {event.amount != null && `, ${formatInr(event.amount)} collected`}
+                {' · '}
+                <span className="tabular-nums">{niceDateTime(event.at)}</span>
               </p>
             </div>
-          </div>
+          </li>
         );
       })}
-    </div>
+    </ol>
   );
+}
+
+// ─── Labels ─────────────────────────────────────────────────────────────────
+
+/**
+ * Whether this AWB has stored labels. 'no' covers an AWB ops typed in by hand
+ * and a guest's order: neither has a docket response to print from.
+ */
+function useHasLabels(awb: string | null, enabled: boolean): 'yes' | 'loading' | 'no' {
+  const { documents, isLoading } = useShipmentDocuments(awb ?? '', {
+    enabled: enabled && !!awb,
+  });
+  if (!enabled || !awb) return 'no';
+  if (documents.length > 0) return 'yes';
+  return isLoading ? 'loading' : 'no';
 }
 
 // ─── Page ───────────────────────────────────────────────────────────────────
@@ -272,11 +481,13 @@ export default function OrderDetails() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { telHref } = useSupportContacts();
-  const [copied, setCopied] = useState(false);
+  const [copied, copy] = useCopy();
+  const [showAllParcel, setShowAllParcel] = useState(false);
+  const [showBookingLog, setShowBookingLog] = useState(false);
 
   const orderNo = params?.orderNo ? decodeURIComponent(params.orderNo) : '';
   // A guest can read this screen but not act on it: the regenerate and action
-  // endpoints are account-only.
+  // endpoints are account-only, and a guest's order has no stored labels.
   const { isLoggedIn } = useAppStore();
 
   // Polls every 20s while the order can still move, and stops at dispatched or
@@ -284,10 +495,21 @@ export default function OrderDetails() {
   // accepting the job has to land here without a reload.
   const { data, isLoading, isFetching, error } = useCustomerOrderDetail(orderNo);
 
+  // Carrier scans, once the parcel has left us. Not asked for before then:
+  // ITD has nothing to say about a parcel still in the customer's house, and
+  // every call is a round trip to them.
+  const trackedAwb =
+    data?.order.awb_no && data.order.status === 'dispatched' ? data.order.awb_no : '';
+  const { data: tracking } = useAwbTracking(trackedAwb, { enabled: !!trackedAwb });
+
+  const stillWithUs =
+    !!data && data.order.status !== 'dispatched' && data.order.status !== 'cancelled';
+  const hasLabels = useHasLabels(data?.order.awb_no ?? null, isLoggedIn && stillWithUs);
+
   /**
    * The customer asks; ops decides.
    *
-   * This does not cancel anything and must never say it did — the order stays
+   * This does not cancel anything and must never say it did: the order stays
    * live, the agent still comes, and the parcel is only off once ops acts. See
    * the cancellation block in `server/orderLifecycle.ts`.
    */
@@ -318,8 +540,7 @@ export default function OrderDetails() {
     onError: (err: unknown) => {
       toast({
         title: 'Could not send that request',
-        description:
-          err instanceof Error ? err.message : 'Your request could not be sent.',
+        description: err instanceof Error ? err.message : 'Your request could not be sent.',
         variant: 'destructive',
       });
     },
@@ -330,7 +551,7 @@ export default function OrderDetails() {
    * guesses or never wrote at all.
    *
    * The server picks which code the caller is entitled to from the order's
-   * state — this sends no kind, so a customer can never ask for the agent's.
+   * state; this sends no kind, so a customer can never ask for the agent's.
    */
   const regenerateHandover = useMutation({
     mutationFn: async (orderId: string) => {
@@ -353,7 +574,7 @@ export default function OrderDetails() {
   /**
    * The second door into Razorpay. The first is booking; this one is for the
    * customer who dismissed that modal, or whose card failed, and came back.
-   * Same server endpoints — a fresh gateway order against the same order id.
+   * Same server endpoints: a fresh gateway order against the same order id.
    */
   const [paying, setPaying] = useState(false);
 
@@ -386,12 +607,6 @@ export default function OrderDetails() {
     else setLocation('/orders');
   };
 
-  const copyOrderNo = () => {
-    void navigator.clipboard.writeText(orderNo);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ['/api/orders', orderNo] });
   };
@@ -401,15 +616,12 @@ export default function OrderDetails() {
     return (
       <PageShell>
         <TopBar onBack={handleBack} />
-        <div className="space-y-6 animate-pulse">
-          <div>
-            <div className="h-3 w-16 bg-muted rounded" />
-            <div className="h-8 w-56 bg-muted rounded mt-2" />
-          </div>
-          <div className="h-4 w-64 bg-muted rounded" />
-          <div className="pt-4 border-t border-border">
-            <Loader2 className="w-5 h-5 animate-spin text-muted-foreground mx-auto mt-6" />
-          </div>
+        <div className="animate-pulse" aria-busy="true">
+          <div className="h-3 w-40 bg-muted rounded" />
+          <div className="h-7 w-64 bg-muted rounded mt-3" />
+          <div className="h-4 w-52 bg-muted rounded mt-3" />
+          <div className="h-1 w-full bg-muted rounded-full mt-6" />
+          <div className="h-40 w-full bg-white border border-[#E2E8F0] rounded-lg mt-6" />
         </div>
       </PageShell>
     );
@@ -419,23 +631,23 @@ export default function OrderDetails() {
   if (error || !data) {
     return (
       <PageShell>
-        <TopBar onBack={handleBack} onRefresh={orderNo ? refresh : undefined} isFetching={isFetching} />
-        <section className="py-10 text-center">
-          <div className="w-12 h-12 mx-auto rounded-full bg-red-50 text-red-500 flex items-center justify-center">
-            <AlertTriangle className="w-6 h-6" />
-          </div>
-          <h2 className="text-base font-semibold mt-4">Order not found</h2>
-          {orderNo && (
-            <p className="text-sm text-muted-foreground mt-1 tabular-nums">{orderNo}</p>
-          )}
-          <p className="text-xs text-muted-foreground mt-3 max-w-xs mx-auto leading-relaxed">
+        <TopBar
+          onBack={handleBack}
+          onRefresh={orderNo ? refresh : undefined}
+          isFetching={isFetching}
+        />
+        <section className="py-12 text-center">
+          <AlertTriangle className="w-6 h-6 text-red-600 mx-auto" aria-hidden />
+          <h1 className="text-lg font-semibold mt-3">We could not open this order</h1>
+          {orderNo && <p className="text-sm text-muted-foreground mt-1 tabular-nums">{orderNo}</p>}
+          <p className="text-sm text-muted-foreground mt-3 max-w-xs mx-auto leading-relaxed">
             {error instanceof Error
               ? error.message
-              : 'This order could not be loaded. It may belong to another account.'}
+              : 'It may belong to another account, or the number may be mistyped.'}
           </p>
           <Button
             variant="outline"
-            className="mt-5 rounded-lg"
+            className="mt-6 rounded-lg h-10"
             onClick={() => setLocation('/orders')}
           >
             Back to my shipments
@@ -460,8 +672,21 @@ export default function OrderDetails() {
   const consignee = order.consignee;
   const origin = order.origin_address;
   const isPickup = order.pickup_request === 1;
+  const isCancelled = order.status === 'cancelled';
+  const isDispatched = order.status === 'dispatched';
+  // Still in the customer's hands: before an agent collects it or it is handed
+  // in at a counter. Labels, the code and "where to take it" only matter here.
+  const beforeCollection =
+    stillWithUs && !HUB_STATUSES.has(order.status) && order.status !== 'picked_up';
   const canRequestCancel = availableActions.some((a) => a.action === 'request_cancellation');
   const cancelPending = cancellationRequest?.pending ?? false;
+  const cancelDeclined = cancellationRequest?.state === 'rejected';
+  const isCsbv = itemStr(items, 'is_csbv_shipment') === 'true';
+  // Pay-now orders still owed money. `partially_paid` is a reprice at the hub
+  // and settles there, not here.
+  const payDue =
+    order.payment_method === 'pay_now' && order.payment_status === 'pending' && !isCancelled;
+  const amountLabel = formatInr(order.final_amount ?? order.quoted_amount);
 
   const originLine = [origin?.city, origin?.state].filter(Boolean).join(', ');
   const destLine = [consignee?.city, consignee?.country_name].filter(Boolean).join(', ');
@@ -478,550 +703,486 @@ export default function OrderDetails() {
   const consigneeAddress = [
     consignee?.address_line_1,
     [consignee?.city, consignee?.state].filter(Boolean).join(', '),
-    [consignee?.pincode, consignee?.country_name].filter(Boolean).join(' · '),
+    [consignee?.pincode, consignee?.country_name].filter(Boolean).join(', '),
   ]
     .filter(Boolean)
     .join('\n');
 
-  const isCsbv = itemStr(items, 'is_csbv_shipment') === 'true';
+  // Same reading of ITD's answer as /shipment/:awb.
+  const trackingResult = tracking && !tracking.fromCache ? tracking.results[0] : undefined;
+  const docketEvents =
+    trackingResult && !trackingResult.errors ? trackingResult.docket_events ?? [] : [];
+  const carrierEvents = mapEvents(docketEvents);
+  const carrierInfo = trackingResult?.docket_info ?? [];
+  const lastScan = docketEvents.length > 0 ? docketEvents[docketEvents.length - 1] : undefined;
+  const lastScanLabel = lastScan?.event_state ? getStatusLabel(lastScan.event_state) : '';
+  const carrierStatus = getDocketValue(carrierInfo, 'Status') || lastScanLabel;
+  const chargeableWeight = withKg(
+    trackingResult?.chargeable_weight || getDocketValue(carrierInfo, 'Chargeable Weight')
+  );
+  const delivered = lastScanLabel === 'Delivered';
+
+  const progress = progressFor(order.status, isPickup, delivered);
+  // Once shipped, the carrier's word is fresher than ours.
+  const headline = isDispatched && carrierStatus ? carrierStatus : customerStatus;
+
+  // ─── To do ───────────────────────────────────────────────────────────────
+  const showAwbNote = !order.awb_no && !!awbNote;
+  const showLabels = isLoggedIn && !!order.awb_no && beforeCollection && hasLabels !== 'no';
+  const showCounters = !isPickup && beforeCollection;
+  const showCode = !!handover && stillWithUs;
+  const showAgent = isPickup && beforeCollection;
+
+  const hasTodo =
+    showAwbNote ||
+    cancelPending ||
+    cancelDeclined ||
+    payDue ||
+    showLabels ||
+    showCounters ||
+    showCode ||
+    showAgent;
+
+  const todoTitle = !beforeCollection
+    ? 'Needs your attention'
+    : isPickup
+      ? 'Before your pickup'
+      : 'Before you drop it off';
+
+  const todo = hasTodo && (
+    <section className="mt-6" aria-labelledby="todo-title" data-testid="card-next-step">
+      <h2 id="todo-title" className="text-base font-semibold text-foreground mb-3">
+        {todoTitle}
+      </h2>
+      <div className="rounded-lg border border-[#E2E8F0] bg-white overflow-hidden divide-y divide-[#E2E8F0]">
+        {/* Only when the AWB is waiting on the customer (shared/docketError.ts
+            returns a note for nothing else). */}
+        {showAwbNote && (
+          <Notice tone="amber" title="One thing needed from you" testId="order-awb-note">
+            {awbNote}
+          </Notice>
+        )}
+
+        {/* A request with the team. Not styled as a success: nothing has been
+            cancelled yet, and the pickup stands. */}
+        {cancelPending && (
+          <Notice tone="amber" title="Cancellation requested" testId="banner-cancellation-pending">
+            Our team is reviewing your request
+            {cancellationRequest?.requestedAt
+              ? ` from ${niceDate(cancellationRequest.requestedAt)}`
+              : ''}
+            . Until they confirm, this order is still going ahead, so keep your parcel ready.
+            {cancellationRequest?.reason && (
+              <span className="block mt-1 italic">“{cancellationRequest.reason}”</span>
+            )}
+          </Notice>
+        )}
+
+        {/* Declined. The customer may ask again: the request link at the
+            bottom reappears, because a rejected request reads as closed. */}
+        {cancelDeclined && cancellationRequest && (
+          <Notice tone="red" title="Cancellation declined" testId="banner-cancellation-declined">
+            {cancellationRequest.decisionNote ??
+              'Our team could not cancel this order. It is still going ahead as booked.'}{' '}
+            <a href={telHref} className="font-semibold underline underline-offset-2">
+              Call us
+            </a>
+          </Notice>
+        )}
+
+        {payDue && (
+          <Task
+            id="pay"
+            title="Payment due"
+            hint={`${amountLabel ?? 'Amount'} to pay online`}
+            action={
+              <Button
+                className="h-10 px-5 rounded-lg"
+                disabled={paying}
+                onClick={() => void handlePayNow(order.id)}
+                data-testid="button-pay-now"
+              >
+                {paying ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Pay now'}
+              </Button>
+            }
+          >
+            {/* TEMPORARY: only renders when the server has PAYMENTS_TEST_MODE. */}
+            <PaymentTestModeSwitch />
+          </Task>
+        )}
+
+        {/* The box label has to be on the parcel before the agent arrives or
+            it reaches the counter. */}
+        {showLabels && (
+          <Task
+            id="labels"
+            title="Print your labels"
+            hint="Stick the box label on the parcel. Keep the AWB label with it."
+            testId="card-shipment-labels"
+          >
+            {hasLabels === 'yes' ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <ShipmentDocuments awb={order.awb_no as string} />
+              </div>
+            ) : (
+              <p className="inline-flex items-center gap-2 text-[13px] text-muted-foreground">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Preparing your labels
+              </p>
+            )}
+          </Task>
+        )}
+
+        {showAgent && (
+          <Task
+            title={agent ? agent.name ?? 'Your pickup agent' : 'Finding a pickup agent'}
+            hint={
+              agent
+                ? `Collecting your parcel${order.pickup_date ? ` on ${niceDate(order.pickup_date)}` : ''}`
+                : 'We will notify you as soon as one accepts.'
+            }
+            action={
+              agent?.phone ? (
+                <a
+                  href={`tel:${agent.phone}`}
+                  className="inline-flex items-center gap-1.5 h-10 px-4 text-sm font-semibold rounded-lg border border-[#E2E8F0] text-foreground hover:bg-muted transition-colors"
+                  data-testid="button-call-agent"
+                >
+                  <Phone className="w-4 h-4" />
+                  Call
+                </a>
+              ) : undefined
+            }
+          />
+        )}
+
+        {/* Read out at the door or the counter. Mono and spaced so it can be
+            read aloud without losing a digit. */}
+        {showCode && handover && (
+          <Task
+            id="handover-code"
+            testId="card-handover-code"
+            title={handover.kind === 'pickup' ? 'Pickup code' : 'Drop-off code'}
+            hint={
+              handover.locked
+                ? 'Entered wrongly too many times. Get a new code before handing over.'
+                : handover.code
+                  ? handover.kind === 'pickup'
+                    ? 'Read it to the agent when they arrive. Share it with no one else.'
+                    : 'Read it at the counter when you hand the parcel in.'
+                  : isLoggedIn
+                    ? 'No code yet.'
+                    : 'No code yet. Call us and we will issue one.'
+            }
+          >
+            <div className="flex items-center justify-between gap-3">
+              <p
+                className={cn(
+                  'font-mono text-[28px] font-bold leading-none tracking-[0.2em] tabular-nums',
+                  handover.locked && 'text-muted-foreground line-through'
+                )}
+                style={handover.locked ? undefined : { color: NAVY }}
+                data-testid="text-handover-code"
+              >
+                {handover.code ?? '----'}
+              </p>
+              {isLoggedIn && (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 h-10 px-3 text-sm font-medium rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                  disabled={regenerateHandover.isPending}
+                  onClick={() => regenerateHandover.mutate(order.id)}
+                  data-testid="button-regenerate-handover"
+                >
+                  {regenerateHandover.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  )}
+                  {handover.code ? 'New code' : 'Get a code'}
+                </button>
+              )}
+            </div>
+          </Task>
+        )}
+
+        {/* The booking is made and the parcel is still at home: this is the
+            moment the counter's address actually gets used. */}
+        {showCounters && (
+          <Task title="Where to drop it off">
+            <DropoffBranches
+              pincode={origin?.pincode}
+              city={origin?.city}
+              state={origin?.state}
+              title="Nearest counters"
+              className="mt-0 border-0 bg-transparent p-0"
+            />
+          </Task>
+        )}
+      </div>
+    </section>
+  );
+
+  // ─── Updates ─────────────────────────────────────────────────────────────
+  const hasCarrier = carrierEvents.length > 0;
+  const updates = (
+    <Section title="Updates">
+      {hasCarrier ? (
+        <>
+          <TrackingTimeline events={carrierEvents} currentStatus={carrierStatus} />
+          {events.length > 0 && (
+            <div className="mt-6">
+              <button
+                type="button"
+                onClick={() => setShowBookingLog((v) => !v)}
+                className="inline-flex items-center gap-1 h-10 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+                aria-expanded={showBookingLog}
+              >
+                Before it shipped ({events.length})
+                <ChevronDown
+                  className={cn('w-4 h-4 transition-transform duration-200', showBookingLog && 'rotate-180')}
+                />
+              </button>
+              {showBookingLog && (
+                <div className="mt-3">
+                  <UpdatesTimeline events={events} />
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      ) : events.length > 0 ? (
+        <UpdatesTimeline events={events} />
+      ) : (
+        <p className="text-sm text-muted-foreground">No updates yet.</p>
+      )}
+      {stillWithUs && (
+        <p className="mt-5 text-[13px] text-muted-foreground leading-relaxed">
+          {order.awb_no
+            ? 'Carrier scans start once we have your parcel.'
+            : 'Carrier tracking starts once your parcel reaches our hub and an airway bill is issued.'}
+        </p>
+      )}
+    </Section>
+  );
+
+  // ─── Details: the booking as submitted ───────────────────────────────────
+  const details = (
+    <Section title="Details">
+      <div className="grid gap-x-10 gap-y-7 md:grid-cols-2">
+        <Group title="Payment">
+          <Row label="Amount" value={amountLabel} />
+          {order.final_amount != null &&
+            order.quoted_amount != null &&
+            order.final_amount !== order.quoted_amount && (
+              <Row label="Quoted" value={formatInr(order.quoted_amount)} />
+            )}
+          <Row label="Method" value={paymentMethodLabel(order.payment_method)} />
+          <Row
+            label="Status"
+            value={order.is_cod ? 'Recipient pays on delivery' : paymentStatusLabel(order.payment_status)}
+          />
+          {payments.map((p) => (
+            <Row
+              key={p.id}
+              label={niceDate(p.collectedAt) || 'Paid'}
+              value={[
+                formatInr(p.amount) ?? `${p.currency} ${p.amount}`,
+                paymentMethodLabel(p.method),
+                p.collectedByName ? `by ${p.collectedByName}` : null,
+                p.reference ? `Ref ${p.reference}` : null,
+              ]
+                .filter(Boolean)
+                .join('\n')}
+            />
+          ))}
+        </Group>
+
+        <Group title="Parcel">
+          <Row label="Contents" value={itemStr(items, 'shipment_content')} />
+          <Row label="Pieces" value={itemStr(items, 'pcs')} />
+          <Row label="Weight" value={formatKg(order.booked_weight)} />
+          {order.actual_weight != null && (
+            <Row label="Weighed at hub" value={formatKg(order.actual_weight)} />
+          )}
+          <Row label="Chargeable" value={chargeableWeight || null} />
+          <Row label="Declared value" value={formatDeclaredValue(items)} />
+          {showAllParcel && (
+            <>
+              <Row label="Packaging" value={order.packaging_required ? 'We pack it' : 'Already packed'} />
+              <Row label="Dimensions" value={formatDimensions(items)} />
+              <Row label="Product type" value={itemStr(items, 'product_code')} />
+              <Row label="Service" value={itemStr(items, 'api_service_code')} />
+              {isCsbv && (
+                <>
+                  <Row label="HS code" value={hsCode(items)} />
+                  <Row label="Dispatch type" value={itemStr(items, 'dispatch_type')} />
+                  <Row label="E-commerce" value={itemStr(items, 'is_ecommerce') === 'yes' ? 'Yes' : 'No'} />
+                  <Row label="Under scheme" value={itemStr(items, 'is_scheme') === 'yes' ? 'Yes' : 'No'} />
+                  <Row
+                    label="Tax basis"
+                    value={itemStr(items, 'is_bond_ut') === 'bond_ut' ? 'Bond / LUT' : 'IGST'}
+                  />
+                  <Row label="LUT number" value={itemStr(items, 'lut_number')} />
+                </>
+              )}
+            </>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowAllParcel((v) => !v)}
+            className="mt-1 inline-flex items-center gap-1 h-10 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+            aria-expanded={showAllParcel}
+            data-testid="button-toggle-parcel-details"
+          >
+            {showAllParcel ? 'Show less' : 'Show all'}
+            <ChevronDown
+              className={cn('w-4 h-4 transition-transform duration-200', showAllParcel && 'rotate-180')}
+            />
+          </button>
+        </Group>
+
+        <Group title="Recipient">
+          <Row label="Name" value={consignee?.name} />
+          <Row label="Company" value={consignee?.company} />
+          <Row label="Phone" value={consignee?.phone} />
+          <Row label="Email" value={consignee?.email} />
+          <Row label="Address" value={consigneeAddress} />
+        </Group>
+
+        <Group title={isPickup ? 'Pickup from' : 'Sender'}>
+          <Row label="Name" value={origin?.full_name} />
+          <Row label="Company" value={origin?.company} />
+          <Row label="Phone" value={origin?.phone} />
+          {isPickup && <Row label="Pickup date" value={niceDate(order.pickup_date)} />}
+          <Row label="Address" value={originAddress} />
+        </Group>
+      </div>
+    </Section>
+  );
 
   return (
     <PageShell>
       <TopBar onBack={handleBack} onRefresh={refresh} isFetching={isFetching} />
 
-      {/* ─── Hero ─────────────────────────────────────────────────────── */}
+      {/* ─── Where is it ──────────────────────────────────────────────────── */}
       <header>
-        <p className="text-[11px] font-bold tracking-[0.12em] uppercase text-muted-foreground">
-          Order
+        {/* Status as words, the biggest thing on the page. */}
+        <h1
+          className="text-[26px] md:text-[30px] font-bold tracking-tight leading-tight"
+          style={{ color: isCancelled ? undefined : NAVY }}
+          data-testid="text-order-status"
+        >
+          {headline}
+        </h1>
+
+        <p className="mt-1.5 text-sm text-muted-foreground">
+          {originLine && destLine ? (
+            <>
+              <span className="text-foreground/85">{originLine}</span>
+              <ArrowRight className="inline w-3.5 h-3.5 mx-1.5 -mt-0.5" aria-label="to" />
+              <span className="text-foreground/85">{destLine}</span>
+              <span className="mx-1.5">·</span>
+            </>
+          ) : null}
+          Booked {niceDate(order.created_at)}
         </p>
-        {/* The order number is the identity of this page and must never be
-            elided. Status phrases run long ("Arrived at Bombino hub"), so the
-            badge wraps to its own line rather than squeezing the number. */}
-        <div className="flex flex-wrap items-center gap-y-2 mt-1.5">
-          <h1
-            className="text-[26px] font-bold tracking-tight tabular-nums"
-            style={{ color: BRAND_NAVY }}
-            data-testid="text-order-no"
-          >
-            {order.order_no}
-          </h1>
-          <button
-            type="button"
-            onClick={copyOrderNo}
-            className="ml-1.5 mr-3 p-2 rounded-md text-muted-foreground/70 hover:text-foreground hover:bg-muted transition-colors shrink-0"
-            aria-label={`Copy order number ${order.order_no}`}
-          >
-            {copied ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
-          </button>
-          <StatusBadge
-            status={customerStatus}
-            tone={getOrderStatusTone(order.status)}
-            className="shrink-0"
+
+        {/* The two numbers people ask for. The order number is ours; the
+            airway bill is what the agent, the counter, customs and the
+            recipient know the parcel by. Side by side, same weight, each one
+            tap to copy, so neither reads as trivia under the other. */}
+        <div className="mt-4 grid grid-cols-2 rounded-lg border border-[#E2E8F0] bg-white divide-x divide-[#E2E8F0] overflow-hidden">
+          <IdCell
+            label="Order number"
+            value={order.order_no}
+            copied={copied === order.order_no}
+            onCopy={copy}
+            valueTestId="text-order-no"
+            testId="button-copy-order-no"
           />
+          {order.awb_no ? (
+            <IdCell
+              label="Airway bill (AWB)"
+              value={order.awb_no}
+              mono
+              copied={copied === order.awb_no}
+              onCopy={copy}
+              valueTestId="text-awb-no"
+              testId="button-copy-awb"
+            />
+          ) : (
+            <div className="px-4 py-3 min-w-0">
+              <p className="text-[11px] font-semibold tracking-[0.09em] uppercase text-muted-foreground">
+                Airway bill (AWB)
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">Not issued yet</p>
+            </div>
+          )}
         </div>
 
-        {/* ─── Airway bill ──────────────────────────────────────────────
-            Directly under the order number, because once one exists it is the
-            number the customer is asked for — by the carrier, by customs, by
-            anyone they forward the shipment to. It used to appear only as a
-            sentence further down, or as a read-only field two thirds of the
-            way to the bottom, which reads as trivia rather than as the second
-            identity of the order.
-
-            Built exactly like the Order heading above it, one step down in
-            size: the same eyebrow, the same navy, the same tabular figures.
-            Two identifiers of the same kind should not be told apart by their
-            decoration. */}
-        {order.awb_no && (
-          <div className="mt-3">
-            <p className="text-[11px] font-bold tracking-[0.12em] uppercase text-muted-foreground">
-              Airway bill
-            </p>
-            <h2
-              className="mt-1 font-mono text-[21px] font-bold tracking-tight tabular-nums"
-              style={{ color: BRAND_NAVY }}
-              data-testid="text-awb-no"
-            >
-              {order.awb_no}
-            </h2>
-          </div>
-        )}
-
-        <p className="mt-2 text-sm text-muted-foreground">
-          Booked {niceDate(order.created_at)}
-          {originLine && destLine && (
-            <>
-              {' · '}
-              <span className="text-foreground/80">
-                {originLine} → {destLine}
-              </span>
-            </>
-          )}
-        </p>
-
-        {/* ─── Handover code ────────────────────────────────────────────
-            High on the page, because this is what the customer opens the app
-            to find while somebody stands in front of them waiting. Set in the
-            same mono the agent's screen uses, spaced so it can be read out
-            loud without losing a digit. */}
-        {/* `id`s on this page are where BIA's buttons land (#handover-code,
-            #pay, #cancel): the customer presses the real button here. */}
-        {handover && (
-          <div
-            id="handover-code"
-            className="mt-4 rounded-xl border-2 p-4 scroll-mt-24"
-            style={{ borderColor: BRAND_NAVY }}
-            data-testid="card-handover-code"
-          >
-            <p
-              className="text-[11px] font-bold tracking-[0.12em] uppercase"
-              style={{ color: BRAND_NAVY }}
-            >
-              {handover.kind === 'pickup' ? 'Pickup code' : 'Drop-off code'}
-            </p>
-
-            <p
-              className="font-mono text-[34px] font-bold leading-none tracking-[0.16em] tabular-nums mt-2.5"
-              style={{ color: BRAND_NAVY }}
-              data-testid="text-handover-code"
-            >
-              {handover.code ?? '————'}
-            </p>
-
-            <p className="mt-2.5 text-xs text-muted-foreground leading-relaxed">
-              {handover.locked
-                ? 'This code has been entered wrongly too many times. Generate a new one before handing the parcel over.'
-                : handover.code
-                  ? handover.kind === 'pickup'
-                    ? 'Read this out to the agent when they arrive. Do not share it with anyone else — it is what proves the parcel went to us.'
-                    : 'Read this out at the Bombino hub counter when you drop your parcel off.'
-                  : isLoggedIn
-                    ? 'No code has been generated yet. Tap below to get one.'
-                    : 'No code has been generated yet. Call us and we will issue one.'}
-            </p>
-
-            {isLoggedIn && (
-              <Button
-                variant="outline"
-                className="mt-3 w-full h-10 rounded-lg"
-                disabled={regenerateHandover.isPending}
-                onClick={() => regenerateHandover.mutate(order.id)}
-                data-testid="button-regenerate-handover"
-              >
-                {regenerateHandover.isPending ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Getting a new code
-                  </>
-                ) : handover.code ? (
-                  'Get a new code'
-                ) : (
-                  'Generate code'
-                )}
-              </Button>
-            )}
-          </div>
-        )}
-
-        {/* Not yet a docket. Said once, here, rather than as a toast the
-            customer has to dismiss to see anything at all. */}
-        {/* Only when the AWB is waiting on the customer (shared/docketError.ts
-            returns a note for nothing else). */}
-        {!order.awb_no && awbNote && (
-          <div
-            className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5"
-            role="status"
-            data-testid="order-awb-note"
-          >
-            <p className="text-xs font-semibold text-amber-900">One thing needed from you</p>
-            <p className="mt-1 text-[11px] leading-relaxed text-amber-800/90">{awbNote}</p>
-          </div>
-        )}
-        {!order.awb_no && (
-          <p className="mt-3 text-xs text-muted-foreground leading-relaxed bg-muted/50 border border-border rounded-lg px-3 py-2.5">
-            Live carrier tracking starts once your parcel reaches the Bombino hub
-            and an AWB is issued. Until then, the updates below are the full
-            picture.
-          </p>
-        )}
-
-        {/* An AWB, but the parcel has not left us.
-            An ITD-linked customer's order is docketed the moment they book, so
-            the airway bill exists while the parcel is still in their house.
-            Saying "shipped" here would be a lie they can act on, and the link
-            would land them on a tracking page ITD has no scans for. So the
-            number is shown, plainly, and the handover below waits for the
-            parcel to actually go. */}
-        {order.awb_no && order.status !== 'dispatched' && (
-          <p className="mt-3 text-xs text-muted-foreground leading-relaxed bg-muted/50 border border-border rounded-lg px-3 py-2.5">
-            The airway bill above is issued. Carrier scans begin once we collect
-            your parcel — until then, the updates below are the full picture.
-          </p>
-        )}
-
-        {/* The handover. A dispatched order has stopped being the live record —
-            the carrier scans live at /shipment/:awb, and this screen keeps only
-            the booking history. Previously the number appeared as one more
-            read-only field two thirds of the way down the page, with nothing to
-            say it was now the thing to follow. */}
-        {order.awb_no && order.status === 'dispatched' && (
+        {isDispatched && order.awb_no && (
           <Link
             href={`/shipment/${encodeURIComponent(order.awb_no)}`}
-            className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-green-200 bg-green-50 px-3 py-2.5 transition-colors hover:bg-green-100"
+            className="mt-3 flex items-center justify-center gap-1.5 h-11 rounded-lg text-sm font-semibold text-white transition-colors hover:bg-[#2F4468]"
+            style={{ backgroundColor: NAVY }}
             data-testid="link-track-awb"
           >
-            <span className="min-w-0">
-              <span className="block text-xs font-semibold text-green-900">
-                Shipped — live tracking is open
-              </span>
-              <span className="block text-[11px] text-green-800/80 mt-0.5">
-                Follow live carrier scans for the airway bill above
-              </span>
-            </span>
-            <ArrowRight className="w-4 h-4 text-green-800 shrink-0" aria-hidden />
+            Live tracking
+            <ArrowRight className="w-4 h-4" aria-hidden />
           </Link>
         )}
 
+        <div className="mt-5">
+          {isCancelled ? (
+            <p className="text-sm text-red-800">This order was cancelled.</p>
+          ) : (
+            <ProgressBar steps={progress.steps} current={progress.current} />
+          )}
+        </div>
+
         {data.warning && (
-          <p className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
-            {data.warning}
-          </p>
+          <p className="mt-4 text-[13px] text-amber-900 leading-snug">{data.warning}</p>
         )}
       </header>
 
-      <div className="mt-8">
-        {/* ─── Agent + updates (pickup orders only) ────────────────────── */}
-        {isPickup && (
-          <Section icon={Truck} title="Pickup updates">
-            {agent ? (
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-white p-3.5 mb-5">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-9 h-9 rounded-full bg-[#F2A123]/15 flex items-center justify-center shrink-0">
-                    <User className="w-4 h-4 text-[#F2A123]" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-foreground truncate">
-                      {agent.name ?? 'Pickup agent assigned'}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground">
-                      Your pickup agent
-                    </p>
-                  </div>
-                </div>
-                {agent.phone && (
-                  <a
-                    href={`tel:${agent.phone}`}
-                    className="inline-flex items-center gap-1.5 h-9 px-3.5 text-xs font-semibold rounded-lg text-white shrink-0"
-                    style={{ backgroundColor: BRAND_NAVY }}
-                    data-testid="button-call-agent"
-                  >
-                    <Phone className="w-3.5 h-3.5" />
-                    Call
-                  </a>
-                )}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground mb-5">
-                No agent has accepted this pickup yet. You will be notified as
-                soon as one does.
-              </p>
-            )}
+      {/* ─── What do I do now ─────────────────────────────────────────────── */}
+      {todo}
 
-            {events.length > 0 ? (
-              <UpdatesTimeline events={events} />
-            ) : (
-              <p className="text-sm text-muted-foreground">No updates yet.</p>
-            )}
-          </Section>
-        )}
+      {/* After the parcel has gone the labels stop being a task, but copies
+          and the invoice are still worth having. */}
+      {isLoggedIn && order.awb_no && isDispatched && <DocumentsSection awb={order.awb_no} />}
 
-        {/* Drop-off orders have no agent, but still have a history worth
-            showing — the hub receipt lands here. */}
-        {!isPickup && events.length > 0 && (
-          <Section icon={Truck} title="Order updates">
-            <UpdatesTimeline events={events} />
-          </Section>
-        )}
+      {/* ─── What happened ────────────────────────────────────────────────── */}
+      {updates}
+      {details}
 
-        {/* ─── Collection ──────────────────────────────────────────────── */}
-        <Section icon={MapPin} title={isPickup ? 'Pickup' : 'Drop-off'}>
-          <FieldGrid>
-            <Field
-              label="Method"
-              value={isPickup ? 'Agent pickup' : 'You drop it off'}
-            />
-            {isPickup && <Field label="Date" value={niceDate(order.pickup_date)} />}
-            <Field label="Contact" value={origin?.full_name} />
-            <Field label="Phone" value={origin?.phone} />
-            {origin?.company && <Field label="Company" value={origin.company} />}
-          </FieldGrid>
-          {originAddress && (
-            <div className="mt-3.5">
-              <p className="text-[11px] text-muted-foreground">
-                {isPickup ? 'Pickup address' : 'Sender address'}
-              </p>
-              <p className="text-sm text-foreground mt-0.5 whitespace-pre-line leading-relaxed">
-                {originAddress}
-              </p>
-            </div>
-          )}
-          {/* The booking is made and the parcel is still at home: this is the
-              moment the counter's address actually gets used. */}
-          {!isPickup && (
-            <DropoffBranches
-              pincode={origin?.pincode}
-              city={origin?.city}
-              state={origin?.state}
-              title="Take it to"
-            />
-          )}
-        </Section>
-
-        {/* ─── Parcel ──────────────────────────────────────────────────── */}
-        <Section icon={Package} title="Parcel">
-          <FieldGrid>
-            <Field label="Contents" value={itemStr(items, 'shipment_content')} />
-            <Field label="Pieces" value={itemStr(items, 'pcs')} />
-            <Field label="Weight" value={formatKg(order.booked_weight)} />
-            {order.actual_weight != null && (
-              <Field label="Weighed at hub" value={formatKg(order.actual_weight)} />
-            )}
-            <Field
-              label="Packaging"
-              value={order.packaging_required ? 'We pack it' : 'Already packed'}
-            />
-            <Field label="Dimensions" value={formatDimensions(items)} />
-            <Field label="Declared value" value={formatDeclaredValue(items)} />
-            <Field label="Product type" value={itemStr(items, 'product_code')} />
-            <Field label="Service" value={itemStr(items, 'api_service_code')} />
-            <Field label="Destination" value={consignee?.country_name} />
-          </FieldGrid>
-
-          {isCsbv && (
-            <div className="mt-5 pt-4 border-t border-dashed border-border">
-              <p className="text-[11px] font-bold tracking-[0.1em] uppercase text-muted-foreground mb-3">
-                CSB V details
-              </p>
-              <FieldGrid>
-                <Field label="HS code" value={hsCode(items)} />
-                <Field label="Dispatch type" value={itemStr(items, 'dispatch_type')} />
-                <Field
-                  label="E-commerce"
-                  value={itemStr(items, 'is_ecommerce') === 'yes' ? 'Yes' : 'No'}
-                />
-                <Field
-                  label="Under scheme"
-                  value={itemStr(items, 'is_scheme') === 'yes' ? 'Yes' : 'No'}
-                />
-                <Field
-                  label="Tax basis"
-                  value={itemStr(items, 'is_bond_ut') === 'bond_ut' ? 'Bond / LUT' : 'IGST'}
-                />
-                <Field label="LUT number" value={itemStr(items, 'lut_number')} />
-              </FieldGrid>
-            </div>
-          )}
-        </Section>
-
-        {/* ─── Recipient ───────────────────────────────────────────────── */}
-        <Section icon={User} title="Recipient">
-          <FieldGrid>
-            <Field label="Name" value={consignee?.name} />
-            <Field label="Company" value={consignee?.company} />
-            <Field label="Phone" value={consignee?.phone} />
-            <Field label="Email" value={consignee?.email} />
-          </FieldGrid>
-          {consigneeAddress && (
-            <div className="mt-3.5">
-              <p className="text-[11px] text-muted-foreground">Delivery address</p>
-              <p className="text-sm text-foreground mt-0.5 whitespace-pre-line leading-relaxed">
-                {consigneeAddress}
-              </p>
-            </div>
-          )}
-        </Section>
-
-        {/* ─── Payment ─────────────────────────────────────────────────── */}
-        <Section icon={Wallet} title="Payment">
-          <FieldGrid>
-            <Field label="Method" value={paymentMethodLabel(order.payment_method)} />
-            <Field label="Status" value={paymentStatusLabel(order.payment_status)} />
-            <Field label="Quoted" value={formatInr(order.quoted_amount)} />
-            {order.final_amount != null && (
-              <Field label="Final" value={formatInr(order.final_amount)} />
-            )}
-            {order.awb_no && <Field label="AWB" value={order.awb_no} />}
-          </FieldGrid>
-
-          {payments.length > 0 && (
-            <ul className="mt-4 space-y-2">
-              {payments.map((p) => (
-                <li
-                  key={p.id}
-                  className="rounded-lg border border-border bg-white px-3.5 py-3 flex items-start justify-between gap-3"
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-foreground tabular-nums">
-                      {formatInr(p.amount) ?? `${p.currency} ${p.amount}`}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">
-                      {paymentMethodLabel(p.method)}
-                      {p.collectedByName && ` · collected by ${p.collectedByName}`}
-                    </p>
-                    {p.reference && (
-                      <p className="text-[11px] text-muted-foreground mt-0.5 break-all">
-                        Ref {p.reference}
-                      </p>
-                    )}
-                  </div>
-                  <span className="text-[11px] text-muted-foreground tabular-nums shrink-0 text-right">
-                    {niceDate(p.collectedAt)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          {/* Pay-now orders that are still owed money. Cancelled orders are
-              excluded — nothing to pay for — and so is `partially_paid`,
-              which is a reprice at the hub and settles there, not here. */}
-          {order.payment_method === 'pay_now' &&
-            order.payment_status === 'pending' &&
-            order.status !== 'cancelled' && (
-              <div id="pay" className="scroll-mt-24 rounded-lg">
-                {/* TEMPORARY — only renders when the server has
-                    PAYMENTS_TEST_MODE set. */}
-                <PaymentTestModeSwitch className="mt-4" />
-                <Button
-                  className="mt-3 w-full h-11 rounded-lg"
-                  disabled={paying}
-                  onClick={() => void handlePayNow(order.id)}
-                  data-testid="button-pay-now"
-                >
-                  {paying ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    `Pay ${formatInr(order.final_amount ?? order.quoted_amount) ?? 'now'}`
-                  )}
-                </Button>
-              </div>
-            )}
-
-          {/* COD never produces a payments row — an empty list here would
-              otherwise read as "nothing was ever paid". */}
-          {order.is_cod && (
-            <p className="mt-3 text-xs text-muted-foreground leading-relaxed">
-              Cash on delivery — the recipient pays on arrival, so nothing is
-              collected from you.
-            </p>
-          )}
-        </Section>
-
-        {/* ─── Cancellation ────────────────────────────────────────────── */}
-        <div id="cancel" className="scroll-mt-24">
-        {/* A request already with the team. Deliberately not styled as a
-            success: nothing has been cancelled yet, and the pickup stands. */}
-        {cancelPending && (
-          <div
-            className="mt-8 pt-6 border-t border-border"
-            data-testid="banner-cancellation-pending"
-          >
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-              <p className="text-sm font-semibold text-amber-900">
-                Cancellation requested
-              </p>
-              <p className="mt-1 text-xs leading-relaxed text-amber-800">
-                Our team is reviewing your request
-                {cancellationRequest?.requestedAt
-                  ? ` from ${niceDate(cancellationRequest.requestedAt)}`
-                  : ''}
-                . Until they confirm, this order is still going ahead — please keep
-                your parcel ready.
-              </p>
-              {cancellationRequest?.reason && (
-                <p className="mt-2 text-xs italic text-amber-800">
-                  “{cancellationRequest.reason}”
-                </p>
-              )}
-              <Link
-                href="/orders"
-                className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-amber-900 underline underline-offset-2"
-              >
-                Track this in My Orders
-                <ArrowRight className="w-3 h-3" />
-              </Link>
-            </div>
-          </div>
-        )}
-
-        {/* Declined. The order is unchanged and the customer may ask again —
-            the request button below reappears, because `hasOpenCancellationRequest`
-            reads a rejected request as closed. */}
-        {cancellationRequest?.state === 'rejected' && (
-          <div
-            className="mt-8 pt-6 border-t border-border"
-            data-testid="banner-cancellation-declined"
-          >
-            <div className="rounded-lg border border-red-100 bg-red-50 p-4">
-              <p className="text-sm font-semibold text-red-900">Cancellation declined</p>
-              <p className="mt-1 text-xs leading-relaxed text-red-800">
-                {cancellationRequest.decisionNote ??
-                  'Our team could not cancel this order. It is still going ahead as booked.'}
-              </p>
-              <a
-                href={telHref}
-                className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-red-900 underline underline-offset-2"
-              >
-                <Phone className="w-3 h-3" />
-                Call the Bombino team
-              </a>
-            </div>
-          </div>
-        )}
-
+      {/* Quiet on purpose: a way out, not a call to action. */}
+      <div id="cancel" className="mt-10 mb-16 md:mb-0 scroll-mt-24">
         {canRequestCancel && (
-          <div className="mt-8 pt-6 border-t border-border">
-            <Button
-              variant="outline"
-              className="w-full h-11 rounded-lg border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+          <div className="pt-6 border-t border-[#E2E8F0]">
+            <button
+              type="button"
               onClick={() => setCancelOpen(true)}
+              className="inline-flex items-center h-10 -ml-2 px-2 rounded-lg text-sm font-semibold text-red-700 hover:bg-red-50 transition-colors"
               data-testid="button-request-cancellation"
             >
               Request cancellation
-            </Button>
-            <p className="mt-2 text-[11px] text-muted-foreground text-center">
-              You can ask us to cancel until an agent collects your parcel. Our
-              team confirms every cancellation.
+            </button>
+            <p className="text-[13px] text-muted-foreground">
+              Possible until we collect your parcel. Our team confirms every cancellation.
             </p>
           </div>
         )}
-        </div>
-
-        {/* ─── Ask BIA ─────────────────────────────────────────────────── */}
-        {/* Opens BIA over this page, already asking about this order, so the
-            customer does not have to retype the number to get an answer. */}
-        <button
-          type="button"
-          onClick={() =>
-            openBia({
-              screen: { surface: "order", orderNo: order.order_no },
-              seed: `What's the latest on my order ${order.order_no}?`,
-            })
-          }
-          className="mt-8 mb-16 md:mb-0 flex w-full items-center gap-3 rounded-xl border border-border p-4 text-left hover:bg-muted/50 transition-colors"
-          data-testid="link-ask-bia"
-        >
-          <Sparkles className="w-5 h-5 shrink-0 text-[#F2A123]" aria-hidden />
-          <span className="flex-1 min-w-0">
-            <span className="block text-sm font-semibold text-foreground">
-              Questions about this order?
-            </span>
-            <span className="block text-xs text-muted-foreground">
-              Ask BIA what happens next, about payment, or pickup.
-            </span>
-          </span>
-          <ArrowRight className="w-4 h-4 shrink-0 text-muted-foreground" aria-hidden />
-        </button>
+        {cancelPending && (
+          <Link
+            href="/orders?tab=cancellations"
+            className="inline-flex items-center gap-1 h-10 text-sm font-medium text-muted-foreground hover:text-foreground"
+          >
+            See your cancellation requests
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+        )}
       </div>
 
       <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
@@ -1029,8 +1190,8 @@ export default function OrderDetails() {
           <AlertDialogHeader>
             <AlertDialogTitle>Request cancellation?</AlertDialogTitle>
             <AlertDialogDescription>
-              This sends {orderNo} to our team to review. It is not cancelled yet —
-              your pickup stands until they confirm.
+              This sends {orderNo} to our team to review. It is not cancelled yet: your
+              pickup stands until they confirm.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
@@ -1071,5 +1232,18 @@ export default function OrderDetails() {
         </AlertDialogContent>
       </AlertDialog>
     </PageShell>
+  );
+}
+
+/** Labels and invoice once the parcel has gone. Nothing at all when none. */
+function DocumentsSection({ awb }: { awb: string }) {
+  const { documents } = useShipmentDocuments(awb);
+  if (documents.length === 0) return null;
+  return (
+    <Section title="Documents">
+      <div className="flex flex-wrap items-center gap-2">
+        <ShipmentDocuments awb={awb} />
+      </div>
+    </Section>
   );
 }

@@ -82,6 +82,7 @@ import { US_STATES, US_STATE_ERROR, US_ZIP_ERROR, isUsZip, usStateName } from '@
 import { useToast } from '@/hooks/use-toast';
 import { usePincodeLookup } from '@/hooks/usePincodeLookup';
 import { DropoffBranches } from '@/components/DropoffBranches';
+import { ShipmentDocuments } from '@/components/ShipmentDocuments';
 import {
   ITD_COUNTRY_LIST,
   ITD_COUNTRY_MAP,
@@ -1387,6 +1388,12 @@ export default function CreateShipment() {
       });
     };
 
+    const copyAwbNo = (): void => {
+      void navigator.clipboard.writeText(newAwbNo).then(() => {
+        toast({ title: 'Copied', description: 'Airway bill copied to clipboard' });
+      });
+    };
+
     return (
       <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-create-success">
         <main className="px-4 py-12 max-w-md mx-auto text-center">
@@ -1420,14 +1427,32 @@ export default function CreateShipment() {
                 the customer needs both until the parcel is collected. */}
             {newAwbNo && (
               <div className="mt-3 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
-                <p className="text-xs text-muted-foreground mb-0.5">Airway bill</p>
-                <p className="text-sm font-bold font-mono text-foreground break-all">
-                  {newAwbNo}
-                </p>
+                <button
+                  type="button"
+                  onClick={copyAwbNo}
+                  className="w-full text-left rounded-md -m-1 p-1 hover:bg-muted/60 transition-colors active:scale-[0.99]"
+                  data-testid="button-copy-awb"
+                >
+                  <p className="text-xs text-muted-foreground mb-0.5">Airway bill · tap to copy</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-bold font-mono text-foreground break-all">
+                      {newAwbNo}
+                    </p>
+                    <Copy className="w-4 h-4 shrink-0 text-muted-foreground" aria-hidden />
+                  </div>
+                </button>
                 <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
                   Carrier tracking opens once we collect your parcel.
                 </p>
               </div>
+            )}
+
+            {/* The labels, the moment they exist: the customer leaves this
+                screen to pack the parcel, and the box label goes on it before
+                anyone collects it. The docket row is saved just after the
+                booking answers, so this waits a few seconds for it. */}
+            {newAwbNo && isLoggedIn && (
+              <ShipmentDocuments awb={newAwbNo} variant="card" pollUntilReady className="mt-3" />
             )}
 
             {/* Only when the AWB is waiting on the customer (an ID document to

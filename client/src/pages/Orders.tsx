@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useLocation, useSearch } from 'wouter';
-import { Package, Copy, Send, Search, ArrowRight, Download } from 'lucide-react';
+import { Package, Copy, Send, Search, ArrowRight, Download, Printer } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
 import { Header } from '@/components/Header';
 import { BottomNav } from '@/components/BottomNav';
@@ -104,6 +104,65 @@ function TrackBar({
   );
 }
 
+// ─── AWB on an order row ────────────────────────────────────────────────────
+/**
+ * The airway bill under an order's BOM number.
+ *
+ * An order keeps its BOM number as its identity, but once docketed the AWB is
+ * the number everyone else asks for — the agent, the hub counter, the person
+ * the parcel is going to — so it is on the row, copyable on its own, rather
+ * than one tap and a scroll away.
+ */
+function OrderAwbLine({
+  awb,
+  onCopy,
+  className,
+}: {
+  awb: string;
+  onCopy: (e: React.MouseEvent, id: string) => void;
+  className?: string;
+}) {
+  return (
+    <div className={cn('flex items-center min-w-0 text-[11.5px] text-muted-foreground', className)}>
+      <span className="shrink-0 text-[9px] font-bold uppercase tracking-[0.08em] mr-1.5">AWB</span>
+      <span className="font-mono tabular-nums text-foreground/80 truncate" data-testid="text-row-awb">
+        {awb}
+      </span>
+      <span
+        role="button"
+        tabIndex={0}
+        onClick={(e) => onCopy(e, awb)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') onCopy(e as unknown as React.MouseEvent, awb);
+        }}
+        className="ml-0.5 p-1.5 -my-1 rounded-md active:bg-muted hover:bg-muted shrink-0 cursor-pointer text-muted-foreground/60 hover:text-muted-foreground"
+        aria-label={`Copy AWB ${awb}`}
+        data-testid="button-copy-row-awb"
+      >
+        <Copy className="w-3 h-3" />
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Docketed, and the parcel still with the customer: the labels are waiting
+ * to be printed. Only for an account's own orders — a guest's have none.
+ */
+function needsLabels(row: DisplayRow): boolean {
+  const status = row.order?.status;
+  return !!row.awb && row.isOrder && !!status && status !== 'dispatched' && status !== 'cancelled';
+}
+
+function PrintLabelsChip() {
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.08em] text-[#B26A00] bg-[#F2A123]/15 px-1.5 py-0.5 rounded shrink-0">
+      <Printer className="w-3 h-3" aria-hidden />
+      Print labels
+    </span>
+  );
+}
+
 // ─── Row (responsive) ───────────────────────────────────────────────────────
 function ShipmentRow({
   row,
@@ -171,6 +230,13 @@ function ShipmentRow({
             <StatusBadge status={status} tone={tone} className="shrink-0 mt-0.5" />
           </div>
 
+          {isOrder && row.awb && (
+            <div className="mt-1 flex items-center justify-between gap-2">
+              <OrderAwbLine awb={row.awb} onCopy={onCopy} />
+              {needsLabels(row) && <PrintLabelsChip />}
+            </div>
+          )}
+
           {/* Recipient — primary line */}
           <p className="mt-2 text-[14px] leading-snug truncate">
             <span className={recipientRaw ? 'font-semibold text-[#112330]' : 'text-muted-foreground italic'}>
@@ -208,7 +274,8 @@ function ShipmentRow({
       </div>
 
       {/* ─── DESKTOP COLUMNS (unchanged) ──────────────────────────── */}
-      <div className="hidden md:flex md:items-center md:gap-2 md:min-w-0">
+      <div className="hidden md:block md:min-w-0">
+      <div className="flex items-center gap-2 min-w-0">
         {isOrder && (
           <span className="shrink-0 text-[9px] font-bold uppercase tracking-[0.08em] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
             Order
@@ -227,6 +294,13 @@ function ShipmentRow({
         >
           <Copy className="w-3.5 h-3.5 text-muted-foreground" />
         </span>
+      </div>
+      {isOrder && row.awb && (
+        <div className="mt-0.5 flex items-center gap-2 min-w-0">
+          <OrderAwbLine awb={row.awb} onCopy={onCopy} />
+          {needsLabels(row) && <PrintLabelsChip />}
+        </div>
+      )}
       </div>
       <p className="hidden md:block text-sm text-foreground/80 truncate">{recipientLine}</p>
       <span className="hidden md:block text-sm text-muted-foreground truncate">{service || '—'}</span>
