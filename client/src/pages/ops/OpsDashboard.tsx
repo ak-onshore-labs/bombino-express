@@ -623,7 +623,7 @@ export default function OpsDashboard() {
                       href={`/ops/customers/${row.id}`}
                       title={row.company_name || row.full_name || 'Unnamed account'}
                     >
-                      <OpsMobileField label="Phone">{row.phone ? `+91 ${row.phone}` : '—'}</OpsMobileField>
+                      <OpsMobileField label="Phone">{row.phone || '—'}</OpsMobileField>
                       {row.missing.length > 0 && (
                         <OpsMobileField label="Not sent">{slotNames(row.missing)}</OpsMobileField>
                       )}
@@ -658,7 +658,7 @@ export default function OpsDashboard() {
                               <p className="text-xs text-muted-foreground mt-0.5">{row.full_name}</p>
                             )}
                           </td>
-                          <td className="nowrap tabular-nums">{row.phone ? `+91 ${row.phone}` : '—'}</td>
+                          <td className="nowrap tabular-nums">{row.phone || '—'}</td>
                           <td>{slotNames(row.missing)}</td>
                           <td>{slotNames(row.unverified)}</td>
                         </tr>

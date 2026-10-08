@@ -73,7 +73,7 @@ export function docketProblems(payload: unknown): string[] {
   }
   const consigneePhone = str(p.consignee_contact_no);
   if (consigneePhone && !isValidReceiverPhone(consigneePhone)) {
-    problems.push(`Receiver phone "${consigneePhone}" must be +1 and 10 digits, with no 0 or 1 at the start`);
+    problems.push(`Receiver phone "${consigneePhone}" must have 6 to 15 digits`);
   }
 
   const weight = Number(str(p.actual_weight));

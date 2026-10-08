@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { isValidReceiverPhone, toIndianMobile, withoutTrunkZero } from "./contact.js";
+import { isValidReceiverPhone, toIndianMobile, withoutDialCode, withoutTrunkZero } from "./contact.js";
 
 test("a bare 10-digit mobile is kept as-is", () => {
   assert.equal(toIndianMobile("7558372885"), "7558372885");
@@ -29,17 +29,22 @@ test("a receiver's trunk zero is dropped before the dial code goes on", () => {
   assert.equal(withoutTrunkZero("020 7946 0958"), "2079460958");
 });
 
-test("a +1 receiver number needs ten digits and an area code from 2-9", () => {
-  assert.equal(isValidReceiverPhone("+12125550100"), true);
-  assert.equal(isValidReceiverPhone("+1 (212) 555-0100"), true);
-  assert.equal(isValidReceiverPhone("+109198332075"), false);
-  assert.equal(isValidReceiverPhone("+1212555010"), false);
-  assert.equal(isValidReceiverPhone("+11125550100"), false);
+test("a receiver number is accepted as typed, 6 to 15 digits", () => {
+  assert.equal(isValidReceiverPhone("9198332075"), true);
+  assert.equal(isValidReceiverPhone("09198332075"), true);
+  assert.equal(isValidReceiverPhone("+109198332075"), true);
+  assert.equal(isValidReceiverPhone("(212) 555-0100"), true);
+  assert.equal(isValidReceiverPhone("+442079460958"), true);
+  assert.equal(isValidReceiverPhone("12345"), false);
+  assert.equal(isValidReceiverPhone("1234567890123456"), false);
+  assert.equal(isValidReceiverPhone(""), true);
 });
 
-test("receiver numbers outside +1 are not judged here", () => {
-  assert.equal(isValidReceiverPhone("+442079460958"), true);
-  assert.equal(isValidReceiverPhone("+97150123456"), true);
+test("older orders show the receiver number without the added dial code", () => {
+  assert.equal(withoutDialCode("+19198332075", "+1"), "9198332075");
+  assert.equal(withoutDialCode("+971501234567", "+971"), "501234567");
+  assert.equal(withoutDialCode("9198332075", "+1"), "9198332075");
+  assert.equal(withoutDialCode("+19198332075", null), "+19198332075");
 });
 
 test("iOS contact autofill keeps the number, not the country code", () => {

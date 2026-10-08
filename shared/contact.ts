@@ -49,11 +49,28 @@ export const NANP_LOCAL_PATTERN = /^[2-9]\d{9}$/;
 
 export const NANP_PHONE_MESSAGE = "Enter the receiver's 10-digit phone number, like 212 555 0100";
 
-/** A receiver number as it goes to ITD. Only +1 numbers have a rule we can check. */
+/**
+ * A receiver number as it goes to ITD: whatever the customer typed, as long as
+ * it has 6 to 15 digits. No country code is added or required, and no country's
+ * own format is enforced (Aditya, 8 Oct 2026: accept what is typed and file the
+ * AWB). Blank is left to the "required" checks.
+ */
 export function isValidReceiverPhone(value: string): boolean {
-  const compact = value.replace(/[\s().-]/g, "");
-  if (!compact.startsWith("+1")) return true;
-  return NANP_LOCAL_PATTERN.test(compact.slice(2));
+  const digits = value.replace(/\D/g, "");
+  if (!digits) return true;
+  return digits.length >= 6 && digits.length <= 15;
+}
+
+/**
+ * A receiver number for display, without the dial code the booking form used
+ * to put in front of it (older orders were stored as "+1" + what was typed).
+ */
+export function withoutDialCode(phone: string, dialCode: string | null | undefined): string {
+  const trimmed = phone.trim();
+  const code = (dialCode ?? "").replace(/\D/g, "");
+  if (!code || !trimmed.startsWith("+")) return trimmed;
+  const digits = trimmed.replace(/\D/g, "");
+  return digits.startsWith(code) && digits.length > code.length ? digits.slice(code.length) : trimmed;
 }
 
 /**

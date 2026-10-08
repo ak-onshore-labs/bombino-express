@@ -1732,10 +1732,9 @@ export default function CreateShipment() {
       const e: Record<string, boolean> = {};
       if (!destinationCountry) e.destinationCountry = true;
       if (!receiverName.trim()) e.receiverName = true;
-      const phoneDigits = withoutTrunkZero(receiverPhone);
+      // The number exactly as typed: no country code is added anywhere.
+      const phoneDigits = receiverPhone.replace(/\D/g, '');
       if (phoneDigits.length < 6 || phoneDigits.length > 15) e.receiverPhone = true;
-      const dialCode = ITD_COUNTRY_MAP[destinationCountry]?.dialCode ?? '';
-      if (dialCode && !isValidReceiverPhone(`${dialCode}${phoneDigits}`)) e.receiverPhone = true;
       if (!receiverAddress.trim()) e.receiverAddress = true;
       if (!receiverCity.trim()) e.receiverCity = true;
       if (!receiverState.trim()) e.receiverState = true;
@@ -1948,10 +1947,9 @@ export default function CreateShipment() {
       shipper_zip_code: senderZip,
       consignee_name: receiverName,
       consignee_company_name: receiverCompany || receiverName,
-      consignee_contact_no:
-        ITD_COUNTRY_MAP[destinationCountry]?.dialCode
-          ? `${ITD_COUNTRY_MAP[destinationCountry].dialCode}${withoutTrunkZero(receiverPhone)}`
-          : receiverPhone,
+      // As typed. A dial code added here printed "+1" in front of numbers
+      // that were never American ("+109198332075" on the label).
+      consignee_contact_no: receiverPhone,
       consignee_email: receiverEmail || senderEmail,
       consignee_address_line_1: receiverAddress,
       consignee_city: receiverCity,
@@ -2345,7 +2343,7 @@ export default function CreateShipment() {
                       setSenderPhone(toIndianMobile(e.target.value));
                       clearFieldError('senderPhone');
                     }}
-                    placeholder="+91"
+                    placeholder="10-digit mobile"
                     // A guest's booking is authorised by an OTP on this exact
                     // number, and their documents are staged against it. Left
                     // editable, a change here would send the server a number it
@@ -2779,11 +2777,6 @@ export default function CreateShipment() {
                   <span className="text-red-400">*</span>
                 </Label>
                 <div className="flex gap-2 mt-1">
-                  {ITD_COUNTRY_MAP[destinationCountry]?.dialCode ? (
-                    <div className="h-11 px-3 flex items-center bg-muted/50 border border-border rounded-xl text-sm text-muted-foreground shrink-0 font-medium">
-                      {ITD_COUNTRY_MAP[destinationCountry].dialCode}
-                    </div>
-                  ) : null}
                   <Input
                     value={receiverPhone}
                     onChange={(e) => {

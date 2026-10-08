@@ -79,11 +79,18 @@ test("ops is never told a timeout is safe to refile", () => {
   assert.match(explainDocketError("connect ECONNREFUSED", "network", "auto").opsHint, /automatically/);
 });
 
-test("BOM-100333's mangled phones are caught before ITD sees them", () => {
+test("a sender number with +91 glued on is caught; the receiver's goes as typed", () => {
+  // The receiver's number is accepted as the customer typed it (6 to 15
+  // digits): no country format is enforced any more.
   const problems = docketProblems({ ...GOOD, shipper_contact_no: "917558372885", consignee_contact_no: "+109198332075" });
-  assert.equal(problems.length, 2);
+  assert.equal(problems.length, 1);
   assert.match(problems[0], /Sender phone/);
-  assert.match(problems[1], /Receiver phone/);
+});
+
+test("a receiver number too short to be a phone is caught", () => {
+  const problems = docketProblems({ ...GOOD, consignee_contact_no: "12345" });
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /Receiver phone/);
 });
 
 test("a +1 receiver number with a valid area code passes", () => {

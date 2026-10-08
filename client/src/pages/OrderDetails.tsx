@@ -85,6 +85,8 @@ import { ShipmentDocuments, useShipmentDocuments } from '@/components/ShipmentDo
 import { PdfDocButton, fetchPdfBase64 } from '@/components/PdfDocButton';
 import { TrackingTimeline } from '@/components/TrackingTimeline';
 import { getStatusLabel } from '@/lib/awbStatus';
+import { withoutDialCode } from '@shared/contact';
+import { ITD_COUNTRY_MAP } from '@/lib/itdCountryData';
 import {
   getDocketValue,
   mapEvents,
@@ -931,7 +933,14 @@ export default function OrderDetails() {
         <Group title="Recipient">
           <Row label="Name" value={consignee?.name} />
           <Row label="Company" value={consignee?.company} />
-          <Row label="Phone" value={consignee?.phone} />
+          <Row
+            label="Phone"
+            value={
+              consignee?.phone
+                ? withoutDialCode(consignee.phone, ITD_COUNTRY_MAP[consignee.country_code ?? '']?.dialCode)
+                : null
+            }
+          />
           <Row label="Email" value={consignee?.email} />
           <Row label="Address" value={consigneeAddress} />
         </Group>

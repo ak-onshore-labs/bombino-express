@@ -230,9 +230,6 @@ export function GuestVerification({
           <div>
             <Label className="text-xs text-muted-foreground">Mobile number *</Label>
             <div className="mt-1 flex items-center gap-2">
-              <span className="flex h-11 shrink-0 items-center rounded-xl border border-[#E2E8F0] bg-[#F3F4F6] px-3 text-sm font-medium text-muted-foreground">
-                +91
-              </span>
               <Input
                 ref={phoneRef}
                 type="tel"
@@ -275,7 +272,7 @@ export function GuestVerification({
         <div className="space-y-3">
           <div>
             <Label className="text-xs text-muted-foreground">
-              Enter the code sent to +91 {phone}
+              Enter the code sent to {phone}
             </Label>
             <div className="mt-2 flex justify-center">
               <InputOTP
@@ -350,7 +347,7 @@ export function GuestVerification({
       {step === 'documents' && verifiedPhone && (
         <div className="flex items-center justify-between rounded-lg bg-[#F3F4F6] px-3 py-2">
           <span className="text-xs text-[lab(34.0831_-9.57756_-27.7093)]">
-            <span className="font-semibold">+91 {verifiedPhone}</span> verified
+            <span className="font-semibold">{verifiedPhone}</span> verified
           </span>
           <button
             type="button"
@@ -386,7 +383,7 @@ export function GuestVerification({
           <AlertDialogHeader>
             <AlertDialogTitle>This number already has an account</AlertDialogTitle>
             <AlertDialogDescription>
-              +91 {phone} is registered with Bombino. Sign in to book with it — your
+              {phone} is registered with Bombino. Sign in to book with it — your
               saved addresses and identity document are already there — or use a
               different number to carry on as a guest.
             </AlertDialogDescription>

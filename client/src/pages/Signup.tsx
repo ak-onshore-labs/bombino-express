@@ -631,7 +631,7 @@ export default function Signup() {
       <>
         We sent a 6-digit code to{' '}
         <span className="font-mono font-semibold text-foreground whitespace-nowrap">
-          +91 {phone}
+          {phone}
         </span>
         .
       </>
@@ -662,7 +662,7 @@ export default function Signup() {
             login details.
           </p>
           <p className="text-sm leading-relaxed text-muted-foreground">
-            In the meantime you can book shipments as a guest with +91 {phone}. They move into your account when
+            In the meantime you can book shipments as a guest with {phone}. They move into your account when
             it opens.
           </p>
           <Button

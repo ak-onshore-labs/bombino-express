@@ -3190,7 +3190,7 @@ export async function registerRoutes(
       params: { code: "SENDER_PHONE_INVALID" },
     })
     .refine((body) => isValidReceiverPhone(String(body.items.consignee_contact_no ?? "")), {
-      message: NANP_PHONE_MESSAGE,
+      message: "Enter the receiver's phone number (6 to 15 digits).",
       params: { code: "RECEIVER_PHONE_INVALID" },
     });
 

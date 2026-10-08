@@ -306,7 +306,7 @@ export default function Login() {
    *  not read as ordinary body text. */
   const phoneMark = (
     <span className="font-mono font-semibold text-foreground whitespace-nowrap">
-      +91 {phone}
+      {phone}
     </span>
   );
 
@@ -543,7 +543,7 @@ export default function Login() {
         <>
           <div className="rounded-xl border border-[#E2E8F0] bg-[#F3F4F6] px-4 py-3">
             <p className="text-sm font-medium text-[lab(34.0831_-9.57756_-27.7093)]">Linking</p>
-            <p className="font-mono mt-1 text-sm font-medium text-foreground">+91 {phone}</p>
+            <p className="font-mono mt-1 text-sm font-medium text-foreground">{phone}</p>
           </div>
 
           <div>

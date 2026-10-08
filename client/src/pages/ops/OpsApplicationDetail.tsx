@@ -76,7 +76,7 @@ export default function OpsApplicationDetail() {
 
   return (
     <OpsShell
-      title={data ? (data.application.name ?? `+91 ${data.application.phone}`) : 'Application'}
+      title={data ? (data.application.name ?? data.application.phone) : 'Application'}
       subtitle={data ? `Account application · ${data.application.category_label}` : 'Account application'}
       eyebrow={
         <Link
