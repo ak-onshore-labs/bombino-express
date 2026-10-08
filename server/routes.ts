@@ -2504,12 +2504,15 @@ export async function registerRoutes(
 
   app.get(
     "/api/shipments/:awb/documents",
-    requireUser,
     ensureDbUser,
     async (req: Request, res: Response) => {
-      const dbUserId = req.session.dbUserId;
+      // Asked by the tracking screen, which anyone can open. Someone not
+      // signed in has no documents for any AWB, and saying so is the answer:
+      // a 401 here read as "your session expired" (client/src/lib/session.ts)
+      // and signed guests and visitors out for tracking a parcel.
+      const dbUserId = req.session.user ? req.session.dbUserId : undefined;
       if (!dbUserId) {
-        return res.status(401).json({ message: "Unauthorized" });
+        return res.json({ documents: [] });
       }
 
       const documents = await listShipmentDocumentKinds(req.params.awb, dbUserId);

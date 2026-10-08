@@ -18,6 +18,7 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { TrackingTimeline } from '@/components/TrackingTimeline';
 import { getStatusLabel, getStatusColor } from '@/lib/awbStatus';
 import { cn } from '@/lib/utils';
+import { useAppStore } from '@/lib/store';
 import { useSupportContacts } from '@/hooks/useSupportContacts';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 import { ShipmentDocuments } from '@/components/ShipmentDocuments';
@@ -238,6 +239,7 @@ export default function ShipmentDetails() {
   const { waHref } = useSupportContacts();
   const [copied, setCopied] = useState(false);
   const queryClient = useQueryClient();
+  const isLoggedIn = useAppStore((s) => s.isLoggedIn);
 
   const awb = params?.awb ? decodeURIComponent(params.awb) : '';
 
@@ -513,7 +515,8 @@ export default function ShipmentDetails() {
         </div>
       </section>
 
-      <ActionRow awb={awb} />
+      {/* Labels are the booking account's; nobody else is asked for them. */}
+      <ActionRow awb={isLoggedIn ? awb : null} />
     </PageShell>
   );
 }
