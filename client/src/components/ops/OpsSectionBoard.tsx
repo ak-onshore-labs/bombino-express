@@ -8,6 +8,7 @@ import {
 } from '@shared/opsBoardQuery';
 import { nowInIst } from '@shared/istTime';
 import { OpsShell } from '@/components/ops/OpsShell';
+import { ScanParcelButton } from '@/components/ScanParcelSheet';
 import { OpsOrderCard } from '@/components/ops/OpsOrderCard';
 import {
   OpsBoardFilterBar,
@@ -124,12 +125,18 @@ export function OpsSectionBoard({
   section,
   mode,
   filterConfig,
+  scanToReceive = false,
 }: {
   title: string;
   subtitle: string;
   section: OpsBoardSection;
   mode: 'stages' | 'flat';
   filterConfig: OpsFilterConfig;
+  /**
+   * Drop-offs and Pickups: the counter scans a box and lands on that order
+   * with its receive step in view (OpsOrderDetail reads `?scan=receive`).
+   */
+  scanToReceive?: boolean;
 }) {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
@@ -292,7 +299,22 @@ export function OpsSectionBoard({
     needsUncapped && filteredQuery.isError && !filteredQuery.data;
 
   return (
-    <OpsShell title={title} subtitle={subtitle} wide>
+    <OpsShell
+      title={title}
+      subtitle={subtitle}
+      wide
+      hideScan={scanToReceive}
+      actions={
+        scanToReceive ? (
+          <ScanParcelButton
+            surface="ops"
+            label="Scan to receive"
+            testId="button-scan-to-receive"
+            onResolved={(hit) => setLocation(`/ops/orders/${hit.orderId}?scan=receive`)}
+          />
+        ) : undefined
+      }
+    >
       <OpsBoardFilterBar
         config={filterConfig}
         filters={filters}

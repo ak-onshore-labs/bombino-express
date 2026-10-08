@@ -309,6 +309,26 @@ export async function getOrderIdByNumber(orderNo: string): Promise<string | null
   return (data as { id: string } | null)?.id ?? null;
 }
 
+/** The id behind an AWB, for staff scans of an ITD label. */
+export async function getOrderIdByAwb(awb: string): Promise<string | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("orders")
+    .select("id")
+    .eq("awb_no", awb)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("getOrderIdByAwb", error);
+    return null;
+  }
+  return (data as { id: string } | null)?.id ?? null;
+}
+
 /**
  * Whoever is asking about an order: an account, or a guest proved by OTP.
  * Built from the session only — never from a value a client or a model sent.

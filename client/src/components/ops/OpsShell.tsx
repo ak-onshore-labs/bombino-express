@@ -24,6 +24,7 @@ export function OpsShell({
   eyebrow,
   actions,
   wide = false,
+  hideScan = false,
   children,
 }: {
   title: string;
@@ -33,6 +34,8 @@ export function OpsShell({
   /** Beside the title, on the right: page-level buttons (settings, export). */
   actions?: React.ReactNode;
   wide?: boolean;
+  /** A page whose own actions include a scan (the receive boards). */
+  hideScan?: boolean;
   children: React.ReactNode;
 }) {
   const isMobile = useIsMobile();
@@ -61,10 +64,10 @@ export function OpsShell({
         </div>
         {/* Scan sits with the page's own buttons on desktop; on phones it is
             in the top bar, where a thumb finds it on every screen. */}
-        {(actions || !isMobile) && (
+        {(actions || (!isMobile && !hideScan)) && (
           <div className="flex shrink-0 items-center gap-2">
             {actions}
-            {!isMobile && <ScanParcelButton surface="ops" />}
+            {!isMobile && !hideScan && <ScanParcelButton surface="ops" />}
           </div>
         )}
       </div>

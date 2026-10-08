@@ -9,6 +9,7 @@ export default function OpsPickups() {
       section="pickups"
       mode="stages"
       filterConfig={PICKUPS_FILTER_CONFIG}
+      scanToReceive
     />
   );
 }

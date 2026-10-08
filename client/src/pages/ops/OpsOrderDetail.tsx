@@ -1,9 +1,9 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { formatInr, formatIst } from '@/lib/orderDetail';
 import { signOutAndRedirect } from '@/lib/session';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Loader2, LogOut } from 'lucide-react';
-import { Link, useLocation, useParams } from 'wouter';
+import { Link, useLocation, useParams, useSearch } from 'wouter';
 import { OpsActionBar } from '@/components/ops/OpsActionBar';
 import { OpsSenderCell } from '@/components/ops/OpsSenderCell';
 import { OpsShell } from '@/components/ops/OpsShell';
@@ -86,6 +86,22 @@ export default function OpsOrderDetail() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data, isLoading, error, isError } = useOpsOrderDetail(orderId);
+
+  // Arrived from "Scan to receive" on a board: bring the receive step into
+  // view and mark it for a moment, so the counter does not hunt for it. The
+  // hub handover code when an agent is handing over, the actions otherwise.
+  const fromScan = new URLSearchParams(useSearch()).get('scan') === 'receive';
+  const [scanFocus, setScanFocus] = useState(false);
+  useEffect(() => {
+    if (!fromScan || !data) return;
+    const target =
+      document.querySelector('[data-testid="ops-hub-handover-code"]') ??
+      document.querySelector('[data-testid="ops-order-actions"]');
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setScanFocus(true);
+    const t = setTimeout(() => setScanFocus(false), 2500);
+    return () => clearTimeout(t);
+  }, [fromScan, data]);
   const action = useOpsOrderAction(orderId);
   const assign = useOpsAssign(orderId);
   // Customer support and accounts see the order but never move it.
@@ -318,7 +334,7 @@ export default function OpsOrderDetail() {
       <div className="min-w-0">
       {handover && canAct && (
         <div
-          className="rounded-md border border-[#F2A123] bg-[#F2A123]/15 px-4 py-3 mb-4"
+          className={`rounded-md border border-[#F2A123] bg-[#F2A123]/15 px-4 py-3 mb-4 transition-shadow duration-300 ${scanFocus ? 'ring-4 ring-[#F2A123]/40' : ''}`}
           data-testid="ops-hub-handover-code"
         >
           <p className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground">
@@ -576,7 +592,10 @@ export default function OpsOrderDetail() {
           </section>
         )}
 
-      <section className="mb-6" data-testid="ops-order-actions">
+      <section
+        className={`mb-6 rounded-md transition-shadow duration-300 ${scanFocus && !handover ? 'ring-4 ring-[#F2A123]/40 ring-offset-4' : ''}`}
+        data-testid="ops-order-actions"
+      >
         <h2 className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground mb-3">
           Actions
         </h2>

@@ -8,14 +8,21 @@
  *
  * Decoding is `qr-scanner`: a web worker, the native BarcodeDetector where the
  * browser has one, and cheap on a budget Android. The camera only runs while
- * this sheet is open. Typing is always offered, because a camera can be
- * refused, missing, or (in the app shell) not yet permitted.
+ * this sheet is open.
+ *
+ * Two fallbacks are always offered, because a live camera is often not
+ * available: iOS gives web pages the camera only on https, an app webview only
+ * when the app declares camera permission, and anyone can refuse it.
+ *   - "Take a photo of the code" opens the phone's own camera through the
+ *     ordinary photo picker and decodes the picture here. Works where the live
+ *     camera does not (iOS Safari, app webviews).
+ *   - Typing the order number.
  */
 
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'wouter';
 import QrScanner from 'qr-scanner';
-import { Flashlight, Loader2, ScanLine, X } from 'lucide-react';
+import { Camera, Flashlight, Loader2, ScanLine, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ParcelScanResult } from '@shared/parcelTag';
 
@@ -32,23 +39,42 @@ async function resolveScan(q: string): Promise<ParcelScanResult> {
   return body as ParcelScanResult;
 }
 
+/**
+ * Why the live camera did not start, in words that say what to do.
+ *
+ * qr-scanner reports "Camera not found." both when the page has no camera API
+ * at all and when every request was refused, so the cause is read from the
+ * page itself first rather than from that message.
+ */
 function cameraMessage(err: unknown): string {
+  if (typeof window !== 'undefined' && !window.isSecureContext) {
+    return 'The live camera only works on the secure (https) site. Take a photo of the code instead.';
+  }
+  if (typeof navigator !== 'undefined' && !navigator.mediaDevices) {
+    return 'This app is not allowed to use the live camera. Take a photo of the code instead.';
+  }
   const text = String(err instanceof Error ? err.message : err);
   if (/permission|denied|notallowed/i.test(text)) {
-    return 'Camera access is blocked. Allow the camera for this site, or type the order number below.';
+    return 'Camera access was refused. Allow it in Settings, or take a photo of the code instead.';
   }
-  if (/no camera|notfound|not found/i.test(text)) {
-    return 'No camera found. Type the order number below.';
-  }
-  return 'The camera could not start. Type the order number below.';
+  return 'The live camera could not start. Take a photo of the code instead.';
 }
 
 export function ScanParcelSheet({
   surface,
   onClose,
+  onResolved,
+  title = 'Scan parcel',
 }: {
   surface: Surface;
   onClose: () => void;
+  /**
+   * Take the scanned order instead of opening its details page: the agent's
+   * "Check box" compares it with the job, the hub's "Scan to receive" opens
+   * the order at its receive step.
+   */
+  onResolved?: (hit: ParcelScanResult) => void;
+  title?: string;
 }) {
   const [, setLocation] = useLocation();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -60,6 +86,25 @@ export function ScanParcelSheet({
   const [typed, setTyped] = useState('');
   const [looking, setLooking] = useState(false);
   const [problem, setProblem] = useState<Problem | null>(null);
+  const [cameraFailed, setCameraFailed] = useState(false);
+  const photoRef = useRef<HTMLInputElement>(null);
+
+  /** Decode a photo the phone's own camera took. */
+  const scanPhoto = async (file: File | undefined): Promise<void> => {
+    if (!file) return;
+    setProblem(null);
+    try {
+      const result = await QrScanner.scanImage(file, { returnDetailedScanResult: true });
+      await handle(result.data);
+    } catch {
+      setProblem({
+        kind: 'lookup',
+        message: 'No code found in that photo. Hold the phone closer, keep the code flat and in focus, and try again.',
+      });
+    } finally {
+      if (photoRef.current) photoRef.current.value = '';
+    }
+  };
 
   const big = surface === 'agent';
 
@@ -72,7 +117,8 @@ export function ScanParcelSheet({
     try {
       const hit = await resolveScan(q);
       onClose();
-      setLocation(`/p/${hit.token}`);
+      if (onResolved) onResolved(hit);
+      else setLocation(`/p/${hit.token}`);
     } catch (err) {
       setProblem({
         kind: 'lookup',
@@ -105,6 +151,7 @@ export function ScanParcelSheet({
       })
       .catch((err: unknown) => {
         setStarting(false);
+        setCameraFailed(true);
         setProblem({ kind: 'camera', message: cameraMessage(err) });
       });
     return () => {
@@ -140,7 +187,7 @@ export function ScanParcelSheet({
       data-testid="sheet-scan-parcel"
     >
       <div className="flex items-center justify-between px-4 h-14 shrink-0">
-        <p className={cn('font-semibold', big ? 'text-lg' : 'text-base')}>Scan parcel</p>
+        <p className={cn('font-semibold', big ? 'text-lg' : 'text-base')}>{title}</p>
         <button
           type="button"
           onClick={onClose}
@@ -191,6 +238,35 @@ export function ScanParcelSheet({
           </div>
         )}
 
+        {/* The phone's own camera, through the photo picker. First and filled
+            when the live camera failed, a quiet extra otherwise. */}
+        <input
+          ref={photoRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="sr-only"
+          tabIndex={-1}
+          onChange={(e) => void scanPhoto(e.target.files?.[0])}
+          data-testid="input-scan-photo"
+        />
+        <button
+          type="button"
+          onClick={() => photoRef.current?.click()}
+          disabled={looking}
+          className={cn(
+            'mb-3 w-full inline-flex items-center justify-center gap-2 rounded-lg font-semibold transition-colors disabled:opacity-50',
+            big ? 'h-14 text-base' : 'h-11 text-sm',
+            cameraFailed
+              ? 'bg-[lab(34.0831_-9.57756_-27.7093)] text-white'
+              : 'border border-[#CBD5E1] text-foreground hover:bg-muted/50'
+          )}
+          data-testid="button-scan-photo"
+        >
+          <Camera className={big ? 'w-5 h-5' : 'w-4 h-4'} />
+          Take a photo of the code
+        </button>
+
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -205,7 +281,7 @@ export function ScanParcelSheet({
             id="scan-typed"
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
-            placeholder="Or type the order number, e.g. BOM-100329"
+            placeholder="Or type the order or AWB number"
             autoCapitalize="characters"
             autoComplete="off"
             className={cn(
@@ -236,11 +312,18 @@ export function ScanParcelButton({
   surface,
   variant = 'full',
   className,
+  label = 'Scan parcel',
+  onResolved,
+  testId = 'button-scan-parcel',
 }: {
   surface: Surface;
   /** `full`: labelled button. `icon`: a top-bar glyph. */
   variant?: 'full' | 'icon';
   className?: string;
+  label?: string;
+  /** See ScanParcelSheet. Unset: a scan opens the parcel's details page. */
+  onResolved?: (hit: ParcelScanResult) => void;
+  testId?: string;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -250,8 +333,8 @@ export function ScanParcelButton({
           type="button"
           onClick={() => setOpen(true)}
           className={cn('grid place-items-center w-10 h-10 rounded-md hover:bg-muted transition-colors', className)}
-          aria-label="Scan parcel"
-          data-testid="button-scan-parcel"
+          aria-label={label}
+          data-testid={testId}
         >
           <ScanLine className="w-5 h-5 text-foreground" />
         </button>
@@ -266,13 +349,20 @@ export function ScanParcelButton({
               : 'h-10 px-4 text-sm border border-border bg-white text-foreground hover:bg-muted/50',
             className
           )}
-          data-testid="button-scan-parcel"
+          data-testid={testId}
         >
           <ScanLine className={surface === 'agent' ? 'w-5 h-5' : 'w-4 h-4'} />
-          Scan parcel
+          {label}
         </button>
       )}
-      {open && <ScanParcelSheet surface={surface} onClose={() => setOpen(false)} />}
+      {open && (
+        <ScanParcelSheet
+          surface={surface}
+          onClose={() => setOpen(false)}
+          onResolved={onResolved}
+          title={label}
+        />
+      )}
     </>
   );
 }

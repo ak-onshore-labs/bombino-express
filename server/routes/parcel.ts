@@ -10,7 +10,8 @@
  *
  *   GET /api/orders/:orderNo/box-label   the owner, for their own order
  *   GET /api/p/:token                    anyone; any agent or ops user sees all
- *   GET /api/parcel-tag/resolve          agents and ops, after a scan
+ *   GET /api/parcel-tag/resolve          agents and ops, after a scan (tag,
+ *                                        order number or AWB)
  *
  * The ops reprint (`/api/ops/orders/:id/box-label`) lives with the other ops
  * routes and builds the same PDF through `boxLabelFor`.
@@ -22,6 +23,7 @@ import { asyncRoutes, requireUser, ensureDbUser } from "../routeGuards.js";
 import { OWNER_PROFILES, ownerFrom } from "../sessionOwner.js";
 import {
   findOrderForOwner,
+  getOrderIdByAwb,
   getOrderIdByNumber,
   getOrderWithAddressById,
   listOrderEvents,
@@ -239,6 +241,10 @@ export function registerParcelRoutes(app: Express): void {
     if (!orderId && /^BOM-?\d+$/i.test(raw)) {
       const normalised = raw.toUpperCase().replace(/^BOM-?/, "BOM-");
       orderId = await getOrderIdByNumber(normalised);
+    }
+    // An ITD label: its barcode or QR carries the AWB (digits).
+    if (!orderId && /^\d{8,14}$/.test(raw)) {
+      orderId = await getOrderIdByAwb(raw);
     }
     const order = orderId ? await getOrderWithAddressById(orderId) : null;
     if (!order) {
