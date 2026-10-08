@@ -504,6 +504,12 @@ export default function ShipmentDetails() {
               <Field key={f.label} label={f.label} value={f.value} />
             ))}
           </dl>
+          {/* Not the owner: the server sent cities only (trackingRedact.ts). */}
+          {data.restricted && (
+            <p className="mt-5 text-[13px] text-muted-foreground leading-relaxed" data-testid="text-tracking-restricted">
+              Names and contact details are shown only to the account that booked this shipment.
+            </p>
+          )}
         </div>
       </section>
 

@@ -3,6 +3,7 @@ import {
   countUnreadNotifications,
   findItdUserIdByPhone,
   findItdAccountByPhone,
+  userOwnsShipmentAwb,
   findOrCreateAddress,
   getAccountShapeById,
   getItdUserProfileById,
@@ -115,6 +116,7 @@ import type { Order, OrderStatus, Role } from "../shared/orderContract.js";
 import { earliestPickupDate, todayInIst } from "../shared/istTime.js";
 import { sendDocumentFile } from "./documentResponse.js";
 import { OWNER_PROFILES, ownerFrom } from "./sessionOwner.js";
+import { redactTracking } from "./trackingRedact.js";
 import { requireCronSecret } from "./cronAuth.js";
 import {
   handleCancel,
@@ -2773,6 +2775,25 @@ export async function registerRoutes(
 
   // ── ITD: Tracking ────────────────────────────────────────────────────────
 
+  /**
+   * Full tracking detail (names, addresses, weights) for: ops staff, the
+   * account that booked this AWB (its order, or a direct shipment), or the
+   * guest whose order it is. Agents and strangers are not owners.
+   */
+  async function mayTrackInFull(req: Request, awb: string): Promise<boolean> {
+    if (isOpsRole(req.session.user?.role)) return true;
+    const owner = ownerFrom(req, OWNER_PROFILES.payment);
+    if (!owner) return false;
+    if (owner.kind === "account" && owner.userId) {
+      if (await findOrderForOwner({ awb }, { kind: "account", userId: owner.userId })) return true;
+      return userOwnsShipmentAwb(awb, owner.userId);
+    }
+    if (owner.guestRef) {
+      return !!(await findOrderForOwner({ awb }, { kind: "guest", guestRef: owner.guestRef }));
+    }
+    return false;
+  }
+
   // GET /api/track/:trackingNo — no login required; guest uses company token + superadmin
   app.get(
     "/api/track/:trackingNo",
@@ -2783,10 +2804,15 @@ export async function registerRoutes(
 
       try {
         const user = req.session.user;
+        // Your own ITD session when you have one (an ITD-linked account).
+        // Staff and accounts without ITD access have none, and tracking under
+        // their non-ITD code returned nothing, so they use the company path
+        // a signed-out visitor gets.
+        const ownItd = !!(user && req.session.itdToken);
         const data = await itdClient.trackShipment(
           trackingNo,
-          user ? req.session.itdToken : undefined,
-          user ? user.code : "superadmin"
+          ownItd ? req.session.itdToken : undefined,
+          ownItd ? user!.code : "superadmin"
         );
         const first = data[0];
         const events = first?.docket_events ?? [];
@@ -2798,8 +2824,14 @@ export async function registerRoutes(
         const trackedAt = new Date().toISOString();
         void upsertTrackingEvents(trackingNo, events);
         void updateShipmentTrackingStatus(trackingNo, latestStatus, trackedAt);
+
+        // Anyone may track any AWB, but only its owner and ops see who sent it
+        // and who it is for. Everyone else gets bombinoexp.com's fields
+        // (server/trackingRedact.ts).
+        const full = await mayTrackInFull(req, trackingNo);
         res.json({
-          results: data,
+          results: full ? data : redactTracking(data),
+          restricted: !full,
           fromCache: false as const,
           lastTrackedAt: trackedAt,
         });

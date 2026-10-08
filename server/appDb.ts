@@ -1201,6 +1201,26 @@ function pickDocument(
   return typeof doc === "string" && doc ? doc : null;
 }
 
+/** Whether this account booked the AWB directly (a `shipments` row of theirs). */
+export async function userOwnsShipmentAwb(awbNumber: string, userId: string): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  const { data, error } = await client
+    .from("shipments")
+    .select("id")
+    .eq("awb_number", awbNumber)
+    .eq("user_id", userId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("userOwnsShipmentAwb", error);
+    return false;
+  }
+  return !!data;
+}
+
 async function fetchShipmentLabels(
   awbNumber: string,
   userId: string,

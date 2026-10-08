@@ -28,7 +28,16 @@ export interface ITDTrackingResult {
 }
 
 export type TrackingResponse =
-  | { results: ITDTrackingResult[]; fromCache: false; lastTrackedAt: string }
+  | {
+      results: ITDTrackingResult[];
+      fromCache: false;
+      lastTrackedAt: string;
+      /**
+       * True when the caller is not this AWB's owner (or ops): the server has
+       * already stripped names, contacts, addresses and weights.
+       */
+      restricted?: boolean;
+    }
   | { fromCache: true; lastTrackedAt: string; currentStatus: string; message: string };
 
 export function getDocketValue(docketInfo: [string, string][], label: string): string {
