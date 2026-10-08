@@ -289,6 +289,36 @@ export function rateBoxesFromDocketItems(
 class ITDClient {
   private token: string | null = null;
   private tokenExpiry: number = 0;
+  private sharedRatesCode: { code: string; expiresAt: number } | null = null;
+
+  /**
+   * The customer code to quote the shared account's rates under.
+   *
+   * Taken from ITD's own login answer rather than `ITD_CUSTOMER_CODE`: that
+   * variable has held ITD's customer *id* on some environments, and the rates
+   * endpoint answers "Customer User Not Found" to it, so every signed-out
+   * (guest) quote failed. Same lesson as `itdRatesLoginFor` in opsActions.
+   * Cached for an hour; the env value is only the fallback when the login
+   * itself fails.
+   */
+  private async sharedCustomerCode(): Promise<string> {
+    const fallback = process.env.ITD_CUSTOMER_CODE ?? "";
+    if (this.sharedRatesCode && this.sharedRatesCode.expiresAt > Date.now()) {
+      return this.sharedRatesCode.code;
+    }
+    const email = process.env.ITD_EMAIL;
+    const password = process.env.ITD_PASSWORD;
+    if (!email || !password) return fallback;
+    try {
+      const { user } = await this.loginUser(email, password);
+      if (!user?.code) return fallback;
+      this.sharedRatesCode = { code: user.code, expiresAt: Date.now() + 60 * 60 * 1000 };
+      return user.code;
+    } catch (err) {
+      console.error("[itd] shared login for rates failed, using ITD_CUSTOMER_CODE:", err);
+      return fallback;
+    }
+  }
 
   // Fetch and cache Bearer token using company credentials. Re-authenticates when expired.
   async getToken(): Promise<string> {
@@ -511,7 +541,7 @@ class ITDClient {
       item_wt: Math.round(b.weight_kg * 1000) / 1000,
     }));
     form.append("dimesion", JSON.stringify(dimesion));
-    form.append("customer_code", customerCode ?? process.env.ITD_CUSTOMER_CODE ?? "");
+    form.append("customer_code", customerCode ?? (await this.sharedCustomerCode()));
     form.append("username", username);
     form.append("password", password);
     if (params.ori_city) form.append("ori_city", params.ori_city);
