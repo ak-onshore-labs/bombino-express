@@ -131,7 +131,17 @@ export const OPS_PERMISSIONS_BY_ROLE: Record<OpsRole, readonly OpsPermission[]> 
   // creates other staff and assigns roles.
   admin: ALL.filter((p) => p !== 'settings' && p !== 'kyc.view' && p !== 'users.assign_roles'),
   // "Only their city's orders and agents. Users and Beats are view only."
-  branch_manager: ['orders.view', 'orders.act', 'users.view', 'beats.view', 'pincodes.view'],
+  // Their own city only: add and edit pickup agents, add and edit beats. The
+  // city line is enforced on every write in server/routes/ops.ts.
+  branch_manager: [
+    'orders.view',
+    'orders.act',
+    'users.view',
+    'users.manage',
+    'beats.view',
+    'beats.manage',
+    'pincodes.view',
+  ],
   // "Orders view only: cannot move orders, take payments or assign agents. Can
   // view KYC documents and approve applications."
   customer_support: [

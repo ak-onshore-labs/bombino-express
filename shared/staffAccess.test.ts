@@ -62,11 +62,12 @@ test('KYC documents: super admin, support and KYC reviewers, never admin', () =>
   assert.equal(can('accounts', 'kyc.view'), false);
 });
 
-test('admins create agents, super admins create any staff but another super admin', () => {
+test('admins and branch managers create agents, super admins any staff but another super admin', () => {
   assert.deepEqual(assignableRoles('admin'), ['agent']);
   assert.ok(!assignableRoles('super_admin').includes('super_admin'));
   assert.ok(assignableRoles('super_admin').includes('branch_manager'));
-  assert.deepEqual(assignableRoles('branch_manager'), []);
+  // Their own city's agents only; the city is enforced in server/routes/ops.ts.
+  assert.deepEqual(assignableRoles('branch_manager'), ['agent']);
   assert.deepEqual(assignableRoles('customer_support'), []);
 });
 

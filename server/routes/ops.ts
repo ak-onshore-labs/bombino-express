@@ -9,7 +9,7 @@
 
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
-import { hubCity, isIndiaHubId } from "../../shared/hubs.js";
+import { hubCity, hubCityForId, isIndiaHubId } from "../../shared/hubs.js";
 import {
   beatIdsForAgent,
   beatNamesByAgent,
@@ -323,6 +323,29 @@ function asOrder(row: OpsOrderDetail): Order {
 function isCallersBeat(req: Request, hub: string): boolean {
   const own = req.staff?.city ?? null;
   return own !== null && hubCity(hub) === own;
+}
+
+/**
+ * Writes a branch manager may make are confined to their own city, the same
+ * line as what they may see. Each guard answers true for an unscoped caller.
+ */
+const OUTSIDE_CITY = (req: Request, what: string): string =>
+  `You can only manage ${what} in ${req.staff?.city ?? "your city"}.`;
+
+/** The pickup agent is in the caller's city (by hub or by beat). */
+async function isCallersAgent(req: Request, agentId: string): Promise<boolean> {
+  if (!isScoped(req)) return true;
+  const own = req.staff?.city ?? null;
+  if (!own) return false;
+  const agents = await loadAgentsWithCities({ includeInactive: true });
+  return !!agents?.some((a) => a.id === agentId && a.cities.includes(own));
+}
+
+/** The beat exists and runs out of the caller's city. */
+async function isCallersBeatId(req: Request, beatId: string): Promise<boolean> {
+  if (!isScoped(req)) return true;
+  const beat = await getBeat(beatId);
+  return beat !== null && beat !== "missing" && isCallersBeat(req, beat.hub);
 }
 
 /**
@@ -1175,6 +1198,16 @@ export function registerOpsRoutes(app: Express): void {
     }
   );
 
+  // GET /api/ops/scope — the caller's city, or null for an all-cities role.
+  // Lets forms offer only what the caller may write (a branch manager's hubs).
+  app.get(
+    "/api/ops/scope",
+    ...opsGateFor("users.view"),
+    (req: Request, res: Response) => {
+      res.json({ city: isScoped(req) ? req.staff?.city ?? null : null });
+    }
+  );
+
   // GET /api/ops/users — staff accounts (agent / admin / super_admin)
   app.get(
     "/api/ops/users",
@@ -1268,6 +1301,17 @@ export function registerOpsRoutes(app: Express): void {
         return;
       }
 
+      if (!(await isCallersAgent(req, id.data))) {
+        res.status(403).json({ message: OUTSIDE_CITY(req, "pickup agents"), code: "FORBIDDEN" });
+        return;
+      }
+      for (const beatId of parsed.data.beat_ids) {
+        if (!(await isCallersBeatId(req, beatId))) {
+          res.status(403).json({ message: OUTSIDE_CITY(req, "beats"), code: "FORBIDDEN" });
+          return;
+        }
+      }
+
       const written = await setAgentBeats(id.data, parsed.data.beat_ids);
       if (written === "missing") {
         res.status(400).json({ message: "One of those beats does not exist" });
@@ -1314,6 +1358,11 @@ export function registerOpsRoutes(app: Express): void {
           message: "Only a super admin can edit this account.",
           code: "FORBIDDEN",
         });
+        return;
+      }
+      // A branch manager edits only their own city's agents.
+      if (!(await isCallersAgent(req, id.data))) {
+        res.status(403).json({ message: OUTSIDE_CITY(req, "pickup agents"), code: "FORBIDDEN" });
         return;
       }
 
@@ -1453,6 +1502,11 @@ export function registerOpsRoutes(app: Express): void {
         return;
       }
 
+      if (isScoped(req) && !isCallersBeat(req, parsed.data.hub)) {
+        res.status(403).json({ message: OUTSIDE_CITY(req, "beats"), code: "FORBIDDEN" });
+        return;
+      }
+
       const created = await insertBeat(parsed.data);
       if (created === "taken") {
         res.status(409).json({ message: "A beat with that slug already exists" });
@@ -1482,6 +1536,15 @@ export function registerOpsRoutes(app: Express): void {
         res.status(400).json({
           message: parsed.error.issues[0]?.message ?? "Invalid request",
         });
+        return;
+      }
+
+      // Their own city's beats, and never moved to another city's hub.
+      if (
+        !(await isCallersBeatId(req, id.data)) ||
+        (isScoped(req) && parsed.data.hub !== undefined && !isCallersBeat(req, parsed.data.hub))
+      ) {
+        res.status(403).json({ message: OUTSIDE_CITY(req, "beats"), code: "FORBIDDEN" });
         return;
       }
 
@@ -1525,6 +1588,11 @@ export function registerOpsRoutes(app: Express): void {
         res.status(400).json({
           message: parsed.error.issues[0]?.message ?? "Invalid request",
         });
+        return;
+      }
+
+      if (!(await isCallersBeatId(req, id.data))) {
+        res.status(403).json({ message: OUTSIDE_CITY(req, "beats"), code: "FORBIDDEN" });
         return;
       }
 
@@ -1574,10 +1642,19 @@ export function registerOpsRoutes(app: Express): void {
         return;
       }
 
+      if (!(await isCallersBeatId(req, id.data))) {
+        res.status(403).json({ message: OUTSIDE_CITY(req, "beats"), code: "FORBIDDEN" });
+        return;
+      }
+
       for (const agentId of parsed.data.agent_ids) {
         const agent = await findActiveAgentById(agentId);
         if (!agent) {
           res.status(400).json({ message: "One of those is not an active agent" });
+          return;
+        }
+        if (!(await isCallersAgent(req, agentId))) {
+          res.status(403).json({ message: OUTSIDE_CITY(req, "pickup agents"), code: "FORBIDDEN" });
           return;
         }
       }
@@ -1615,6 +1692,12 @@ export function registerOpsRoutes(app: Express): void {
           message: "Only a super admin can create this kind of account.",
           code: "FORBIDDEN",
         });
+        return;
+      }
+
+      // A branch manager adds agents to their own city's hubs only.
+      if (isScoped(req) && hubCityForId(hub_id) !== (req.staff?.city ?? null)) {
+        res.status(403).json({ message: OUTSIDE_CITY(req, "pickup agents"), code: "FORBIDDEN" });
         return;
       }
 

@@ -20,7 +20,7 @@ import {
 import { parseApiErrorMessage } from '@/lib/apiError';
 import { apiRequest } from '@/lib/queryClient';
 import { cn } from '@/lib/utils';
-import { INDIA_HUBS } from '@shared/hubs';
+import { INDIA_HUBS, hubCityForId } from '@shared/hubs';
 import { OPS_USERS_KEY } from '@/hooks/useOpsOrders';
 import { useAppStore } from '@/lib/store';
 import { assignableRoles, roleLabel, type StaffRole } from '@shared/staffAccess';
@@ -70,6 +70,22 @@ export default function OpsUsers() {
     retry: false,
     refetchOnMount: 'always',
   });
+
+  // A branch manager adds agents to their own city only, so the hub picker
+  // offers that city's hubs (the server refuses anything else regardless).
+  const scope = useQuery({
+    queryKey: ['/api/ops/scope'],
+    queryFn: async () => {
+      const res = await fetch('/api/ops/scope', { credentials: 'include' });
+      if (!res.ok) return { city: null as string | null };
+      return (await res.json()) as { city: string | null };
+    },
+    retry: false,
+  });
+  const scopeCity = scope.data?.city ?? null;
+  const hubChoices = scopeCity
+    ? INDIA_HUBS.filter((h) => hubCityForId(h.id) === scopeCity)
+    : INDIA_HUBS;
 
   const create = useMutation({
     mutationFn: async (body: {
@@ -207,7 +223,7 @@ export default function OpsUsers() {
                   <SelectValue placeholder="Select a hub" />
                 </SelectTrigger>
                 <SelectContent>
-                  {INDIA_HUBS.map((hub) => (
+                  {hubChoices.map((hub) => (
                     <SelectItem key={hub.id} value={String(hub.id)}>
                       {hub.name}
                     </SelectItem>
