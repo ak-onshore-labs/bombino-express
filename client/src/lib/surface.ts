@@ -57,5 +57,14 @@ export function surfaceForRole(role: string | undefined): Surface {
 const SURFACE_AGNOSTIC = new Set(['/', '/login', '/signup', '/onboarding', '/privacy']);
 
 export function isSurfaceAgnostic(path: string): boolean {
-  return SURFACE_AGNOSTIC.has(path);
+  return SURFACE_AGNOSTIC.has(path) || isParcelTagPath(path);
+}
+
+/**
+ * `/p/<tag>`: the page behind the QR on a guest's box label. Whoever scans it
+ * (an agent, a hub hand, a neighbour) lands on the same view, so it belongs to
+ * no surface and nobody is bounced off it.
+ */
+export function isParcelTagPath(path: string): boolean {
+  return path.startsWith('/p/');
 }

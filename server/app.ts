@@ -40,6 +40,7 @@ import { warnIfMailerMissing } from "./mailer.js";
 import { isAccountReviewEnabled } from "./accountApplications.js";
 import { assertFieldCryptoConfigured } from "./fieldCrypto.js";
 import { supabase } from "./supabaseClient.js";
+import { sessionSecret } from "./sessionSecret.js";
 import { createServer, type Server } from "http";
 
 
@@ -156,22 +157,6 @@ async function databaseReachable(): Promise<boolean> {
 /** Vercel sets VERCEL=1 in every function; Railway and local runs never do. */
 function isServerless(): boolean {
   return !!process.env.VERCEL;
-}
-
-/**
- * The key that signs every session cookie.
- *
- * In development a fixed fallback is convenient. In production it would mean
- * anyone who has read this repository can forge a session for any user, so
- * the server refuses to start rather than run with it.
- */
-function sessionSecret(): string {
-  const secret = process.env.SESSION_SECRET?.trim();
-  if (secret) return secret;
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("SESSION_SECRET must be set in production — refusing to start.");
-  }
-  return "dev-secret";
 }
 
 /**

@@ -90,6 +90,7 @@ import { getWhatsappReachability } from "./whatsappDb.js";
 import { WA_TEMPLATE } from "./whatsappTemplates.js";
 import { registerWhatsappScheduleRoutes } from "./routes/whatsappSchedule.js";
 import { registerOpsRoutes } from "./routes/ops.js";
+import { registerParcelRoutes } from "./routes/parcel.js";
 import { listPublicSettings } from "./settingsDb.js";
 import { registerBiaRoutes } from "./routes/bia.js";
 import { registerAccountApplicationRoutes } from "./routes/accountApplications.js";
@@ -324,6 +325,9 @@ export async function registerRoutes(
   registerBiaRoutes(app);
   // Account review: the customer's application status and the ops queue.
   registerAccountApplicationRoutes(app);
+  // Guest box labels (QR), the public parcel page behind the QR, and the
+  // agent/ops scan lookup.
+  registerParcelRoutes(app);
 
   // GET /api/settings — public bag. No session.
   //

@@ -264,6 +264,52 @@ export async function getOrderByNumberForUser(
 }
 
 /**
+ * One order with its pickup address, by id, with NO owner scope.
+ *
+ * Only for callers that have already authorised the read some other way: a
+ * verified parcel tag (`parcelTag.ts`), whose HMAC is the proof the caller
+ * held the label. Never call this with an id taken straight from a request.
+ */
+export async function getOrderWithAddressById(orderId: string): Promise<OrderWithAddress | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("orders")
+    .select(`${ORDER_COLUMNS}, ${ORIGIN_ADDRESS_EMBED}`)
+    .eq("id", orderId)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("getOrderWithAddressById", error);
+    return null;
+  }
+  if (!data) return null;
+
+  const row = data as unknown as OrderRow & { origin_address?: OrderAddress | null };
+  return { ...toOrder(row), origin_address: row.origin_address ?? null };
+}
+
+/** The id behind an order number, for staff lookups (scan / type-in). */
+export async function getOrderIdByNumber(orderNo: string): Promise<string | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("orders")
+    .select("id")
+    .eq("order_no", orderNo)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("getOrderIdByNumber", error);
+    return null;
+  }
+  return (data as { id: string } | null)?.id ?? null;
+}
+
+/**
  * Whoever is asking about an order: an account, or a guest proved by OTP.
  * Built from the session only — never from a value a client or a model sent.
  */

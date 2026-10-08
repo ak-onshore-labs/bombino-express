@@ -84,6 +84,11 @@ export interface DisplayRow {
   awb: string | null;
   /** Order rows only. */
   order?: OrderFacts;
+  /**
+   * A guest booking's raw status. Kept apart from `order`, which drives Home's
+   * attention list for accounts and would change what a guest is nagged about.
+   */
+  guestStatus?: string;
 }
 
 export function formatShipmentAmount(amount: string | number | null, currency: string | null): string | null {
@@ -180,6 +185,7 @@ export function guestOrderToRow(order: GuestOrderSummary): DisplayRow {
     updatedAt: order.updated_at ?? order.created_at,
     isLive: !isTerminalOrderStatus(order.status),
     awb: order.awb_no,
+    guestStatus: order.status,
   };
 }
 

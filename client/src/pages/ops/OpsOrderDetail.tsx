@@ -4,9 +4,10 @@ import { signOutAndRedirect } from '@/lib/session';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Loader2, LogOut } from 'lucide-react';
 import { Link, useLocation, useParams } from 'wouter';
-import { ActionBar } from '@/components/agent/ActionButtons';
+import { OpsActionBar } from '@/components/ops/OpsActionBar';
 import { OpsSenderCell } from '@/components/ops/OpsSenderCell';
 import { OpsShell } from '@/components/ops/OpsShell';
+import { PdfDocButton, fetchPdfBase64 } from '@/components/PdfDocButton';
 import { OpsCollectPaymentSheet } from '@/components/ops/OpsCollectPaymentSheet';
 import { OpsDropoffOtpSheet } from '@/components/ops/OpsDropoffOtpSheet';
 import { OpsWeighSheet } from '@/components/ops/OpsWeighSheet';
@@ -369,6 +370,36 @@ export default function OpsOrderDetail() {
         </div>
       )}
 
+      {/* A guest's box goes out with our QR label, not an AWB. The counter can
+          print one for a guest who arrived without it. */}
+      {!order.awb_no && !order.user_id && order.status !== 'cancelled' && (
+        <div
+          className="flex items-center justify-between gap-3 rounded-md border border-border bg-white px-4 py-3 mb-4"
+          data-testid="ops-order-box-label"
+        >
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-foreground">Guest box label</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Order number and QR, for a box that arrived without one.
+            </p>
+          </div>
+          <PdfDocButton
+            text="Print"
+            title="Box label"
+            fileName={`${order.order_no}-box-label.pdf`}
+            testId="button-ops-box-label"
+            fetchBase64={() =>
+              fetchPdfBase64(
+                `/api/ops/orders/${encodeURIComponent(order.id)}/box-label`,
+                'boxLabel',
+                'Box label',
+                toast
+              )
+            }
+          />
+        </div>
+      )}
+
       {/* An AWB this order was supposed to have and does not, why, and who acts
           next (server/docketFiling.ts): the automatic retry, ops after a
           correction, or a check of ITD's portal before filing again. */}
@@ -548,11 +579,12 @@ export default function OpsOrderDetail() {
         <h2 className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground mb-3">
           Actions
         </h2>
-        <ActionBar
+        <OpsActionBar
           actions={availableActions}
           onAction={handleAction}
           pendingAction={pendingAction}
           disabled={action.isPending}
+          orderNo={order.order_no}
         />
       </section>
       </div>

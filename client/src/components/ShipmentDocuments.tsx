@@ -14,30 +14,21 @@
  * full screen, where Share reaches the system sheet and its Print entry.
  */
 
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Download, FileText, Loader2, Printer } from 'lucide-react';
+import { FileText, Loader2, Printer } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import {
-  base64ToPdfFile,
-  canSharePdfFile,
-  downloadPdfBlob,
-  printPdfBase64,
-} from '@/lib/pdfUtils';
 import {
   SHIPMENT_DOCUMENT_META,
   SHIPMENT_DOCUMENT_ORDER,
   type ShipmentDocumentKind,
 } from '@/lib/shipmentDocuments';
-import { isAndroid } from '@/lib/platform';
-import { shareViaCapacitor } from '@/lib/nativeShare';
 import { cn } from '@/lib/utils';
-
-const PdfCanvasViewer = lazy(() => import('@/components/PdfCanvasViewer'));
+import { PdfDocButton, fetchPdfBase64 } from '@/components/PdfDocButton';
 
 const DOCUMENT_BUTTONS: Record<
   ShipmentDocumentKind,
-  { testId: string; text: string; icon: typeof Download }
+  { testId: string; text: string; icon: typeof Printer }
 > = {
   label: { testId: 'button-download-label', text: 'AWB Label', icon: Printer },
   boxLabel: { testId: 'button-download-box-label', text: 'Box Label', icon: Printer },
@@ -99,11 +90,6 @@ export function useShipmentDocuments(
   };
 }
 
-/** Whether this browser gets the full-screen viewer rather than direct print. */
-function usesOverlay(file: File): boolean {
-  return isAndroid() || canSharePdfFile(file);
-}
-
 export function ShipmentDocuments({
   awb,
   variant = 'row',
@@ -122,179 +108,34 @@ export function ShipmentDocuments({
 }) {
   const { toast } = useToast();
   const { documents, isLoading, gaveUp } = useShipmentDocuments(awb, { pollUntilReady });
-  const [busy, setBusy] = useState<ShipmentDocumentKind | null>(null);
-  const [pdfDataUrl, setPdfDataUrl] = useState<string | null>(null);
-  const [pdfTitle, setPdfTitle] = useState('Shipment Label');
-  const [pdfFileName, setPdfFileName] = useState('shipment-label.pdf');
-
   const available = SHIPMENT_DOCUMENT_ORDER.filter((k) => documents.includes(k));
 
-  const fetchDocument = async (kind: ShipmentDocumentKind): Promise<string | null> => {
-    const doc = SHIPMENT_DOCUMENT_META[kind];
-    const notAvailable = (): null => {
-      toast({
-        title: `${doc.title} not available`,
-        description: `The ${doc.title.toLowerCase()} for this shipment could not be found.`,
-        variant: 'destructive',
-      });
-      return null;
-    };
-    try {
-      const res = await fetch(`/api/shipments/${encodeURIComponent(awb)}/${doc.path}`, {
-        credentials: 'include',
-      });
-      if (!res.ok) return notAvailable();
-      const body = (await res.json()) as Record<string, string>;
-      return body[doc.responseKey] || notAvailable();
-    } catch {
-      toast({
-        title: 'Download failed',
-        description: `Could not open the ${doc.title.toLowerCase()}.`,
-        variant: 'destructive',
-      });
-      return null;
-    }
-  };
-
-  /** Print on desktop; full-screen viewer on phones. */
-  const openDocument = async (kind: ShipmentDocumentKind): Promise<void> => {
-    const doc = SHIPMENT_DOCUMENT_META[kind];
-    setBusy(kind);
-    const base64 = await fetchDocument(kind);
-    setBusy(null);
-    if (!base64) return;
-
-    if (usesOverlay(base64ToPdfFile(base64, doc.fileName))) {
-      setPdfFileName(doc.fileName);
-      setPdfTitle(doc.title);
-      setPdfDataUrl(`data:application/pdf;base64,${base64}`);
-    } else {
-      printPdfBase64(base64, doc.fileName);
-    }
-  };
-
-  const downloadDocument = async (kind: ShipmentDocumentKind): Promise<void> => {
-    const doc = SHIPMENT_DOCUMENT_META[kind];
-    const base64 = await fetchDocument(kind);
-    if (base64) downloadPdfBlob(base64ToPdfFile(base64, doc.fileName), doc.fileName);
-  };
-
-  const handleShare = async (dataUrl: string): Promise<void> => {
-    try {
-      const base64 = dataUrl.split(',')[1];
-
-      if (isAndroid()) {
-        const ok = await shareViaCapacitor(base64, pdfFileName, pdfTitle);
-        if (ok) return;
-      }
-
-      const file = base64ToPdfFile(base64, pdfFileName);
-      if (canSharePdfFile(file)) {
-        await navigator.share({ files: [file], title: pdfTitle });
-      } else if (!isAndroid()) {
-        downloadPdfBlob(file, pdfFileName);
-      }
-      // Android with no native plugin: silent no-op (as before)
-    } catch (err) {
-      if (err instanceof Error && err.name !== 'AbortError') {
-        toast({
-          title: 'Share failed',
-          description: 'Could not share the label.',
-          variant: 'destructive',
-        });
-      }
-    }
-  };
-
   const buttons = available.map((kind) => {
-    const { testId, text, icon: Icon } = DOCUMENT_BUTTONS[kind];
-    const primary = HANDOVER_KINDS.includes(kind) || (variant === 'row' && kind === available[0]);
+    const { testId, text, icon } = DOCUMENT_BUTTONS[kind];
+    const doc = SHIPMENT_DOCUMENT_META[kind];
     return (
-      <span key={kind} className="inline-flex items-stretch">
-        <button
-          type="button"
-          onClick={() => void openDocument(kind)}
-          disabled={busy === kind}
-          className={cn(
-            'inline-flex items-center gap-2 h-10 px-4 text-sm font-semibold transition-colors disabled:opacity-60',
-            primary
-              ? 'bg-[lab(34.0831_-9.57756_-27.7093)] text-white hover:bg-[#2F4468]'
-              : 'border border-border bg-white text-foreground hover:border-foreground/30 hover:bg-muted/40',
-            'rounded-l-lg',
-            // Phones have no separate download — Share covers it.
-            'max-md:rounded-r-lg'
-          )}
-          data-testid={testId}
-        >
-          {busy === kind ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Icon className={primary ? 'w-4 h-4' : 'w-4 h-4 text-muted-foreground'} />
-          )}
-          {text}
-        </button>
-        <button
-          type="button"
-          onClick={() => void downloadDocument(kind)}
-          className={cn(
-            'hidden md:inline-flex items-center h-10 px-2.5 rounded-r-lg border-l transition-colors',
-            primary
-              ? 'bg-[lab(34.0831_-9.57756_-27.7093)] text-white/85 border-white/20 hover:bg-[#2F4468]'
-              : 'border border-border bg-white text-muted-foreground hover:bg-muted/40'
-          )}
-          aria-label={`Download ${text}`}
-          data-testid={`${testId}-save`}
-        >
-          <Download className="w-3.5 h-3.5" />
-        </button>
-      </span>
+      <PdfDocButton
+        key={kind}
+        text={text}
+        title={doc.title}
+        fileName={doc.fileName}
+        icon={icon}
+        primary={HANDOVER_KINDS.includes(kind) || (variant === 'row' && kind === available[0])}
+        testId={testId}
+        fetchBase64={() =>
+          fetchPdfBase64(
+            `/api/shipments/${encodeURIComponent(awb)}/${doc.path}`,
+            doc.responseKey,
+            doc.title,
+            toast
+          )
+        }
+      />
     );
   });
 
-  const overlay = pdfDataUrl && (
-    <div className="fixed inset-0 z-[100] bg-white flex flex-col" data-testid="label-preview">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-white safe-top">
-        <span className="font-semibold text-sm text-foreground">{pdfTitle}</span>
-        <div className="flex items-center gap-4">
-          <button
-            type="button"
-            onClick={() => void handleShare(pdfDataUrl)}
-            className="text-sm font-medium text-[#F2A123] hover:underline"
-          >
-            Share / Print
-          </button>
-          <button
-            type="button"
-            onClick={() => setPdfDataUrl(null)}
-            className="text-sm font-medium text-foreground hover:underline"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-      {isAndroid() ? (
-        <Suspense
-          fallback={
-            <div className="flex-1 grid place-items-center text-sm text-muted-foreground">
-              Loading PDF…
-            </div>
-          }
-        >
-          <PdfCanvasViewer base64={pdfDataUrl.split(',')[1]} title={pdfTitle} />
-        </Suspense>
-      ) : (
-        <iframe src={pdfDataUrl} className="flex-1 w-full border-0" title={pdfTitle} />
-      )}
-    </div>
-  );
-
   if (variant === 'row') {
-    return (
-      <>
-        {buttons}
-        {overlay}
-      </>
-    );
+    return <>{buttons}</>;
   }
 
   // A card with nothing in it is noise: an AWB recorded by hand, or a guest's
@@ -329,7 +170,6 @@ export function ShipmentDocuments({
           Preparing your labels
         </p>
       )}
-      {overlay}
     </div>
   );
 }

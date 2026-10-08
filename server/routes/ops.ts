@@ -73,7 +73,7 @@ import {
 } from "../kycDb.js";
 import { notifyOrderTransition } from "../notify.js";
 import { availableActions } from "../orderLifecycle.js";
-import { getUserContactsByIds, insertOrderEvent } from "../ordersDb.js";
+import { getOrderById, getUserContactsByIds, insertOrderEvent } from "../ordersDb.js";
 import {
   SETTINGS,
   isSettingKey,
@@ -97,6 +97,7 @@ import {
 } from "../opsDb.js";
 import { buildPincodeReport } from "../pincodeReport.js";
 import { opsGateFor } from "../routeGuards.js";
+import { boxLabelFor, wantsBoxLabel } from "./parcel.js";
 import { isCallersOrder, isScoped, keepCallersOrders } from "../staffScope.js";
 import { assignableRoles, can, STAFF_ROLES } from "../../shared/staffAccess.js";
 import { INDIAN_MOBILE_MESSAGE, INDIAN_MOBILE_PATTERN } from "../../shared/contact.js";
@@ -511,6 +512,21 @@ export function registerOpsRoutes(app: Express): void {
       const ownerHasItdLogin = order.user_id ? await itdUserHasStoredPassword(order.user_id) : false;
 
       res.json({ order, events, availableActions: actions, handover, owner_has_itd_login: ownerHasItdLogin });
+    }
+  );
+
+  // GET /api/ops/orders/:id/box-label — reprint a guest's QR box label at the
+  // counter, for the guest who arrived without one. Same PDF the guest prints.
+  app.get(
+    "/api/ops/orders/:id/box-label",
+    ...opsGateFor("orders.view"),
+    async (req: Request, res: Response) => {
+      const order = await getOrderById(req.params.id);
+      if (!order || !(await isCallersOrder(req, order)) || !wantsBoxLabel(order)) {
+        res.status(404).json({ message: "Box label not available" });
+        return;
+      }
+      res.json({ boxLabel: await boxLabelFor(req, order) });
     }
   );
 

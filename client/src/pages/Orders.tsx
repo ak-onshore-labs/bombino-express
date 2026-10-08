@@ -154,6 +154,12 @@ function needsLabels(row: DisplayRow): boolean {
   return !!row.awb && row.isOrder && !!status && status !== 'dispatched' && status !== 'cancelled';
 }
 
+/** Still with the guest, no AWB: our QR box label is what goes on the box. */
+const BEFORE_COLLECTION = new Set(['pickup_requested', 'agent_accepted', 'out_for_pickup', 'awaiting_dropoff']);
+function needsBoxLabel(row: DisplayRow): boolean {
+  return !row.awb && !!row.guestStatus && BEFORE_COLLECTION.has(row.guestStatus);
+}
+
 function PrintLabelsChip() {
   return (
     <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.08em] text-[#B26A00] bg-[#F2A123]/15 px-1.5 py-0.5 rounded shrink-0">
@@ -230,6 +236,11 @@ function ShipmentRow({
             <StatusBadge status={status} tone={tone} className="shrink-0 mt-0.5" />
           </div>
 
+          {needsBoxLabel(row) && (
+            <div className="mt-1.5">
+              <PrintLabelsChip />
+            </div>
+          )}
           {isOrder && row.awb && (
             <div className="mt-1 flex items-center justify-between gap-2">
               <OrderAwbLine awb={row.awb} onCopy={onCopy} />
@@ -295,6 +306,11 @@ function ShipmentRow({
           <Copy className="w-3.5 h-3.5 text-muted-foreground" />
         </span>
       </div>
+      {needsBoxLabel(row) && (
+        <div className="mt-1.5">
+          <PrintLabelsChip />
+        </div>
+      )}
       {isOrder && row.awb && (
         <div className="mt-0.5 flex items-center gap-2 min-w-0">
           <OrderAwbLine awb={row.awb} onCopy={onCopy} />

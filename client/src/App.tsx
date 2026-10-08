@@ -10,7 +10,8 @@ import { BiaSheet } from '@/components/bia/BiaSheet';
 import { SurfaceGuard } from '@/components/SurfaceGuard';
 import { AgentRoutes } from './routes.agent';
 import { OpsRoutes } from './routes.ops';
-import { surfaceForPath } from '@/lib/surface';
+import { isParcelTagPath, surfaceForPath } from '@/lib/surface';
+import ParcelTag from '@/pages/ParcelTag';
 
 import Splash from "@/pages/Splash";
 import Onboarding from "@/pages/Onboarding";
@@ -134,6 +135,11 @@ function SurfaceToaster() {
 
 function Surfaces() {
   const [location] = useLocation();
+
+  // The QR page stands alone: no customer nav, no BIA, whoever is looking.
+  if (isParcelTagPath(location)) {
+    return <ParcelTag />;
+  }
 
   if (surfaceForPath(location) === 'agent') {
     return <AgentRoutes />;

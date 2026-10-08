@@ -11,6 +11,7 @@ import { OpsNav } from './OpsNav';
 import { OpsDesktopSidebar } from './OpsDesktopSidebar';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
+import { ScanParcelButton } from '@/components/ScanParcelSheet';
 
 /**
  * Chrome for every ops screen.
@@ -58,7 +59,14 @@ export function OpsShell({
             {subtitle ?? user?.fullName ?? 'Operations'}
           </p>
         </div>
-        {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+        {/* Scan sits with the page's own buttons on desktop; on phones it is
+            in the top bar, where a thumb finds it on every screen. */}
+        {(actions || !isMobile) && (
+          <div className="flex shrink-0 items-center gap-2">
+            {actions}
+            {!isMobile && <ScanParcelButton surface="ops" />}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -88,15 +96,18 @@ export function OpsShell({
         homeHref="/ops"
         testId="ops-topbar"
         right={
+          <div className="flex items-center gap-1 -mr-2">
+          <ScanParcelButton surface="ops" variant="icon" />
           <button
             type="button"
             onClick={() => void handleLogout()}
             aria-label="Sign out"
-            className="p-2 -mr-2 rounded-md hover:bg-muted active:scale-95 transition-all"
+            className="p-2 rounded-md hover:bg-muted active:scale-95 transition-all"
             data-testid="button-ops-logout"
           >
             <LogOut className="w-5 h-5 text-foreground" />
           </button>
+          </div>
         }
       />
 

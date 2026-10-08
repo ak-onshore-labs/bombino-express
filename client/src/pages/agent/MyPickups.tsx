@@ -19,6 +19,7 @@ import { StaggerItem } from '@/components/motion/Stagger';
 import { BAND_LABEL, bandForEntry, bandForDate } from '@/lib/agentGrouping';
 import { useMyPickups, type PickupEntry } from '@/hooks/useAgentPickups';
 import { todayInIst } from '@shared/istTime';
+import { ScanParcelButton } from '@/components/ScanParcelSheet';
 
 /**
  * The agent's own jobs, in two bands: Today, then Later.
@@ -127,6 +128,9 @@ export default function MyPickups() {
       title="My jobs"
       meta={count === 0 ? 'No jobs' : `${count} ${count === 1 ? 'job' : 'jobs'}`}
     >
+      {/* A guest's box carries our QR, not an AWB: scanning it opens the job. */}
+      <ScanParcelButton surface="agent" />
+
       {isLoading && (
         <div className="flex items-center justify-center gap-2.5 py-16 text-[#64748B]">
           <Loader2 className="w-5 h-5 animate-spin" />

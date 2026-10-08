@@ -83,6 +83,7 @@ import { useToast } from '@/hooks/use-toast';
 import { usePincodeLookup } from '@/hooks/usePincodeLookup';
 import { DropoffBranches } from '@/components/DropoffBranches';
 import { ShipmentDocuments } from '@/components/ShipmentDocuments';
+import { PdfDocButton, fetchPdfBase64 } from '@/components/PdfDocButton';
 import {
   ITD_COUNTRY_LIST,
   ITD_COUNTRY_MAP,
@@ -1453,6 +1454,38 @@ export default function CreateShipment() {
                 booking answers, so this waits a few seconds for it. */}
             {newAwbNo && isLoggedIn && (
               <ShipmentDocuments awb={newAwbNo} variant="card" pollUntilReady className="mt-3" />
+            )}
+
+            {/* A guest booking files no AWB, so there are no ITD labels. Ours
+                carries the order number and a QR the agent and hub scan. */}
+            {!newAwbNo && !isLoggedIn && (
+              <div
+                className="mt-3 rounded-lg border border-[#E2E8F0] bg-white p-4"
+                data-testid="card-box-label"
+              >
+                <p className="text-sm font-semibold text-foreground">Print your box label</p>
+                <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                  Stick it on the box before handing it over. The QR lets our agent and
+                  hub find your order.
+                </p>
+                <div className="mt-3">
+                  <PdfDocButton
+                    text="Box label"
+                    title="Box label"
+                    fileName={`${newOrderNo}-box-label.pdf`}
+                    primary
+                    testId="button-box-label"
+                    fetchBase64={() =>
+                      fetchPdfBase64(
+                        `/api/orders/${encodeURIComponent(newOrderNo)}/box-label`,
+                        'boxLabel',
+                        'Box label',
+                        toast
+                      )
+                    }
+                  />
+                </div>
+              </div>
             )}
 
             {/* Only when the AWB is waiting on the customer (an ID document to
