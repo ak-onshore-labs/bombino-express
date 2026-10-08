@@ -1,12 +1,10 @@
 /**
- * The box label for a guest order: a 4×6 in sticker with a QR.
+ * The box label for an order with no AWB yet: a 4×6 in shipping label.
  *
- * A guest order has no AWB until ops dockets it at the hub, so there is no ITD
- * label to print. This one carries the order number and a QR that opens the
- * parcel's view-only page (`parcelTag.ts`). Nothing personal goes on it — no
- * names, phones or street addresses — because it rides on the outside of a box
- * through streets, vans and a hub: destination city and piece count are enough
- * to sort by.
+ * It carries what ITD's own box label carries, so the agent, the hub and the
+ * courier can work from it: consignee and shipper (name, company, address,
+ * phone), the carrier service, pieces and weight. On top of that, our QR and
+ * the 12-character parcel ID printed under it, which open the order.
  *
  * 4×6 in is the thermal-label size counters already use; on A4 it prints as a
  * cut-out panel. The QR is drawn as vector squares, so it scans cleanly at any
@@ -16,15 +14,30 @@
 import QRCode from "qrcode";
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 
+export interface LabelParty {
+  name: string | null;
+  company: string | null;
+  /** Street lines, already split. */
+  address: (string | null | undefined)[];
+  /** "Adrian, TX 79001" */
+  cityLine: string | null;
+  country: string | null;
+  phone: string | null;
+}
+
 export interface BoxLabelInput {
   orderNo: string;
   /** Absolute URL the QR opens. Ends in the parcel ID. */
   qrUrl: string;
   /** The 12-character parcel ID the QR carries, printed under it, grouped. */
   parcelId: string;
-  /** "New York, United States". */
-  destination: string;
+  consignee: LabelParty;
+  shipper: LabelParty;
+  /** The carrier service booked, e.g. "BMS DDP LITE". */
+  service: string | null;
   pieces: string | null;
+  /** Booked weight, kg. */
+  weightKg: number | null;
   /** "04 Oct 2026". */
   bookedOn: string;
   isPickup: boolean;
@@ -32,24 +45,86 @@ export interface BoxLabelInput {
 
 const W = 288; // 4 in
 const H = 432; // 6 in
-const M = 18;
+const M = 14;
 const INK = rgb(0.07, 0.14, 0.19);
 const MUTED = rgb(0.39, 0.45, 0.55);
+const RULE = rgb(0.75, 0.78, 0.82);
 
 /** The standard fonts are WinAnsi only; anything else would throw. */
-function safe(text: string): string {
-  return text.replace(/[^\x20-\x7E]/g, "").trim();
+function safe(text: string | null | undefined): string {
+  return (text ?? "").replace(/[^\x20-\x7E]/g, "").replace(/\s+/g, " ").trim();
 }
 
 function fitSize(font: PDFFont, text: string, max: number, maxWidth: number): number {
   let size = max;
-  while (size > 8 && font.widthOfTextAtSize(text, size) > maxWidth) size -= 0.5;
+  while (size > 6 && font.widthOfTextAtSize(text, size) > maxWidth) size -= 0.5;
   return size;
 }
 
-function centred(page: PDFPage, text: string, font: PDFFont, size: number, y: number): void {
-  const w = font.widthOfTextAtSize(text, size);
-  page.drawText(text, { x: (W - w) / 2, y, size, font, color: INK });
+/** Word-wrap `text` to `maxWidth`, at most `maxLines` lines (the last cut short). */
+function wrap(font: PDFFont, text: string, size: number, maxWidth: number, maxLines: number): string[] {
+  const words = text.split(" ").filter(Boolean);
+  const lines: string[] = [];
+  let line = "";
+  for (const w of words) {
+    const next = line ? `${line} ${w}` : w;
+    if (font.widthOfTextAtSize(next, size) <= maxWidth) {
+      line = next;
+      continue;
+    }
+    if (line) lines.push(line);
+    line = w;
+    if (lines.length === maxLines) break;
+  }
+  if (line && lines.length < maxLines) lines.push(line);
+  if (lines.length === maxLines && words.join(" ") !== lines.join(" ")) {
+    let last = lines[maxLines - 1];
+    while (last.length > 1 && font.widthOfTextAtSize(`${last}...`, size) > maxWidth) last = last.slice(0, -1);
+    lines[maxLines - 1] = `${last}...`;
+  }
+  return lines;
+}
+
+function hr(page: PDFPage, y: number, thickness = 0.75, color = RULE): void {
+  page.drawLine({ start: { x: M, y }, end: { x: W - M, y }, thickness, color });
+}
+
+/** One party block. Returns the y below it. */
+function partyBlock(
+  page: PDFPage,
+  title: string,
+  party: LabelParty,
+  top: number,
+  regular: PDFFont,
+  bold: PDFFont,
+  maxLines: number
+): number {
+  let y = top;
+  page.drawText(title, { x: M, y, size: 7.5, font: bold, color: MUTED });
+  y -= 12;
+  const width = W - 2 * M;
+  const name = safe(party.name) || "-";
+  page.drawText(name, { x: M, y, size: fitSize(bold, name, 11, width), font: bold, color: INK });
+  y -= 12;
+  const lines: string[] = [];
+  const company = safe(party.company);
+  if (company && company.toLowerCase() !== name.toLowerCase()) lines.push(company);
+  const street = safe(party.address.filter(Boolean).join(", "));
+  if (street) lines.push(...wrap(regular, street, 8.5, width, 2));
+  const city = safe(party.cityLine);
+  if (city) lines.push(city);
+  const country = safe(party.country);
+  if (country) lines.push(country.toUpperCase());
+  for (const l of lines.slice(0, maxLines)) {
+    page.drawText(l, { x: M, y, size: 8.5, font: regular, color: INK });
+    y -= 10.5;
+  }
+  const phone = safe(party.phone);
+  if (phone) {
+    page.drawText(`TEL: ${phone}`, { x: M, y, size: 8.5, font: bold, color: INK });
+    y -= 10.5;
+  }
+  return y;
 }
 
 export async function buildBoxLabelPdf(input: BoxLabelInput): Promise<Uint8Array> {
@@ -70,36 +145,48 @@ export async function buildBoxLabelPdf(input: BoxLabelInput): Promise<Uint8Array
     borderDashArray: [4, 3],
   });
 
-  // Header
-  page.drawText("BOMBINO EXPRESS", { x: M, y: H - M - 14, size: 13, font: bold, color: INK });
+  // ── Header ──
+  let y = H - M - 10;
+  page.drawText("BOMBINO EXPRESS", { x: M, y, size: 11, font: bold, color: INK });
   const kind = input.isPickup ? "PICKUP" : "DROP-OFF";
-  const kw = bold.widthOfTextAtSize(kind, 9);
-  page.drawText(kind, { x: W - M - kw, y: H - M - 12, size: 9, font: bold, color: MUTED });
-  page.drawLine({
-    start: { x: M, y: H - M - 24 },
-    end: { x: W - M, y: H - M - 24 },
-    thickness: 1.25,
-    color: INK,
-  });
+  page.drawText(kind, { x: W - M - bold.widthOfTextAtSize(kind, 8), y: y + 1, size: 8, font: bold, color: MUTED });
+  y -= 7;
+  hr(page, y, 1.25, INK);
 
-  // Order number, the thing a person reads first.
-  page.drawText("ORDER", { x: M, y: H - M - 42, size: 8, font: bold, color: MUTED });
+  // ── Order number | carrier ──
+  y -= 11;
+  page.drawText("ORDER", { x: M, y, size: 7, font: bold, color: MUTED });
+  page.drawText("CARRIER", { x: W / 2 + 6, y, size: 7, font: bold, color: MUTED });
+  y -= 17;
   const orderNo = safe(input.orderNo);
-  const noSize = fitSize(bold, orderNo, 30, W - 2 * M);
-  page.drawText(orderNo, { x: M, y: H - M - 70, size: noSize, font: bold, color: INK });
+  page.drawText(orderNo, { x: M, y, size: fitSize(bold, orderNo, 18, W / 2 - M), font: bold, color: INK });
+  const service = safe(input.service) || "-";
+  const serviceLines = wrap(bold, service, 9, W / 2 - M - 6, 2);
+  serviceLines.forEach((l, i) =>
+    page.drawText(l, { x: W / 2 + 6, y: y + 6 - i * 10, size: 9, font: bold, color: INK })
+  );
+  y -= 9;
+  hr(page, y);
 
-  // QR
+  // ── Consignee, then shipper ──
+  y = partyBlock(page, "CONSIGNEE", input.consignee, y - 11, regular, bold, 5);
+  y -= 2;
+  hr(page, y);
+  y = partyBlock(page, "SHIPPER", input.shipper, y - 11, regular, bold, 4);
+  y -= 2;
+  hr(page, y, 1.25, INK);
+
+  // ── QR + parcel ID + pieces / weight / date ──
+  const qrSide = Math.min(118, y - M - 18);
+  const qrTop = y - 6;
   const qr = QRCode.create(input.qrUrl, { errorCorrectionLevel: "M" });
   const count = qr.modules.size;
-  const quiet = 2;
-  const qrSide = 168;
+  const quiet = 1;
   const cell = qrSide / (count + quiet * 2);
-  const qrX = (W - qrSide) / 2;
-  const qrTop = H - M - 84;
+  const qrX = M - 2;
   // Each row's dark run is one rectangle, nudged to overlap the next row:
-  // module-sized squares leave hairline seams in some viewers and printers,
-  // and a seam through a finder pattern is what makes a scanner give up.
-  const bleed = 0.35;
+  // module-sized squares leave hairline seams in some viewers and printers.
+  const bleed = 0.3;
   for (let row = 0; row < count; row++) {
     let col = 0;
     while (col < count) {
@@ -118,24 +205,29 @@ export async function buildBoxLabelPdf(input: BoxLabelInput): Promise<Uint8Array
       });
     }
   }
-  // The QR's own ID, right under it: what to type when a QR will not scan.
-  centred(page, "PARCEL ID", bold, 7, qrTop - qrSide - 8);
+
+  const rx = qrX + qrSide + 10;
+  const rw = W - M - rx;
+  let ry = qrTop - 10;
+  page.drawText("PARCEL ID", { x: rx, y: ry, size: 7, font: bold, color: MUTED });
+  ry -= 16;
   const parcelId = safe(input.parcelId);
-  centred(page, parcelId, bold, fitSize(bold, parcelId, 20, W - 2 * M), qrTop - qrSide - 28);
+  page.drawText(parcelId, { x: rx, y: ry, size: fitSize(bold, parcelId, 15, rw), font: bold, color: INK });
+  ry -= 20;
 
-  // Where it is going, and how many boxes make the set.
-  const baseY = 92;
-  page.drawLine({ start: { x: M, y: baseY + 30 }, end: { x: W - M, y: baseY + 30 }, thickness: 0.75, color: MUTED });
-  page.drawText("TO", { x: M, y: baseY + 14, size: 8, font: bold, color: MUTED });
-  const dest = safe(input.destination) || "-";
-  page.drawText(dest, { x: M, y: baseY - 4, size: fitSize(bold, dest, 16, W - 2 * M), font: bold, color: INK });
+  const facts: [string, string][] = [
+    ["PIECES", safe(input.pieces) || "1"],
+    ["WEIGHT", input.weightKg != null && Number.isFinite(input.weightKg) ? `${Number(input.weightKg.toFixed(2))} kg` : "-"],
+    ["BOOKED", safe(input.bookedOn) || "-"],
+  ];
+  for (const [label, value] of facts) {
+    page.drawText(label, { x: rx, y: ry, size: 7, font: bold, color: MUTED });
+    page.drawText(value, { x: rx + 46, y: ry, size: 9, font: bold, color: INK });
+    ry -= 14;
+  }
 
-  page.drawText("PIECES", { x: M, y: baseY - 30, size: 8, font: bold, color: MUTED });
-  page.drawText(safe(input.pieces ?? "") || "1", { x: M, y: baseY - 48, size: 16, font: bold, color: INK });
-  page.drawText("BOOKED", { x: W / 2, y: baseY - 30, size: 8, font: bold, color: MUTED });
-  page.drawText(safe(input.bookedOn) || "-", { x: W / 2, y: baseY - 48, size: 12, font: regular, color: INK });
-
-  centred(page, "Stick this on the largest face of the box.", regular, 7.5, 14);
+  const foot = "Scan the QR or quote the parcel ID to track.";
+  page.drawText(foot, { x: (W - regular.widthOfTextAtSize(foot, 7)) / 2, y: M - 2, size: 7, font: regular, color: MUTED });
 
   return pdf.save();
 }

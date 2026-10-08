@@ -114,12 +114,41 @@ function appOrigin(req: Request): string {
  */
 export async function boxLabelFor(req: Request, order: Order): Promise<string> {
   const parcelId = await ensureParcelId(order.id, newParcelId);
+  // The shipper block needs the pickup/sender address, which not every
+  // caller loaded (the ops reprint reads the bare order).
+  const withAddress = await getOrderWithAddressById(order.id);
+  const origin = withAddress?.origin_address ?? null;
+  const c = order.consignee;
   const bytes = await buildBoxLabelPdf({
     orderNo: order.order_no,
     qrUrl: `${appOrigin(req)}/p/${parcelId ?? parcelTagFor(order.id)}`,
     parcelId: parcelId ? formatParcelId(parcelId) : order.order_no,
-    destination: destinationOf(order),
+    consignee: {
+      name: str(c, "name"),
+      company: str(c, "company"),
+      address: [str(c, "address_line_1"), str(c, "address_line_2")],
+      cityLine: [
+        str(c, "city"),
+        [str(c, "state"), str(c, "pincode")].filter(Boolean).join(" "),
+      ]
+        .filter(Boolean)
+        .join(", "),
+      country: str(c, "country_name"),
+      phone: str(c, "phone"),
+    },
+    shipper: {
+      name: origin?.full_name ?? order.guest_name ?? null,
+      company: origin?.company ?? null,
+      address: [origin?.address_line_1, origin?.address_line_2],
+      cityLine: [origin?.city, [origin?.state, origin?.pincode].filter(Boolean).join(" ")]
+        .filter(Boolean)
+        .join(", "),
+      country: origin?.country_name ?? "India",
+      phone: origin?.phone ?? order.guest_phone ?? null,
+    },
+    service: str(order.items, "api_service_code"),
     pieces: str(order.items, "pcs"),
+    weightKg: order.booked_weight,
     bookedOn: niceDate(order.created_at),
     isPickup: order.pickup_request === 1,
   });
