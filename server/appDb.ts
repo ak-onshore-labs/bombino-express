@@ -109,13 +109,30 @@ export async function findItdUserIdByPhone(phone: string): Promise<{ id: string 
 }
 
 /**
- * The account a number signs in to: only one with a stored ITD login.
+ * Seeded customer test accounts that stay accounts although they have no ITD
+ * login: the e2e suite and BIA evals sign in with them as account holders.
+ * From the team's "Test Accounts" sheet (8 Oct 2026). In code on purpose, not
+ * an env var.
+ */
+const TEST_CUSTOMER_ACCOUNTS: ReadonlySet<string> = new Set([
+  "9000000090", // Test Customer (seed), owns the seeded orders
+  "9000000016", // E2E Test Logistics (company)
+  "9000000095", // E2E Customer Two
+]);
+
+/**
+ * The account a number signs in to, or null when it signs in as a guest.
  *
- * There are two kinds of customer, guests and accounts with a verified ITD
- * email and password (Aditya, 8 Oct 2026). A row with no ITD login (left over
- * from the old direct signup) is not an account: its number is treated as a
- * guest everywhere this decides "account or guest". Phone-uniqueness checks
- * keep using `findItdUserIdByPhone`, which still sees every row.
+ * Two kinds of customer exist: guests, and accounts with a verified ITD email
+ * and password (Aditya, 8 Oct 2026). A customer row with no ITD login (left
+ * over from the old direct signup) is not an account: its number is a guest.
+ *
+ * Staff are always accounts. Agents and ops have no ITD login at all, and
+ * treating them as guests locked every one of them out of phone sign-in.
+ * The seeded test customers above stay accounts too.
+ *
+ * Phone-uniqueness checks keep using `findItdUserIdByPhone`, which sees every
+ * row.
  */
 export async function findItdAccountByPhone(phone: string): Promise<{ id: string } | null> {
   const client = getSupabaseClient();
@@ -123,16 +140,22 @@ export async function findItdAccountByPhone(phone: string): Promise<{ id: string
 
   const { data, error } = await client
     .from("itd_users")
-    .select("id")
+    .select("id, role, itd_password_encrypted")
     .eq("phone", phone)
-    .not("itd_password_encrypted", "is", null)
     .maybeSingle();
 
   if (error) {
     logSupabaseError("findItdAccountByPhone", error);
     return null;
   }
-  return data;
+  if (!data) return null;
+
+  const row = data as { id: string; role: string | null; itd_password_encrypted: string | null };
+  const isCustomer = !row.role || row.role === "customer";
+  if (!isCustomer) return { id: row.id };
+  if (row.itd_password_encrypted) return { id: row.id };
+  if (TEST_CUSTOMER_ACCOUNTS.has(phone)) return { id: row.id };
+  return null;
 }
 
 /** A row on this number with no ITD login (the old direct signup's kind). */
@@ -145,6 +168,7 @@ export async function findLoginlessRowByPhone(phone: string): Promise<{ id: stri
     .select("id")
     .eq("phone", phone)
     .is("itd_password_encrypted", null)
+    .or("role.is.null,role.eq.customer")
     .maybeSingle();
 
   if (error) {
@@ -167,7 +191,8 @@ export async function adoptLoginlessRow(rowId: string, itdCustomerId: string): P
     .from("itd_users")
     .update({ itd_customer_id: itdCustomerId, updated_at: new Date().toISOString() })
     .eq("id", rowId)
-    .is("itd_password_encrypted", null);
+    .is("itd_password_encrypted", null)
+    .or("role.is.null,role.eq.customer");
 
   if (error) {
     logSupabaseError("adoptLoginlessRow", error);
