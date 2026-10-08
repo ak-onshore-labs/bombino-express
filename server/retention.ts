@@ -36,7 +36,6 @@ import {
   listClosedApplicationsBefore,
   listOpenApplicationRefs,
 } from "./accountApplicationsDb.js";
-import { isAccountReviewEnabled } from "./accountApplications.js";
 
 /** Days an unclaimed signup's documents are kept before deletion. */
 export const ABANDONED_SIGNUP_RETENTION_DAYS = Number(
@@ -128,17 +127,15 @@ export async function sweepAbandonedSignups(
 
   // An application waiting on the Bombino team is not abandoned either: its
   // documents are what the reviewer reads and what approval moves onto the
-  // account. Under account review those refs are left alone at any age. If
+  // account. Those refs are left alone at any age. If
   // they cannot be listed, nothing is swept — the same rule as above.
   let openApplicationRefs = new Set<string>();
-  if (isAccountReviewEnabled()) {
-    try {
-      openApplicationRefs = await listOpenApplicationRefs();
-    } catch (err) {
-      result.errors.push(`account_applications: ${err instanceof Error ? err.message : String(err)}`);
-      console.error("[retention] could not list open applications, sweeping nothing:", err);
-      return result;
-    }
+  try {
+    openApplicationRefs = await listOpenApplicationRefs();
+  } catch (err) {
+    result.errors.push(`account_applications: ${err instanceof Error ? err.message : String(err)}`);
+    console.error("[retention] could not list open applications, sweeping nothing:", err);
+    return result;
   }
   const isBooked = (ref: string | null): boolean =>
     !!ref && (bookedRefs.has(ref) || openApplicationRefs.has(ref));
@@ -198,13 +195,11 @@ export async function sweepAbandonedSignups(
   // the decision. The purpose they were collected for is over. Their staged
   // documents went with the sweep above (their ref is no longer open); the
   // application row and its history go here.
-  if (isAccountReviewEnabled()) {
-    try {
-      const closed = await listClosedApplicationsBefore(cutoff);
-      result.closedApplications = await deleteApplicationsByIds(closed.map((row) => row.id));
-    } catch (err) {
-      result.errors.push(`account_applications: ${err instanceof Error ? err.message : String(err)}`);
-    }
+  try {
+    const closed = await listClosedApplicationsBefore(cutoff);
+    result.closedApplications = await deleteApplicationsByIds(closed.map((row) => row.id));
+  } catch (err) {
+    result.errors.push(`account_applications: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // Worth a log line every time, including the quiet ones: a sweep that has

@@ -22,11 +22,10 @@ import {
   type CompanyCategory,
   type DocSlot,
 } from "../shared/accountSpec.js";
-import { findItdUserIdByPhone } from "./appDb.js";
+import { findItdAccountByPhone } from "./appDb.js";
 import { getKycByGuestRef, getKycByUserId } from "./kycDb.js";
 import { listDocumentsBySignupRef } from "./accountDocsDb.js";
 import { seedSignupDocumentFromGuestKyc } from "./guestKycMirror.js";
-import { isAccountReviewEnabled } from "./accountApplications.js";
 import { IDENTITY_KIND_BY_SLOT, recordedIdentityNumbers } from "./identityChecks.js";
 import { isPhoneVerifiedHere, signupRefForPhone } from "./signupRef.js";
 
@@ -100,7 +99,7 @@ export async function resolveKycOwner(
   // A number with an account is not a guest, however it got here. Refusing
   // before the write keeps an identity document from being stored against a
   // guest ref when the person it belongs to already has somewhere to keep it.
-  if (await findItdUserIdByPhone(claimed)) return null;
+  if (await findItdAccountByPhone(claimed)) return null;
 
   // Mints on first upload and returns the same ref afterwards, discarding
   // anything staged under a different number. This is the only thing that
@@ -193,23 +192,12 @@ export async function assertDocumentsStaged(
   // certificate IS covered: Cashfree has no OCR type for one, but
   // server/gstCertificate.ts reads it and writes a real verdict.
   //
-  // Except with account review on. Cashfree is then only the first layer:
-  // the Bombino team opens and verifies every document by hand before the
-  // account opens (no approval without it, server/accountApproval.ts), so a
-  // scan Cashfree couldn't read goes through to them instead of stopping the
-  // customer here. Mismatched, wrong or tampered documents never get this far:
-  // those uploads are refused outright.
-  if (unverified.length > 0 && !isAccountReviewEnabled()) {
-    res.status(422).json({
-      message:
-        `We could not verify your ${unverified
-          .map((slot) => DOC_SLOT_SPECS[slot].label)
-          .join(" and ")}. Please upload a clear photo of the original and check the number you entered.`,
-      unverified_documents: unverified,
-      code: "DOCUMENTS_UNVERIFIED",
-    });
-    return null;
-  }
+  // Not a stop, though: Cashfree is only the first layer. The Bombino team
+  // opens and verifies every document by hand before an account opens (no
+  // approval without it, server/accountApproval.ts), so a scan Cashfree
+  // couldn't read goes through to them instead of stopping the customer here.
+  // Mismatched, wrong or tampered documents never get this far: those uploads
+  // are refused outright.
 
   // A staged document carries the number it was checked against at the time
   // it was uploaded. That number can since have changed: the identity step

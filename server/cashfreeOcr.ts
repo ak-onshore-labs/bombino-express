@@ -156,15 +156,26 @@ export function isOcrConfigured(): boolean {
  * credentials exist.
  */
 export function isOcrBypassed(): boolean {
-  return process.env.OCR_BYPASS === "1";
+  return DOCUMENT_CHECKS_OFF;
 }
+
+/**
+ * Document checks are OFF, in code (Aditya, 8 Oct 2026): every document is
+ * accepted as uploaded and goes to the ops console, where the Bombino team
+ * reviews each one by hand before an account opens. No Cashfree call is made.
+ *
+ * Deliberately a constant, not the old `OCR_BYPASS` variable: whether
+ * documents are checked must not depend on what a Railway service happens to
+ * have set. To switch Cashfree back on, set this to false and redeploy.
+ */
+export const DOCUMENT_CHECKS_OFF = true;
 
 /** The result stored against a document the bypass let through unchecked. */
 export function bypassedOcr(): OcrResult {
   return {
     status: "bypassed",
     blocking: false,
-    message: "Document uploaded. Verification is switched off in this environment.",
+    message: "Document uploaded. Our team will review it.",
     verification_id: null,
     reference_id: null,
     document_fields: null,
@@ -174,25 +185,10 @@ export function bypassedOcr(): OcrResult {
   };
 }
 
-/** Called once at boot. Silent when the flag is off. */
+/** Called once at boot: says, once, that documents are not being checked. */
 export function warnIfOcrBypassEnabled(): void {
   if (!isOcrBypassed()) return;
-
-  const where = process.env.NODE_ENV === "production" ? "a PRODUCTION build" : "development";
-
-  console.warn(
-    [
-      "",
-      "  ############################################################",
-      "  ##  OCR_BYPASS=1",
-      "  ##  Identity documents are stored WITHOUT being verified.",
-      "  ##  Any file, and any number typed against it, is accepted.",
-      `  ##  Running in ${where}.`,
-      "  ##  Unset this before this environment has real customers.",
-      "  ############################################################",
-      "",
-    ].join("\n")
-  );
+  console.log("[cashfreeOcr] Document checks are off in code: every upload goes to ops for review.");
 }
 
 /** `verification_id`: max 50 chars, alphanumeric plus `.`, `-`, `_`, unique per call. */
@@ -387,9 +383,7 @@ export async function runSmartOcr(input: RunSmartOcrInput): Promise<OcrResult> {
   // spends nothing against the VRS balance. Logged for every document: a
   // silent bypass is how one survives into production unnoticed.
   if (isOcrBypassed()) {
-    console.warn(
-      `[cashfreeOcr] OCR_BYPASS=1 — ${input.documentType} stored unverified (${input.tag})`
-    );
+    console.log(`[cashfreeOcr] checks off: ${input.documentType} stored for ops review (${input.tag})`);
     return bypassedOcr();
   }
 

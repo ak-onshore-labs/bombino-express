@@ -29,6 +29,8 @@
 import {
   findItdUserIdByCustomerId,
   findItdUserIdByPhone,
+  findLoginlessRowByPhone,
+  adoptLoginlessRow,
   getItdUserProfileById,
   getItdUserTokenAndSecretsById,
   insertNotification,
@@ -196,8 +198,18 @@ export async function approveApplication(input: ApproveInput): Promise<ApprovalR
   if (!login.ok) return login;
   const { user: itdUser, token } = login.value;
 
-  const conflict = await assertLinkable(itdUser, app.phone);
+  // A login-less row on this number (the old direct signup's kind) is the
+  // same customer, treated as a guest until now, so it does not count as the
+  // number belonging to someone else. Every other conflict is checked first;
+  // only then is the row re-keyed onto this login, so the write below
+  // completes it instead of colliding on the phone, and its old orders come
+  // back to the account.
+  const loginless = await findLoginlessRowByPhone(app.phone);
+  const conflict = await assertLinkable(itdUser, app.phone, loginless?.id ?? null);
   if (conflict) return { ok: false, error: conflict };
+  if (loginless && !(await adoptLoginlessRow(loginless.id, itdUser.id))) {
+    return fail(502, "ACCOUNT_WRITE_FAILED", "The account could not be saved. Nothing was changed; please try again.");
+  }
 
   // The winner. From here the application is ours to finish.
   const now = new Date().toISOString();

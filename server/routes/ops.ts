@@ -97,7 +97,7 @@ import {
 } from "../opsDb.js";
 import { buildPincodeReport } from "../pincodeReport.js";
 import { opsGateFor } from "../routeGuards.js";
-import { boxLabelFor, wantsBoxLabel } from "./parcel.js";
+import { boxLabelEligible, boxLabelFor } from "./parcel.js";
 import { isCallersOrder, isScoped, keepCallersOrders } from "../staffScope.js";
 import { assignableRoles, can, STAFF_ROLES } from "../../shared/staffAccess.js";
 import { INDIAN_MOBILE_MESSAGE, INDIAN_MOBILE_PATTERN } from "../../shared/contact.js";
@@ -522,7 +522,7 @@ export function registerOpsRoutes(app: Express): void {
     ...opsGateFor("orders.view"),
     async (req: Request, res: Response) => {
       const order = await getOrderById(req.params.id);
-      if (!order || !(await isCallersOrder(req, order)) || !wantsBoxLabel(order)) {
+      if (!order || !(await isCallersOrder(req, order)) || !(await boxLabelEligible(order))) {
         res.status(404).json({ message: "Box label not available" });
         return;
       }

@@ -50,6 +50,7 @@
  */
 
 import { cashfreeSignatureHeader } from "./cashfreeSignature.js";
+import { DOCUMENT_CHECKS_OFF } from "./cashfreeOcr.js";
 
 const SANDBOX_BASE = "https://sandbox.cashfree.com";
 const PRODUCTION_BASE = "https://api.cashfree.com";
@@ -198,39 +199,11 @@ function warnOnce(token: string, message: string): void {
  * this app uses is provisioned.
  */
 function bypassedKinds(): Set<BypassableKind> {
-  const raw = process.env.IDENTITY_BYPASS?.trim().toLowerCase();
-  if (!raw) return new Set();
-  // "1" predates the per-check spelling and still means everything, so an
-  // environment already carrying it does not quietly start verifying again.
-  if (raw === "1" || raw === "all" || raw === "true") {
-    return new Set<BypassableKind>(BYPASSABLE_KINDS);
-  }
-
-  const kinds = new Set<BypassableKind>();
-  for (const token of raw.split(/[,\s]+/).filter(Boolean)) {
-    if (isBypassableKind(token)) {
-      kinds.add(token);
-    } else if (token === "aadhaar" || token === "pan") {
-      // Named lookups that no longer exist — the DigiLocker journey and the
-      // Income Tax PAN check. Loud, because an environment carrying either
-      // believes it is switching something off.
-      warnOnce(
-        token,
-        `[cashfreeIdentity] IDENTITY_BYPASS contains "${token}", which no longer means anything: ` +
-          `the ${token === "aadhaar" ? "Aadhaar" : "PAN"} number is self-asserted by design and ` +
-          "there is no lookup to skip. The uploaded document is still matched against it — " +
-          "OCR_BYPASS=1 is what switches that off. Drop the token."
-      );
-    } else {
-      // A typo'd value must not silently bypass nothing *or* everything.
-      warnOnce(
-        token,
-        `[cashfreeIdentity] IDENTITY_BYPASS contains "${token}", which is not a check name. ` +
-          `Expected some of: ${BYPASSABLE_KINDS.join(", ")} (or 1 for all). Ignoring that token.`
-      );
-    }
-  }
-  return kinds;
+  // Off in code, with the document checks (see DOCUMENT_CHECKS_OFF in
+  // cashfreeOcr.ts): the GST number is not looked up on the portal and the GST
+  // certificate is not read. The Bombino team checks both by hand in the ops
+  // console. Not read from IDENTITY_BYPASS any more.
+  return DOCUMENT_CHECKS_OFF ? new Set<BypassableKind>(BYPASSABLE_KINDS) : new Set();
 }
 
 /**
@@ -242,27 +215,10 @@ export function isIdentityBypassed(kind: IdentityKind): boolean {
   return isBypassableKind(kind) && bypassedKinds().has(kind);
 }
 
-/** Called once at boot. Silent when nothing is bypassed. */
+/** Called once at boot: says, once, that GST numbers are not being checked. */
 export function warnIfIdentityBypassEnabled(): void {
-  const kinds = bypassedKinds();
-  if (kinds.size === 0) return;
-
-  const where = process.env.NODE_ENV === "production" ? "a PRODUCTION build" : "development";
-  console.warn(
-    [
-      "",
-      "  ############################################################",
-      `  ##  IDENTITY_BYPASS=${process.env.IDENTITY_BYPASS?.trim()}`,
-      "  ##  GSTIN accepted WITHOUT being checked against the GST",
-      "  ##  portal, and the GST certificate is not read either.",
-      `  ##  Running in ${where}.`,
-      "  ##  Unset this before this environment has real customers.",
-      "  ############################################################",
-      "",
-    ]
-      .filter((line): line is string => line !== null)
-      .join("\n")
-  );
+  if (bypassedKinds().size === 0) return;
+  console.log("[cashfreeIdentity] GST checks are off in code: GSTIN and certificate go to ops for review.");
 }
 
 function unavailable(detail: string): IdentityError {

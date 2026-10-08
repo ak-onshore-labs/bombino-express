@@ -3,11 +3,12 @@
  *
  * A guest order has no AWB until ops dockets it at the hub (there is no ITD
  * login to file it under at booking), so the guest prints a Bombino box label
- * instead: the order number and a QR. The QR opens `/p/<tag>`, a view-only page
+ * instead: the order number and a QR. An account with no ITD login of its own
+ * is a guest in every way that matters here, so it gets the same label. The QR opens `/p/<tag>`, a view-only page
  * anyone can read; the tag is signed (`parcelTag.ts`), so holding the label is
  * the only way to the page.
  *
- *   GET /api/orders/:orderNo/box-label   the guest, for their own order
+ *   GET /api/orders/:orderNo/box-label   the owner, for their own order
  *   GET /api/p/:token                    anyone; any agent or ops user sees all
  *   GET /api/parcel-tag/resolve          agents and ops, after a scan
  *
@@ -30,6 +31,7 @@ import { parcelTagFor, verifyParcelTag } from "../parcelTag.js";
 import { buildBoxLabelPdf } from "../boxLabelPdf.js";
 import { FixedWindowLimiter } from "../supportRateLimit.js";
 import { isOpsRole } from "../../shared/staffAccess.js";
+import { itdUserHasStoredPassword } from "../appDb.js";
 import {
   deriveCustomerStatus,
   isInternalOnlyStatus,
@@ -57,9 +59,16 @@ function destinationOf(order: Order): string {
   return [str(order.consignee, "city"), str(order.consignee, "country_name")].filter(Boolean).join(", ");
 }
 
-/** A guest order the label is for: no account, no AWB yet, still live. */
-export function wantsBoxLabel(order: Order): boolean {
-  return !order.user_id && !order.awb_no && order.status !== "cancelled";
+/**
+ * Whether an order gets our QR box label: no AWB yet, still live, and booked
+ * without an ITD login, i.e. by a guest or by an account we hold no ITD
+ * password for. Accounts with an ITD login always end up with a real AWB and
+ * its ITD labels, so they never get this one.
+ */
+export async function boxLabelEligible(order: Pick<Order, "awb_no" | "status" | "user_id">): Promise<boolean> {
+  if (order.awb_no || order.status === "cancelled") return false;
+  if (!order.user_id) return true;
+  return !(await itdUserHasStoredPassword(order.user_id));
 }
 
 /** The origin the QR should point at. */
@@ -109,19 +118,17 @@ const PUBLIC_LIMIT = 60;
 export function registerParcelRoutes(app: Express): void {
   const routes = asyncRoutes(app);
 
-  // The guest's own label. Same ownership boundary as GET /api/orders/:orderNo:
-  // the guest_ref is in the WHERE clause, and an account's order never matches.
+  // The owner's own label. Same ownership boundary as GET /api/orders/:orderNo:
+  // the account or the guest_ref is in the WHERE clause.
   routes.get("/api/orders/:orderNo/box-label", ensureDbUser, async (req: Request, res: Response) => {
     const owner = ownerFrom(req, OWNER_PROFILES.payment);
-    if (!owner || owner.kind !== "guest" || !owner.guestRef) {
-      res.status(404).json({ message: "Box label not available" });
-      return;
-    }
-    const order = await findOrderForOwner(
-      { orderNo: req.params.orderNo },
-      { kind: "guest", guestRef: owner.guestRef }
-    );
-    if (!order || !wantsBoxLabel(order)) {
+    const order =
+      owner?.kind === "account" && owner.userId
+        ? await findOrderForOwner({ orderNo: req.params.orderNo }, { kind: "account", userId: owner.userId })
+        : owner?.guestRef
+          ? await findOrderForOwner({ orderNo: req.params.orderNo }, { kind: "guest", guestRef: owner.guestRef })
+          : null;
+    if (!order || !(await boxLabelEligible(order))) {
       res.status(404).json({ message: "Box label not available" });
       return;
     }

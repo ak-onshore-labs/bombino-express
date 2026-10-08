@@ -585,9 +585,10 @@ export default function OrderDetails() {
   // ─── To do ───────────────────────────────────────────────────────────────
   const showAwbNote = !order.awb_no && !!awbNote;
   const showLabels = isLoggedIn && !!order.awb_no && beforeCollection && hasLabels !== 'no';
-  // A guest's order has no AWB until the hub dockets it, so it gets our own
-  // box label: the order number and a QR (server/routes/parcel.ts).
-  const showBoxLabel = !isLoggedIn && !order.awb_no && beforeCollection;
+  // Booked without an ITD login (a guest, or an account with no ITD password):
+  // no AWB until the hub dockets it, so our own box label, the order number
+  // and a QR. The server decides who qualifies (server/routes/parcel.ts).
+  const showBoxLabel = !!data.boxLabel && beforeCollection;
   const showCounters = !isPickup && beforeCollection;
   const showCode = !!handover && stillWithUs;
   const showAgent = isPickup && beforeCollection;

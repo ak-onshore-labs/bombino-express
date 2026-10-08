@@ -24,7 +24,7 @@ const {
   rejectedEmail,
 } = await import("./accountEmails.js");
 const { alertEmailsSchema } = await import("./opsSettings.js");
-const { parseRequestedChanges, isAccountReviewEnabled } = await import("./accountApplications.js");
+const { parseRequestedChanges } = await import("./accountApplications.js");
 const { toCustomerView } = await import("./accountApplicationsDb.js");
 const { describeApplication } = await import("./supportDocuments.js");
 const {
@@ -70,18 +70,6 @@ function row(fields: Partial<ApplicationRow> = {}): ApplicationRow {
 }
 
 // ── Status rules ─────────────────────────────────────────────────────────────
-
-test("review is off unless ACCOUNT_REVIEW is exactly 1", () => {
-  const before = process.env.ACCOUNT_REVIEW;
-  delete process.env.ACCOUNT_REVIEW;
-  assert.equal(isAccountReviewEnabled(), false);
-  process.env.ACCOUNT_REVIEW = "true";
-  assert.equal(isAccountReviewEnabled(), false);
-  process.env.ACCOUNT_REVIEW = "1";
-  assert.equal(isAccountReviewEnabled(), true);
-  if (before === undefined) delete process.env.ACCOUNT_REVIEW;
-  else process.env.ACCOUNT_REVIEW = before;
-});
 
 test("every action starts only from statuses that exist, and decided ones stay decided", () => {
   for (const froms of Object.values(ACTION_FROM)) {

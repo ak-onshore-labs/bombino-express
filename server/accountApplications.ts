@@ -1,12 +1,13 @@
 /**
- * Account review (ACCOUNT_REVIEW=1): signup files an application instead of
- * opening an account. Everything here runs after signup's own gates — identity
- * numbers, the OCR-checked document set, the GSTIN, the signature — have
- * already passed in routes.ts, so an application is always as complete as an
- * account used to be.
+ * Account review: signup files an application, never an account. Everything
+ * here runs after signup's own gates (identity numbers, the OCR-checked
+ * document set, the GSTIN, the signature) have already passed in routes.ts.
  *
- * Off by default. Until the ops console can approve applications, turning it
- * on would leave every new customer waiting on a queue nobody can empty.
+ * Always on, in code, not behind a variable: there are exactly two kinds of
+ * customer, guests and accounts with a verified ITD login, and an account only
+ * opens when ops approves it with that login (server/accountApproval.ts). The
+ * old direct-signup path, which opened accounts with no ITD login at all, is
+ * gone.
  */
 
 import type { Request } from "express";
@@ -34,9 +35,6 @@ import {
   type RequestedChanges,
 } from "../shared/applicationStatus.js";
 
-export function isAccountReviewEnabled(): boolean {
-  return process.env.ACCOUNT_REVIEW === "1";
-}
 
 export type ServiceResult<T> = { ok: true; value: T } | { ok: false; status: number; code: string; message: string };
 

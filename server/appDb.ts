@@ -108,6 +108,74 @@ export async function findItdUserIdByPhone(phone: string): Promise<{ id: string 
   return data;
 }
 
+/**
+ * The account a number signs in to: only one with a stored ITD login.
+ *
+ * There are two kinds of customer, guests and accounts with a verified ITD
+ * email and password (Aditya, 8 Oct 2026). A row with no ITD login (left over
+ * from the old direct signup) is not an account: its number is treated as a
+ * guest everywhere this decides "account or guest". Phone-uniqueness checks
+ * keep using `findItdUserIdByPhone`, which still sees every row.
+ */
+export async function findItdAccountByPhone(phone: string): Promise<{ id: string } | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("itd_users")
+    .select("id")
+    .eq("phone", phone)
+    .not("itd_password_encrypted", "is", null)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("findItdAccountByPhone", error);
+    return null;
+  }
+  return data;
+}
+
+/** A row on this number with no ITD login (the old direct signup's kind). */
+export async function findLoginlessRowByPhone(phone: string): Promise<{ id: string } | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("itd_users")
+    .select("id")
+    .eq("phone", phone)
+    .is("itd_password_encrypted", null)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("findLoginlessRowByPhone", error);
+    return null;
+  }
+  return data;
+}
+
+/**
+ * Re-key a login-less row onto the ITD login ops just verified, so approval's
+ * upsert (keyed on itd_customer_id) completes that row instead of colliding
+ * with it on the unique phone. Its orders stay attached to it.
+ */
+export async function adoptLoginlessRow(rowId: string, itdCustomerId: string): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  const { error } = await client
+    .from("itd_users")
+    .update({ itd_customer_id: itdCustomerId, updated_at: new Date().toISOString() })
+    .eq("id", rowId)
+    .is("itd_password_encrypted", null);
+
+  if (error) {
+    logSupabaseError("adoptLoginlessRow", error);
+    return false;
+  }
+  return true;
+}
+
 type UpsertItdUserInput = {
   itd_customer_id: string;
   itd_customer_code: string;

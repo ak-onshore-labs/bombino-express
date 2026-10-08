@@ -1,7 +1,7 @@
 /**
  * An account application: signup, held for the Bombino team.
  *
- * With ACCOUNT_REVIEW on, finishing signup no longer opens an account. It files
+ * Finishing signup never opens an account. It files
  * an application that the team reviews in the ops console, and the account is
  * opened only when someone there creates the customer in ITD and enters the
  * login it was given (server/accountApproval.ts). Until then the customer uses

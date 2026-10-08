@@ -30,7 +30,6 @@ import {
   type ApplicationRow,
 } from "../accountApplicationsDb.js";
 import {
-  isAccountReviewEnabled,
   notifyChangesRequested,
   notifyRejected,
   parseRequestedChanges,
@@ -109,12 +108,13 @@ export function registerAccountApplicationRoutes(app: Express): void {
   // GET /api/signup/application — this number's newest application, if any.
   app.get("/api/signup/application", async (req: Request, res: Response) => {
     const phone = guestPhoneFrom(req);
-    if (!phone || req.session.user || !isAccountReviewEnabled()) {
-      res.json({ enabled: isAccountReviewEnabled(), application: null });
+    // `enabled` stays in the answer for clients built when review was a switch.
+    if (!phone || req.session.user) {
+      res.json({ enabled: true, application: null });
       return;
     }
     const row = await getLatestApplicationByPhone(phone);
-    res.json({ enabled: isAccountReviewEnabled(), application: row ? toCustomerView(row) : null });
+    res.json({ enabled: true, application: row ? toCustomerView(row) : null });
   });
 
   /**
@@ -207,7 +207,7 @@ export function registerAccountApplicationRoutes(app: Express): void {
       return;
     }
     const rows = await listApplications({ statuses });
-    res.json({ enabled: isAccountReviewEnabled(), applications: rows.map(queueItem) });
+    res.json({ enabled: true, applications: rows.map(queueItem) });
   });
 
   // GET /api/ops/applications/:id — everything a reviewer needs to decide.

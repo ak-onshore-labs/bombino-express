@@ -151,13 +151,13 @@ export async function sendMail(message: MailMessage): Promise<MailResult> {
 }
 
 /** Called once at boot. Loud only when account review is on and nothing can be sent. */
-export function warnIfMailerMissing(accountReviewEnabled: boolean): void {
-  if (!accountReviewEnabled || isMailerConfigured()) return;
+export function warnIfMailerMissing(): void {
+  if (isMailerConfigured()) return;
   console.warn(
     [
       "",
       "  ############################################################",
-      "  ##  ACCOUNT_REVIEW is on but SMTP is not configured.",
+      "  ##  SMTP is not configured.",
       "  ##  Approved customers will get no account email; ops can",
       "  ##  resend it once SMTP_USER + GOOGLE_APP_PASS (or SMTP_HOST",
       "  ##  and MAIL_FROM) are set.",

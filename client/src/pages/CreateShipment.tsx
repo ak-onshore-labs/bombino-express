@@ -207,6 +207,8 @@ interface OrderCreateResponse {
     id: string;
     order_no: string;
   };
+  /** No AWB and no ITD login behind the booking: offer our QR box label. */
+  boxLabel?: boolean;
   /**
    * Whether an airway bill was filed with ITD as part of this booking.
    *
@@ -481,6 +483,7 @@ export default function CreateShipment() {
   const [currentStep, setCurrentStep] = useState(1);
   const [newOrderNo, setNewOrderNo] = useState('');
   const [newAwbNo, setNewAwbNo] = useState('');
+  const [newBoxLabel, setNewBoxLabel] = useState(false);
   const [docketMessage, setDocketMessage] = useState('');
   const [newOrderId, setNewOrderId] = useState('');
   const [submitError, setSubmitError] = useState('');
@@ -1060,6 +1063,7 @@ export default function CreateShipment() {
       setNewOrderNo(data.order.order_no);
       setNewOrderId(data.order.id);
       setNewAwbNo(data.docket?.status === 'issued' ? data.docket.awb_no ?? '' : '');
+      setNewBoxLabel(data.boxLabel === true);
       setDocketMessage(data.docket?.status === 'failed' ? data.docket.message ?? '' : '');
 
       // POST /api/orders wrote the profile row and the order against this
@@ -1456,9 +1460,10 @@ export default function CreateShipment() {
               <ShipmentDocuments awb={newAwbNo} variant="card" pollUntilReady className="mt-3" />
             )}
 
-            {/* A guest booking files no AWB, so there are no ITD labels. Ours
-                carries the order number and a QR the agent and hub scan. */}
-            {!newAwbNo && !isLoggedIn && (
+            {/* Booked without an ITD login (a guest, or an account we hold no
+                ITD password for): no AWB, so no ITD labels. Ours carries the
+                order number and a QR the agent and hub scan. The server decides. */}
+            {!newAwbNo && newBoxLabel && (
               <div
                 className="mt-3 rounded-lg border border-[#E2E8F0] bg-white p-4"
                 data-testid="card-box-label"

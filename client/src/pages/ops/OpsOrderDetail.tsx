@@ -370,15 +370,16 @@ export default function OpsOrderDetail() {
         </div>
       )}
 
-      {/* A guest's box goes out with our QR label, not an AWB. The counter can
-          print one for a guest who arrived without it. */}
-      {!order.awb_no && !order.user_id && order.status !== 'cancelled' && (
+      {/* Booked without an ITD login (a guest, or an account we hold no ITD
+          password for): the box goes out with our QR label, not an AWB. The
+          counter can print one for a box that arrived without it. */}
+      {!order.awb_no && order.status !== 'cancelled' && (!order.user_id || !data.owner_has_itd_login) && (
         <div
           className="flex items-center justify-between gap-3 rounded-md border border-border bg-white px-4 py-3 mb-4"
           data-testid="ops-order-box-label"
         >
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-foreground">Guest box label</p>
+            <p className="text-sm font-semibold text-foreground">Box label (QR)</p>
             <p className="text-xs text-muted-foreground mt-0.5">
               Order number and QR, for a box that arrived without one.
             </p>

@@ -2,6 +2,7 @@ import type { Express, NextFunction, Request, Response } from "express";
 import {
   countUnreadNotifications,
   findItdUserIdByPhone,
+  findItdAccountByPhone,
   findOrCreateAddress,
   getAccountShapeById,
   getItdUserProfileById,
@@ -90,11 +91,10 @@ import { getWhatsappReachability } from "./whatsappDb.js";
 import { WA_TEMPLATE } from "./whatsappTemplates.js";
 import { registerWhatsappScheduleRoutes } from "./routes/whatsappSchedule.js";
 import { registerOpsRoutes } from "./routes/ops.js";
-import { registerParcelRoutes } from "./routes/parcel.js";
+import { boxLabelEligible, registerParcelRoutes } from "./routes/parcel.js";
 import { listPublicSettings } from "./settingsDb.js";
 import { registerBiaRoutes } from "./routes/bia.js";
 import { registerAccountApplicationRoutes } from "./routes/accountApplications.js";
-import { isAccountReviewEnabled } from "./accountApplications.js";
 import { getLatestApplicationByPhone, isOpenApplicationRef, toCustomerView } from "./accountApplicationsDb.js";
 import {
   handleMarkDispatched,
@@ -128,12 +128,7 @@ import {
   handleStartPickup,
   type AgentActionResult,
 } from "./orderActions.js";
-import {
-  claimDocumentsForUser,
-  claimGuestBookingsForUser,
-  contractColumns,
-  respondWithApplication,
-} from "./signupClaim.js";
+import { respondWithApplication } from "./signupClaim.js";
 import {
   assertDocumentsStaged,
   resolveKycOwner,
@@ -245,7 +240,6 @@ import {
   deleteSignupDocument,
   getAccountDocumentByCapabilityId,
   deleteUserDocument,
-  getSignupDocumentWithFile,
   getUserDocumentWithFile,
   getVerificationState,
   listDocumentsByUserId,
@@ -260,7 +254,6 @@ import {
 } from "../shared/contract.js";
 import {
   COMPANY_CATEGORIES,
-  COMPANY_CATEGORY_SPECS,
   EXTRA_FIELD_SPECS,
   IDENTITY_CHECK_LABELS,
   isDocSlot,
@@ -1107,9 +1100,9 @@ export async function registerRoutes(
             // The form tells the customer when a document went in unverified,
             // so "Uploaded" never over-promises.
             ocr: { status: ocr.status, message: ocr.message },
-            // With account review on, the Bombino team checks every document by
-            // hand, so one Cashfree couldn't read still lets signup go on.
-            staff_review: isAccountReviewEnabled(),
+            // The Bombino team checks every document by hand before an account
+            // opens, so one Cashfree couldn't read still lets signup go on.
+            staff_review: true,
           });
         });
       } catch (err) {
@@ -1184,9 +1177,9 @@ export async function registerRoutes(
     const rows = await listDocumentsBySignupRef(signupRef);
     res.set("Cache-Control", "no-store");
     res.json({
-      // See POST: with account review on, a document Cashfree couldn't read is
-      // left to the Bombino team rather than holding signup up.
-      staff_review: isAccountReviewEnabled(),
+      // See POST: a document Cashfree couldn't read is left to the Bombino
+      // team rather than holding signup up.
+      staff_review: true,
       // TEMPORARY: false while OCR_BYPASS=1, so the form asks only for 12 digits
       // (shared/aadhaar.ts §validateAadhaar), matching the server.
       aadhaar_check_digits: !isOcrBypassed(),
@@ -1585,7 +1578,7 @@ export async function registerRoutes(
       return;
     }
 
-    const existing = await findItdUserIdByPhone(phone);
+    const existing = await findItdAccountByPhone(phone);
     if (existing) {
       res.status(409).json({
         message: "This phone number is already registered. Please sign in instead.",
@@ -1617,69 +1610,17 @@ export async function registerRoutes(
     const staged = await assertDocumentsStaged(req, res, "personal", null, phone);
     if (!staged) return;
 
-    // Account review: everything above has passed, so file it for the Bombino
-    // team instead of opening the account here. See server/accountApplications.ts.
-    if (isAccountReviewEnabled()) {
-      await respondWithApplication(req, res, {
-        phone,
-        accountType: "personal",
-        category: null,
-        details: { full_name, email },
-        contract_signed_name,
-        keepContractOf: fixing,
-      });
-      return;
-    }
-
-    const itdCustomerId = `local-${crypto.randomUUID()}`;
-    const row = await upsertItdUserAndReturnId({
-      itd_customer_id: itdCustomerId,
-      itd_customer_code: itdCustomerId,
-      email,
-      full_name,
-      username: phone,
-      role: "customer",
+    // Everything above has passed: file it for the Bombino team. Signup never
+    // opens an account. The number stays a guest until ops approves it with a
+    // verified ITD email and password (server/accountApproval.ts), so there are
+    // exactly two kinds of customer: guests, and accounts with an ITD login.
+    await respondWithApplication(req, res, {
       phone,
-      account_type: "personal",
-      ...contractColumns(req, contract_signed_name),
-    });
-    if (!row?.id) {
-      res.status(502).json({ message: "Could not create account. Please try again." });
-      return;
-    }
-
-    // Mirror the Aadhaar into kyc_documents. That table is what the shipment
-    // path reads to build ITD's `kyc_details` (buildItdKycPayload), and it
-    // stays the one KYC document of record; account_documents is the
-    // onboarding file, not a second source of truth for customs.
-    //
-    // Present in the ordinary case — signup refuses without it. Guarded anyway
-    // rather than asserted: if it ever is absent, the document centre runs the
-    // same mirror on the same helper later.
-    const aadhaar = req.session.signupRef
-      ? await getSignupDocumentWithFile(req.session.signupRef, "aadhaar_card")
-      : null;
-    await claimDocumentsForUser(req, row.id);
-    await mirrorAadhaarToKyc({ userId: row.id }, aadhaar, "signup/personal");
-    await claimGuestBookingsForUser(req, phone, row.id);
-
-    const user = {
-      id: itdCustomerId,
-      customerId: itdCustomerId,
-      code: itdCustomerId,
-      email,
-      fullName: full_name,
-      username: phone,
-      role: "customer",
-      account_type: "personal" as const,
-    };
-    req.session.user = user;
-    req.session.dbUserId = row.id;
-    req.session.save((err) => {
-      if (err) {
-        console.error("[signup/personal] session save error:", err);
-      }
-      res.json(user);
+      accountType: "personal",
+      category: null,
+      details: { full_name, email },
+      contract_signed_name,
+      keepContractOf: fixing,
     });
   });
 
@@ -1782,7 +1723,7 @@ export async function registerRoutes(
       return;
     }
 
-    const existing = await findItdUserIdByPhone(phone);
+    const existing = await findItdAccountByPhone(phone);
     if (existing) {
       res.status(409).json({
         message: "This phone number is already registered. Please sign in instead.",
@@ -1800,8 +1741,6 @@ export async function registerRoutes(
       return;
     }
     if (fixing && !(await assertFixedSlotsReplaced(fixing, res))) return;
-
-    const categorySpec = COMPANY_CATEGORY_SPECS[company_category];
 
     // The company PAN, verified against the company's own name — every
     // corporate category compels a PAN card, none compels an Aadhaar.
@@ -1830,134 +1769,27 @@ export async function registerRoutes(
     const staged = await assertDocumentsStaged(req, res, "company", company_category, phone);
     if (!staged) return;
 
-    // Account review: file it instead. No ITD add_customer either — the team
-    // creates the customer in ITD by hand, and calling it here as well would
-    // register the company twice.
-    if (isAccountReviewEnabled()) {
-      await respondWithApplication(req, res, {
-        phone,
-        accountType: "company",
-        category: company_category,
-        details: {
-          email,
-          company_name,
-          gstin,
-          contact_person,
-          address,
-          pincode,
-          city,
-          state,
-          hub_id,
-          ...extras.values,
-        },
-        contract_signed_name,
-        keepContractOf: fixing,
-      });
-      return;
-    }
-
-    const itdCustomerId = `local-${crypto.randomUUID()}`;
-    const row = await upsertItdUserAndReturnId({
-      itd_customer_id: itdCustomerId,
-      itd_customer_code: itdCustomerId,
-      email,
-      full_name: company_name,
-      username: phone,
-      role: "customer",
+    // File it for the Bombino team, as personal signup does. No ITD
+    // add_customer either: the team creates the customer in ITD by hand, and
+    // calling it here as well would register the company twice.
+    await respondWithApplication(req, res, {
       phone,
-      account_type: "company",
-      company_name,
-      gstin,
-      company_category,
-      // Denormalised from the spec at creation time: a later change to the
-      // mapping must not silently restate what an existing account signed.
-      contract_head: categorySpec.contractHead,
-      group_code: categorySpec.groupCode ?? null,
-      contact_person,
-      ...extras.values,
-      ...contractColumns(req, contract_signed_name),
-    });
-    if (!row?.id) {
-      res.status(502).json({ message: "Could not create account. Please try again." });
-      return;
-    }
-
-    await claimDocumentsForUser(req, row.id);
-    // A guest books as an individual, but the number is the number: if this
-    // company account was opened on it, the orders behind it are theirs.
-    await claimGuestBookingsForUser(req, phone, row.id);
-
-    let itdRegistered = false;
-    let addCustomerResponse: unknown = null;
-    let addCustomerError: string | null = null;
-    try {
-      const addCustomerResult = await withTimeout(
-        itdClient.addCustomer({
-          name: company_name,
-          contact_no: phone,
-          gst_number: gstin,
-          email,
-          address,
-          pincode,
-          city,
-          state,
-          contact_person,
-          hub_id,
-        }),
-        ITD_LINK_TIMEOUT_MS,
-        "ITD addCustomer"
-      );
-      itdRegistered = !!addCustomerResult.success;
-      addCustomerResponse = addCustomerResult;
-    } catch (err) {
-      addCustomerError = err instanceof Error ? err.message : "addCustomer failed";
-      console.error("[signup/company] itdClient.addCustomer failed (non-fatal):", err);
-    }
-
-    // Persist the attribution context. Without this the ITD registration is
-    // invisible to everything downstream — M5 has to know, days later, whether
-    // this company exists inside ITD and under what identity. `add_customer`
-    // returns no id of its own (§7), so the synthetic `local-<uuid>` we minted
-    // above is the only stable handle either side has; record it explicitly
-    // rather than leaving it implicit in the `itd_customer_id` column.
-    // Non-fatal: a failure here must not cost the customer their account.
-    void mergeItdUserMetadataById(row.id, {
-      itd_registered: itdRegistered,
-      itd_customer_id: itdCustomerId,
-      // add_customer has no field for either, so the only record of which
-      // contract this account opened under lives on our side.
-      company_category,
-      contract_head: categorySpec.contractHead,
-      ...(categorySpec.groupCode ? { group_code: categorySpec.groupCode } : {}),
-      itd_registration_attempted_at: new Date().toISOString(),
-      itd_add_customer_response: addCustomerResponse,
-      email,
-      address,
-      pincode,
-      city,
-      state,
-      contact_person,
-      hub_id,
-      ...(addCustomerError ? { itd_add_customer_error: addCustomerError } : {}),
-    });
-
-    const user = {
-      id: itdCustomerId,
-      customerId: itdCustomerId,
-      code: itdCustomerId,
-      email,
-      fullName: company_name,
-      username: phone,
-      role: "customer",
-      account_type: "company" as const,
-    };
-    req.session.user = user;
-    req.session.dbUserId = row.id;
-    req.session.save((err) => {
-      if (err) {
-        console.error("[signup/company] session save error:", err);
-      }
-      res.json({ ...user, itdRegistered });
+      accountType: "company",
+      category: company_category,
+      details: {
+        email,
+        company_name,
+        gstin,
+        contact_person,
+        address,
+        pincode,
+        city,
+        state,
+        hub_id,
+        ...extras.values,
+      },
+      contract_signed_name,
+      keepContractOf: fixing,
     });
   });
 
@@ -2047,7 +1879,8 @@ export async function registerRoutes(
       return;
     }
 
-    const existing = await findItdUserIdByPhone(phone);
+    // Only an ITD login makes a number an account; anything else is a guest.
+    const existing = await findItdAccountByPhone(phone);
     if (existing) {
       res.status(409).json({
         message: "This number already has a Bombino account.",
@@ -2147,7 +1980,9 @@ export async function registerRoutes(
     }
     markPhoneVerified(req, phone);
 
-    const existing = await findItdUserIdByPhone(phone);
+    // Only an ITD login makes a number an account. A row without one (the old
+    // direct signup's kind) signs in as a guest, like any number with no row.
+    const existing = await findItdAccountByPhone(phone);
     if (!existing) {
       // No account — but not necessarily a stranger.
       //
@@ -2170,7 +2005,7 @@ export async function registerRoutes(
 
         // An applicant waiting on the Bombino team signs in as exactly this: a
         // guest. Their application rides along so the app can say where it is.
-        const application = isAccountReviewEnabled() ? await getLatestApplicationByPhone(phone) : null;
+        const application = await getLatestApplicationByPhone(phone);
         req.session.save((err) => {
           if (err) console.error("[phone/continue] guest session save error:", err);
           res.json({
@@ -3424,7 +3259,7 @@ export async function registerRoutes(
       // true — a client that skipped the dialog, or an account created in the
       // minutes since, must not end with one customer split across an account
       // and a guest record that nothing later reconciles.
-      const owner = await findItdUserIdByPhone(guestPhone!);
+      const owner = await findItdAccountByPhone(guestPhone!);
       if (owner) {
         res.status(409).json({
           message: "This number already has a Bombino account. Please sign in to book.",
@@ -3693,6 +3528,11 @@ export async function registerRoutes(
 
     res.json({
       order: docket.status === "issued" ? { ...order, awb_no: docket.awb_no } : order,
+      // No AWB and no ITD login behind the booking: the success screen offers
+      // our QR box label instead (server/routes/parcel.ts).
+      boxLabel:
+        docket.status !== "issued" &&
+        (await boxLabelEligible({ awb_no: null, status: bookedOrder.status, user_id: bookedOrder.user_id })),
       // A refusal goes out as the customer's note (shared/docketError.ts), never
       // as ITD's raw reply: that carries HTTP codes and JSON, and is ops' to read.
       docket:
@@ -4493,6 +4333,8 @@ export async function registerRoutes(
     res.json({
       order,
       customerStatus: deriveCustomerStatus(order),
+      // Whether this order gets our QR box label (no AWB, no ITD login).
+      boxLabel: await boxLabelEligible(order),
       agent,
       events,
       payments: (payments ?? []).map((p) => ({
