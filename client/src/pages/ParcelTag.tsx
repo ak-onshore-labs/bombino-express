@@ -224,6 +224,7 @@ export default function ParcelTag() {
         <h2 className="text-base font-semibold text-foreground mb-4">Parcel</h2>
         <div className="grid gap-x-10 gap-y-7 md:grid-cols-2">
           <Group title="Shipment">
+            <Row label="Parcel ID" value={data.parcelId} />
             <Row label="Destination" value={data.destination} />
             <Row label="Pieces" value={data.pieces} />
             <Row

@@ -309,6 +309,65 @@ export async function getOrderIdByNumber(orderNo: string): Promise<string | null
   return (data as { id: string } | null)?.id ?? null;
 }
 
+/** The order behind a parcel ID (the 12-character ID on our box label). */
+export async function getOrderIdByParcelId(parcelId: string): Promise<string | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("orders")
+    .select("id")
+    .eq("metadata->>parcel_id", parcelId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("getOrderIdByParcelId", error);
+    return null;
+  }
+  return (data as { id: string } | null)?.id ?? null;
+}
+
+/**
+ * The order's parcel ID, made on first call and kept in `metadata.parcel_id`.
+ *
+ * Written only while the order has none (a conditional update), then read
+ * back, so two label requests racing each other still end on one ID and
+ * every printed label agrees. Null on a DB failure.
+ */
+export async function ensureParcelId(orderId: string, makeId: () => string): Promise<string | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const read = async (): Promise<{ metadata: Record<string, unknown> | null } | null> => {
+    const { data, error } = await client.from("orders").select("metadata").eq("id", orderId).maybeSingle();
+    if (error) {
+      logSupabaseError("ensureParcelId:read", error);
+      return null;
+    }
+    return data as { metadata: Record<string, unknown> | null } | null;
+  };
+
+  const current = await read();
+  if (!current) return null;
+  const existing = current.metadata?.parcel_id;
+  if (typeof existing === "string" && existing) return existing;
+
+  const { error } = await client
+    .from("orders")
+    .update({ metadata: { ...(current.metadata ?? {}), parcel_id: makeId() } })
+    .eq("id", orderId)
+    .is("metadata->>parcel_id", null);
+  if (error) {
+    logSupabaseError("ensureParcelId:write", error);
+    return null;
+  }
+
+  const after = await read();
+  const id = after?.metadata?.parcel_id;
+  return typeof id === "string" && id ? id : null;
+}
+
 /** The id behind an AWB, for staff scans of an ITD label. */
 export async function getOrderIdByAwb(awb: string): Promise<string | null> {
   const client = getSupabaseClient();

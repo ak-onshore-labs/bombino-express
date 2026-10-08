@@ -7,7 +7,8 @@ import { buildBoxLabelPdf } from "./boxLabelPdf.js";
 test("the box label is a single 4x6 in page", async () => {
   const bytes = await buildBoxLabelPdf({
     orderNo: "BOM-100107",
-    qrUrl: "https://example.test/p/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.AAAAAAAAAAAAAAAAAAAAAA",
+    qrUrl: "https://example.test/p/7KQ2MX9P4HTR",
+    parcelId: "7KQ2-MX9P-4HTR",
     destination: "New York, United States",
     pieces: "2",
     bookedOn: "04 Oct 2026",
@@ -24,6 +25,7 @@ test("text the standard fonts cannot encode does not break the label", async () 
   const bytes = await buildBoxLabelPdf({
     orderNo: "BOM-100108",
     qrUrl: "https://example.test/p/x",
+    parcelId: "7KQ2-MX9P-4HTR",
     destination: "Zürich, Schweiz — 東京",
     pieces: null,
     bookedOn: "",

@@ -23,13 +23,16 @@ import { asyncRoutes, requireUser, ensureDbUser } from "../routeGuards.js";
 import { OWNER_PROFILES, ownerFrom } from "../sessionOwner.js";
 import {
   findOrderForOwner,
+  ensureParcelId,
   getOrderIdByAwb,
   getOrderIdByNumber,
+  getOrderIdByParcelId,
   getOrderWithAddressById,
   listOrderEvents,
   type OrderWithAddress,
 } from "../ordersDb.js";
 import { parcelTagFor, verifyParcelTag } from "../parcelTag.js";
+import { formatParcelId, newParcelId, normaliseParcelId } from "../parcelId.js";
 import { buildBoxLabelPdf } from "../boxLabelPdf.js";
 import { FixedWindowLimiter } from "../supportRateLimit.js";
 import { isOpsRole } from "../../shared/staffAccess.js";
@@ -73,6 +76,26 @@ export async function boxLabelEligible(order: Pick<Order, "awb_no" | "status" | 
   return !(await itdUserHasStoredPassword(order.user_id));
 }
 
+/** The order's parcel ID, when its label has been made. */
+function parcelIdOf(order: Order): string | null {
+  const id = (order.metadata as Record<string, unknown> | null | undefined)?.parcel_id;
+  return typeof id === "string" && id ? id : null;
+}
+
+/**
+ * The order a code on a label names: our 12-character parcel ID (the QR on
+ * labels from now on), or the signed tag earlier labels carried. Never
+ * anything guessable, so the public page can trust it.
+ */
+async function orderIdFromCode(code: string): Promise<string | null> {
+  const parcelId = normaliseParcelId(code);
+  if (parcelId) {
+    const id = await getOrderIdByParcelId(parcelId);
+    if (id) return id;
+  }
+  return verifyParcelTag(code);
+}
+
 /** The origin the QR should point at. */
 function appOrigin(req: Request): string {
   const configured = process.env.PUBLIC_URL?.trim();
@@ -80,11 +103,20 @@ function appOrigin(req: Request): string {
   return `${req.protocol}://${req.get("host")}`;
 }
 
-/** The box label PDF for an order, as base64 (same shape as the ITD labels). */
+/**
+ * The box label PDF for an order, as base64 (same shape as the ITD labels).
+ *
+ * The QR is `/p/<parcel ID>` and the same ID is printed under it, so the QR
+ * and the typed ID are one thing. The ID is made on the first label and kept,
+ * so reprints match. Should the ID not be storable (a DB failure) the label
+ * still prints, with the signed tag in the QR and the order number under it.
+ */
 export async function boxLabelFor(req: Request, order: Order): Promise<string> {
+  const parcelId = await ensureParcelId(order.id, newParcelId);
   const bytes = await buildBoxLabelPdf({
     orderNo: order.order_no,
-    qrUrl: `${appOrigin(req)}/p/${parcelTagFor(order.id)}`,
+    qrUrl: `${appOrigin(req)}/p/${parcelId ?? parcelTagFor(order.id)}`,
+    parcelId: parcelId ? formatParcelId(parcelId) : order.order_no,
     destination: destinationOf(order),
     pieces: str(order.items, "pcs"),
     bookedOn: niceDate(order.created_at),
@@ -150,7 +182,7 @@ export function registerParcelRoutes(app: Express): void {
       }
     }
 
-    const orderId = verifyParcelTag(req.params.token);
+    const orderId = await orderIdFromCode(req.params.token);
     const order: OrderWithAddress | null = orderId ? await getOrderWithAddressById(orderId) : null;
     if (!order) {
       res.status(404).json({ message: "This label is not recognised." });
@@ -179,8 +211,10 @@ export function registerParcelRoutes(app: Express): void {
     const showStaff = role !== null;
     const origin = order.origin_address;
 
+    const storedParcelId = parcelIdOf(order);
     const view: ParcelTagView = {
       orderNo: order.order_no,
+      parcelId: storedParcelId ? formatParcelId(storedParcelId) : null,
       awbNo: order.awb_no,
       status: order.status,
       statusLabel: deriveCustomerStatus(order),
@@ -237,14 +271,27 @@ export function registerParcelRoutes(app: Express): void {
     const tagMatch = raw.match(/\/p\/([^/?#\s]+)/);
     const tag = tagMatch ? decodeURIComponent(tagMatch[1]) : raw;
 
-    let orderId = verifyParcelTag(tag);
+    let orderId = await orderIdFromCode(tag);
     if (!orderId && /^BOM-?\d+$/i.test(raw)) {
       const normalised = raw.toUpperCase().replace(/^BOM-?/, "BOM-");
       orderId = await getOrderIdByNumber(normalised);
     }
-    // An ITD label: its barcode or QR carries the AWB (digits).
-    if (!orderId && /^\d{8,14}$/.test(raw)) {
+    // An ITD label. The AWB barcode is the AWB; the box label's "PARCEL NO."
+    // barcode is the AWB plus a box number, printed "72858924230 / 01" and
+    // encoded either with a separator or run together. The AWB is tried as
+    // given first, then with a trailing two-digit box number taken off.
+    let piece: number | null = null;
+    const parcelNo = raw.replace(/\s+/g, "").match(/^(\d{8,14})[\/-](\d{1,3})$/);
+    if (!orderId && parcelNo) {
+      orderId = await getOrderIdByAwb(parcelNo[1]);
+      if (orderId) piece = Number(parcelNo[2]);
+    }
+    if (!orderId && /^\d{8,16}$/.test(raw)) {
       orderId = await getOrderIdByAwb(raw);
+      if (!orderId && raw.length >= 10) {
+        orderId = await getOrderIdByAwb(raw.slice(0, -2));
+        if (orderId) piece = Number(raw.slice(-2));
+      }
     }
     const order = orderId ? await getOrderWithAddressById(orderId) : null;
     if (!order) {
@@ -253,11 +300,14 @@ export function registerParcelRoutes(app: Express): void {
     }
 
     const dbUserId = req.session.dbUserId ?? null;
+    const pieces = Number(str(order.items, "pcs"));
     const result: ParcelScanResult = {
       orderId: order.id,
       orderNo: order.order_no,
       assignedToMe: role === "agent" && !!dbUserId && order.agent_id === dbUserId,
-      token: parcelTagFor(order.id),
+      token: parcelIdOf(order) ?? parcelTagFor(order.id),
+      piece: piece && piece > 0 ? piece : null,
+      pieces: Number.isFinite(pieces) && pieces > 0 ? pieces : null,
     };
     res.json(result);
   });

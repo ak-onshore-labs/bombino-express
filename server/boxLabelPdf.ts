@@ -18,8 +18,10 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf
 
 export interface BoxLabelInput {
   orderNo: string;
-  /** Absolute URL the QR opens. */
+  /** Absolute URL the QR opens. Ends in the parcel ID. */
   qrUrl: string;
+  /** The 12-character parcel ID the QR carries, printed under it, grouped. */
+  parcelId: string;
   /** "New York, United States". */
   destination: string;
   pieces: string | null;
@@ -90,7 +92,7 @@ export async function buildBoxLabelPdf(input: BoxLabelInput): Promise<Uint8Array
   const qr = QRCode.create(input.qrUrl, { errorCorrectionLevel: "M" });
   const count = qr.modules.size;
   const quiet = 2;
-  const qrSide = 176;
+  const qrSide = 168;
   const cell = qrSide / (count + quiet * 2);
   const qrX = (W - qrSide) / 2;
   const qrTop = H - M - 84;
@@ -116,10 +118,13 @@ export async function buildBoxLabelPdf(input: BoxLabelInput): Promise<Uint8Array
       });
     }
   }
-  centred(page, "Scan to view this parcel", regular, 9, qrTop - qrSide - 10);
+  // The QR's own ID, right under it: what to type when a QR will not scan.
+  centred(page, "PARCEL ID", bold, 7, qrTop - qrSide - 8);
+  const parcelId = safe(input.parcelId);
+  centred(page, parcelId, bold, fitSize(bold, parcelId, 20, W - 2 * M), qrTop - qrSide - 28);
 
   // Where it is going, and how many boxes make the set.
-  const baseY = 100;
+  const baseY = 92;
   page.drawLine({ start: { x: M, y: baseY + 30 }, end: { x: W - M, y: baseY + 30 }, thickness: 0.75, color: MUTED });
   page.drawText("TO", { x: M, y: baseY + 14, size: 8, font: bold, color: MUTED });
   const dest = safe(input.destination) || "-";

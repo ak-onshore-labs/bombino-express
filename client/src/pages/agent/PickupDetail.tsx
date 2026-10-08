@@ -157,7 +157,12 @@ export default function PickupDetail() {
   // The last box the agent scanned against this job. A check, never a gate:
   // the handover code is what completes a pickup, scanning only catches a
   // wrong box before it leaves the door.
-  const [boxCheck, setBoxCheck] = useState<{ matches: boolean; orderNo: string } | null>(null);
+  const [boxCheck, setBoxCheck] = useState<{
+    matches: boolean;
+    orderNo: string;
+    piece: number | null;
+    pieces: number | null;
+  } | null>(null);
 
   const runAction = (actionName: string, payload?: Record<string, unknown>): void => {
     if (!order) return;
@@ -387,7 +392,11 @@ export default function PickupDetail() {
                   data-testid="text-box-check"
                 >
                   {boxCheck.matches
-                    ? `Right box. ${boxCheck.orderNo}.`
+                    ? `Right box. ${boxCheck.orderNo}${
+                        boxCheck.piece
+                          ? `, box ${boxCheck.piece}${boxCheck.pieces ? ` of ${boxCheck.pieces}` : ''}`
+                          : ''
+                      }.`
                     : `Wrong box. This label is for ${boxCheck.orderNo}, not this pickup.`}
                 </p>
               )}
@@ -397,7 +406,12 @@ export default function PickupDetail() {
                 testId="button-check-box"
                 className="bg-white! text-[#1B2A41]! border-2 border-[#1B2A41]!"
                 onResolved={(hit) =>
-                  setBoxCheck({ matches: hit.orderId === order.id, orderNo: hit.orderNo })
+                  setBoxCheck({
+                    matches: hit.orderId === order.id,
+                    orderNo: hit.orderNo,
+                    piece: hit.piece ?? null,
+                    pieces: hit.pieces ?? null,
+                  })
                 }
               />
             </div>

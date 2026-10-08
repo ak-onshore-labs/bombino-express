@@ -1,14 +1,14 @@
 /**
- * Scan a parcel: point the camera at the QR on a guest's box label, or type the
- * order number off it, and land on that order in your own app.
+ * Scan a parcel: point the camera at the QR on a guest's box label or the
+ * barcode on an ITD label, or type the order or AWB number off it.
  *
  * Either way it opens the parcel's details (`/p/:token`), which staff see in
  * full. It never redirects into a workflow and never refuses: the details page
  * offers "Open pickup" / "Open in ops console" when that applies.
  *
- * Decoding is `qr-scanner`: a web worker, the native BarcodeDetector where the
- * browser has one, and cheap on a budget Android. The camera only runs while
- * this sheet is open.
+ * Decoding is ZXing (lib/barcodeScanner.ts): our QR box label and ITD's 1-D
+ * barcodes (AWB, and AWB plus box number), loaded only when a scanner opens.
+ * The camera only runs while this sheet is open.
  *
  * Two fallbacks are always offered, because a live camera is often not
  * available: iOS gives web pages the camera only on https, an app webview only
@@ -21,7 +21,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'wouter';
-import QrScanner from 'qr-scanner';
+import { decodeImageFile, startCamera, type CameraControls } from '@/lib/barcodeScanner';
 import { Camera, Flashlight, Loader2, ScanLine, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ParcelScanResult } from '@shared/parcelTag';
@@ -42,9 +42,8 @@ async function resolveScan(q: string): Promise<ParcelScanResult> {
 /**
  * Why the live camera did not start, in words that say what to do.
  *
- * qr-scanner reports "Camera not found." both when the page has no camera API
- * at all and when every request was refused, so the cause is read from the
- * page itself first rather than from that message.
+ * The cause is read from the page itself first (secure context, camera API),
+ * because a browser's own error for a blocked camera is often just "not found".
  */
 function cameraMessage(err: unknown): string {
   if (typeof window !== 'undefined' && !window.isSecureContext) {
@@ -78,7 +77,7 @@ export function ScanParcelSheet({
 }) {
   const [, setLocation] = useLocation();
   const videoRef = useRef<HTMLVideoElement>(null);
-  const scannerRef = useRef<QrScanner | null>(null);
+  const scannerRef = useRef<CameraControls | null>(null);
   const handlingRef = useRef(false);
   const [starting, setStarting] = useState(true);
   const [hasFlash, setHasFlash] = useState(false);
@@ -94,8 +93,7 @@ export function ScanParcelSheet({
     if (!file) return;
     setProblem(null);
     try {
-      const result = await QrScanner.scanImage(file, { returnDetailedScanResult: true });
-      await handle(result.data);
+      await handle(await decodeImageFile(file));
     } catch {
       setProblem({
         kind: 'lookup',
@@ -126,8 +124,8 @@ export function ScanParcelSheet({
       });
     } finally {
       setLooking(false);
-      // Let the same code be scanned again only after a beat, so one QR held
-      // in front of the lens is not looked up thirty times a second.
+      // Let the same code be scanned again only after a beat, so one label
+      // held in front of the lens is not looked up several times a second.
       setTimeout(() => {
         handlingRef.current = false;
       }, 1200);
@@ -137,29 +135,30 @@ export function ScanParcelSheet({
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    const scanner = new QrScanner(video, (result) => void handle(result.data), {
-      preferredCamera: 'environment',
-      maxScansPerSecond: 8,
-      returnDetailedScanResult: true,
-    });
-    scannerRef.current = scanner;
-    scanner
-      .start()
-      .then(async () => {
+    let cancelled = false;
+    startCamera(video, (text) => void handle(text))
+      .then((controls) => {
+        if (cancelled) {
+          controls.stop();
+          return;
+        }
+        scannerRef.current = controls;
         setStarting(false);
-        setHasFlash(await scanner.hasFlash().catch(() => false));
+        setHasFlash(!!controls.switchTorch);
       })
       .catch((err: unknown) => {
+        if (cancelled) return;
         setStarting(false);
         setCameraFailed(true);
         setProblem({ kind: 'camera', message: cameraMessage(err) });
       });
     return () => {
-      scanner.destroy();
+      cancelled = true;
+      scannerRef.current?.stop();
       scannerRef.current = null;
     };
-    // `handle` reads state through refs and setters only; the scanner is
-    // created once per open.
+    // `handle` reads state through refs and setters only; the camera starts
+    // once per open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -172,10 +171,10 @@ export function ScanParcelSheet({
   }, [onClose]);
 
   const toggleFlash = async (): Promise<void> => {
-    const scanner = scannerRef.current;
-    if (!scanner) return;
-    await scanner.toggleFlash().catch(() => undefined);
-    setFlashOn(scanner.isFlashOn());
+    const controls = scannerRef.current;
+    if (!controls?.switchTorch) return;
+    const next = !flashOn;
+    await controls.switchTorch(next).then(() => setFlashOn(next)).catch(() => undefined);
   };
 
   return (

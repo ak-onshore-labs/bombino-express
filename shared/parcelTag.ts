@@ -20,6 +20,8 @@ export interface ParcelTagParty {
 
 export interface ParcelTagView {
   orderNo: string;
+  /** The 12-character ID printed under the QR, grouped ("7KQ2-MX9P-4HTR"). */
+  parcelId: string | null;
   awbNo: string | null;
   /** Internal status, for the progress bar. */
   status: string;
@@ -47,4 +49,8 @@ export interface ParcelScanResult {
   orderNo: string;
   assignedToMe: boolean;
   token: string;
+  /** Box number, when the label carries one (ITD's "PARCEL NO." barcode). */
+  piece?: number | null;
+  /** Boxes on the order, as booked. */
+  pieces?: number | null;
 }
