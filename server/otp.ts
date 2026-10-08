@@ -78,6 +78,7 @@ export const TEST_OTP_NUMBERS: ReadonlySet<string> = new Set([
   // Ops console
   "9000000011", // Test Super Admin
   "9000000010", // Test Admin
+  "9000000020", // Test Branch Manager (Mumbai), added 8 Oct 2026
   // Customers
   "9000000090", // Test Customer (seed)
   "9000000016", // E2E Test Logistics (company)
