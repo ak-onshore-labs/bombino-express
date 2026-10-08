@@ -4,8 +4,6 @@ import { useLocation, useRoute } from 'wouter';
 import { Loader2, Phone, Navigation, MapPin, Clock, Package, Globe, CreditCard } from 'lucide-react';
 import { AgentJobSheet } from '@/components/agent/AgentShell';
 import { ActionBar } from '@/components/agent/ActionButtons';
-import { cn } from '@/lib/utils';
-import { ScanParcelButton } from '@/components/ScanParcelSheet';
 import { PressableButton } from '@/components/motion/Pressable';
 import { ITEM_IN } from '@/lib/motion';
 import { CollectPaymentSheet } from '@/components/agent/CollectPaymentSheet';
@@ -83,17 +81,6 @@ function destination(pickup: AgentPickup): string {
   return [place, country].filter(Boolean).join(' · ') || '—';
 }
 
-/** The parcel has left the customer: checking it at the door is over. */
-const PICKED_UP_OR_LATER: ReadonlySet<string> = new Set([
-  'picked_up',
-  'received_at_hub',
-  'weighed',
-  'settled',
-  'ready_for_docket',
-  'dispatched',
-  'cancelled',
-]);
-
 export default function PickupDetail() {
   const [, params] = useRoute('/agent/pickup/:id');
   const [, setLocation] = useLocation();
@@ -154,15 +141,6 @@ export default function PickupDetail() {
   // Start journey and Cancel pickup ask first; Problem opens the call popup.
   const [confirming, setConfirming] = useState<string | null>(null);
   const [problemOpen, setProblemOpen] = useState(false);
-  // The last box the agent scanned against this job. A check, never a gate:
-  // the handover code is what completes a pickup, scanning only catches a
-  // wrong box before it leaves the door.
-  const [boxCheck, setBoxCheck] = useState<{
-    matches: boolean;
-    orderNo: string;
-    piece: number | null;
-    pieces: number | null;
-  } | null>(null);
 
   const runAction = (actionName: string, payload?: Record<string, unknown>): void => {
     if (!order) return;
@@ -374,48 +352,6 @@ export default function PickupDetail() {
             value={destination(order)}
             className="border-t border-[#E8EDF2]!"
           />
-
-          {/* Check the box: scan its label (QR, or an ITD label's AWB) or type
-              the number, and see whether it is this job's. Optional, before
-              collection only. */}
-          {!PICKED_UP_OR_LATER.has(order.status) && (
-            <div className="px-5 py-4 border-t border-[#E8EDF2]!" data-testid="block-check-box">
-              {boxCheck && (
-                <p
-                  className={cn(
-                    'mb-3 px-4 py-3 text-[17px] font-bold leading-snug border-2',
-                    boxCheck.matches
-                      ? 'border-[#15803D] text-[#14532D] bg-[#F0FDF4]'
-                      : 'border-[#B91C1C] text-[#7F1D1D] bg-[#FEF2F2]'
-                  )}
-                  role="status"
-                  data-testid="text-box-check"
-                >
-                  {boxCheck.matches
-                    ? `Right box. ${boxCheck.orderNo}${
-                        boxCheck.piece
-                          ? `, box ${boxCheck.piece}${boxCheck.pieces ? ` of ${boxCheck.pieces}` : ''}`
-                          : ''
-                      }.`
-                    : `Wrong box. This label is for ${boxCheck.orderNo}, not this pickup.`}
-                </p>
-              )}
-              <ScanParcelButton
-                surface="agent"
-                label={boxCheck ? 'Check another box' : 'Check box'}
-                testId="button-check-box"
-                className="bg-white! text-[#1B2A41]! border-2 border-[#1B2A41]!"
-                onResolved={(hit) =>
-                  setBoxCheck({
-                    matches: hit.orderId === order.id,
-                    orderNo: hit.orderNo,
-                    piece: hit.piece ?? null,
-                    pieces: hit.pieces ?? null,
-                  })
-                }
-              />
-            </div>
-          )}
 
           {/* The two things done with a phone, one hairline apart. */}
           <div className="flex border-t border-[#E8EDF2]!">

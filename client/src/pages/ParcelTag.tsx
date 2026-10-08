@@ -149,10 +149,18 @@ export default function ParcelTag() {
       >
         {data.statusLabel}
       </h1>
-      <p className="mt-1.5 text-sm text-muted-foreground">
-        {data.destination && (
+      {/* Route, as bombinoexp.com's tracking shows it: cities only. */}
+      {(data.origin || data.destination) && (
+        <p className="mt-2 flex items-center gap-2 text-[15px] font-semibold text-foreground">
+          <span className="truncate">{data.origin || '—'}</span>
+          <ArrowRight className="w-4 h-4 shrink-0 text-[#F2A123]" aria-label="to" />
+          <span className="truncate">{data.destination || '—'}</span>
+        </p>
+      )}
+      <p className="mt-1 text-sm text-muted-foreground">
+        {data.service && (
           <>
-            To <span className="text-foreground/85">{data.destination}</span>
+            {data.service}
             <span className="mx-1.5">·</span>
           </>
         )}
@@ -225,18 +233,38 @@ export default function ParcelTag() {
         <div className="grid gap-x-10 gap-y-7 md:grid-cols-2">
           <Group title="Shipment">
             <Row label="Parcel ID" value={data.parcelId} />
-            <Row label="Destination" value={data.destination} />
+            <Row label="Service" value={data.service} />
+            <Row label="Forwarding no." value={data.forwardingNo} />
             <Row label="Pieces" value={data.pieces} />
-            <Row
-              label="Weight"
-              value={data.bookedWeightKg != null ? `${data.bookedWeightKg} kg (booked)` : null}
-            />
-            <Row label="Handover" value={data.isPickup ? 'Agent pickup' : 'Drop-off at a counter'} />
-            {staff && <Row label="Contents" value={staff.contents} />}
+            {/* Ops only: the rest of the booking. */}
+            {staff && (
+              <>
+                <Row
+                  label="Weight"
+                  value={data.bookedWeightKg != null ? `${data.bookedWeightKg} kg (booked)` : null}
+                />
+                <Row label="Handover" value={data.isPickup ? 'Agent pickup' : 'Drop-off at a counter'} />
+                <Row label="Contents" value={staff.contents} />
+              </>
+            )}
           </Group>
 
+          {/* Once shipped, the carrier's scans lead, newest first, with place
+              and time, as on bombinoexp.com. Bombino's own steps follow. */}
+          {data.carrierEvents.length > 0 && (
+            <Group title="Tracking">
+              {data.carrierEvents.map((ev, i) => (
+                <Row
+                  key={`c-${ev.at}-${i}`}
+                  label={niceDateTime(ev.at)}
+                  value={ev.location ? `${ev.label}\n${ev.location}` : ev.label}
+                />
+              ))}
+            </Group>
+          )}
+
           {events.length > 0 && (
-            <Group title="Updates">
+            <Group title={data.carrierEvents.length > 0 ? 'Before it shipped' : 'Updates'}>
               {events.map((ev, i) => (
                 <Row key={`${ev.at}-${i}`} label={niceDateTime(ev.at)} value={ev.label} />
               ))}

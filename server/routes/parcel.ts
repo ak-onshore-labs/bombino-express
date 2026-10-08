@@ -43,7 +43,8 @@ import {
   type Order,
   type OrderStatus,
 } from "../../shared/orderContract.js";
-import type { ParcelScanResult, ParcelTagParty, ParcelTagView } from "../../shared/parcelTag.js";
+import type { ParcelScanResult, ParcelTagEvent, ParcelTagParty, ParcelTagView } from "../../shared/parcelTag.js";
+import { itdClient } from "../itd.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -142,6 +143,41 @@ function party(
   return { name, company, phone, address: lines.filter(Boolean).join("\n") };
 }
 
+/**
+ * The carrier's scans for a dispatched parcel, newest first, with only what
+ * bombinoexp.com's tracking shows: event, place, time. Cached five minutes so
+ * a label scanned repeatedly does not cost an ITD call each time. Null when
+ * ITD has nothing or does not answer; the page then shows Bombino's own steps.
+ */
+const carrierCache = new Map<string, { at: number; value: { events: ParcelTagEvent[]; forwardingNo: string | null } }>();
+const CARRIER_TTL_MS = 5 * 60 * 1000;
+
+async function carrierTracking(
+  awb: string
+): Promise<{ events: ParcelTagEvent[]; forwardingNo: string | null } | null> {
+  const hit = carrierCache.get(awb);
+  if (hit && Date.now() - hit.at < CARRIER_TTL_MS) return hit.value;
+  try {
+    const results = await itdClient.trackShipment(awb);
+    const r = results?.[0];
+    if (!r || r.errors) return null;
+    const events = (r.docket_events ?? [])
+      .map((e) => ({
+        at: e.event_at,
+        label: (e.event_description ?? "").trim(),
+        location: (e.event_location ?? "").trim() || null,
+      }))
+      .filter((e) => e.label)
+      .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+    const value = { events, forwardingNo: (r.forwarding_no ?? "").trim() || null };
+    carrierCache.set(awb, { at: Date.now(), value });
+    return value;
+  } catch (err) {
+    console.error("[parcel] carrier tracking failed:", err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 // The public page needs no login, so it is what a scraper would hit. A label
 // is read a handful of times in its life; 60 an hour per address is generous.
 const publicLimiter = new FixedWindowLimiter(60 * 60 * 1000);
@@ -208,10 +244,13 @@ export function registerParcelRoutes(app: Express): void {
     // Any staff scan shows the whole order. A box can reach any agent or any
     // hub hand (a reassignment, a handover between agents, a counter), and the
     // label exists so they can act on it, not to send them looking elsewhere.
-    const showStaff = role !== null;
+    // Client details (names, phones, addresses, contents) for ops only.
+    // Everyone else who scans a box, agents included, gets the tracking view.
+    const showStaff = role === "ops";
     const origin = order.origin_address;
 
     const storedParcelId = parcelIdOf(order);
+    const carrier = order.awb_no && order.status === "dispatched" ? await carrierTracking(order.awb_no) : null;
     const view: ParcelTagView = {
       orderNo: order.order_no,
       parcelId: storedParcelId ? formatParcelId(storedParcelId) : null,
@@ -219,11 +258,15 @@ export function registerParcelRoutes(app: Express): void {
       status: order.status,
       statusLabel: deriveCustomerStatus(order),
       isPickup: order.pickup_request === 1,
+      origin: [order.origin_address?.city, order.origin_address?.state].filter(Boolean).join(", "),
       destination: destinationOf(order),
+      service: str(order.items, "api_service_code"),
       pieces: str(order.items, "pcs"),
-      bookedWeightKg: order.booked_weight,
       bookedAt: order.created_at,
       events,
+      carrierEvents: carrier?.events ?? [],
+      forwardingNo: carrier?.forwardingNo ?? null,
+      bookedWeightKg: showStaff ? order.booked_weight : null,
       staff: showStaff && role
         ? {
             orderId: order.id,

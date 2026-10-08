@@ -24,7 +24,22 @@ import { useLocation } from 'wouter';
 import { decodeImageFile, startCamera, type CameraControls } from '@/lib/barcodeScanner';
 import { Camera, Flashlight, Loader2, ScanLine, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { isIosApp } from '@/lib/platform';
+import { useKeyboardOverlay } from '@/lib/keyboardInset';
 import type { ParcelScanResult } from '@shared/parcelTag';
+
+/**
+ * The iOS app shell does not yet declare camera permission
+ * (NSCameraUsageDescription), so iOS terminates the app the moment a page
+ * opens the camera, and its web view exposes no live camera either. Until the
+ * shell ships with it, the iOS app offers typing only. Safari and Android are
+ * unaffected. Flip to true once the shell has the permission.
+ */
+const IOS_APP_HAS_CAMERA_PERMISSION = false;
+
+function cameraUsable(): boolean {
+  return !isIosApp() || IOS_APP_HAS_CAMERA_PERMISSION;
+}
 
 type Surface = 'agent' | 'ops';
 
@@ -105,6 +120,9 @@ export function ScanParcelSheet({
   };
 
   const big = surface === 'agent';
+  const camera = cameraUsable();
+  // Keep the number field above the on-screen keyboard (lib/keyboardInset.ts).
+  useKeyboardOverlay();
 
   const handle = async (raw: string): Promise<void> => {
     const q = raw.trim();
@@ -135,6 +153,15 @@ export function ScanParcelSheet({
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
+    if (!cameraUsable()) {
+      setStarting(false);
+      setCameraFailed(true);
+      setProblem({
+        kind: 'camera',
+        message: 'Camera scanning is not available in the iOS app yet. Type the parcel ID, order number or AWB below.',
+      });
+      return;
+    }
     let cancelled = false;
     startCamera(video, (text) => void handle(text))
       .then((controls) => {
@@ -179,7 +206,9 @@ export function ScanParcelSheet({
 
   return (
     <div
-      className="fixed inset-0 z-[120] bg-[#0B1620] text-white flex flex-col safe-top"
+      className="fixed inset-x-0 z-[120] bg-[#0B1620] text-white flex flex-col safe-top"
+      // Pinned to the area above the keyboard, so typing never hides the field.
+      style={{ top: 'var(--vv-top, 0px)', height: 'var(--visible, 100dvh)' }}
       role="dialog"
       aria-modal="true"
       aria-label="Scan parcel"
@@ -198,7 +227,7 @@ export function ScanParcelSheet({
         </button>
       </div>
 
-      <div className="relative flex-1 min-h-0 overflow-hidden bg-black">
+      <div className={cn('relative min-h-0 overflow-hidden bg-black', camera ? 'flex-1' : 'hidden')}>
         <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover" muted playsInline />
         {/* Aim box. Square, centred, the same on every screen. */}
         <div className="absolute inset-0 grid place-items-center pointer-events-none" aria-hidden>
@@ -226,7 +255,7 @@ export function ScanParcelSheet({
         )}
       </div>
 
-      <div className="shrink-0 bg-white text-foreground px-4 pt-4 pb-6 safe-bottom">
+      <div className={cn('bg-white text-foreground px-4 pt-4 pb-6 safe-bottom', camera ? 'shrink-0' : 'flex-1 overflow-y-auto')}>
         {problem && (
           <div
             className="mb-3 rounded-lg px-3.5 py-3 text-sm leading-snug bg-red-50 text-red-900"
@@ -239,6 +268,7 @@ export function ScanParcelSheet({
 
         {/* The phone's own camera, through the photo picker. First and filled
             when the live camera failed, a quiet extra otherwise. */}
+        {camera && (
         <input
           ref={photoRef}
           type="file"
@@ -249,6 +279,8 @@ export function ScanParcelSheet({
           onChange={(e) => void scanPhoto(e.target.files?.[0])}
           data-testid="input-scan-photo"
         />
+        )}
+        {camera && (
         <button
           type="button"
           onClick={() => photoRef.current?.click()}
@@ -265,6 +297,7 @@ export function ScanParcelSheet({
           <Camera className={big ? 'w-5 h-5' : 'w-4 h-4'} />
           Take a photo of the code
         </button>
+        )}
 
         <form
           onSubmit={(e) => {

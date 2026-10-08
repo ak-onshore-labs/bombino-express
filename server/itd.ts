@@ -406,7 +406,7 @@ class ITDClient {
     const authToken = token ?? (await this.getToken());
     const params = new URLSearchParams({
       api_company_id: process.env.ITD_API_COMPANY_ID ?? "2",
-      customer_code: customerCode ?? process.env.ITD_CUSTOMER_CODE ?? "",
+      customer_code: customerCode ?? (await this.sharedCustomerCode()),
       tracking_no: trackingNo,
     });
 

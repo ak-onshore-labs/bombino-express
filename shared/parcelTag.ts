@@ -1,14 +1,18 @@
 /**
  * What the public parcel page (`/p/:token`) is told.
  *
- * Anyone holding the box can open it, so the base view carries nothing that
- * identifies a person: no names, phones, emails or street addresses. Any
- * signed-in agent or ops user gets `staff` on top.
+ * Anyone holding the box can open it, so the base view is tracking only, the
+ * same fields bombinoexp.com's tracking page shows: status, origin and
+ * destination cities, service, AWB, forwarding number and the carrier's scans.
+ * No names, phones, emails, street addresses, contents or weights. Ops users
+ * get `staff` on top; nobody else does, agents included.
  */
 
 export interface ParcelTagEvent {
   at: string;
   label: string;
+  /** Where it happened, for carrier scans ("MUMBAI, MH"). */
+  location?: string | null;
 }
 
 export interface ParcelTagParty {
@@ -28,11 +32,19 @@ export interface ParcelTagView {
   /** Customer-facing phrase. */
   statusLabel: string;
   isPickup: boolean;
+  /** City level only: "Raigarh, Maharashtra". */
+  origin: string;
   destination: string;
+  service: string | null;
   pieces: string | null;
-  bookedWeightKg: number | null;
   bookedAt: string;
+  /** Bombino's own steps, before the carrier has the parcel. */
   events: ParcelTagEvent[];
+  /** The carrier's scans once shipped, newest first (as the website shows). */
+  carrierEvents: ParcelTagEvent[];
+  forwardingNo: string | null;
+  /** Ops only. */
+  bookedWeightKg: number | null;
   staff: {
     orderId: string;
     role: 'ops' | 'agent';

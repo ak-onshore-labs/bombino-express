@@ -8,7 +8,6 @@ import { StaggerItem } from '@/components/motion/Stagger';
 import { bandForDate, isTodaysWork } from '@/lib/agentGrouping';
 import { useMyPickups, useCollections } from '@/hooks/useAgentPickups';
 import { todayInIst } from '@shared/istTime';
-import { ScanParcelButton } from '@/components/ScanParcelSheet';
 
 /**
  * The agent's home. Two things and nothing else.
@@ -77,8 +76,6 @@ export default function Dashboard() {
 
   return (
     <AgentShell gap={22}>
-      {/* A guest's box carries our QR, not an AWB: scanning it opens the job. */}
-      <ScanParcelButton surface="agent" />
       {isLoading ? (
         <div className="flex items-center justify-center gap-2.5 py-20 text-[#64748B]">
           <Loader2 className="w-5 h-5 animate-spin" />
