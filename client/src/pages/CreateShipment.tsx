@@ -1475,7 +1475,7 @@ export default function CreateShipment() {
                 </p>
                 <div className="mt-3">
                   <PdfDocButton
-                    text="Box label"
+                    text="View box label"
                     title="Box label"
                     fileName={`${newOrderNo}-box-label.pdf`}
                     primary

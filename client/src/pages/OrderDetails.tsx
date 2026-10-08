@@ -680,7 +680,7 @@ export default function OrderDetails() {
             testId="card-box-label"
           >
             <PdfDocButton
-              text="Box label"
+              text="View box label"
               title="Box label"
               fileName={`${order.order_no}-box-label.pdf`}
               primary
@@ -1038,6 +1038,31 @@ export default function OrderDetails() {
       {/* After the parcel has gone the labels stop being a task, but copies
           and the invoice are still worth having. */}
       {isLoggedIn && order.awb_no && isDispatched && <DocumentsSection awb={order.awb_no} />}
+
+      {/* The QR box label, for as long as it is the parcel's label (no AWB
+          yet). Before handover it is also a to-do above; this keeps it
+          reachable afterwards, e.g. to reprint one that came off in transit. */}
+      {data.boxLabel && !showBoxLabel && (
+        <Section title="Box label" id="box-label">
+          <p className="text-[13px] text-muted-foreground leading-relaxed mb-3">
+            The label on your box: order number and a QR our team scans.
+          </p>
+          <PdfDocButton
+            text="View box label"
+            title="Box label"
+            fileName={`${order.order_no}-box-label.pdf`}
+            testId="button-box-label-section"
+            fetchBase64={() =>
+              fetchPdfBase64(
+                `/api/orders/${encodeURIComponent(order.order_no)}/box-label`,
+                'boxLabel',
+                'Box label',
+                toast
+              )
+            }
+          />
+        </Section>
+      )}
 
       {/* ─── What happened ────────────────────────────────────────────────── */}
       {updates}
