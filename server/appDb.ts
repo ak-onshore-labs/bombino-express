@@ -109,18 +109,6 @@ export async function findItdUserIdByPhone(phone: string): Promise<{ id: string 
 }
 
 /**
- * Seeded customer test accounts that stay accounts although they have no ITD
- * login: the e2e suite and BIA evals sign in with them as account holders.
- * From the team's "Test Accounts" sheet (8 Oct 2026). In code on purpose, not
- * an env var.
- */
-const TEST_CUSTOMER_ACCOUNTS: ReadonlySet<string> = new Set([
-  "9000000090", // Test Customer (seed), owns the seeded orders
-  "9000000016", // E2E Test Logistics (company)
-  "9000000095", // E2E Customer Two
-]);
-
-/**
  * The account a number signs in to, or null when it signs in as a guest.
  *
  * Two kinds of customer exist: guests, and accounts with a verified ITD email
@@ -129,7 +117,7 @@ const TEST_CUSTOMER_ACCOUNTS: ReadonlySet<string> = new Set([
  *
  * Staff are always accounts. Agents and ops have no ITD login at all, and
  * treating them as guests locked every one of them out of phone sign-in.
- * The seeded test customers above stay accounts too.
+ * Test customers get no exception: without an ITD login they are guests too.
  *
  * Phone-uniqueness checks keep using `findItdUserIdByPhone`, which sees every
  * row.
@@ -154,7 +142,6 @@ export async function findItdAccountByPhone(phone: string): Promise<{ id: string
   const isCustomer = !row.role || row.role === "customer";
   if (!isCustomer) return { id: row.id };
   if (row.itd_password_encrypted) return { id: row.id };
-  if (TEST_CUSTOMER_ACCOUNTS.has(phone)) return { id: row.id };
   return null;
 }
 
