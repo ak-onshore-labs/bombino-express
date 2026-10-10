@@ -4309,13 +4309,17 @@ export default function CreateShipment() {
       )}
 
       {pickupDatePickerOpen && (
+        // Sized to the visible area (--vv-top, --vh from keyboardInset.ts),
+        // not inset-0/vh: in the iOS app WebView those can run past the
+        // screen's bottom and cut the calendar's last weeks off.
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50"
+          className="fixed inset-x-0 z-50 flex items-end justify-center bg-black/50 h-viewport"
+          style={{ top: 'var(--vv-top, 0px)' }}
           onClick={() => setPickupDatePickerOpen(false)}
           role="presentation"
         >
           <div
-            className="w-full max-w-lg bg-white rounded-t-2xl max-h-[80vh] overflow-y-auto shadow-xl"
+            className="w-full max-w-lg bg-white rounded-t-2xl max-h-[90%] overflow-y-auto shadow-xl pb-[env(safe-area-inset-bottom,0px)]"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -4351,7 +4355,6 @@ export default function CreateShipment() {
                 // Everything before the earliest bookable date is off: today
                 // up to the hub's cutoff, tomorrow from the cutoff onwards.
                 disabled={{ before: new Date(`${earliestDate}T00:00:00`) }}
-                autoFocus
                 className="w-full [--cell-size:2.75rem]"
                 classNames={{ root: 'w-full' }}
               />
