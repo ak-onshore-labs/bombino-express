@@ -2532,7 +2532,8 @@ export default function CreateShipment() {
                     </Label>
                     <button
                       type="button"
-                      onClick={() => setPickupDatePickerOpen(true)}
+                      onClick={() => setPickupDatePickerOpen((open) => !open)}
+                      aria-expanded={pickupDatePickerOpen}
                       className={cn(
                         fieldBorderClass('pickupDate'),
                         'w-full flex items-center justify-between px-3 text-left'
@@ -2546,6 +2547,43 @@ export default function CreateShipment() {
                       </span>
                       <CalendarIcon className="w-4 h-4 shrink-0 text-muted-foreground" aria-hidden />
                     </button>
+                    {/* Opens in place, under the field. A bottom sheet came out
+                        clipped in the iOS app's WebView; inline needs no
+                        fixed positioning or screen-height maths. */}
+                    {pickupDatePickerOpen && (
+                      <div
+                        className="mt-2 rounded-xl border border-border bg-white p-2"
+                        data-testid="panel-pickup-date"
+                      >
+                        <Calendar
+                          mode="single"
+                          selected={pickupDate ? new Date(`${pickupDate}T00:00:00`) : undefined}
+                          onSelect={(date) => {
+                            if (!date) return;
+                            const iso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+                            setPickupDate(iso);
+                            clearFieldError('pickupDate');
+                            setPickupDatePickerOpen(false);
+                          }}
+                          // Everything before the earliest bookable date is off: today
+                          // up to the hub's cutoff, tomorrow from the cutoff onwards.
+                          disabled={{ before: new Date(`${earliestDate}T00:00:00`) }}
+                          className="w-full [--cell-size:2.75rem]"
+                          classNames={{ root: 'w-full' }}
+                        />
+                        {/* Say why today is greyed out. An unexplained disabled date
+                            reads as a bug; a reason reads as a fact. */}
+                        {cutoffPassed && (
+                          <p
+                            className="text-xs text-muted-foreground mt-3 text-center"
+                            data-testid="text-pickup-cutoff"
+                          >
+                            Bookings made after {formatCutoffHour(pickupCutoff)} are collected from the
+                            next day.
+                          </p>
+                        )}
+                      </div>
+                    )}
                     {fieldErrors.pickupDate && (
                       <p className="text-xs text-red-600 mt-1">This field is required</p>
                     )}
@@ -4303,72 +4341,6 @@ export default function CreateShipment() {
               >
                 {pendingService ? 'Confirm Selection' : 'Select a service to continue'}
               </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {pickupDatePickerOpen && (
-        // Sized to the visible area (--vv-top, --vh from keyboardInset.ts),
-        // not inset-0/vh: in the iOS app WebView those can run past the
-        // screen's bottom and cut the calendar's last weeks off.
-        <div
-          className="fixed inset-x-0 z-50 flex items-end justify-center bg-black/50 h-viewport"
-          style={{ top: 'var(--vv-top, 0px)' }}
-          onClick={() => setPickupDatePickerOpen(false)}
-          role="presentation"
-        >
-          <div
-            className="w-full max-w-lg bg-white rounded-t-2xl max-h-[90%] overflow-y-auto shadow-xl pb-[env(safe-area-inset-bottom,0px)]"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="pickup-date-sheet-title"
-          >
-            <div className="flex justify-center pt-3 pb-1">
-              <div className="w-10 h-1 bg-gray-200 rounded-full" />
-            </div>
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-              <h3 id="pickup-date-sheet-title" className="font-semibold text-base text-gray-900">
-                Choose pickup date
-              </h3>
-              <button
-                type="button"
-                onClick={() => setPickupDatePickerOpen(false)}
-                className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200 transition-colors"
-                aria-label="Close"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="p-4">
-              <Calendar
-                mode="single"
-                selected={pickupDate ? new Date(`${pickupDate}T00:00:00`) : undefined}
-                onSelect={(date) => {
-                  if (!date) return;
-                  const iso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-                  setPickupDate(iso);
-                  clearFieldError('pickupDate');
-                  setPickupDatePickerOpen(false);
-                }}
-                // Everything before the earliest bookable date is off: today
-                // up to the hub's cutoff, tomorrow from the cutoff onwards.
-                disabled={{ before: new Date(`${earliestDate}T00:00:00`) }}
-                className="w-full [--cell-size:2.75rem]"
-                classNames={{ root: 'w-full' }}
-              />
-              {/* Say why today is greyed out. An unexplained disabled date
-                  reads as a bug; a reason reads as a fact. */}
-              {cutoffPassed && (
-                <p
-                  className="text-xs text-muted-foreground mt-3 text-center"
-                  data-testid="text-pickup-cutoff"
-                >
-                  Bookings made after {formatCutoffHour(pickupCutoff)} are collected from the
-                  next day.
-                </p>
-              )}
             </div>
           </div>
         </div>
