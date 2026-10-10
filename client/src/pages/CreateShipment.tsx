@@ -2713,10 +2713,23 @@ export default function CreateShipment() {
                   clearFieldError('destinationCountry');
                 }}
               />
-              {fieldErrors.destinationCountry && (
+              {fieldErrors.destinationCountry ? (
                 <p className="text-xs text-red-600 mt-1">Select the destination country</p>
+              ) : (
+                !destinationCountry && (
+                  <p className="text-xs text-muted-foreground mt-1" data-testid="text-receiver-country-first">
+                    Choose the destination country first to add the receiver's details.
+                  </p>
+                )
               )}
             </div>
+            {/* Receiver details stay locked until a country is chosen: postal
+                code lookup, state list and phone format all depend on it. */}
+            <fieldset
+              disabled={!destinationCountry}
+              className={cn('space-y-4 min-w-0', !destinationCountry && 'opacity-50')}
+              data-testid="fieldset-receiver-details"
+            >
             <AddressPicker
               type="recipient"
               isLoggedIn={isLoggedIn}
@@ -2909,6 +2922,7 @@ export default function CreateShipment() {
                 </div>
               </div>
             </div>
+            </fieldset>
 
             <StepActions
               stepError={stepError}
