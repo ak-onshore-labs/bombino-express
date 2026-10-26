@@ -27,7 +27,7 @@
  */
 
 import type { Order } from "../shared/orderContract.js";
-import { deriveCustomerStatus, isInternalOnlyStatus } from "../shared/orderContract.js";
+import { deriveCustomerStatus, isInternalOnlyStatus, readAgentCancellation } from "../shared/orderContract.js";
 import { insertNotification, insertOrderStatusNotification, type NotificationOwner } from "./appDb.js";
 import { customerStatusDetail } from "./notificationCopy.js";
 import { destinationOf } from "./notificationRefs.js";
@@ -36,13 +36,23 @@ import { sendTemplate } from "./whatsapp.js";
 import { getWhatsappRecipient } from "./whatsappDb.js";
 import { getAgent, listAgentsForPincode } from "./whatsappAgents.js";
 import { getCodeForOwner } from "./handoverCodes.js";
+import { isRazorpayConfigured } from "./razorpay.js";
+import { getSupportContacts } from "./settingsDb.js";
 import {
+  accountDecisionMessage,
+  extraChargeDueMessage,
+  pickupReassigningMessage,
+  type AccountDecision,
+  agentJobAssignedMessage,
   agentJobCancelledMessage,
   agentNewJobMessage,
   agentOnTheWayMessage,
+  agentPickupCancelledMessage,
   cancellationDeclinedMessage,
   handoverCodeMessage,
   dispatchedMessage,
+  NEW_TEMPLATES_LIVE,
+  orderArea,
   orderBookedMessage,
   paymentFailedMessage,
   paymentReceivedMessage,
@@ -70,8 +80,10 @@ function dedupeKey(scope: string, message: WhatsappMessage): string {
  * the transport already handles, but a genuine throw — still cannot reach the
  * caller. Everything above this line is a lifecycle handler that has already
  * committed a status change it cannot roll back.
+ *
+ * Exported for `notifyStaff.ts`, which picks its own recipients.
  */
-async function deliver(input: {
+export async function deliver(input: {
   message: WhatsappMessage;
   to: string | null;
   userId: string | null;
@@ -321,6 +333,13 @@ async function buildCustomerMessage(order: Order): Promise<WhatsappMessage | nul
 
     case "weighed": {
       if (order.quoted_amount === null || order.final_amount === null) return null;
+      // Without the gateway the app cannot take the difference, so the
+      // customer is asked to call rather than told to pay in the app.
+      const extra = Math.round(order.final_amount - order.quoted_amount);
+      if (NEW_TEMPLATES_LIVE && extra > 0 && !isRazorpayConfigured()) {
+        const { officePhone } = await getSupportContacts();
+        return extraChargeDueMessage({ order, extra, supportPhone: officePhone });
+      }
       return repriceMessage({
         order,
         quoted: order.quoted_amount,
@@ -350,7 +369,9 @@ async function notifyAgentOfDisruption(order: Order): Promise<void> {
   if (!agent) return;
 
   await deliver({
-    message: agentJobCancelledMessage({ order, cancelled: true }),
+    message: NEW_TEMPLATES_LIVE
+      ? agentPickupCancelledMessage({ order, area: orderArea(order) })
+      : agentJobCancelledMessage({ order, cancelled: true }),
     to: agent.phone,
     userId: agent.id,
     orderId: order.id,
@@ -452,13 +473,71 @@ export async function notifyCancellationDeclined(input: {
         })
       : Promise.resolve(),
     deliver({
-      message: cancellationDeclinedMessage(input),
+      message: cancellationDeclinedMessage({ ...input, supportPhone: (await getSupportContacts()).officePhone }),
       to: await orderCustomerPhone(order),
       userId: order.user_id,
       orderId: order.id,
       scope: order.id,
     }),
   ]);
+}
+
+/**
+ * The branch gave an agent a pickup. Since 6 Oct 2026 this is the only way an
+ * agent gets one, so it is the agent's only word that there is a job at all.
+ */
+export async function notifyAgentOfAssignment(order: Order): Promise<void> {
+  if (!order.agent_id) return;
+
+  const agent = await getAgent(order.agent_id);
+  if (!agent) return;
+
+  await deliver({
+    message: agentJobAssignedMessage({ order, area: orderArea(order), at: order.updated_at }),
+    to: agent.phone,
+    userId: agent.id,
+    orderId: order.id,
+    scope: `${order.id}:agent:${agent.id}`,
+  });
+}
+
+/**
+ * The agent handed the customer's pickup back before collecting it.
+ *
+ * The order goes back to waiting for an agent, which the status fan-out stays
+ * quiet about (it would read as the pickup going backwards). This says the
+ * one thing the customer needs: it is being handled, and nothing is needed
+ * from them. The next agent's confirmation follows as usual.
+ */
+export async function notifyPickupReassigning(order: Order): Promise<void> {
+  const cancellation = readAgentCancellation(order);
+  await deliver({
+    message: pickupReassigningMessage({ order, at: cancellation?.at ?? order.updated_at }),
+    to: await orderCustomerPhone(order),
+    userId: order.user_id,
+    orderId: order.id,
+    scope: order.id,
+  });
+}
+
+/**
+ * An account request approved, sent back or declined. Alongside the email and
+ * the bell row, which stay the full story; this is the nudge to go and read it.
+ */
+export async function notifyAccountDecision(input: {
+  applicationId: string;
+  phone: string;
+  userId: string | null;
+  decision: AccountDecision;
+  at: string;
+}): Promise<void> {
+  await deliver({
+    message: accountDecisionMessage(input.decision, input.at),
+    to: input.phone,
+    userId: input.userId,
+    orderId: null,
+    scope: `application:${input.applicationId}`,
+  });
 }
 
 /**

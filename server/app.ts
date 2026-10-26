@@ -36,6 +36,7 @@ import { warnIfOcrBypassEnabled } from "./cashfreeOcr.js";
 import { warnIfIdentityBypassEnabled } from "./cashfreeIdentity.js";
 import { isDocketAtBookingEnabled, warnIfDocketAtBookingEnabled } from "./docketAtBooking.js";
 import { startDocketRetryTimer } from "./docketFiling.js";
+import { isScheduleTimerEnabled, startScheduleTimer } from "./staffSchedule.js";
 import { warnIfMailerMissing } from "./mailer.js";
 import { assertFieldCryptoConfigured } from "./fieldCrypto.js";
 import { supabase } from "./supabaseClient.js";
@@ -377,6 +378,10 @@ export async function createApp(): Promise<{ app: Express; httpServer: Server }>
   // a document since added). Only where real dockets are filed at all: there
   // is no ITD sandbox, so a development server must never file one.
   if (isDocketAtBookingEnabled()) startDocketRetryTimer();
+  // The scheduled WhatsApp runs: agents' morning list, the team's reminders
+  // and daily summary. Production only, for the same reason: local servers
+  // share the production database and real staff phone numbers.
+  if (isScheduleTimerEnabled()) startScheduleTimer();
   warnIfMailerMissing();
 
   await registerRoutes(httpServer, app);

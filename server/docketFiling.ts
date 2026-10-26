@@ -57,6 +57,7 @@ import { getAddressCityPincode } from "./opsDb.js";
 import { itdRateLookup, itdRatesLoginFor } from "./opsActions.js";
 import { persistShipmentAfterCreate } from "./persistShipment.js";
 import { kycForOrder } from "./kycPolicy.js";
+import { notifyStaffOfDocketProblem } from "./notifyStaff.js";
 
 /** What the person waiting (the booking screen, an ops click) waits for. */
 const ANSWER_WAIT_MS = 15_000;
@@ -135,6 +136,7 @@ async function fail(
 ): Promise<FileDocketResult> {
   console.error(`[docketFiling] ${order.order_no} ${detail.stage} (${detail.retry}): ${detail.message}`);
   await recordBookingDocketError(order.id, detail);
+  void notifyStaffOfDocketProblem(order, detail);
   return { status: "failed", ...detail };
 }
 
@@ -476,11 +478,13 @@ export async function retryDocketsDue(opts: { userId?: string; force?: boolean }
     }
 
     if (attempts >= DOCKET_AUTO_ATTEMPTS) {
-      await recordBookingDocketError(order.id, {
+      const handover = {
         stage: err?.stage ?? "create_docket",
-        retry: "ops",
+        retry: "ops" as const,
         message: `${err?.message ?? "Filing failed."} Stopped retrying after ${attempts} attempts.`,
-      });
+      };
+      await recordBookingDocketError(order.id, handover);
+      void notifyStaffOfDocketProblem(order, handover);
       report.handedToOps += 1;
       continue;
     }

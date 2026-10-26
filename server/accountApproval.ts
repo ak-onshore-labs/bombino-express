@@ -52,6 +52,7 @@ import { decryptPassword, encryptPassword, isEncryptionConfigured } from "./cryp
 import { itdClient, type ITDUserInfo } from "./itd.js";
 import { itdTokenExpiryIso, withTimeout } from "./itdTokenRefresh.js";
 import { sendMail } from "./mailer.js";
+import { notifyAccountDecision } from "./notify.js";
 import { accountReadyEmail, type DocumentOnFile } from "./accountEmails.js";
 import { signContractPdf } from "./contractPdf.js";
 import {
@@ -345,6 +346,13 @@ export async function finalizeApplication(
       title: "Your account is ready",
       body: "The Bombino team has opened your account. Your guest bookings are in Orders.",
       data: { application_id: app.id },
+    });
+    void notifyAccountDecision({
+      applicationId: app.id,
+      phone: app.phone,
+      userId,
+      decision: { kind: "approved" },
+      at: app.decided_at ?? app.updated_at ?? new Date().toISOString(),
     });
   }
 

@@ -25,6 +25,8 @@ import { upsertGuestProfile } from "./guestProfileDb.js";
 import { getKycByGuestRef } from "./kycDb.js";
 import { mirrorAadhaarToKyc } from "./kycMirror.js";
 import { sendMail } from "./mailer.js";
+import { notifyAccountDecision } from "./notify.js";
+import { notifyStaffOfApplication } from "./notifyStaff.js";
 import { isTestPhone } from "./testOrders.js";
 import { applicationAlertEmail, applicationReceivedEmail, changesRequestedEmail, rejectedEmail } from "./accountEmails.js";
 import { getApplicationAlertRecipients } from "./opsSettings.js";
@@ -128,6 +130,14 @@ export async function fileApplication(
   // already in the queue, and they were told the first time.
   if (event !== "edited") {
     void notifyTeamOfApplication(row, event === "resubmitted");
+    void notifyStaffOfApplication({
+      applicationId: row.id,
+      resent: event === "resubmitted",
+      name: (row.account_type === "company" ? row.details.company_name : row.details.full_name) || `+91 ${row.phone}`,
+      accountType: accountTypeLabel(row),
+      phone: row.phone,
+      at: new Date().toISOString(),
+    });
     void notifyCustomerReceived(row, event === "resubmitted");
   }
 
@@ -328,6 +338,13 @@ export async function notifyChangesRequested(app: ApplicationRow): Promise<void>
     body: changes.note || `Please update: ${listed}.`,
     data: { application_id: app.id },
   });
+  void notifyAccountDecision({
+    applicationId: app.id,
+    phone: app.phone,
+    userId: null,
+    decision: { kind: "sent_back" },
+    at: new Date().toISOString(),
+  });
   const email = changesRequestedEmail({ name: customerName(app), note: changes.note, fieldLabels, documentLabels });
   const sent = await sendMail({ to: app.details.email, ...email });
   await insertApplicationEvent({
@@ -346,6 +363,13 @@ export async function notifyRejected(app: ApplicationRow): Promise<void> {
     title: "Account not opened",
     body: reason,
     data: { application_id: app.id },
+  });
+  void notifyAccountDecision({
+    applicationId: app.id,
+    phone: app.phone,
+    userId: null,
+    decision: { kind: "declined", reason: reason || null },
+    at: new Date().toISOString(),
   });
   const sent = await sendMail({ to: app.details.email, ...rejectedEmail({ name: customerName(app), reason }) });
   await insertApplicationEvent({

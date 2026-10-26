@@ -33,7 +33,7 @@ export function isScoped(req: Request): boolean {
 }
 
 /** The pickup city of each order id. Null on a DB miss. */
-async function citiesOfOrders(ids: readonly string[]): Promise<Map<string, string | null> | null> {
+export async function citiesOfOrders(ids: readonly string[]): Promise<Map<string, string | null> | null> {
   const client = getSupabaseClient();
   if (!client) return null;
   const out = new Map<string, string | null>();

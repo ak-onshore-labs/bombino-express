@@ -56,6 +56,7 @@ store release; a store release only changes that second line.
 
 | Total | Build | Date | Target | Commit | Notes |
 |---|---|---|---|---|---|
+| 86 | V1 (Build 86.261015.2) | 17 Oct 2026 | Web (app domain, auto-deploy on push) | d8b31fb | Test staff get a Test data / Live data switch on every ops screen, replacing the All/Real/Test board filter. Pushed 17 Oct; label still carries 15 Oct because the bump was made then. |
 | 85 | V1 (Build 85.261015.1) | 15 Oct 2026 | Web (Railway bombino-staging + app domain) | 290781f | Receivers track parcels sent to their Indian mobile (new optional field at booking), signing in as guests; Orders split Sending / Receiving; Home's My parcels card with Needs your attention on top; Orders tab badge; one design for account and guest profiles; identity document Replace flow; guest progress counts full onboarding. |
 | 84 | V1 (Build 84.261014.3) | 14 Oct 2026 | Web (Railway bombino-staging + app domain) | 1fa633e | Real-view login 9000000099 (121212, super admin) sees ops as real staff: test orders hidden. |
 | 83 | V1 (Build 83.261014.2) | 14 Oct 2026 | Web (Railway bombino-staging + app domain) | ed28734 | 9833207558 (CUSTOMER MOBILE APP) is a test phone. 51 more old orders marked test by hand; only BOM-100326 and BOM-100319 stay real. |

@@ -45,6 +45,13 @@ variable, and two variables may not be **adjacent**. Every draft satisfies both.
 Sent to `itd_users.phone` — the OTP-verified account number. Never
 `addresses.phone`, which is the person at the door and is unverified.
 
+**Fallback:** `NEW_TEMPLATES_LIVE` (`server/whatsappTemplates.ts`) is on. If
+Tata again answers "Template Not Found" for the post-30 Sep templates (as it
+did 13–26 Oct 2026), set it to false and messages that have an older approved
+template use it. Booking then goes as `bombino_order_booked` (4th variable:
+quoted amount — "Estimated amount {{4}}") instead of `_v2`. The constant's
+comment lists the rest.
+
 | # | Template | Fires when | Variables | Body |
 |---|---|---|---|---|
 | 1 | `bombino_order_booked_v2` | Order created, `POST /api/orders` | 1 name, 2 order no, 3 pickup/drop-off line | Hi {{1}}, your Bombino booking is confirmed.<br><br>Order ID: {{2}}<br>{{3}}<br><br>Note: Final amount is confirmed after your parcel is weighed at our hub. |

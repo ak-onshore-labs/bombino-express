@@ -71,7 +71,7 @@ import {
   kycExistsForGuestRefs,
   kycExistsForUserIds,
 } from "../kycDb.js";
-import { notifyOrderTransition } from "../notify.js";
+import { notifyAgentOfAssignment, notifyOrderTransition } from "../notify.js";
 import { availableActions } from "../orderLifecycle.js";
 import { getOrderById, getUserContactsByIds, insertOrderEvent } from "../ordersDb.js";
 import {
@@ -758,6 +758,7 @@ export function registerOpsRoutes(app: Express): void {
         moved: true,
         actorUserId: callerId,
       });
+      void notifyAgentOfAssignment(updated);
 
       res.json({ order: updated });
     }

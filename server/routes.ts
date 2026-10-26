@@ -58,7 +58,9 @@ import {
   notifyOrderBooked,
   notifyOrderTransition,
   notifyPickupCodeRegenerated,
+  notifyPickupReassigning,
 } from "./notify.js";
+import { notifyStaffOfAction, notifyStaffOfBooking } from "./notifyStaff.js";
 import { withOrderRefs } from "./notificationRefs.js";
 import {
   getCodeForOwner,
@@ -3601,7 +3603,8 @@ export async function registerRoutes(
     //
     // No message to agents. They used to be told "first to accept gets the
     // job"; since 6 Oct 2026 the branch head assigns every pickup and agents
-    // never see the pool (`notifyAgentsOfNewJob` is no longer called).
+    // never see the pool (`notifyAgentsOfNewJob` is no longer called). The
+    // branch is told instead, so it can assign one.
     //
     // Fire-and-forget. A slow provider must not delay the Order ID the customer
     // is waiting on, and a failed message must not fail a paid-for booking.
@@ -3610,6 +3613,7 @@ export async function registerRoutes(
       order: bookedOrder,
       customerName: body.origin_address.full_name,
     });
+    void notifyStaffOfBooking(bookedOrder);
 
     // The airway bill, for the accounts that can have one now.
     //
@@ -4114,14 +4118,18 @@ export async function registerRoutes(
       // `server/notify.ts` alongside the WhatsApp half, so the two channels
       // cannot drift apart. Fire-and-forget: a provider round trip must not sit
       // in front of this response.
-      // An agent handing a pickup back is between the branch and its riders:
-      // the customer is not told their pickup went backwards, and hears from
-      // us again when the next agent is assigned.
+      // An agent handing a pickup back is not shown to the customer as a status
+      // change (it would read as the pickup going backwards). They get one
+      // message saying it is being reassigned, and hear from us again when the
+      // next agent is assigned.
       void notifyOrderTransition({
         order: settled,
         moved: transition.to !== null && action !== "release_pickup",
         actorUserId: callerId,
       });
+      if (action === "release_pickup") void notifyPickupReassigning(settled);
+      // And the team, for the moments they have to act on (notifyStaff.ts).
+      void notifyStaffOfAction({ before: order, after: settled, action, actorUserId: callerId });
 
       res.json({
         order: settled,
