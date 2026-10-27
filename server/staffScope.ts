@@ -103,11 +103,17 @@ export async function keepCallersOrders<T extends { id: string; is_test?: boolea
 /**
  * Whether the caller may see or act on this order. Unscoped callers may,
  * unless it is on the other side of their test/live data (server/testOrders.ts).
+ *
+ * Ops only. A customer or agent has no `req.staff`, and the test/live split is
+ * a console view, not theirs: without this a customer on a test phone got
+ * "Order not found" on their own order. Their own guards (customer ownership,
+ * `isOwningAgent`) still decide what they may touch.
  */
 export async function isCallersOrder(
   req: Request,
   order: { items: unknown; is_test?: boolean; metadata?: unknown }
 ): Promise<boolean> {
+  if (!req.staff) return true;
   const isTest = order.is_test === true || isTestOrderMetadata(order.metadata);
   if (isTest !== seesTestOrders(req)) return false;
   if (!isScoped(req)) return true;
