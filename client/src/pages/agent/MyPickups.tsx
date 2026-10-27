@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Link } from 'wouter';
 import { Loader2, MapPin, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -18,6 +19,7 @@ import { PressableBox } from '@/components/motion/Pressable';
 import { StaggerItem } from '@/components/motion/Stagger';
 import { BAND_LABEL, bandForEntry, bandForDate } from '@/lib/agentGrouping';
 import { useMyPickups, type PickupEntry } from '@/hooks/useAgentPickups';
+import { markJobsSeen } from '@/lib/agentSeenJobs';
 import { todayInIst } from '@shared/istTime';
 
 /**
@@ -106,6 +108,11 @@ function TodayCard({ entry, today }: { entry: PickupEntry; today: string }) {
 export default function MyPickups() {
   const { data: pickups, isLoading, isError, refetch } = useMyPickups();
   const today = todayInIst();
+
+  // Every job on this screen has now been seen: Home stops calling it new.
+  useEffect(() => {
+    if (pickups) markJobsSeen(pickups.map((entry) => entry.order.id));
+  }, [pickups]);
 
   // Late rides with today: it is work owed now, not a separate errand, and the
   // card carries its own red strip saying how late it is.
