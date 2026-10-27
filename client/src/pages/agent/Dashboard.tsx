@@ -1,11 +1,10 @@
 import { useMemo, type ReactNode } from 'react';
 import { Link } from 'wouter';
-import { BellRing, ChevronRight, ClipboardList, Loader2, UserRound, Wallet } from 'lucide-react';
+import { BellRing, ChevronRight, ClipboardList, Loader2, Wallet } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AgentShell } from '@/components/agent/AgentShell';
 import { BandHeader } from '@/components/agent/BandHeader';
 import { ActiveJobPanel } from '@/components/agent/ActiveJobCard';
-import { GoogleMapsIcon } from '@/components/agent/GoogleMapsIcon';
 import { JobCard, money } from '@/components/agent/PickupCard';
 import { PressableBox } from '@/components/motion/Pressable';
 import { StaggerItem } from '@/components/motion/Stagger';
@@ -19,7 +18,7 @@ import { todayInIst } from '@shared/istTime';
  *
  *   NEW JOB    — only when the branch assigned a job this phone has not shown
  *                yet; one tap to My jobs
- *   SHORTCUTS  — four big tiles: My jobs, Cash with you, Directions, Profile
+ *   SHORTCUTS  — two big tiles: My jobs (with a count of new jobs), Cash with you
  *   DOING NOW  — the job furthest along, the one physically in their hands
  *
  * Since 6 Oct 2026 agents are not shown new bookings: the branch head assigns
@@ -150,9 +149,6 @@ export default function Dashboard() {
     );
   }, [liveJobs, current]);
 
-  const address = current?.order.origin_address;
-  const mapsQuery = [address?.address_line_1, address?.city, address?.pincode].filter(Boolean).join(', ');
-
   return (
     <AgentShell gap={22}>
       {isLoading ? (
@@ -173,9 +169,23 @@ export default function Dashboard() {
               <PressableBox>
                 <Link
                   href="/agent/mine"
-                  className={cn(TILE, 'bg-white border-[#D8DFE7]!')}
+                  aria-label={
+                    newJobs.length > 0
+                      ? `My jobs: ${liveJobs.length} ${liveJobs.length === 1 ? 'job' : 'jobs'}, ${newJobs.length} new`
+                      : undefined
+                  }
+                  className={cn(TILE, 'relative bg-white border-[#D8DFE7]!')}
                   data-testid="tile-my-jobs"
                 >
+                  {/* Unseen assignments, in the nav badge's amber: work owed. */}
+                  {newJobs.length > 0 && (
+                    <span
+                      className="absolute top-3 right-3 min-w-[24px] h-[24px] px-1.5 rounded-full bg-[#F2A123] grid place-items-center text-[13px] font-bold text-[#1B2A41]"
+                      data-testid="badge-new-jobs"
+                    >
+                      {newJobs.length > 99 ? '99+' : newJobs.length}
+                    </span>
+                  )}
                   <TileBody
                     icon={<ClipboardList className="w-[21px] h-[21px] text-[#1B2A41]" strokeWidth={1.5} />}
                     label="My jobs"
@@ -199,50 +209,6 @@ export default function Dashboard() {
                     icon={<Wallet className="w-[21px] h-[21px] text-[#1B2A41]" strokeWidth={1.5} />}
                     label="Cash with you"
                     value={`₹${money(collections?.totals.cash ?? 0)}`}
-                  />
-                </Link>
-              </PressableBox>
-
-              {mapsQuery ? (
-                <PressableBox>
-                  <a
-                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapsQuery)}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className={cn(TILE, 'bg-white border-[#D8DFE7]!')}
-                    data-testid="tile-directions"
-                  >
-                    <TileBody
-                      icon={<GoogleMapsIcon className="h-[21px] w-auto" />}
-                      label="Directions"
-                      value={address?.city ?? 'Open map'}
-                    />
-                  </a>
-                </PressableBox>
-              ) : (
-                <div
-                  aria-disabled="true"
-                  className={cn(TILE, 'bg-white border-[#E8EDF2]! opacity-60')}
-                  data-testid="tile-directions"
-                >
-                  <TileBody
-                    icon={<GoogleMapsIcon className="h-[21px] w-auto grayscale" />}
-                    label="Directions"
-                    value="No job"
-                  />
-                </div>
-              )}
-
-              <PressableBox>
-                <Link
-                  href="/agent/profile"
-                  className={cn(TILE, 'bg-white border-[#D8DFE7]!')}
-                  data-testid="tile-profile"
-                >
-                  <TileBody
-                    icon={<UserRound className="w-[21px] h-[21px] text-[#1B2A41]" strokeWidth={1.5} />}
-                    label="Profile"
-                    value="My areas"
                   />
                 </Link>
               </PressableBox>
