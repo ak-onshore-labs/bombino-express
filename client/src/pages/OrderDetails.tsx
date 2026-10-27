@@ -86,6 +86,7 @@ import { PdfDocButton, fetchPdfBase64 } from '@/components/PdfDocButton';
 import { TrackingTimeline } from '@/components/TrackingTimeline';
 import { getStatusLabel } from '@/lib/awbStatus';
 import { withoutDialCode } from '@shared/contact';
+import { todayInIst } from '@shared/istTime';
 import { ITD_COUNTRY_MAP } from '@/lib/itdCountryData';
 import {
   getDocketValue,
@@ -106,6 +107,58 @@ function niceDate(value: string | null | undefined): string {
 function niceDateTime(value: string): string {
   const d = parseISO(value);
   return isValid(d) ? format(d, "dd MMM yyyy, h:mm a") : value;
+}
+
+/** When it was booked: "27 Oct 2026" over "Tue, 3:42 PM", in the phone's time. */
+function bookedParts(value: string | null | undefined): { date: string; sub: string } | null {
+  if (!value) return null;
+  const d = parseISO(value);
+  return isValid(d) ? { date: format(d, 'dd MMM yyyy'), sub: format(d, 'EEE, h:mm a') } : null;
+}
+
+/**
+ * The pickup day: "28 Oct 2026" over "Tomorrow" (or the weekday).
+ *
+ * `pickup_date` is a bare Indian calendar date, so Today and Tomorrow are
+ * worked out against the IST date, never the phone's clock.
+ */
+function pickupParts(value: string | null | undefined): { date: string; sub: string } | null {
+  if (!value) return null;
+  const day = value.slice(0, 10);
+  const d = parseISO(`${day}T12:00:00Z`);
+  if (!isValid(d)) return null;
+  const today = todayInIst();
+  const tomorrow = new Date(Date.parse(`${today}T12:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+  const sub =
+    day === today ? 'Today' : day === tomorrow ? 'Tomorrow' : format(d, 'EEEE');
+  return { date: format(d, 'dd MMM yyyy'), sub };
+}
+
+/** One half of the dates strip under the order and AWB numbers. */
+function DateCell({
+  label,
+  parts,
+  empty,
+  testId,
+}: {
+  label: string;
+  parts: { date: string; sub: string } | null;
+  empty: string;
+  testId: string;
+}) {
+  return (
+    <div className="px-4 py-3 min-w-0" data-testid={testId}>
+      <p className="text-[11px] font-semibold tracking-[0.09em] uppercase text-muted-foreground">{label}</p>
+      {parts ? (
+        <>
+          <p className="mt-1 text-[15px] font-semibold tabular-nums text-foreground">{parts.date}</p>
+          <p className="text-[13px] text-muted-foreground">{parts.sub}</p>
+        </>
+      ) : (
+        <p className="mt-1 text-sm text-muted-foreground">{empty}</p>
+      )}
+    </div>
+  );
 }
 
 /** Weight the customer entered, in the unit they think in. */
@@ -1028,17 +1081,13 @@ export default function OrderDetails() {
           {headline}
         </h1>
 
-        <p className="mt-1.5 text-sm text-muted-foreground">
-          {originLine && destLine ? (
-            <>
-              <span className="text-foreground/85">{originLine}</span>
-              <ArrowRight className="inline w-3.5 h-3.5 mx-1.5 -mt-0.5" aria-label="to" />
-              <span className="text-foreground/85">{destLine}</span>
-              <span className="mx-1.5">·</span>
-            </>
-          ) : null}
-          Booked {niceDate(order.created_at)}
-        </p>
+        {originLine && destLine && (
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            <span className="text-foreground/85">{originLine}</span>
+            <ArrowRight className="inline w-3.5 h-3.5 mx-1.5 -mt-0.5" aria-label="to" />
+            <span className="text-foreground/85">{destLine}</span>
+          </p>
+        )}
 
         {/* The two numbers people ask for. The order number is ours; the
             airway bill is what the agent, the counter, customs and the
@@ -1070,6 +1119,27 @@ export default function OrderDetails() {
               </p>
               <p className="mt-1 text-sm text-muted-foreground">Not issued yet</p>
             </div>
+          )}
+        </div>
+
+        {/* When it was booked, and when we collect it. Same box as the numbers
+            above so the two dates read as facts of the order, not footnotes. */}
+        <div className="mt-2 grid grid-cols-2 rounded-lg border border-[#E2E8F0] bg-white divide-x divide-[#E2E8F0] overflow-hidden">
+          <DateCell label="Booked on" parts={bookedParts(order.created_at)} empty="—" testId="text-booked-on" />
+          {isPickup ? (
+            <DateCell
+              label="Pickup date"
+              parts={pickupParts(order.pickup_date)}
+              empty="Not set yet"
+              testId="text-pickup-date"
+            />
+          ) : (
+            <DateCell
+              label="Handover"
+              parts={{ date: 'Drop-off', sub: 'At a Bombino counter' }}
+              empty=""
+              testId="text-pickup-date"
+            />
           )}
         </div>
 
