@@ -56,6 +56,7 @@ store release; a store release only changes that second line.
 
 | Total | Build | Date | Target | Commit | Notes |
 |---|---|---|---|---|---|
+| 87 | V1 (Build 87.261026.1) | 26 Oct 2026 | Web (app domain, auto-deploy on push) | e0c621a | WhatsApp after Tata's fix: agents get job assigned / pickup cancelled / 8 am morning list; 12 staff alerts plus 9 am, 6 pm, 8 pm reminders and daily summary; customers get account decision, pickup reassigning, extra charge due, cancellation declined v2. NEW_TEMPLATES_LIVE fallback switch. |
 | 86 | V1 (Build 86.261015.2) | 17 Oct 2026 | Web (app domain, auto-deploy on push) | d8b31fb | Test staff get a Test data / Live data switch on every ops screen, replacing the All/Real/Test board filter. Pushed 17 Oct; label still carries 15 Oct because the bump was made then. |
 | 85 | V1 (Build 85.261015.1) | 15 Oct 2026 | Web (Railway bombino-staging + app domain) | 290781f | Receivers track parcels sent to their Indian mobile (new optional field at booking), signing in as guests; Orders split Sending / Receiving; Home's My parcels card with Needs your attention on top; Orders tab badge; one design for account and guest profiles; identity document Replace flow; guest progress counts full onboarding. |
 | 84 | V1 (Build 84.261014.3) | 14 Oct 2026 | Web (Railway bombino-staging + app domain) | 1fa633e | Real-view login 9000000099 (121212, super admin) sees ops as real staff: test orders hidden. |
