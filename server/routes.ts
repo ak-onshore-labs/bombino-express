@@ -21,7 +21,6 @@ import {
   markAllNotificationsRead,
   deleteNotifications,
   mergeItdUserMetadataById,
-  clearItdUserPhoneById,
   itdUserHasStoredPassword,
   updateItdUserPhoneById,
   updateItdUserEmailById,
@@ -497,13 +496,38 @@ export async function registerRoutes(
         phone: phoneSchema,
         purpose: otpPurposeSchema,
         code: z.string().trim().regex(/^\d{6}$/, "Enter the 6-digit code"),
+        // Sent by /signup. Opening an account on a number that already has one
+        // is refused here, before the documents step, instead of at the very
+        // last submit after every file is uploaded.
+        intent: z.literal("signup").optional(),
       })
       .safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid request" });
       return;
     }
-    const { phone, purpose, code } = parsed.data;
+    const { phone, purpose, code, intent } = parsed.data;
+
+    if (intent === "signup") {
+      // The code is checked before the lookup, so this never tells a stranger
+      // whether a number is registered. Not spent yet: when an account exists
+      // the client offers to sign in with this same code
+      // (/api/auth/phone/continue), the way /api/guest/phone/verify does.
+      const checked = await verifyOtp(phone, purpose as OtpPurpose, code, { consume: false });
+      if (!checked.ok) {
+        res.status(checked.status).json({ message: checked.message, code: checked.code });
+        return;
+      }
+      // The same lookup /api/auth/signup/* refuses on.
+      if (await findItdAccountByPhone(phone)) {
+        res.status(409).json({
+          message: "This phone number is already registered. Please sign in instead.",
+          code: "ACCOUNT_EXISTS",
+          code_reusable: purpose === "auth",
+        });
+        return;
+      }
+    }
 
     const result = await consumeOtp(phone, purpose as OtpPurpose, code);
     if (!result.ok) {
@@ -2360,64 +2384,17 @@ export async function registerRoutes(
     }
   );
 
-  // POST /api/user/phone/unlink — detach the phone number from this account.
+  // POST /api/user/phone/unlink — no longer allowed.
   //
-  // Only offered to accounts ITD provisioned, and the reason is a one-way door:
-  // the phone is the sole sign-in credential this app has. An ITD customer can
-  // always get back in through /api/auth/link/itd with their email and
-  // password, so unlinking costs them a re-link. An account created here has no
-  // password anywhere — no ITD login user is ever issued for one (ITD exposes
-  // no endpoint that mints them) — so unlinking would lock it shut for good.
-  // Hence the refusal below rather than a warning.
-  app.post(
-    "/api/user/phone/unlink",
-    requireUser,
-    ensureDbUser,
-    async (req: Request, res: Response) => {
-      if (!req.session.dbUserId) {
-        res.status(404).json({ message: "Profile not found" });
-        return;
-      }
-
-      const profile = await getItdUserProfileById(req.session.dbUserId);
-      if (!profile) {
-        res.status(404).json({ message: "Profile not found" });
-        return;
-      }
-
-      if (!profile.phone) {
-        res.status(400).json({ message: "No mobile number is linked to this account." });
-        return;
-      }
-
-      // Synthetic ids are minted by our own signup paths; a real ITD id is not
-      // shaped like this. See /api/auth/signup/personal.
-      const isLocalAccount = String(profile.itd_customer_id ?? "").startsWith("local-");
-      if (isLocalAccount) {
-        res.status(409).json({
-          message:
-            "This number is the only way to sign in to your account, so it cannot be removed. Contact support if you need to change it.",
-        });
-        return;
-      }
-
-      const ok = await clearItdUserPhoneById(req.session.dbUserId);
-      if (!ok) {
-        res.status(502).json({ message: "Could not unlink your number. Please try again." });
-        return;
-      }
-
-      void insertNotification({
-        user_id: req.session.dbUserId,
-        type: "account",
-        title: "Mobile number unlinked",
-        body: `${profile.phone} is no longer linked to your account. Sign in with your email and password to link a number again.`,
-        data: { phone: profile.phone },
-      });
-
-      res.json({ unlinked: true, phone: profile.phone });
-    }
-  );
+  // A number only leaves an account by being replaced: POST
+  // /api/user/phone/change, with an OTP on the new number. The route stays so
+  // an old app build calling it gets a clear answer instead of a 404.
+  app.post("/api/user/phone/unlink", requireUser, (_req: Request, res: Response) => {
+    res.status(409).json({
+      message: "Your number can't be removed. To stop using it, change it to a new number from your profile.",
+      code: "PHONE_UNLINK_DISABLED",
+    });
+  });
 
   // POST /api/user/phone/change — move the account onto a different number.
   //
@@ -3306,8 +3283,8 @@ export async function registerRoutes(
       : null;
 
     // The receiver's app number: what lets them sign in and watch this parcel
-    // (shared/receiving.ts). Optional, Indian mobiles only, and stored as ten
-    // bare digits or not at all, so a typo cannot match somebody else.
+    // (shared/receiving.ts). Stored in the account form (ten digits for India,
+    // E.164 abroad) or not at all, so a typo cannot match somebody else.
     const receiverAppPhone = normalizeReceiverAppPhone(body.consignee.app_phone);
     if (receiverAppPhone) body.consignee.app_phone = receiverAppPhone;
     else delete body.consignee.app_phone;

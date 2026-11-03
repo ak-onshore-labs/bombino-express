@@ -43,6 +43,18 @@ import {
   type ExtraField,
 } from '@shared/accountSpec';
 import { cn } from '@/lib/utils';
+import { landingPathForRole } from '@/lib/surface';
+import { formatAccountPhone } from '@shared/contact';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 const RESEND_COOLDOWN_SECONDS = 30;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -119,6 +131,8 @@ export default function Signup() {
   const typePreselected = new URLSearchParams(window.location.search).has('type') || initialCategory !== null;
   const [step, setStep] = useState<Step>(typePreselected ? 'details' : 'account_type');
   const [isLoading, setIsLoading] = useState(false);
+  // The OTP checked out, but the number already has an account.
+  const [existingAccount, setExistingAccount] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -445,10 +459,41 @@ export default function Signup() {
     setIsLoading(true);
     setErrors({});
     try {
-      await apiRequest('POST', '/api/auth/otp/verify', { phone, purpose, code: otp });
+      // `intent: 'signup'` makes the server refuse a number that already has
+      // an account here, before any document is uploaded, instead of at the
+      // final "Create account" press.
+      await apiRequest('POST', '/api/auth/otp/verify', { phone, purpose, code: otp, intent: 'signup' });
       setStep('documents');
     } catch (err) {
+      if (parseApiErrorCode(err) === 'ACCOUNT_EXISTS') {
+        // Not a typo to fix — a different route to take. The code was not
+        // spent, so "Sign in" can use the one already typed.
+        setExistingAccount(true);
+        return;
+      }
       setErrors({ otp: rememberApiError(err, 'Incorrect code') });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /** Sign in to the account this number already has, with the same code. */
+  const signInWithSameCode = async (): Promise<void> => {
+    setIsLoading(true);
+    try {
+      const res = await apiRequest('POST', '/api/auth/phone/continue', { phone: phone.trim(), code: otp });
+      const data = (await res.json()) as { status: string; user?: AuthUser };
+      setExistingAccount(false);
+      if (data.status === 'signed_in' && data.user) {
+        login(data.user);
+        setLocation(redirect || landingPathForRole(data.user.role));
+        return;
+      }
+      setLocation('/login');
+    } catch (err) {
+      setExistingAccount(false);
+      setErrors({ otp: rememberApiError(err, 'Could not sign you in') });
+      setOtp('');
     } finally {
       setIsLoading(false);
     }
@@ -1223,6 +1268,41 @@ export default function Signup() {
               {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : primaryLabel}
             </Button>
             )}
+
+      <AlertDialog open={existingAccount} onOpenChange={setExistingAccount}>
+        <AlertDialogContent data-testid="dialog-signup-account-exists">
+          <AlertDialogHeader>
+            <AlertDialogTitle>This number already has an account</AlertDialogTitle>
+            <AlertDialogDescription>
+              {formatAccountPhone(phone.trim())} is already registered with Bombino. Sign in to use
+              it, or go back and sign up with a different number.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                setExistingAccount(false);
+                setOtp('');
+                setErrors({});
+                setStep('details');
+              }}
+              data-testid="button-signup-use-another-number"
+            >
+              Use a different number
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                void signInWithSameCode();
+              }}
+              disabled={isLoading}
+              data-testid="button-signup-go-sign-in"
+            >
+              {isLoading ? 'Signing in…' : 'Sign in'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
     </AuthShell>
   );
