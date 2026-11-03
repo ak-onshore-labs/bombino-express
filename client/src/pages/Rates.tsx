@@ -6,6 +6,8 @@ import {
   formatInr,
   itemizedChargesEmpty,
   normalizeRateRow,
+  rateBoxesFromForm,
+  weightOnlyRateBoxes,
   type ITDChargeApplyEntry,
   type ITDRateResponse,
   type ITDRateRow,
@@ -27,6 +29,9 @@ import { COUNTRY_LIST, COUNTRY_MAP, isBookableCorridor } from '@/lib/countryData
 import { lbToKg, kgToLb } from '@/lib/units';
 import { apiRequest } from '@/lib/queryClient';
 import { cn } from '@/lib/utils';
+import { useSupportContacts } from '@/hooks/useSupportContacts';
+import { usePickupCoverage } from '@/hooks/usePickupCoverage';
+import { rateOriginFor, rateOriginNote, rateRouteNote } from '@shared/rateOrigin';
 
 interface ShipmentMeta {
   weightLb: number;
@@ -96,12 +101,26 @@ function CountryCombobox({ value, onValueChange }: CountryComboboxProps) {
 export default function Rates() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [, setLocation] = useLocation();
+  const { waHref, telHref } = useSupportContacts();
 
   const [weightUnit, setWeightUnit] = useState<'lb' | 'kg'>('kg');
-  const [weight, setWeight] = useState('2');
+  const [weight, setWeight] = useState('');
   const [pieces, setPieces] = useState('1');
+  const [dimUnit, setDimUnit] = useState<'in' | 'cm'>('cm');
+  const [dimL, setDimL] = useState('');
+  const [dimW, setDimW] = useState('');
+  const [dimH, setDimH] = useState('');
+  /** Which required inputs were missing on the last Get Rates. */
+  const [missing, setMissing] = useState<ReadonlySet<'weight' | 'dimL' | 'dimW' | 'dimH'>>(new Set());
   const [originPincode, setOriginPincode] = useState('');
   const [destPincode, setDestPincode] = useState('');
+  /** The last quote had no box size, so it may rise if the box is large and light. */
+  const [quotedOnWeightOnly, setQuotedOnWeightOnly] = useState(false);
+  // Every quote is priced from Mumbai. A From pincode elsewhere gets a note
+  // that the leg to Mumbai is extra and quoted by the team.
+  const coverage = usePickupCoverage();
+  const rateOrigin = rateOriginFor(originPincode, coverage);
+  const originNote = rateOrigin.outsideMumbai ? rateOriginNote(rateOrigin.city) : null;
 
   const [rateResults, setRateResults] = useState<ITDRateRow[] | null>(null);
   const [shipmentMeta, setShipmentMeta] = useState<ShipmentMeta | null>(null);
@@ -180,19 +199,51 @@ export default function Rates() {
 
   const handleGetRates = () => {
     setApiError('');
-    const w = parseFloat(weight) || 1;
+    const w = parseFloat(weight);
     const weightKg = weightUnit === 'kg' ? w : lbToKg(w);
+    const pcs = parseInt(pieces) || 1;
+
+    // Weight is required. Box size is optional here: left blank, the quote is
+    // on weight alone and says so. Half a box size is asked to be finished
+    // rather than dropped, since the customer clearly meant to give one.
+    const dims = { dimL, dimW, dimH } as const;
+    const anySize = Object.values(dims).some((v) => v.trim() !== '');
+    const gaps = new Set<'weight' | 'dimL' | 'dimW' | 'dimH'>();
+    if (!(w > 0)) gaps.add('weight');
+    if (anySize) {
+      (Object.keys(dims) as Array<keyof typeof dims>).forEach((key) => {
+        if (!(parseFloat(dims[key]) > 0)) gaps.add(key);
+      });
+    }
+    setMissing(gaps);
+    if (gaps.has('weight')) {
+      setApiError('Enter the weight to see rates.');
+      return;
+    }
+    if (gaps.size > 0) {
+      setApiError('Enter the box length, width and height, or leave all three blank.');
+      return;
+    }
+    const boxes = anySize
+      ? rateBoxesFromForm({ length: dimL, width: dimW, height: dimH, unit: dimUnit, pieces: pcs, weightKg })
+      : weightOnlyRateBoxes(pcs, weightKg);
+    if (!boxes) {
+      setApiError('Enter the box length, width and height, or leave all three blank.');
+      return;
+    }
+    setQuotedOnWeightOnly(!anySize);
 
     rateMutation.mutate({
       product_code: 'SPX',
       destination_code: selectedDestination,
       booking_date: new Date().toISOString().split('T')[0],
       origin_code: selectedOrigin,
-      pcs: String(parseInt(pieces) || 1),
+      pcs: String(pcs),
       actual_weight: String(weightKg.toFixed(2)),
       ori_city: 'MUMBAI',
       ori_pincode: originPincode.trim() || '400001',
       ...(destPincode.trim() ? { dest_pincode: destPincode.trim() } : {}),
+      boxes,
     });
   };
 
@@ -217,6 +268,11 @@ export default function Rates() {
       shipmentMeta.pieces === 1 ? '1 piece' : `${shipmentMeta.pieces} pieces`;
 
     const bookable = isBookableCorridor(selectedOrigin, selectedDestination);
+    // Always said: the price is Mumbai to the destination. A sender known to
+    // be elsewhere gets the version naming their city.
+    const rateNote =
+      originNote ??
+      rateRouteNote(formatCountryDisplay(COUNTRY_MAP[selectedDestination] ?? selectedDestination));
     const corridorLabel = `${formatCountryDisplay(COUNTRY_MAP[selectedOrigin] ?? selectedOrigin)} → ${formatCountryDisplay(COUNTRY_MAP[selectedDestination] ?? selectedDestination)}`;
 
     return (
@@ -269,7 +325,7 @@ export default function Rates() {
                     </p>
                     <div className="flex gap-2 mt-3">
                       <a
-                        href="https://api.whatsapp.com/send?phone=917045999553"
+                        href={waHref}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex-1 flex items-center justify-center gap-2 h-10 rounded-lg bg-green-600 text-white text-xs font-medium hover:bg-green-700 active:scale-[0.98] transition-colors"
@@ -278,7 +334,7 @@ export default function Rates() {
                         WhatsApp
                       </a>
                       <a
-                        href="tel:+912266400000"
+                        href={telHref}
                         className="flex-1 flex items-center justify-center gap-2 h-10 rounded-lg border border-amber-300 bg-white text-amber-950 text-xs font-medium hover:bg-amber-100/80 active:scale-[0.98] transition-colors"
                       >
                         <Phone className="w-4 h-4" aria-hidden />
@@ -312,7 +368,7 @@ export default function Rates() {
                 return (
                   <div
                     key={service.id}
-                    className="rounded-xl border border-[#E2E8F0] bg-white overflow-hidden shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)] md:rounded-2xl"
+                    className="rounded-xl border border-[#E2E8F0] bg-white overflow-hidden shadow-card md:rounded-2xl"
                     data-testid={`rate-card-${idx}`}
                   >
                     <div className="flex items-center gap-3 px-4 pt-4 pb-3 md:px-6 md:pt-5 md:pb-4 md:gap-4">
@@ -438,9 +494,40 @@ export default function Rates() {
               })}
             </div>
 
-            <p className="text-[10px] text-muted-foreground text-center mt-6 px-4 leading-relaxed md:text-xs md:px-0">
-              Rates are indicative and subject to change based on actual shipment weight and dimensions at the time of pickup. Final charges may vary.
-            </p>
+            {/* The fine print, after the prices rather than in front of them:
+                what the quote covers, then how it can move. Numbered so each
+                point reads on its own; the badge stays quiet (tinted navy,
+                not amber, which this app keeps for money). */}
+            <ol
+              className="mt-6 space-y-2.5 border-t border-[#E2E8F0] pt-4 text-[11px] leading-relaxed text-muted-foreground md:text-xs"
+              data-testid="rates-fine-print"
+            >
+              {[
+                { id: 'text-rate-origin-note', text: rateNote },
+                ...(quotedOnWeightOnly
+                  ? [
+                      {
+                        id: 'text-weight-only-note',
+                        text: 'Priced on weight only. Large, light boxes are charged by size once measured.',
+                      },
+                    ]
+                  : []),
+                {
+                  id: 'text-rates-indicative',
+                  text: 'Rates are indicative; final charges follow the weight and size measured at pickup.',
+                },
+              ].map((note, i) => (
+                <li key={note.id} className="flex items-start gap-2.5" data-testid={note.id}>
+                  <span
+                    aria-hidden
+                    className="mt-px flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-[#2F4468]/[0.08] font-mono text-[10px] font-semibold text-[#2F4468]"
+                  >
+                    {i + 1}
+                  </span>
+                  <span>{note.text}</span>
+                </li>
+              ))}
+            </ol>
           </main>
         </div>
 
@@ -471,7 +558,7 @@ export default function Rates() {
         </p>
 
         <div className="mb-5 space-y-3 md:mb-6">
-          <div className="flex items-end gap-2 md:gap-0 md:items-stretch md:bg-white md:rounded-2xl md:border md:border-[#E2E8F0] md:shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] md:p-1 md:mb-3">
+          <div className="flex items-end gap-2 md:gap-0 md:items-stretch md:bg-white md:rounded-2xl md:border md:border-[#E2E8F0] md:shadow-card md:p-1 md:mb-3">
             <div className="flex-1 min-w-0 md:flex-1 md:p-3">
               <Label className="text-[10px] text-muted-foreground mb-1 block md:text-[10px] md:font-bold md:text-muted-foreground md:uppercase md:tracking-[0.14em]">From</Label>
               <CountryCombobox value={selectedOrigin} onValueChange={handleOriginChange} />
@@ -496,7 +583,7 @@ export default function Rates() {
         </div>
 
         <div className="space-y-4">
-          <div className="bg-card rounded-xl border border-border p-4 shadow-sm md:p-5 md:rounded-2xl md:border-[#E2E8F0] md:shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)]">
+          <div className="bg-card rounded-xl border border-border p-4 shadow-card md:p-5 md:rounded-2xl md:border-[#E2E8F0]">
             <div className="flex items-center justify-between mb-3 md:mb-4">
               <Label className="text-sm font-semibold md:text-[13px] md:font-bold md:tracking-tight">Weight &amp; pieces</Label>
               <div className="flex bg-muted rounded-lg p-0.5">
@@ -527,8 +614,12 @@ export default function Rates() {
                   type="number"
                   value={weight}
                   onChange={(e) => setWeight(e.target.value)}
-                  placeholder="2"
-                  className="h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl md:h-12 md:text-base md:font-semibold md:tabular-nums"
+                  placeholder="e.g. 2"
+                  aria-invalid={missing.has('weight')}
+                  className={cn(
+                    'h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl md:h-12 md:text-base md:font-semibold md:tabular-nums',
+                    missing.has('weight') && 'border-2 border-primary',
+                  )}
                   step="0.1"
                   min="0.1"
                   data-testid="input-weight"
@@ -549,8 +640,65 @@ export default function Rates() {
             </div>
           </div>
 
+          {/* Box size: optional here; blank quotes on weight alone */}
+          <div className="bg-card rounded-xl border border-border p-4 shadow-card md:p-5 md:rounded-2xl md:border-[#E2E8F0]">
+            <div className="flex items-center justify-between mb-3 md:mb-4">
+              <Label className="text-sm font-semibold md:text-[13px] md:font-bold md:tracking-tight">
+                Box size <span className="font-normal text-muted-foreground">(optional)</span>
+              </Label>
+              <div className="flex bg-muted rounded-lg p-0.5">
+                {(['cm', 'in'] as const).map((u) => (
+                  <button
+                    key={u}
+                    type="button"
+                    onClick={() => setDimUnit(u)}
+                    className={cn(
+                      'px-3 py-1 text-xs font-medium rounded-md transition-colors',
+                      dimUnit === u ? 'bg-white text-primary shadow-sm' : 'text-muted-foreground'
+                    )}
+                    data-testid={`button-dim-unit-${u}`}
+                  >
+                    {u}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3 md:gap-4">
+              {(
+                [
+                  ['dimL', 'Length', dimL, setDimL],
+                  ['dimW', 'Width', dimW, setDimW],
+                  ['dimH', 'Height', dimH, setDimH],
+                ] as const
+              ).map(([key, label, value, set]) => (
+                <div key={key}>
+                  <Label className="text-[10px] text-muted-foreground md:text-[10px] md:font-bold md:uppercase md:tracking-[0.12em]">
+                    {label} ({dimUnit})
+                  </Label>
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    value={value}
+                    onChange={(e) => set(e.target.value)}
+                    min="0.1"
+                    step="0.1"
+                    aria-invalid={missing.has(key)}
+                    className={cn(
+                      'h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl md:h-12 md:text-base md:font-semibold md:tabular-nums',
+                      missing.has(key) && 'border-2 border-primary',
+                    )}
+                    data-testid={`input-${key}`}
+                  />
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-2">
+              Large, light boxes are charged by size. Add the outside measurements for a closer price.
+            </p>
+          </div>
+
           {/* Optional pincodes */}
-          <div className="bg-card rounded-xl border border-border p-4 shadow-sm md:p-5 md:rounded-2xl md:border-[#E2E8F0] md:shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)]">
+          <div className="bg-card rounded-xl border border-border p-4 shadow-card md:p-5 md:rounded-2xl md:border-[#E2E8F0]">
             <div className="flex items-center gap-1.5 mb-3">
               <Info className="w-3.5 h-3.5 shrink-0 text-muted-foreground" aria-hidden />
               <p className="text-xs text-muted-foreground">

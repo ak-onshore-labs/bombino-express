@@ -92,7 +92,7 @@ export function OpsCollectPaymentSheet({
             <button
               type="button"
               onClick={copyTxn}
-              className="mt-5 w-full rounded-xl bg-muted/60 border border-border px-4 py-3 flex items-center justify-between gap-3"
+              className="mt-5 w-full rounded-md bg-muted/60 border border-border px-4 py-3 flex items-center justify-between gap-3"
               data-testid="button-ops-copy-txn"
             >
               <span className="text-left">
@@ -108,7 +108,7 @@ export function OpsCollectPaymentSheet({
             <button
               type="button"
               onClick={() => onOpenChange(false)}
-              className="mt-5 w-full h-14 rounded-xl bg-primary text-white text-base font-bold"
+              className="mt-5 w-full h-14 rounded-md bg-primary text-white text-base font-bold"
               data-testid="button-ops-receipt-done"
             >
               Done
@@ -144,7 +144,7 @@ export function OpsCollectPaymentSheet({
                     }}
                     aria-pressed={selected}
                     className={cn(
-                      'h-[92px] rounded-xl border-2 flex flex-col items-center justify-center gap-1.5 transition-all active:scale-[0.98]',
+                      'h-[92px] rounded-md border-2 flex flex-col items-center justify-center gap-1.5 transition-all active:scale-[0.98]',
                       selected
                         ? 'border-primary bg-primary text-white'
                         : 'border-border bg-white text-foreground',
@@ -172,7 +172,7 @@ export function OpsCollectPaymentSheet({
             >
               Amount taken
             </label>
-            <div className="flex items-center gap-2 rounded-xl border-2 border-border bg-white px-4 h-14 mb-3 focus-within:border-primary">
+            <div className="flex items-center gap-2 rounded-md border-2 border-border bg-white px-4 h-14 mb-3 focus-within:border-primary">
               <span className="text-xl font-bold text-muted-foreground">₹</span>
               <input
                 id="ops-collect-amount"
@@ -192,7 +192,7 @@ export function OpsCollectPaymentSheet({
                 value={reference}
                 onChange={(e) => setReference(e.target.value)}
                 placeholder="UPI reference (optional)"
-                className="w-full rounded-xl border-2 border-border bg-white px-4 h-12 outline-none text-sm font-medium focus:border-primary mb-3"
+                className="w-full rounded-md border-2 border-border bg-white px-4 h-12 outline-none text-sm font-medium focus:border-primary mb-3"
                 data-testid="input-ops-upi-reference"
               />
             )}
@@ -207,7 +207,7 @@ export function OpsCollectPaymentSheet({
               type="button"
               onClick={submit}
               disabled={isPending}
-              className="w-full h-14 rounded-xl bg-primary text-white text-base font-bold disabled:opacity-60 grid place-items-center"
+              className="w-full h-14 rounded-md bg-primary text-white text-base font-bold disabled:opacity-60 grid place-items-center"
               data-testid="button-ops-confirm-collect"
             >
               {isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirm collection'}

@@ -29,7 +29,7 @@ export function CorridorRouteInfo({
   return (
     <div
       className={cn(
-        !bare && 'bg-card rounded-xl border border-border p-4 shadow-sm',
+        !bare && 'bg-card rounded-xl border border-border p-4 shadow-card',
         !bare && compact && 'p-3 shadow-none',
         bare && 'p-0',
         className

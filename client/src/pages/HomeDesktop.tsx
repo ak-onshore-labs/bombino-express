@@ -1,5 +1,7 @@
 ﻿import { useState } from 'react';
 import { Link, useLocation } from 'wouter';
+import { useGuestProfile } from '@/hooks/useGuestProfile';
+import { WhatsappAltCard } from '@/components/WhatsappAltCard';
 import {
   Search,
   ArrowRight,
@@ -7,26 +9,18 @@ import {
   BadgeDollarSign,
   Send,
   Phone,
-  Bell,
   ShieldCheck,
   AlertTriangle,
   PackageOpen,
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { useKycOnFile } from '@/hooks/useKycOnFile';
-import { StatusBadge } from '@/components/StatusBadge';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 import { type DisplayRow } from '@/lib/shipmentRows';
-import { useNotifications, useOrderHistory } from '@/hooks/useCustomerOrders';
+import { useOrderHistory } from '@/hooks/useCustomerOrders';
+import { useSupportContacts } from '@/hooks/useSupportContacts';
+import { ParcelsQuickAccess } from '@/components/ParcelsQuickAccess';
 
-/** The subset of a notification this page renders. */
-interface HomeNotificationRow {
-  id: string;
-  title: string | null;
-  body: string | null;
-  type: string | null;
-  created_at: string;
-}
 
 // ─── Popular routes (static seed; ready to swap for an /api/popular-routes endpoint) ───
 const POPULAR_ROUTES = [
@@ -72,7 +66,7 @@ function TrackBar({
   recent: string[];
 }) {
   return (
-    <div className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] p-1.5 flex items-center gap-2">
+    <div className="rounded-2xl bg-white border border-[#E2E8F0] shadow-card p-1.5 flex items-center gap-2">
       <div className="flex items-center gap-2 px-3 text-[11px] font-semibold tracking-[0.12em] text-[#F2A123] uppercase border-r border-[#E2E8F0] pr-4 ml-2">
         <span className="relative flex h-1.5 w-1.5">
           <span className="absolute inline-flex h-full w-full rounded-full bg-[#F2A123] opacity-60 animate-ping" />
@@ -126,7 +120,7 @@ function ActionCards() {
       {/* Get Rates */}
       <Link
         href="/rates"
-        className="group relative rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] hover:shadow-[0_6px_24px_lab(34.0831_-9.57756_-27.7093_/_0.10),0_2px_6px_lab(34.0831_-9.57756_-27.7093_/_0.05)] transition-all overflow-hidden"
+        className="group relative rounded-2xl bg-white border border-[#E2E8F0] shadow-card hover:shadow-card-hover transition-all overflow-hidden"
         data-testid="card-get-rates"
       >
         <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-[#FFF6E5] to-transparent pointer-events-none" />
@@ -185,7 +179,7 @@ function ActionCards() {
       {/* Ship Now */}
       <Link
         href="/create"
-        className="group relative rounded-2xl bg-gradient-to-br from-[lab(34.0831_-9.57756_-27.7093)] to-[#0c1a25] text-white shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] hover:shadow-[0_6px_24px_lab(34.0831_-9.57756_-27.7093_/_0.18)] transition-all overflow-hidden"
+        className="group relative rounded-2xl bg-gradient-to-br from-[lab(34.0831_-9.57756_-27.7093)] to-[#0c1a25] text-white shadow-card hover:shadow-card-hover transition-all overflow-hidden"
         data-testid="card-ship-now"
       >
         <div
@@ -259,7 +253,7 @@ function ActionCards() {
 // ─── Popular routes ───
 function PopularRoutes() {
   return (
-    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] overflow-hidden">
+    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-card overflow-hidden">
       <div className="px-6 py-4 flex items-center justify-between border-b border-[#E2E8F0]">
         <div>
           <h3 className="text-sm font-bold tracking-tight text-foreground">Popular routes this week</h3>
@@ -348,8 +342,9 @@ function StatsBand() {
 
 // ─── Support widget (right rail) ───
 function SupportWidget() {
+  const { waHref, telHref, officeLabel, whatsappLabel } = useSupportContacts();
   return (
-    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] overflow-hidden">
+    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-card overflow-hidden">
       <div className="px-5 pt-5 pb-3 flex items-center justify-between">
         <h3 className="text-sm font-bold tracking-tight text-foreground">Need to talk to us?</h3>
         <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
@@ -359,7 +354,7 @@ function SupportWidget() {
       </div>
       <div className="px-5 pb-5 space-y-2">
         <a
-          href="https://api.whatsapp.com/send?phone=917045999553"
+          href={waHref}
           target="_blank"
           rel="noopener noreferrer"
           className="group flex items-center gap-3 p-3 rounded-xl border border-[#E2E8F0] hover:border-emerald-200 hover:bg-emerald-50/50 transition-colors"
@@ -370,12 +365,12 @@ function SupportWidget() {
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-semibold leading-tight text-foreground">WhatsApp</p>
-            <p className="text-[11px] text-muted-foreground mt-0.5 tabular-nums">+91 70459 99553</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5 tabular-nums">{whatsappLabel}</p>
           </div>
           <ChevronRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-emerald-600 transition-colors" />
         </a>
         <a
-          href="tel:+912266400000"
+          href={telHref}
           className="group flex items-center gap-3 p-3 rounded-xl border border-[#E2E8F0] hover:border-[lab(34.0831_-9.57756_-27.7093)]/30 hover:bg-[#F8F9FA] transition-colors"
           data-testid="button-call-desktop"
         >
@@ -384,7 +379,7 @@ function SupportWidget() {
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-semibold leading-tight text-foreground">Call us</p>
-            <p className="text-[11px] text-muted-foreground mt-0.5 tabular-nums">+91 22 6640 0000</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5 tabular-nums">{officeLabel}</p>
           </div>
           <ChevronRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
         </a>
@@ -404,7 +399,7 @@ function KycHomeTip() {
 
   if (kycOnFile) {
     return (
-      <section className="rounded-2xl bg-white border border-green-200 bg-green-50/30 shadow-sm p-4">
+      <section className="rounded-2xl bg-white border border-green-200 bg-green-50/30 shadow-card p-4">
         <div className="flex items-start gap-3">
           <div className="w-8 h-8 rounded-lg bg-green-100 text-green-700 flex items-center justify-center flex-shrink-0">
             <ShieldCheck className="w-4 h-4" />
@@ -428,7 +423,7 @@ function KycHomeTip() {
   }
 
   return (
-    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-sm p-4">
+    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-card p-4">
       <div className="flex items-start gap-3">
         <div className="w-8 h-8 rounded-lg bg-[#FFF6E5] text-[#F2A123] flex items-center justify-center flex-shrink-0">
           <ShieldCheck className="w-4 h-4" />
@@ -454,7 +449,7 @@ function KycHomeTip() {
 // ─── Tips widget (right rail, guest / pre-KYC users) ───
 function TipsWidget() {
   return (
-    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] overflow-hidden">
+    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-card overflow-hidden">
       <div className="px-5 pt-5 pb-3 flex items-center justify-between">
         <h3 className="text-sm font-bold tracking-tight text-foreground">Before you ship</h3>
         <span className="text-[10px] font-bold tracking-[0.14em] uppercase text-muted-foreground">3 steps</span>
@@ -519,167 +514,18 @@ function TipsWidget() {
   );
 }
 
-// ─── Recent updates (right rail, logged-in users) ───
-function RecentUpdates({
-  notifications,
-  loading,
-}: {
-  notifications: HomeNotificationRow[];
-  loading: boolean;
-}) {
-  return (
-    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] overflow-hidden">
-      <div className="px-5 pt-5 pb-3 flex items-center justify-between">
-        <h3 className="text-sm font-bold tracking-tight text-foreground">Recent updates</h3>
-        <Link
-          href="/notifications"
-          className="text-xs font-semibold text-[#F2A123] inline-flex items-center gap-1 hover:underline"
-        >
-          View all <ChevronRight className="w-3 h-3" />
-        </Link>
-      </div>
-      <ul className="px-5 pb-5 space-y-3">
-        {loading && (
-          <>
-            <li className="flex items-start gap-3 animate-pulse">
-              <div className="w-7 h-7 rounded-lg bg-[#F3F4F6] flex-shrink-0" />
-              <div className="flex-1 space-y-2">
-                <div className="h-3 w-2/3 bg-[#F3F4F6] rounded" />
-                <div className="h-2.5 w-1/2 bg-[#F3F4F6] rounded" />
-              </div>
-            </li>
-            <li className="flex items-start gap-3 animate-pulse">
-              <div className="w-7 h-7 rounded-lg bg-[#F3F4F6] flex-shrink-0" />
-              <div className="flex-1 space-y-2">
-                <div className="h-3 w-2/3 bg-[#F3F4F6] rounded" />
-                <div className="h-2.5 w-1/2 bg-[#F3F4F6] rounded" />
-              </div>
-            </li>
-          </>
-        )}
-        {!loading && notifications.length === 0 && (
-          <li className="text-xs text-muted-foreground py-4 text-center">No recent updates.</li>
-        )}
-        {!loading &&
-          notifications.slice(0, 4).map((n) => (
-            <li key={n.id} className="flex items-start gap-3 text-xs" data-testid={`notification-${n.id}`}>
-              <div className="w-7 h-7 rounded-lg bg-[#FFF6E5] text-[#F2A123] flex items-center justify-center flex-shrink-0">
-                <Bell className="w-3.5 h-3.5" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-[13px] font-semibold leading-tight text-foreground line-clamp-1">
-                  {n.title ?? '—'}
-                </p>
-                <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1">{n.body ?? ''}</p>
-              </div>
-            </li>
-          ))}
-      </ul>
-    </section>
-  );
-}
-
 // ─── My Shipments table (logged-in main column) ───
-function MyShipmentsTable({
-  rows,
-  loading,
-}: {
-  rows: DisplayRow[];
-  loading: boolean;
-}) {
-  return (
-    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] overflow-hidden">
-      <div className="px-6 py-4 flex items-center justify-between border-b border-[#E2E8F0]">
-        <div>
-          <h3 className="text-sm font-bold tracking-tight text-foreground">My shipments</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">Your most recent orders.</p>
-        </div>
-        <Link
-          href="/orders"
-          className="text-xs font-semibold text-[#F2A123] inline-flex items-center gap-1 hover:underline"
-        >
-          View all <ChevronRight className="w-3 h-3" />
-        </Link>
-      </div>
-      <div className="grid grid-cols-[2fr_1.5fr_auto_auto] gap-4 px-6 py-2.5 text-[10px] font-bold tracking-[0.12em] uppercase text-muted-foreground border-b border-[#E2E8F0] bg-[#F8F9FA]">
-        <span>AWB / Order number</span>
-        <span>Destination</span>
-        <span className="text-right">Amount</span>
-        <span>Status</span>
-      </div>
-      <div className="divide-y divide-[#E2E8F0]">
-        {loading && (
-          <>
-            <div className="grid grid-cols-[2fr_1.5fr_auto_auto] gap-4 px-6 py-3.5 animate-pulse items-center">
-              <div className="h-3.5 w-32 bg-[#F3F4F6] rounded" />
-              <div className="h-3 w-24 bg-[#F3F4F6] rounded" />
-              <div className="h-3 w-16 bg-[#F3F4F6] rounded justify-self-end" />
-              <div className="h-5 w-16 bg-[#F3F4F6] rounded-full" />
-            </div>
-            <div className="grid grid-cols-[2fr_1.5fr_auto_auto] gap-4 px-6 py-3.5 animate-pulse items-center">
-              <div className="h-3.5 w-32 bg-[#F3F4F6] rounded" />
-              <div className="h-3 w-24 bg-[#F3F4F6] rounded" />
-              <div className="h-3 w-16 bg-[#F3F4F6] rounded justify-self-end" />
-              <div className="h-5 w-16 bg-[#F3F4F6] rounded-full" />
-            </div>
-          </>
-        )}
-        {!loading && rows.length === 0 && (
-          <div className="px-6 py-10 text-center text-sm text-muted-foreground">
-            No shipments yet. <Link href="/create" className="text-[#F2A123] font-semibold hover:underline">Create your first →</Link>
-          </div>
-        )}
-        {!loading &&
-          rows.slice(0, 4).map((row) => {
-            const dest = [row.city, row.country].filter(Boolean).join(', ') || '—';
-            const rowClassName =
-              'grid grid-cols-[2fr_1.5fr_auto_auto] gap-4 px-6 py-3.5 items-center hover:bg-[#F8F9FA] transition-colors';
-            const content = (
-              <>
-                <span className="text-sm font-semibold tabular-nums tracking-[0.02em] text-foreground">
-                  {row.isOrder && (
-                    <span className="mr-1.5 text-[9px] font-bold uppercase tracking-[0.08em] text-muted-foreground bg-muted px-1.5 py-0.5 rounded align-middle">
-                      Order
-                    </span>
-                  )}
-                  {row.displayId}
-                </span>
-                <span className="text-sm text-muted-foreground truncate">{dest}</span>
-                <span className="text-sm font-medium tabular-nums text-right">{row.amountStr ?? '—'}</span>
-                <StatusBadge status={row.statusLabel} tone={row.statusTone} className="shrink-0" />
-              </>
-            );
-            return (
-              <Link
-                key={row.key}
-                href={`${row.isOrder ? '/order' : '/shipment'}/${encodeURIComponent(row.displayId)}`}
-                className={rowClassName}
-                data-testid={`shipment-row-${row.displayId}`}
-              >
-                {content}
-              </Link>
-            );
-          })}
-      </div>
-    </section>
-  );
-}
-
 // ─── Desktop page ───
 export default function HomeDesktop() {
   const [, setLocation] = useLocation();
   const { isLoggedIn, user } = useAppStore();
+  const { data: guestProfile } = useGuestProfile({ enabled: !isLoggedIn });
 
   const [trackingNumber, setTrackingNumber] = useState('');
 
-  // Same two hooks the mobile home uses, so both share one cache and one
-  // polling schedule rather than each running their own timers.
-  const { data: historyData, isLoading: historyLoading } = useOrderHistory(isLoggedIn);
-  const { data: notificationsData } = useNotifications(isLoggedIn);
-
+  // The same list My parcels reads, so the two share one cache.
+  const { data: historyData } = useOrderHistory(isLoggedIn);
   const shipmentRows: DisplayRow[] = historyData ?? [];
-  const apiNotifications = notificationsData ?? [];
-  const shipmentsLoading = isLoggedIn && historyLoading;
 
   const handleTrack = (awb?: string) => {
     const value = (awb ?? trackingNumber).trim();
@@ -699,6 +545,9 @@ export default function HomeDesktop() {
           onTrack={handleTrack}
           recent={recentAwbs}
         />
+        {/* A customer from abroad whose number has no WhatsApp: ask for an
+            Indian one, or their parcel updates reach nobody. */}
+        {(isLoggedIn || guestProfile) && <WhatsappAltCard onlyWhenNeeded className="mt-4" />}
       </section>
 
       <div className="grid grid-cols-12 gap-6 pb-10">
@@ -706,9 +555,8 @@ export default function HomeDesktop() {
         <div className="col-span-12 lg:col-span-8 space-y-6">
           <ActionCards />
 
-          {isLoggedIn && (
-            <MyShipmentsTable rows={shipmentRows} loading={shipmentsLoading} />
-          )}
+          {/* Sending | Receiving with the newest few of each. */}
+          <ParcelsQuickAccess />
 
           <PopularRoutes />
 
@@ -717,12 +565,10 @@ export default function HomeDesktop() {
 
         {/* RIGHT — sidebar */}
         <aside className="col-span-12 lg:col-span-4 space-y-5">
+          {/* Needs your attention lives at the top of My parcels now. */}
           <SupportWidget />
           {isLoggedIn ? (
-            <>
-              <KycHomeTip />
-              <RecentUpdates notifications={apiNotifications} loading={shipmentsLoading} />
-            </>
+            <KycHomeTip />
           ) : (
             <TipsWidget />
           )}

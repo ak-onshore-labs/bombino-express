@@ -6,6 +6,7 @@ import { useOpsApplications } from '@/hooks/useOpsApplications';
 import { OPS_ORDERS_KEY, fetchOpsOrders } from '@/hooks/useOpsOrders';
 import { isOpsNavActive } from '@/lib/opsNav';
 import { useAppStore } from '@/lib/store';
+import { can } from '@shared/staffAccess';
 
 /**
  * The ops nav's "new" pills: how many things arrived in a section since this
@@ -72,15 +73,17 @@ export function useOpsNavBadges(): Partial<Record<string, number>> {
   const userId = useAppStore((s) => s.user?.id) ?? 'anonymous';
 
   // Same cache as the boards; this observer adds the polling.
+  const role = useAppStore((s) => s.user?.role);
   const orders = useQuery({
     queryKey: OPS_ORDERS_KEY,
     queryFn: fetchOpsOrders,
+    enabled: can(role, 'orders.view'),
     retry: false,
     staleTime: 30_000,
     refetchInterval: POLL_MS,
   });
   // Same cache as the queue's default "Open" filter, which already polls.
-  const applications = useOpsApplications('open');
+  const applications = useOpsApplications('open', can(role, 'applications.review'));
 
   const arrivals = useMemo<Record<BadgedPath, number[]>>(() => {
     const list = orders.data ?? [];

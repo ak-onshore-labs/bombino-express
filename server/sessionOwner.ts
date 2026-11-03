@@ -133,4 +133,9 @@ export const OWNER_PROFILES = {
   } satisfies OwnerOptions,
   /** Notifications: the guest branch, mounted in front of the account branch. */
   guestNotifications: { onAccount: "refuse", allowSignupRef: true } satisfies OwnerOptions,
+  /**
+   * Parcels coming to a number: the account, else a guest who proved their
+   * number. The phone is what the route answers to, so a guest needs one.
+   */
+  receiving: { onAccount: "resolve", requireUserObject: true, requireGuestPhone: true } satisfies OwnerOptions,
 } as const;

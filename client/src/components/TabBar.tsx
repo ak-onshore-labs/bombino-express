@@ -1,5 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
+import { motion, useReducedMotion } from 'framer-motion';
+import { INDICATOR } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 
 /**
@@ -27,6 +29,11 @@ export interface TabItem {
   active?: boolean;
   /** Small count on the icon. Omit or pass 0 to hide. */
   badge?: number;
+  /**
+   * Draw the icon on an amber pill so the tab stands out from the rest. The
+   * ops More tab uses it: half the console lives behind it on a phone.
+   */
+  highlight?: boolean;
 }
 
 function tabClass(isActive: boolean): string {
@@ -41,20 +48,35 @@ function TabChrome({
   label,
   badge,
   isActive,
+  highlight = false,
+  indicatorId,
 }: {
   icon: LucideIcon;
   label: string;
   badge?: number;
   isActive: boolean;
+  highlight?: boolean;
+  /** When set, the active marker is one shared element that slides between tabs. */
+  indicatorId?: string;
 }) {
+  const quiet = useReducedMotion();
   const slug = label.toLowerCase().replace(/\s+/g, '-');
   return (
     <>
-      <span className="relative">
-        <Icon className={cn('w-5 h-5 transition-all', isActive && 'stroke-[2.5]')} />
+      <span
+        className={cn(
+          'relative',
+          highlight && 'grid place-items-center w-11 h-7 -my-1 rounded-full bg-[#F2A123] text-[#1B2A41] shadow-sm',
+        )}
+      >
+        <Icon className={cn('w-5 h-5 transition-all', (isActive || highlight) && 'stroke-[2.5]')} />
         {typeof badge === 'number' && badge > 0 && (
           <span
-            className="absolute -top-1.5 -right-2 min-w-[16px] h-4 px-1 rounded-full bg-[#F2A123] text-[10px] font-bold text-[#1B2A41] grid place-items-center tabular-nums"
+            className={cn(
+              'absolute -top-1.5 -right-2 min-w-[16px] h-4 px-1 rounded-full text-[10px] font-bold grid place-items-center tabular-nums',
+              // On the amber pill an amber count would vanish.
+              highlight ? 'bg-white text-primary ring-1 ring-primary' : 'bg-[#F2A123] text-[#1B2A41]',
+            )}
             data-testid={`nav-badge-${slug}`}
           >
             {badge > 99 ? '99+' : badge}
@@ -64,17 +86,26 @@ function TabChrome({
       <span
         className={cn(
           'text-[10px] mt-1 transition-all',
-          isActive ? 'font-semibold' : 'font-medium',
+          isActive || highlight ? 'font-semibold' : 'font-medium',
+          highlight && 'text-white',
         )}
       >
         {label}
       </span>
-      {isActive && (
-        <span
-          className="absolute top-0 left-1/2 -translate-x-1/2 w-5 h-0.5 bg-white rounded-full"
-          aria-hidden
-        />
-      )}
+      {isActive &&
+        (indicatorId && !quiet ? (
+          <motion.span
+            layoutId={indicatorId}
+            transition={INDICATOR}
+            className="absolute top-0 left-1/2 -ml-2.5 w-5 h-0.5 bg-white rounded-full"
+            aria-hidden
+          />
+        ) : (
+          <span
+            className="absolute top-0 left-1/2 -translate-x-1/2 w-5 h-0.5 bg-white rounded-full"
+            aria-hidden
+          />
+        ))}
     </>
   );
 }
@@ -92,10 +123,13 @@ export function TabBar({
   items,
   className,
   testId = 'tab-bar',
+  indicatorId,
 }: {
   items: TabItem[];
   className?: string;
   testId?: string;
+  /** Slide the active marker between tabs (ops). Omit for a static marker. */
+  indicatorId?: string;
 }) {
   const [location] = useLocation();
 
@@ -108,11 +142,18 @@ export function TabBar({
       data-testid={testId}
     >
       <div className="flex items-center justify-around h-16 max-w-md mx-auto">
-        {items.map(({ icon, label, path, badge, onPress, active }) => {
+        {items.map(({ icon, label, path, badge, onPress, active, highlight }) => {
           const isActive = active ?? (path ? isPathActive(location, path) : false);
           const slug = label.toLowerCase().replace(/\s+/g, '-');
           const chrome = (
-            <TabChrome icon={icon} label={label} badge={badge} isActive={isActive} />
+            <TabChrome
+              icon={icon}
+              label={label}
+              badge={badge}
+              isActive={isActive}
+              highlight={highlight}
+              indicatorId={indicatorId}
+            />
           );
 
           if (onPress) {

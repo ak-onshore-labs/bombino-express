@@ -65,7 +65,7 @@ export function ContractSignature({
   return (
     <div
       className={cn(
-        'bg-card rounded-xl border p-4 shadow-sm space-y-3',
+        'bg-card rounded-xl border p-4 shadow-card space-y-3',
         error ? 'border-primary border-2' : 'border-border',
       )}
       data-testid="contract-signature"

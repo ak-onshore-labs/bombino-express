@@ -160,6 +160,49 @@ export async function getOrderById(orderId: string): Promise<Order | null> {
   return toOrder(data as unknown as OrderRow);
 }
 
+export type OrderRef = {
+  order_no: string;
+  awb_no: string | null;
+  consignee: unknown;
+};
+
+/**
+ * Order number, AWB and consignee for a batch of the owner's orders, matched
+ * by either reference — so a bell row that knows one can show the other.
+ *
+ * Scoped to the owner in the query, like `getOrderByNumberForUser`: the
+ * service-role key bypasses RLS, so this predicate is what stops one
+ * customer's bell from naming another's parcel.
+ */
+export async function listOrderRefsForOwner(
+  owner: { userId: string } | { guestRef: string },
+  refs: { orderNos: string[]; awbs: string[] }
+): Promise<OrderRef[]> {
+  const client = getSupabaseClient();
+  if (!client) return [];
+  const orderNos = Array.from(new Set(refs.orderNos)).slice(0, 200);
+  const awbs = Array.from(new Set(refs.awbs)).slice(0, 200);
+  if (orderNos.length === 0 && awbs.length === 0) return [];
+
+  const [column, value] = "userId" in owner ? ["user_id", owner.userId] : ["guest_ref", owner.guestRef];
+  const run = async (field: "order_no" | "awb_no", values: string[]): Promise<OrderRef[]> => {
+    if (values.length === 0) return [];
+    const { data, error } = await client
+      .from("orders")
+      .select("order_no, awb_no, consignee")
+      .eq(column, value)
+      .in(field, values);
+    if (error) {
+      logSupabaseError("listOrderRefsForOwner", error);
+      return [];
+    }
+    return (data ?? []) as OrderRef[];
+  };
+
+  const [byNo, byAwb] = await Promise.all([run("order_no", orderNos), run("awb_no", awbs)]);
+  return [...byNo, ...byAwb];
+}
+
 /**
  * The pickup address, embedded via the orders → addresses FK.
  *
@@ -218,6 +261,131 @@ export async function getOrderByNumberForUser(
 
   const row = data as unknown as OrderRow & { origin_address?: OrderAddress | null };
   return { ...toOrder(row), origin_address: row.origin_address ?? null };
+}
+
+/**
+ * One order with its pickup address, by id, with NO owner scope.
+ *
+ * Only for callers that have already authorised the read some other way: a
+ * verified parcel tag (`parcelTag.ts`), whose HMAC is the proof the caller
+ * held the label. Never call this with an id taken straight from a request.
+ */
+export async function getOrderWithAddressById(orderId: string): Promise<OrderWithAddress | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("orders")
+    .select(`${ORDER_COLUMNS}, ${ORIGIN_ADDRESS_EMBED}`)
+    .eq("id", orderId)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("getOrderWithAddressById", error);
+    return null;
+  }
+  if (!data) return null;
+
+  const row = data as unknown as OrderRow & { origin_address?: OrderAddress | null };
+  return { ...toOrder(row), origin_address: row.origin_address ?? null };
+}
+
+/** The id behind an order number, for staff lookups (scan / type-in). */
+export async function getOrderIdByNumber(orderNo: string): Promise<string | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("orders")
+    .select("id")
+    .eq("order_no", orderNo)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("getOrderIdByNumber", error);
+    return null;
+  }
+  return (data as { id: string } | null)?.id ?? null;
+}
+
+/** The order behind a parcel ID (the 12-character ID on our box label). */
+export async function getOrderIdByParcelId(parcelId: string): Promise<string | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("orders")
+    .select("id")
+    .eq("metadata->>parcel_id", parcelId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("getOrderIdByParcelId", error);
+    return null;
+  }
+  return (data as { id: string } | null)?.id ?? null;
+}
+
+/**
+ * The order's parcel ID, made on first call and kept in `metadata.parcel_id`.
+ *
+ * Written only while the order has none (a conditional update), then read
+ * back, so two label requests racing each other still end on one ID and
+ * every printed label agrees. Null on a DB failure.
+ */
+export async function ensureParcelId(orderId: string, makeId: () => string): Promise<string | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const read = async (): Promise<{ metadata: Record<string, unknown> | null } | null> => {
+    const { data, error } = await client.from("orders").select("metadata").eq("id", orderId).maybeSingle();
+    if (error) {
+      logSupabaseError("ensureParcelId:read", error);
+      return null;
+    }
+    return data as { metadata: Record<string, unknown> | null } | null;
+  };
+
+  const current = await read();
+  if (!current) return null;
+  const existing = current.metadata?.parcel_id;
+  if (typeof existing === "string" && existing) return existing;
+
+  const { error } = await client
+    .from("orders")
+    .update({ metadata: { ...(current.metadata ?? {}), parcel_id: makeId() } })
+    .eq("id", orderId)
+    .is("metadata->>parcel_id", null);
+  if (error) {
+    logSupabaseError("ensureParcelId:write", error);
+    return null;
+  }
+
+  const after = await read();
+  const id = after?.metadata?.parcel_id;
+  return typeof id === "string" && id ? id : null;
+}
+
+/** The id behind an AWB, for staff scans of an ITD label. */
+export async function getOrderIdByAwb(awb: string): Promise<string | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("orders")
+    .select("id")
+    .eq("awb_no", awb)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("getOrderIdByAwb", error);
+    return null;
+  }
+  return (data as { id: string } | null)?.id ?? null;
 }
 
 /**
@@ -508,7 +676,18 @@ export async function applyBookingDocket(input: {
  */
 export async function recordBookingDocketError(
   orderId: string,
-  detail: { stage: string; message: string }
+  detail: {
+    stage: string;
+    message: string;
+    /**
+     * Who acts next (server/docketFiling.ts): `auto` the retry sweep, `ops`
+     * a person after a correction, `check_itd` a person after checking ITD's
+     * portal for a docket that may already exist. Absent on older rows.
+     */
+    retry?: "auto" | "ops" | "check_itd";
+    /** What the pre-check found missing, for ops to fix. */
+    problems?: string[];
+  }
 ): Promise<boolean> {
   const client = getSupabaseClient();
   if (!client) return false;
@@ -525,6 +704,8 @@ export async function recordBookingDocketError(
   }
 
   const metadata = ((row?.metadata as Record<string, unknown> | null) ?? {});
+  const previous = metadata.docket_error as { attempts?: unknown } | undefined;
+  const attempts = (typeof previous?.attempts === "number" ? previous.attempts : previous ? 1 : 0) + 1;
 
   const { error } = await client
     .from("orders")
@@ -535,6 +716,9 @@ export async function recordBookingDocketError(
           at: new Date().toISOString(),
           stage: detail.stage,
           message: detail.message,
+          ...(detail.retry ? { retry: detail.retry } : {}),
+          ...(detail.problems?.length ? { problems: detail.problems } : {}),
+          attempts,
         },
       },
       updated_at: new Date().toISOString(),
@@ -546,6 +730,123 @@ export async function recordBookingDocketError(
     return false;
   }
   return true;
+}
+
+/** Drop the failure note once the order has its AWB. Best-effort. */
+export async function clearBookingDocketError(orderId: string): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client) return;
+  const { data: row, error: readError } = await client
+    .from("orders")
+    .select("metadata")
+    .eq("id", orderId)
+    .maybeSingle();
+  if (readError) {
+    logSupabaseError("clearBookingDocketError:read", readError);
+    return;
+  }
+  const metadata = { ...((row?.metadata as Record<string, unknown> | null) ?? {}) };
+  if (!("docket_error" in metadata) && !("docket_lock" in metadata)) return;
+  delete metadata.docket_error;
+  delete metadata.docket_lock;
+  const { error } = await client.from("orders").update({ metadata }).eq("id", orderId);
+  if (error) logSupabaseError("clearBookingDocketError:update", error);
+}
+
+/** A held lock older than this is presumed to belong to a process that died. */
+export const DOCKET_LOCK_STALE_MS = 5 * 60 * 1000;
+
+/**
+ * Take the right to file this order's docket.
+ *
+ * ITD has no idempotency key and permits no amendment, so two filings for one
+ * order would be two real shipments. The booking request, the retry sweep, an
+ * ops click and a second deployment can all reach the same order; this is the
+ * one place they queue.
+ *
+ * Compare-and-set on `updated_at` (no schema change needed): read the row,
+ * refuse if it has an AWB or a live lock, then write the lock only if the row
+ * is still exactly as read. A concurrent taker changes `updated_at` first and
+ * this one matches nothing.
+ */
+export async function acquireDocketLock(orderId: string, holder: string): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  const { data: row, error: readError } = await client
+    .from("orders")
+    .select("awb_no, metadata, updated_at")
+    .eq("id", orderId)
+    .maybeSingle();
+  if (readError || !row) {
+    if (readError) logSupabaseError("acquireDocketLock:read", readError);
+    return false;
+  }
+  if (row.awb_no) return false;
+
+  const metadata = (row.metadata as Record<string, unknown> | null) ?? {};
+  const lock = metadata.docket_lock as { at?: unknown } | undefined;
+  const lockAt = typeof lock?.at === "string" ? Date.parse(lock.at) : NaN;
+  if (Number.isFinite(lockAt) && Date.now() - lockAt < DOCKET_LOCK_STALE_MS) return false;
+
+  const { data, error } = await client
+    .from("orders")
+    .update({
+      metadata: { ...metadata, docket_lock: { at: new Date().toISOString(), by: holder } },
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", orderId)
+    .eq("updated_at", row.updated_at as string)
+    .is("awb_no", null)
+    .select("id");
+  if (error) {
+    logSupabaseError("acquireDocketLock:update", error);
+    return false;
+  }
+  return (data ?? []).length === 1;
+}
+
+/** Give the lock back. Leaves everything else on `metadata` alone. */
+export async function releaseDocketLock(orderId: string): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client) return;
+  const { data: row, error: readError } = await client
+    .from("orders")
+    .select("metadata")
+    .eq("id", orderId)
+    .maybeSingle();
+  if (readError || !row) return;
+  const metadata = { ...((row.metadata as Record<string, unknown> | null) ?? {}) };
+  if (!("docket_lock" in metadata)) return;
+  delete metadata.docket_lock;
+  const { error } = await client.from("orders").update({ metadata }).eq("id", orderId);
+  if (error) logSupabaseError("releaseDocketLock", error);
+}
+
+/**
+ * Orders whose docket failed in a way a retry can fix by itself
+ * (`docket_error.retry = "auto"`), still waiting for an AWB, still ours.
+ * Optionally one customer's, for the retry that follows a document upload.
+ */
+export async function listOrdersForDocketRetry(opts: { userId?: string } = {}): Promise<Order[]> {
+  const client = getSupabaseClient();
+  if (!client) return [];
+  let q = client
+    .from("orders")
+    .select(ORDER_COLUMNS)
+    .is("awb_no", null)
+    .not("user_id", "is", null)
+    .not("status", "in", "(cancelled,dispatched)")
+    .eq("metadata->docket_error->>retry", "auto")
+    .order("created_at", { ascending: true })
+    .limit(25);
+  if (opts.userId) q = q.eq("user_id", opts.userId);
+  const { data, error } = await q;
+  if (error) {
+    logSupabaseError("listOrdersForDocketRetry", error);
+    return [];
+  }
+  return ((data ?? []) as unknown as OrderRow[]).map((r) => toOrder(r));
 }
 
 export type OrderEventRow = {

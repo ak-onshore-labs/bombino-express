@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { X, User, LogOut, LogIn, Bot, Phone, ShieldCheck } from 'lucide-react';
 import { Link } from 'wouter';
 import { useAppStore } from '@/lib/store';
@@ -6,8 +7,10 @@ import { useGuestProfile } from '@/hooks/useGuestProfile';
 import { formatGuestPhone } from '@/lib/shadowProfile';
 import { GuestSignOutDialog } from '@/components/GuestSignOutDialog';
 import { AccountSignOutDialog } from '@/components/AccountSignOutDialog';
+import { BuildVersion } from '@/components/BuildVersion';
 import bombinoLogo from '@/assets/bombino-logo.png';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
+import { useSupportContacts } from '@/hooks/useSupportContacts';
 
 interface SideMenuProps {
   isOpen: boolean;
@@ -32,210 +35,255 @@ export function SideMenu({ isOpen, onClose }: SideMenuProps) {
    * is most likely to come looking for what they filled in.
    */
   const { data: guestProfile } = useGuestProfile({ enabled: !isLoggedIn });
+  const { waHref, telHref } = useSupportContacts();
   // The menu stays open behind the confirmation, so "Stay signed in" lands
   // back where they were rather than on a closed menu.
   const [signOutOpen, setSignOutOpen] = useState(false);
-  if (!isOpen) return null;
+  const reduceMotion = useReducedMotion();
+  // In on a soft spring, so it settles rather than stops; out on a quick
+  // ease, a touch faster than in — closing is a dismissal, not something to
+  // watch. Kept mounted through the exit so it slides away instead of
+  // vanishing. Nothing moves for someone who asked for reduced motion.
+  const slideIn = reduceMotion
+    ? { duration: 0 }
+    : { type: 'spring' as const, stiffness: 420, damping: 40, mass: 0.9 };
+  const slideOut = reduceMotion
+    ? { duration: 0 }
+    : { type: 'tween' as const, ease: [0.32, 0.72, 0, 1] as const, duration: 0.24 };
+  const fadeIn = reduceMotion ? { duration: 0 } : { duration: 0.22, ease: 'easeOut' as const };
+  // The contents follow the panel in, a beat behind, so the menu arrives
+  // rather than appearing all at once.
+  const contentIn = reduceMotion
+    ? { duration: 0 }
+    : { delay: 0.08, duration: 0.24, ease: [0.22, 1, 0.36, 1] as const };
 
   return (
     <>
-      <div
-        className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-50 animate-fade-in"
-        onClick={onClose}
-        data-testid="overlay-menu"
-      />
-      <div className="fixed inset-y-0 left-0 w-80 max-w-[85vw] bg-white z-50 shadow-2xl animate-slide-in-left safe-top safe-bottom">
-        <div className="flex flex-col h-full">
-          <div className="flex items-center justify-between p-4 border-b border-border">
-            <div className="flex items-center gap-3">
-              <img src={bombinoLogo} alt="Bombino" className="h-9 w-auto" />
-            </div>
-            <button
-              onClick={onClose}
-              className="p-2 rounded-xl hover:bg-muted active:scale-95 transition-all"
-              data-testid="button-close-menu"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          <div className="p-4 bg-gradient-to-br from-primary/5 to-transparent">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center">
-                <User className="w-6 h-6 text-primary" />
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className="min-w-0 font-semibold text-foreground truncate">
-                    {isLoggedIn
-                      ? user?.fullName || user?.email
-                      : guestProfile?.full_name?.trim() || 'Guest'}
-                  </p>
-                  {/* Says which kind of session this is: a verified number,
-                      not an account — no password, and a different profile. */}
-                  {!isLoggedIn && guestProfile && (
-                    <span
-                      className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700"
-                      data-testid="badge-guest"
-                    >
-                      Guest
-                    </span>
-                  )}
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            key="side-menu-overlay"
+            className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-50"
+            onClick={onClose}
+            data-testid="overlay-menu"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1, transition: fadeIn }}
+            exit={{ opacity: 0, transition: slideOut }}
+          />
+        )}
+        {isOpen && (
+          <motion.div
+            key="side-menu-panel"
+            className="fixed inset-y-0 left-0 w-80 max-w-[85vw] bg-white z-50 shadow-2xl safe-top safe-bottom"
+            initial={{ x: '-100%' }}
+            animate={{ x: 0, transition: slideIn }}
+            exit={{ x: '-100%', transition: slideOut }}
+            // Swipe it back the way it came. Only leftwards, and only the
+            // horizontal part of a gesture, so the list still scrolls.
+            drag={reduceMotion ? false : 'x'}
+            dragDirectionLock
+            dragConstraints={{ left: 0, right: 0 }}
+            dragElastic={{ left: 0.7, right: 0 }}
+            onDragEnd={(_, info) => {
+              if (info.offset.x < -80 || info.velocity.x < -500) onClose();
+            }}
+            style={{ touchAction: 'pan-y' }}
+          >
+            <div className="flex flex-col h-full">
+              <div className="flex items-center justify-between p-4 border-b border-border">
+                <div className="flex items-center gap-3">
+                  <img src={bombinoLogo} alt="Bombino" className="h-9 w-auto" />
                 </div>
-                {/* One size whoever is looking: this line holds the account
-                    email and the guest's number, and scaling only one branch
-                    made the menu header change size with the session. */}
-                <p className="text-sm text-muted-foreground">
-                  {isLoggedIn ? (
-                    user?.email
-                  ) : guestProfile ? (
-                    // The tick says "verified" without spending a word on it.
-                    // Its meaning is not lost to a screen reader: the label is
-                    // on the icon, which is what the word used to be.
-                    <span className="flex items-center gap-1">
-                      <ShieldCheck
-                        className="h-4 w-4 shrink-0 text-green-600"
-                        aria-label="Verified"
-                      />
-                      {formatGuestPhone(guestProfile.phone)}
-                    </span>
-                  ) : (
-                    'Sign in to continue'
-                  )}
-                </p>
+                <button
+                  onClick={onClose}
+                  className="p-2 rounded-xl hover:bg-muted active:scale-95 transition-all"
+                  data-testid="button-close-menu"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-            </div>
-          </div>
 
-          <nav className="flex-1 p-4 space-y-1">
-            {isLoggedIn ? (
-              <>
+              <div className="p-4 bg-gradient-to-br from-primary/5 to-transparent">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center">
+                    <User className="w-6 h-6 text-primary" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="min-w-0 font-semibold text-foreground truncate">
+                        {isLoggedIn
+                          ? user?.fullName || user?.email
+                          : guestProfile?.full_name?.trim() || 'Guest'}
+                      </p>
+                      {/* Says which kind of session this is: a verified number,
+                          not an account — no password, and a different profile. */}
+                      {!isLoggedIn && guestProfile && (
+                        <span
+                          className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700"
+                          data-testid="badge-guest"
+                        >
+                          Guest
+                        </span>
+                      )}
+                    </div>
+                    {/* One size whoever is looking: this line holds the account
+                        email and the guest's number, and scaling only one branch
+                        made the menu header change size with the session. */}
+                    <p className="text-sm text-muted-foreground">
+                      {isLoggedIn ? (
+                        user?.email
+                      ) : guestProfile ? (
+                        // The tick says "verified" without spending a word on it.
+                        // Its meaning is not lost to a screen reader: the label is
+                        // on the icon, which is what the word used to be.
+                        <span className="flex items-center gap-1">
+                          <ShieldCheck
+                            className="h-4 w-4 shrink-0 text-green-600"
+                            aria-label="Verified"
+                          />
+                          {formatGuestPhone(guestProfile.phone)}
+                        </span>
+                      ) : (
+                        'Sign in to continue'
+                      )}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <motion.nav
+                className="flex-1 p-4 space-y-1"
+                initial={{ opacity: 0, x: -16 }}
+                animate={{ opacity: 1, x: 0, transition: contentIn }}
+              >
+                {isLoggedIn ? (
+                  <>
+                    <Link
+                      href="/profile"
+                      onClick={onClose}
+                      className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted active:scale-[0.98] transition-all"
+                      data-testid="link-profile"
+                    >
+                      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center">
+                        <User className="w-5 h-5 text-primary" />
+                      </div>
+                      <span className="font-medium">My Profile</span>
+                      {/* The menu is where someone goes looking for their account,
+                          so the outstanding document is marked here too — quiet,
+                          and pointing at the screen that clears it. */}
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => setSignOutOpen(true)}
+                      className={SIGN_OUT_ROW}
+                      data-testid="button-logout"
+                    >
+                      <div className={SIGN_OUT_ICON_BOX}>
+                        <LogOut className="w-5 h-5 text-red-600" />
+                      </div>
+                      <span className="font-medium">Sign Out</span>
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {/* The way back to a guest's own details. Same position and
+                        same wording as the account entry above it, because it is
+                        the same errand. */}
+                    {guestProfile && (
+                      <Link
+                        href="/guest-profile"
+                        onClick={onClose}
+                        className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted active:scale-[0.98] transition-all"
+                        data-testid="link-guest-profile"
+                      >
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center">
+                          <User className="w-5 h-5 text-primary" />
+                        </div>
+                        <span className="font-medium">My Profile</span>
+                      </Link>
+                    )}
+                    {/* Only for a visitor nobody knows yet. A verified guest is
+                        already somebody on this device; their way to an account is
+                        the offer on their profile, which carries their details. */}
+                    {!guestProfile && (
+                      <Link
+                        href="/login"
+                        onClick={onClose}
+                        className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted active:scale-[0.98] transition-all"
+                        data-testid="link-login"
+                      >
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center">
+                          <LogIn className="w-5 h-5 text-primary" />
+                        </div>
+                        <span className="font-medium">Sign In</span>
+                      </Link>
+                    )}
+                    {/* A verified guest — and everyone who has booked is one — is
+                        somebody on this device until the session goes. Offered
+                        here as well as on their profile, but always behind the
+                        warning: there is no password to come back with. */}
+                    {guestProfile && (
+                      <button
+                        type="button"
+                        onClick={() => setSignOutOpen(true)}
+                        className={SIGN_OUT_ROW}
+                        data-testid="button-guest-logout"
+                      >
+                        <div className={SIGN_OUT_ICON_BOX}>
+                          <LogOut className="w-5 h-5 text-red-600" />
+                        </div>
+                        <span className="font-medium">Sign Out</span>
+                      </button>
+                    )}
+                  </>
+                )}
+
+                <div className="border-t border-border my-4" />
+
+                <a
+                  href={waHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted active:scale-[0.98] transition-all"
+                  data-testid="link-whatsapp"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center">
+                    <img src={whatsAppLogo} alt="WhatsApp" className="w-5 h-5 object-contain" />
+                  </div>
+                  <span className="font-medium">WhatsApp Support</span>
+                </a>
+
+                <a
+                  href={telHref}
+                  className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted active:scale-[0.98] transition-all"
+                  data-testid="link-call"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
+                    <Phone className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <span className="font-medium">Call Support</span>
+                </a>
+
                 <Link
-                  href="/profile"
+                  href="/help"
                   onClick={onClose}
                   className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted active:scale-[0.98] transition-all"
-                  data-testid="link-profile"
+                  data-testid="link-help"
                 >
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center">
-                    <User className="w-5 h-5 text-primary" />
+                  <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center">
+                    <Bot className="w-5 h-5 text-muted-foreground" />
                   </div>
-                  <span className="font-medium">My Profile</span>
-                  {/* The menu is where someone goes looking for their account,
-                      so the outstanding document is marked here too — quiet,
-                      and pointing at the screen that clears it. */}
+                  <span className="font-medium">Ask BIA</span>
                 </Link>
-                <button
-                  type="button"
-                  onClick={() => setSignOutOpen(true)}
-                  className={SIGN_OUT_ROW}
-                  data-testid="button-logout"
-                >
-                  <div className={SIGN_OUT_ICON_BOX}>
-                    <LogOut className="w-5 h-5 text-red-600" />
-                  </div>
-                  <span className="font-medium">Sign Out</span>
-                </button>
-              </>
-            ) : (
-              <>
-                {/* The way back to a guest's own details. Same position and
-                    same wording as the account entry above it, because it is
-                    the same errand. */}
-                {guestProfile && (
-                  <Link
-                    href="/guest-profile"
-                    onClick={onClose}
-                    className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted active:scale-[0.98] transition-all"
-                    data-testid="link-guest-profile"
-                  >
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center">
-                      <User className="w-5 h-5 text-primary" />
-                    </div>
-                    <span className="font-medium">My Profile</span>
-                  </Link>
-                )}
-                {/* Only for a visitor nobody knows yet. A verified guest is
-                    already somebody on this device; their way to an account is
-                    the offer on their profile, which carries their details. */}
-                {!guestProfile && (
-                  <Link
-                    href="/login"
-                    onClick={onClose}
-                    className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted active:scale-[0.98] transition-all"
-                    data-testid="link-login"
-                  >
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center">
-                      <LogIn className="w-5 h-5 text-primary" />
-                    </div>
-                    <span className="font-medium">Sign In</span>
-                  </Link>
-                )}
-                {/* A verified guest — and everyone who has booked is one — is
-                    somebody on this device until the session goes. Offered
-                    here as well as on their profile, but always behind the
-                    warning: there is no password to come back with. */}
-                {guestProfile && (
-                  <button
-                    type="button"
-                    onClick={() => setSignOutOpen(true)}
-                    className={SIGN_OUT_ROW}
-                    data-testid="button-guest-logout"
-                  >
-                    <div className={SIGN_OUT_ICON_BOX}>
-                      <LogOut className="w-5 h-5 text-red-600" />
-                    </div>
-                    <span className="font-medium">Sign Out</span>
-                  </button>
-                )}
-              </>
-            )}
+              </motion.nav>
 
-            <div className="border-t border-border my-4" />
-
-            <a
-              href="https://api.whatsapp.com/send?phone=917045999553"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted active:scale-[0.98] transition-all"
-              data-testid="link-whatsapp"
-            >
-              <div className="w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center">
-                <img src={whatsAppLogo} alt="WhatsApp" className="w-5 h-5 object-contain" />
+              <div className="p-4 border-t border-border">
+                <BuildVersion className="text-xs text-center" />
               </div>
-              <span className="font-medium">WhatsApp Support</span>
-            </a>
-
-            <a
-              href="tel:+912266400000"
-              className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted active:scale-[0.98] transition-all"
-              data-testid="link-call"
-            >
-              <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
-                <Phone className="w-5 h-5 text-blue-600" />
-              </div>
-              <span className="font-medium">Call Support</span>
-            </a>
-
-            <Link
-              href="/help"
-              onClick={onClose}
-              className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted active:scale-[0.98] transition-all"
-              data-testid="link-help"
-            >
-              <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center">
-                <Bot className="w-5 h-5 text-muted-foreground" />
-              </div>
-              <span className="font-medium">Ask BIA</span>
-            </Link>
-          </nav>
-
-          <div className="p-4 border-t border-border">
-            <p className="text-xs text-muted-foreground text-center">
-              Bombino Express v1.0.0
-            </p>
-          </div>
-        </div>
-      </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {isLoggedIn ? (
         <AccountSignOutDialog
@@ -254,19 +302,6 @@ export function SideMenu({ isOpen, onClose }: SideMenuProps) {
         )
       )}
 
-      <style>{`
-        @keyframes slide-in-left {
-          from {
-            transform: translateX(-100%);
-          }
-          to {
-            transform: translateX(0);
-          }
-        }
-        .animate-slide-in-left {
-          animation: slide-in-left 0.2s ease-out;
-        }
-      `}</style>
     </>
   );
 }

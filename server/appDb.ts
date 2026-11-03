@@ -4,6 +4,7 @@ import { supabase } from "./supabaseClient.js";
 import { dbClient, logDbError, type DbError } from "./db/client.js";
 import type { ChatMessage } from "./supportTypes.js";
 import type { CompanyCategory } from "../shared/accountSpec.js";
+import { STAFF_ROLES, type StaffRole } from "../shared/staffAccess.js";
 
 type Json = Record<string, unknown> | unknown[] | null;
 
@@ -105,6 +106,86 @@ export async function findItdUserIdByPhone(phone: string): Promise<{ id: string 
     return null;
   }
   return data;
+}
+
+/**
+ * The account a number signs in to, or null when it signs in as a guest.
+ *
+ * Two kinds of customer exist: guests, and accounts with a verified ITD email
+ * and password (Aditya, 8 Oct 2026). A customer row with no ITD login (left
+ * over from the old direct signup) is not an account: its number is a guest.
+ *
+ * Staff are always accounts. Agents and ops have no ITD login at all, and
+ * treating them as guests locked every one of them out of phone sign-in.
+ * Test customers get no exception: without an ITD login they are guests too.
+ *
+ * Phone-uniqueness checks keep using `findItdUserIdByPhone`, which sees every
+ * row.
+ */
+export async function findItdAccountByPhone(phone: string): Promise<{ id: string } | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("itd_users")
+    .select("id, role, itd_password_encrypted")
+    .eq("phone", phone)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("findItdAccountByPhone", error);
+    return null;
+  }
+  if (!data) return null;
+
+  const row = data as { id: string; role: string | null; itd_password_encrypted: string | null };
+  const isCustomer = !row.role || row.role === "customer";
+  if (!isCustomer) return { id: row.id };
+  if (row.itd_password_encrypted) return { id: row.id };
+  return null;
+}
+
+/** A row on this number with no ITD login (the old direct signup's kind). */
+export async function findLoginlessRowByPhone(phone: string): Promise<{ id: string } | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("itd_users")
+    .select("id")
+    .eq("phone", phone)
+    .is("itd_password_encrypted", null)
+    .or("role.is.null,role.eq.customer")
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("findLoginlessRowByPhone", error);
+    return null;
+  }
+  return data;
+}
+
+/**
+ * Re-key a login-less row onto the ITD login ops just verified, so approval's
+ * upsert (keyed on itd_customer_id) completes that row instead of colliding
+ * with it on the unique phone. Its orders stay attached to it.
+ */
+export async function adoptLoginlessRow(rowId: string, itdCustomerId: string): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  const { error } = await client
+    .from("itd_users")
+    .update({ itd_customer_id: itdCustomerId, updated_at: new Date().toISOString() })
+    .eq("id", rowId)
+    .is("itd_password_encrypted", null)
+    .or("role.is.null,role.eq.customer");
+
+  if (error) {
+    logSupabaseError("adoptLoginlessRow", error);
+    return false;
+  }
+  return true;
 }
 
 type UpsertItdUserInput = {
@@ -222,14 +303,35 @@ export type StaffUserRow = {
   id: string;
   full_name: string;
   phone: string | null;
+  email: string | null;
   role: string;
   is_active: boolean;
 };
 
+const STAFF_USER_COLUMNS = "id, full_name, phone, email, role, is_active";
+
+function mapStaffUserRow(row: {
+  id: unknown;
+  full_name: unknown;
+  phone: unknown;
+  email: unknown;
+  role: unknown;
+  is_active: unknown;
+}): StaffUserRow {
+  return {
+    id: String(row.id),
+    full_name: String(row.full_name ?? ""),
+    phone: typeof row.phone === "string" ? row.phone : null,
+    email: typeof row.email === "string" ? row.email : null,
+    role: String(row.role ?? ""),
+    is_active: row.is_active !== false,
+  };
+}
+
 export type InsertStaffUserInput = {
   full_name: string;
   phone: string;
-  role: "agent" | "admin";
+  role: Exclude<StaffRole, "super_admin">;
   hub_id: number;
 };
 
@@ -289,8 +391,8 @@ export async function listStaffUsers(): Promise<StaffUserRow[] | null> {
 
   const { data, error } = await client
     .from("itd_users")
-    .select("id, full_name, phone, role, is_active")
-    .in("role", ["agent", "admin", "super_admin"])
+    .select(STAFF_USER_COLUMNS)
+    .in("role", [...STAFF_ROLES])
     .order("created_at", { ascending: false })
     .limit(200);
 
@@ -299,13 +401,117 @@ export async function listStaffUsers(): Promise<StaffUserRow[] | null> {
     return null;
   }
 
-  return (data ?? []).map((row) => ({
-    id: String(row.id),
-    full_name: String(row.full_name ?? ""),
-    phone: typeof row.phone === "string" ? row.phone : null,
-    role: String(row.role ?? ""),
-    is_active: row.is_active !== false,
-  }));
+  return (data ?? []).map(mapStaffUserRow);
+}
+
+/** One staff row. Returns null when the id is missing, not staff, or the query failed. */
+export async function getStaffUserById(id: string): Promise<StaffUserRow | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("itd_users")
+    .select(STAFF_USER_COLUMNS)
+    .eq("id", id)
+    .in("role", [...STAFF_ROLES])
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("getStaffUserById", error);
+    return null;
+  }
+  if (!data?.id) return null;
+  return mapStaffUserRow(data);
+}
+
+export type UpdateStaffUserInput = {
+  full_name?: string;
+  phone?: string;
+  email?: string;
+  is_active?: boolean;
+  /** Only a super admin sends this; the route checks. Never to or from super_admin. */
+  role?: Exclude<StaffRole, "super_admin">;
+};
+
+/**
+ * Patch a staff account's name / phone / email / active flag, and its role
+ * when a super admin changes it (the route decides who may).
+ *
+ * Phone is the OTP login key. A new number that already belongs to a different
+ * row is `"taken"` (itd_users_phone_key). The rider's own phone is not a
+ * collision. When phone changes, username is kept in sync with it.
+ *
+ * `is_active` does not cascade: past jobs (`orders.agent_id`) and cash
+ * (`payments.collected_by`) stay on this id.
+ */
+export async function updateStaffUser(
+  id: string,
+  patch: UpdateStaffUserInput
+): Promise<StaffUserRow | "missing" | "taken" | null> {
+  const existing = await getStaffUserById(id);
+  if (!existing) return "missing";
+
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const update: {
+    full_name?: string;
+    phone?: string;
+    email?: string;
+    username?: string;
+    is_active?: boolean;
+    role?: string;
+    updated_at: string;
+  } = { updated_at: new Date().toISOString() };
+
+  if (patch.full_name !== undefined) update.full_name = patch.full_name;
+  if (patch.email !== undefined) update.email = patch.email;
+  if (patch.is_active !== undefined) update.is_active = patch.is_active;
+  if (patch.role !== undefined) update.role = patch.role;
+  if (patch.phone !== undefined && patch.phone !== existing.phone) {
+    const owner = await findItdUserIdByPhone(patch.phone);
+    if (owner && owner.id !== id) return "taken";
+    update.phone = patch.phone;
+    update.username = patch.phone;
+  }
+
+  const { data, error } = await client
+    .from("itd_users")
+    .update(update)
+    .eq("id", id)
+    .in("role", [...STAFF_ROLES])
+    .select(STAFF_USER_COLUMNS)
+    .maybeSingle();
+
+  if (error) {
+    if (error.code === "23505") return "taken";
+    logSupabaseError("updateStaffUser", error);
+    return null;
+  }
+  if (!data?.id) return "missing";
+  return mapStaffUserRow(data);
+}
+
+/**
+ * One-column read for the per-request agent gate. Null means missing/error;
+ * treat anything other than explicit false as active.
+ */
+export async function getIsActiveById(id: string): Promise<boolean | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("itd_users")
+    .select("is_active")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("getIsActiveById", error);
+    return null;
+  }
+  if (!data) return null;
+  return data.is_active !== false;
 }
 
 export type CustomerAccountRow = {
@@ -478,6 +684,38 @@ export async function getCustomerForOps(id: string): Promise<OpsCustomerRow | nu
 }
 
 /**
+ * What the ops gate needs about the caller, read fresh on every ops request so
+ * a role change or a deactivation takes effect without a new login. `hub_id` is
+ * the hub the account was created with; for a branch manager it is their city.
+ */
+export type StaffAccess = { role: string; is_active: boolean; hub_id: unknown; phone: string | null };
+
+export async function getStaffAccessById(id: string): Promise<StaffAccess | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("itd_users")
+    .select("role, is_active, metadata, phone")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("getStaffAccessById", error);
+    return null;
+  }
+  if (!data) return null;
+  const metadata =
+    data.metadata && typeof data.metadata === "object" ? (data.metadata as Record<string, unknown>) : {};
+  return {
+    role: String(data.role ?? ""),
+    is_active: data.is_active !== false,
+    hub_id: metadata.hub_id ?? null,
+    phone: typeof data.phone === "string" ? data.phone : null,
+  };
+}
+
+/**
  * One staff row that is an active pickup agent. Used to validate an ops
  * assignment target — `orders.agent_id` FK only proves the id exists, not
  * the role or that the account is still live.
@@ -490,7 +728,7 @@ export async function findActiveAgentById(id: string): Promise<StaffUserRow | nu
 
   const { data, error } = await client
     .from("itd_users")
-    .select("id, full_name, phone, role, is_active")
+    .select("id, full_name, phone, email, role, is_active")
     .eq("id", id)
     .maybeSingle();
 
@@ -501,15 +739,9 @@ export async function findActiveAgentById(id: string): Promise<StaffUserRow | nu
   if (!data?.id) return null;
 
   const role = String(data.role ?? "");
-  if (role !== "agent" || data.is_active !== true) return null;
+  if (role !== "agent" || data.is_active === false) return null;
 
-  return {
-    id: String(data.id),
-    full_name: String(data.full_name ?? ""),
-    phone: typeof data.phone === "string" ? data.phone : null,
-    role,
-    is_active: true,
-  };
+  return mapStaffUserRow(data);
 }
 
 /**
@@ -974,6 +1206,26 @@ function pickDocument(
   return typeof doc === "string" && doc ? doc : null;
 }
 
+/** Whether this account booked the AWB directly (a `shipments` row of theirs). */
+export async function userOwnsShipmentAwb(awbNumber: string, userId: string): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  const { data, error } = await client
+    .from("shipments")
+    .select("id")
+    .eq("awb_number", awbNumber)
+    .eq("user_id", userId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("userOwnsShipmentAwb", error);
+    return false;
+  }
+  return !!data;
+}
+
 async function fetchShipmentLabels(
   awbNumber: string,
   userId: string,
@@ -1430,6 +1682,59 @@ export async function markNotificationRead(
     return null;
   }
   return data ?? [];
+}
+
+/**
+ * Mark every unread row of one owner read — the bell's "Mark all read".
+ * Returns how many rows changed, or null on a database error.
+ */
+/**
+ * Delete some of one owner's rows — the bell's "Clear" on a tab.
+ *
+ * The ids come from the client, which knows which tab it is clearing; the
+ * owner predicate is what makes that safe — an id belonging to anyone else
+ * matches nothing. Returns how many went, or null on a database error.
+ */
+export async function deleteNotifications(ids: string[], owner: NotificationOwner): Promise<number | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+  if (ids.length === 0) return 0;
+
+  const [column, value] = ownerColumn(owner);
+  const { data, error } = await client
+    .from("notifications")
+    .delete()
+    .in("id", ids)
+    .eq(column, value)
+    .select("id");
+
+  if (error) {
+    logSupabaseError("deleteNotifications", error);
+    return null;
+  }
+  return (data ?? []).length;
+}
+
+export async function markAllNotificationsRead(owner: NotificationOwner): Promise<number | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const [column, value] = ownerColumn(owner);
+  const { data, error } = await client
+    .from("notifications")
+    .update({
+      is_read: true,
+      read_at: new Date().toISOString(),
+    })
+    .eq(column, value)
+    .or("is_read.is.null,is_read.eq.false")
+    .select("id");
+
+  if (error) {
+    logSupabaseError("markAllNotificationsRead", error);
+    return null;
+  }
+  return (data ?? []).length;
 }
 
 export async function insertAddressAndReturnId(

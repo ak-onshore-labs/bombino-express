@@ -27,20 +27,33 @@
  */
 
 import type { Order } from "../shared/orderContract.js";
-import { deriveCustomerStatus, isInternalOnlyStatus } from "../shared/orderContract.js";
-import { insertOrderStatusNotification, type NotificationOwner } from "./appDb.js";
+import { deriveCustomerStatus, isInternalOnlyStatus, readAgentCancellation } from "../shared/orderContract.js";
+import { insertNotification, insertOrderStatusNotification, type NotificationOwner } from "./appDb.js";
 import { customerStatusDetail } from "./notificationCopy.js";
-import { getCodeForOwner } from "./handoverCodes.js";
+import { destinationOf } from "./notificationRefs.js";
 import { getUserContactsByIds } from "./ordersDb.js";
 import { sendTemplate } from "./whatsapp.js";
 import { getWhatsappRecipient } from "./whatsappDb.js";
+import { whatsappTargetFor } from "./whatsappAlt.js";
 import { getAgent, listAgentsForPincode } from "./whatsappAgents.js";
+import { getCodeForOwner } from "./handoverCodes.js";
+import { isRazorpayConfigured } from "./razorpay.js";
+import { getSupportContacts } from "./settingsDb.js";
 import {
+  accountDecisionMessage,
+  extraChargeDueMessage,
+  pickupReassigningMessage,
+  type AccountDecision,
+  agentJobAssignedMessage,
   agentJobCancelledMessage,
   agentNewJobMessage,
   agentOnTheWayMessage,
+  agentPickupCancelledMessage,
   cancellationDeclinedMessage,
+  handoverCodeMessage,
   dispatchedMessage,
+  NEW_TEMPLATES_LIVE,
+  orderArea,
   orderBookedMessage,
   paymentFailedMessage,
   paymentReceivedMessage,
@@ -68,8 +81,10 @@ function dedupeKey(scope: string, message: WhatsappMessage): string {
  * the transport already handles, but a genuine throw — still cannot reach the
  * caller. Everything above this line is a lifecycle handler that has already
  * committed a status change it cannot roll back.
+ *
+ * Exported for `notifyStaff.ts`, which picks its own recipients.
  */
-async function deliver(input: {
+export async function deliver(input: {
   message: WhatsappMessage;
   to: string | null;
   userId: string | null;
@@ -85,6 +100,7 @@ async function deliver(input: {
       orderId: input.orderId,
       userId: input.userId,
       otpButtonCode: input.message.otpButtonCode,
+      redactVariables: input.message.redactVariables,
     });
   } catch (error) {
     console.error("[notify] send threw (swallowed)", {
@@ -95,10 +111,15 @@ async function deliver(input: {
   }
 }
 
-/** The customer's own number, from their account. Never the address contact. */
+/**
+ * The customer's own number, from their account. Never the address contact.
+ *
+ * For a customer from abroad this is their verified Indian alternate when the
+ * sign-in number is not on WhatsApp (server/whatsappAlt.ts).
+ */
 async function customerPhone(userId: string): Promise<string | null> {
   const recipient = await getWhatsappRecipient(userId);
-  return recipient?.phone ?? null;
+  return whatsappTargetFor(recipient?.phone ?? null);
 }
 
 /**
@@ -115,7 +136,7 @@ async function customerPhone(userId: string): Promise<string | null> {
  */
 async function orderCustomerPhone(order: Order): Promise<string | null> {
   if (order.user_id) return customerPhone(order.user_id);
-  return order.guest_phone ?? null;
+  return whatsappTargetFor(order.guest_phone ?? null);
 }
 
 /**
@@ -165,9 +186,25 @@ export async function notifyOrderTransition(notice: OrderTransitionNotice): Prom
 }
 
 /**
- * The in-app half. Byte-for-byte what the inline block in `routes.ts` did —
- * same gates, same title, same body, same `data` shape. Changing it is out of
- * scope for the WhatsApp work; anything that reads differently here is a bug.
+ * What every order's bell row carries so the card can show it as fields
+ * rather than prose: the order number, the AWB once there is one, and where
+ * the parcel is going. Additive — older rows have only the first, and the
+ * client shows what it finds.
+ */
+function orderNoticeData(order: Order): Record<string, unknown> {
+  const destination = destinationOf(order.consignee);
+  return {
+    order_id: order.id,
+    order_no: order.order_no,
+    ...(order.awb_no ? { awb: order.awb_no } : {}),
+    ...(destination ? { destination } : {}),
+  };
+}
+
+/**
+ * The in-app half. Same gates, title and body as the inline block in
+ * `routes.ts` it replaced; `data` has since grown the card's fields
+ * (`orderNoticeData`).
  */
 async function notifyCustomerInApp(order: Order, actorUserId: string | null): Promise<void> {
   if (isInternalOnlyStatus(order.status)) return;
@@ -184,8 +221,50 @@ async function notifyCustomerInApp(order: Order, actorUserId: string | null): Pr
     owner,
     title: deriveCustomerStatus(order),
     body: `${order.order_no} — ${customerStatusDetail(order.status)}`,
-    data: { order_id: order.id, order_no: order.order_no, status: order.status },
+    data: { ...orderNoticeData(order), status: order.status },
   });
+
+  // The pickup code is issued at the claim (`orderActions.ts`, ops assign), so
+  // the moment the order reaches `agent_accepted` is the moment it is worth
+  // pointing the customer at it.
+  if (order.status === "agent_accepted" && order.pickup_request === 1) {
+    await notifyHandoverCodeInApp(order, "pickup");
+  }
+}
+
+/**
+ * A bell row saying a handover code is waiting on the order page.
+ *
+ * NEVER THE CODE ITSELF. A bell row is permanent; the code is not — it can be
+ * regenerated after a lock, and it is spent at the handover. A number sitting
+ * in the bell would go stale and get read out at a doorstep where it opens
+ * nothing. The row points at `#handover-code`, which always shows the live one.
+ *
+ * Own `type` so the bell can file it under Codes, with `order_status` to fall
+ * back on if the table only takes known types — `data.kind` still tells the
+ * client what it is (same approach as `supportNudges.notifyNudge`).
+ */
+export async function notifyHandoverCodeInApp(order: Order, kind: "pickup" | "dropoff"): Promise<void> {
+  try {
+    const owner = orderNotificationOwner(order);
+    if (!owner) return;
+    const note = {
+      ...("userId" in owner ? { user_id: owner.userId } : { guest_ref: owner.guestRef }),
+      title: kind === "pickup" ? "Your pickup OTP is ready" : "Your drop-off OTP is ready",
+      body:
+        kind === "pickup"
+          ? `${order.order_no} — Read this 4-digit OTP to the agent when they collect your parcel.`
+          : `${order.order_no} — Read this 4-digit OTP at the Bombino counter when you drop off your parcel.`,
+      data: { ...orderNoticeData(order), kind: "handover_code", handover: kind },
+    };
+    (await insertNotification({ ...note, type: "handover_code" })) ||
+      (await insertNotification({ ...note, type: "order_status" }));
+  } catch (error) {
+    console.error("[notify] handover code bell row threw (swallowed)", {
+      order: order.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 async function notifyCustomerWhatsapp(order: Order, actorUserId: string | null): Promise<void> {
@@ -194,8 +273,41 @@ async function notifyCustomerWhatsapp(order: Order, actorUserId: string | null):
   const message = await buildCustomerMessage(order);
   if (!message) return;
 
+  const to = await orderCustomerPhone(order);
+  await deliver({ message, to, userId: order.user_id, orderId: order.id, scope: order.id });
+
+  // The pickup code follows "agent on the way" as its own message: Meta will
+  // not let a Utility template carry a code. Awaited in order so it lands
+  // second, where the first message explains it.
+  if (order.status === "out_for_pickup" && order.pickup_request === 1) {
+    await sendPickupCode(order, to);
+  }
+}
+
+async function sendPickupCode(order: Order, to: string | null): Promise<void> {
+  const held = await getCodeForOwner(order.id, "pickup");
+  // No code (the write failed at claim) or a locked one: the order screen
+  // offers a regenerate, and that sends the fresh code.
+  if (!held || held.locked) return;
   await deliver({
-    message,
+    message: handoverCodeMessage(held.code),
+    to,
+    userId: order.user_id,
+    orderId: order.id,
+    scope: order.id,
+  });
+}
+
+/**
+ * A regenerated pickup code, sent to the customer.
+ *
+ * Only once the agent is on the way. Before that the code is not yet needed,
+ * and the out-for-pickup message sends whatever is current then.
+ */
+export async function notifyPickupCodeRegenerated(order: Order, code: string): Promise<void> {
+  if (order.status !== "out_for_pickup" || order.pickup_request !== 1) return;
+  await deliver({
+    message: handoverCodeMessage(code),
     to: await orderCustomerPhone(order),
     userId: order.user_id,
     orderId: order.id,
@@ -219,21 +331,21 @@ async function buildCustomerMessage(order: Order): Promise<WhatsappMessage | nul
         agentName: await agentName(order.agent_id),
       });
 
-    case "out_for_pickup": {
-      // The handover code, at the moment it starts to matter. `getCodeForOwner`
-      // is called with the customer's own kind — they are the party who shows
-      // this code, never the party who types it.
-      const handover = await getCodeForOwner(order.id, "pickup");
-      if (!handover) return null;
+    case "out_for_pickup":
       return agentOnTheWayMessage({
         order,
         agentName: await agentName(order.agent_id),
-        handoverCode: handover.code,
       });
-    }
 
     case "weighed": {
       if (order.quoted_amount === null || order.final_amount === null) return null;
+      // Without the gateway the app cannot take the difference, so the
+      // customer is asked to call rather than told to pay in the app.
+      const extra = Math.round(order.final_amount - order.quoted_amount);
+      if (NEW_TEMPLATES_LIVE && extra > 0 && !isRazorpayConfigured()) {
+        const { officePhone } = await getSupportContacts();
+        return extraChargeDueMessage({ order, extra, supportPhone: officePhone });
+      }
       return repriceMessage({
         order,
         quoted: order.quoted_amount,
@@ -263,7 +375,9 @@ async function notifyAgentOfDisruption(order: Order): Promise<void> {
   if (!agent) return;
 
   await deliver({
-    message: agentJobCancelledMessage({ order, cancelled: true }),
+    message: NEW_TEMPLATES_LIVE
+      ? agentPickupCancelledMessage({ order, area: orderArea(order) })
+      : agentJobCancelledMessage({ order, cancelled: true }),
     to: agent.phone,
     userId: agent.id,
     orderId: order.id,
@@ -358,21 +472,78 @@ export async function notifyCancellationDeclined(input: {
             ? `${order.order_no} — ${note}`
             : `${order.order_no} — your cancellation request was declined. Your shipment is still going ahead.`,
           data: {
-            order_id: order.id,
-            order_no: order.order_no,
+            ...orderNoticeData(order),
             status: order.status,
             cancellation: "rejected",
           },
         })
       : Promise.resolve(),
     deliver({
-      message: cancellationDeclinedMessage(input),
+      message: cancellationDeclinedMessage({ ...input, supportPhone: (await getSupportContacts()).officePhone }),
       to: await orderCustomerPhone(order),
       userId: order.user_id,
       orderId: order.id,
       scope: order.id,
     }),
   ]);
+}
+
+/**
+ * The branch gave an agent a pickup. Since 6 Oct 2026 this is the only way an
+ * agent gets one, so it is the agent's only word that there is a job at all.
+ */
+export async function notifyAgentOfAssignment(order: Order): Promise<void> {
+  if (!order.agent_id) return;
+
+  const agent = await getAgent(order.agent_id);
+  if (!agent) return;
+
+  await deliver({
+    message: agentJobAssignedMessage({ order, area: orderArea(order), at: order.updated_at }),
+    to: agent.phone,
+    userId: agent.id,
+    orderId: order.id,
+    scope: `${order.id}:agent:${agent.id}`,
+  });
+}
+
+/**
+ * The agent handed the customer's pickup back before collecting it.
+ *
+ * The order goes back to waiting for an agent, which the status fan-out stays
+ * quiet about (it would read as the pickup going backwards). This says the
+ * one thing the customer needs: it is being handled, and nothing is needed
+ * from them. The next agent's confirmation follows as usual.
+ */
+export async function notifyPickupReassigning(order: Order): Promise<void> {
+  const cancellation = readAgentCancellation(order);
+  await deliver({
+    message: pickupReassigningMessage({ order, at: cancellation?.at ?? order.updated_at }),
+    to: await orderCustomerPhone(order),
+    userId: order.user_id,
+    orderId: order.id,
+    scope: order.id,
+  });
+}
+
+/**
+ * An account request approved, sent back or declined. Alongside the email and
+ * the bell row, which stay the full story; this is the nudge to go and read it.
+ */
+export async function notifyAccountDecision(input: {
+  applicationId: string;
+  phone: string;
+  userId: string | null;
+  decision: AccountDecision;
+  at: string;
+}): Promise<void> {
+  await deliver({
+    message: accountDecisionMessage(input.decision, input.at),
+    to: await whatsappTargetFor(input.phone),
+    userId: input.userId,
+    orderId: null,
+    scope: `application:${input.applicationId}`,
+  });
 }
 
 /**
@@ -444,33 +615,6 @@ export async function notifyDispatched(input: {
     userId: input.userId,
     orderId: input.orderId,
     scope: input.orderId ?? `awb:${input.awb}`,
-  });
-}
-
-/**
- * A regenerated pickup code.
- *
- * Only meaningful once the agent is on their way — before that the customer is
- * reading it off their own screen and nothing has gone wrong. The new code is
- * its own dedupe suffix, which is what makes this a different message from the
- * one carrying the code it replaced.
- */
-export async function notifyHandoverCodeReissued(input: {
-  order: Order;
-  code: string;
-}): Promise<void> {
-  if (input.order.status !== "out_for_pickup") return;
-
-  await deliver({
-    message: agentOnTheWayMessage({
-      order: input.order,
-      agentName: await agentName(input.order.agent_id),
-      handoverCode: input.code,
-    }),
-    to: await orderCustomerPhone(input.order),
-    userId: input.order.user_id,
-    orderId: input.order.id,
-    scope: input.order.id,
   });
 }
 

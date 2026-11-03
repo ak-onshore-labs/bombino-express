@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { MAX_UPLOAD_BYTES, isAllowedUploadType } from '@shared/upload';
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB, isAllowedUploadType } from '@shared/upload';
 import { useLocation } from 'wouter';
 import type { BiaScreen } from '@shared/biaScreen';
 import { DocumentSlotCard } from '@/components/documents/DocumentSlotCard';
@@ -630,7 +630,7 @@ export function AccountDocuments({
       return;
     }
     if (file.size > MAX_UPLOAD_BYTES) {
-      patchSlot(slot, { status: 'error', error: 'File must be under 4MB.', errorCode: null });
+      patchSlot(slot, { status: 'error', error: `File must be under ${MAX_UPLOAD_MB}MB.`, errorCode: null });
       return;
     }
 
@@ -679,7 +679,7 @@ export function AccountDocuments({
         {replaceOnly
           ? `Upload ${slots.length === 1 ? 'this document' : `these ${slots.length} documents`} again.`
           : `${slots.length} document${slots.length === 1 ? '' : 's'} required.`}{' '}
-        PDF, JPEG, or PNG · max 4MB each.
+        PDF, JPEG, or PNG · max {MAX_UPLOAD_MB}MB each.
       </p>
 
       {slots.map((slot) => (

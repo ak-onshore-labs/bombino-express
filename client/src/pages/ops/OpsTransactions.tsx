@@ -166,7 +166,7 @@ export default function OpsTransactions() {
           ).map(([label, value]) => (
             <div
               key={label}
-              className="rounded-2xl border border-border bg-white px-4 py-3"
+              className="rounded-md border border-border bg-white px-4 py-3"
             >
               <p className="text-xs font-semibold text-muted-foreground">{label}</p>
               <p className="text-lg font-extrabold tabular-nums mt-1">
@@ -174,7 +174,7 @@ export default function OpsTransactions() {
               </p>
             </div>
           ))}
-          <div className="rounded-2xl border border-border bg-white px-4 py-3">
+          <div className="rounded-md border border-border bg-white px-4 py-3">
             <p className="text-xs font-semibold text-muted-foreground">Count</p>
             <p className="text-lg font-extrabold tabular-nums mt-1">{totals.count}</p>
           </div>
@@ -193,7 +193,7 @@ export default function OpsTransactions() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search order no"
-              className="h-11 pl-9 rounded-xl bg-white"
+              className="h-11 pl-9 rounded-md bg-white"
               data-testid="ops-ledger-search"
               aria-label="Search order no"
             />
@@ -208,17 +208,17 @@ export default function OpsTransactions() {
             </p>
           ) : (
             <>
-              <div className="md:hidden rounded-2xl border border-border bg-white divide-y divide-border">
+              <div className="md:hidden rounded-md border border-border bg-white divide-y divide-border">
                 {visible.map((row) => (
                   <LedgerRow key={row.id} row={row} stacked />
                 ))}
               </div>
-              <div className="hidden md:block rounded-2xl border border-border bg-white overflow-x-auto">
-                <table className="w-full text-sm" data-testid="ops-ledger-table">
+              <div className="hidden md:block rounded-md border border-border bg-white overflow-x-auto">
+                <table className="ops-table min-w-[820px]" data-testid="ops-ledger-table">
                   <thead>
                     <tr className="text-left text-xs font-semibold text-muted-foreground border-b border-border">
                       <th className="px-4 py-3">Order</th>
-                      <th className="px-4 py-3">Amount</th>
+                      <th className="num">Amount</th>
                       <th className="px-4 py-3">Method</th>
                       <th className="px-4 py-3">Mode</th>
                       <th className="px-4 py-3">Collected by</th>
@@ -277,7 +277,7 @@ function LedgerRow({ row, stacked }: { row: OpsPaymentRow; stacked: boolean }) {
           {orderLabel}
         </Link>
       </td>
-      <td className="px-4 py-3 font-semibold tabular-nums">{amount}</td>
+      <td className="num font-semibold">{amount}</td>
       <td className="px-4 py-3">{paymentMethodLabel(row.method)}</td>
       <td className="px-4 py-3">{modeLabel(row.collection_mode)}</td>
       <td className="px-4 py-3">{row.collector_name}</td>

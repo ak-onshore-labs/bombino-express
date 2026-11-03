@@ -15,7 +15,7 @@ import crypto from "crypto";
 import type { Request, Response } from "express";
 import { z } from "zod";
 
-import { INDIAN_MOBILE_MESSAGE, INDIAN_MOBILE_PATTERN } from "../shared/contact.js";
+import { ACCOUNT_PHONE_MESSAGE, isAccountPhone } from "../shared/contact.js";
 import { OTP_VERIFICATION_WINDOW_MINUTES } from "./otp.js";
 import { hasRecentVerification } from "./otpDb.js";
 import { deleteAllSignupDocuments } from "./accountDocsDb.js";
@@ -23,7 +23,7 @@ import { deleteIdentityVerificationsBySignupRef } from "./identityDb.js";
 import { applicationToFix } from "./applicationFix.js";
 import { isOpenApplicationRef } from "./accountApplicationsDb.js";
 
-const phoneSchema = z.string().trim().regex(INDIAN_MOBILE_PATTERN, INDIAN_MOBILE_MESSAGE);
+const phoneSchema = z.string().trim().refine(isAccountPhone, ACCOUNT_PHONE_MESSAGE);
 
 /** Mint the staging handle on first use; reuse it for the rest of the signup. */
 /**

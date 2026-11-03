@@ -4,12 +4,14 @@ import { Check, Loader2, Pencil, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AgentShell, useLogout } from '@/components/agent/AgentShell';
 import { BandHeader } from '@/components/agent/BandHeader';
+import { BuildVersion } from '@/components/BuildVersion';
 import { JobCard, money } from '@/components/agent/PickupCard';
 import { PressableButton } from '@/components/motion/Pressable';
 import { StaggerItem } from '@/components/motion/Stagger';
 import { useCollections } from '@/hooks/useAgentPickups';
 import { useAppStore } from '@/lib/store';
 import { formatCutoffHour } from '@shared/pickupPincodes';
+import { useSupportContacts } from '@/hooks/useSupportContacts';
 
 /**
  * Who the agent is, what they are carrying, and the way out.
@@ -240,6 +242,7 @@ export default function Profile() {
   const { user } = useAppStore();
   const logout = useLogout();
   const { data: collections } = useCollections();
+  const { telHref, waHref, officeLabel, whatsappLabel } = useSupportContacts();
 
   const [profile, setProfile] = useState<AgentProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -371,16 +374,14 @@ export default function Profile() {
                 <BandHeader label="Your pickup area" testId="band-your-area" />
                 {beats.length === 0 ? (
                   <JobCard>
-                    {/* Not an error and not a warning. An unassigned rider works
-                        normally — they see every unclaimed job like everyone
-                        else — so this says what is true rather than implying
-                        something is broken. */}
+                    {/* Not an error and not a warning. The branch head assigns
+                        every pickup, so a rider with no round still gets work. */}
                     <p
                       className="px-4 py-[15px] text-[15px] text-[#64748B]"
                       data-testid="text-no-beat"
                     >
-                      You're not on a round yet, so you'll hear about jobs
-                      anywhere. Ops can set your area.
+                      You're not on a round yet. Your branch assigns your
+                      pickups, and can set your area.
                     </p>
                   </JobCard>
                 ) : (
@@ -409,12 +410,9 @@ export default function Profile() {
                         <PincodeList pincodes={beat.pincodes} />
                       </JobCard>
                     ))}
-                    {/* The pool is national on purpose — cover has to work when
-                        somebody is off — and a rider seeing a job two cities
-                        away would otherwise read as a bug. */}
                     <p className="px-1 text-[13px] leading-snug text-[#64748B]">
-                      These are the pincodes you're told about. You can still
-                      claim any job you see.
+                      These are the pincodes you usually cover. Your branch
+                      assigns each pickup to you.
                     </p>
                   </div>
                 )}
@@ -459,22 +457,22 @@ export default function Profile() {
               <BandHeader label="If something is wrong" testId="band-help" />
               <JobCard>
                 <a
-                  href="tel:+912266400000"
+                  href={telHref}
                   className="flex items-center justify-between gap-4 h-[64px] px-4 border-b border-[#E8EDF2]!"
                   data-testid="link-profile-call-office"
                 >
                   <span className="text-[17px] font-semibold text-[#1B2A41]">Call the office</span>
-                  <span className="text-[15px] font-medium text-[#64748B]">022 6640 0000</span>
+                  <span className="text-[15px] font-medium text-[#64748B]">{officeLabel}</span>
                 </a>
                 <a
-                  href="https://api.whatsapp.com/send?phone=917045999553"
+                  href={waHref}
                   target="_blank"
                   rel="noreferrer"
                   className="flex items-center justify-between gap-4 h-[64px] px-4"
                   data-testid="link-profile-whatsapp"
                 >
                   <span className="text-[17px] font-semibold text-[#1B2A41]">WhatsApp support</span>
-                  <span className="text-[15px] font-medium text-[#64748B]">+91 70459 99553</span>
+                  <span className="text-[15px] font-medium text-[#64748B]">{whatsappLabel}</span>
                 </a>
               </JobCard>
             </section>
@@ -491,9 +489,12 @@ export default function Profile() {
             </PressableButton>
           </StaggerItem>
 
-          <p className="border-t border-[#D8DFE7]! pt-4 text-[13px] font-bold uppercase tracking-[0.1em] text-[#94A3B8]">
-            Bombino Express · Agent
-          </p>
+          <div className="border-t border-[#D8DFE7]! pt-4">
+            <p className="text-[13px] font-bold uppercase tracking-[0.1em] text-[#94A3B8]">
+              Bombino Express · Agent
+            </p>
+            <BuildVersion name="" className="mt-1 text-[13px] font-semibold text-[#94A3B8]" />
+          </div>
         </div>
       )}
     </AgentShell>

@@ -1,8 +1,9 @@
 import crypto from "crypto";
-import { sendTemplate } from "./whatsapp.js";
-import { loginOtpMessage } from "./whatsappTemplates.js";
-import { getMessageStatusByDedupeKey } from "./whatsappDb.js";
 import { sendOtpBySms } from "./sms.js";
+import { sendTemplate, toWaMsisdn } from "./whatsapp.js";
+import { getWhatsappReachability } from "./whatsappDb.js";
+import { loginOtpMessage } from "./whatsappTemplates.js";
+import { isInternationalPhone } from "../shared/contact.js";
 
 export const OTP_LENGTH = 6;
 export const OTP_TTL_MINUTES = 5;
@@ -26,8 +27,8 @@ export const OTP_VERIFICATION_WINDOW_MINUTES = 10;
  *
  * Every code issued becomes this one. Nothing else changes: it is hashed into
  * `otp_codes` like any other code, still expires in OTP_TTL_MINUTES, still
- * locks out after OTP_MAX_ATTEMPTS wrong guesses, and still gets sent over
- * WhatsApp. Only the randomness is gone.
+ * locks out after OTP_MAX_ATTEMPTS wrong guesses, and still gets sent by SMS.
+ * Only the randomness is gone.
  *
  * WHY THIS RATHER THAN `OTP_DEV_BYPASS`: that flag accepts *any* code and skips
  * the comparison entirely, so nothing about verification is exercised while it
@@ -58,7 +59,62 @@ export function fixedOtpCode(): string | null {
   return raw;
 }
 
-/** Called once at boot. Silent when the flag is unset. */
+/**
+ * Test accounts that always take 121212, while every other number gets a real
+ * random code. Built in, not a setting. The list is the "Test Accounts" tab of
+ * the "Bombino Ops Console – Team Access" sheet; keep the two in step.
+ *
+ * Exact numbers only, never a range. Nothing is sent to them by SMS or
+ * WhatsApp: they are dummies that cannot receive it, and every send costs
+ * MSG91 credit.
+ *
+ * KNOWN TRADE-OFF, Aditya's call (6 Oct 2026): the code is public, so anyone
+ * who knows one of these numbers can sign in as it, the super admin and admin
+ * included. Deactivate an account in Users rather than keep it here once
+ * nobody is testing with it.
+ */
+export const TEST_OTP_CODE = "121212";
+
+export const TEST_OTP_NUMBERS: ReadonlySet<string> = new Set([
+  // Ops console
+  "9000000011", // Test Super Admin
+  "9000000010", // Test Admin
+  "9000000020", // Test Branch Manager (Mumbai), added 8 Oct 2026
+  "9000000099", // Real View Super Admin: sees what real staff see (REAL_VIEW_PHONES), added 14 Oct 2026
+  // Customers
+  "9000000090", // Test Customer (seed)
+  "9000000016", // E2E Test Logistics (company)
+  "9000000095", // E2E Customer Two
+  // Agents
+  "9000000014", // Ravi Deshmukh
+  "9000000012", // Imran Shaikh
+  "9000000013", // Sunita Pawar
+  "9000000001", // Test Agent One
+  "9000000031", // Demo User
+  "9000000055", // Demo Agent
+  "9000000050", // added 13 Oct 2026
+  "9898989898", // Pickup Agent
+  "9797979797", // Ganesh
+  // Guest booking (no account)
+  "9000000096",
+]);
+
+/** The last ten digits, or null when there are fewer. */
+function lastTen(phone: string): string | null {
+  const digits = phone.replace(/\D/g, "");
+  return digits.length >= 10 ? digits.slice(-10) : null;
+}
+
+export function isTestOtpNumber(phone: string, numbers: ReadonlySet<string> = TEST_OTP_NUMBERS): boolean {
+  // Test accounts are Indian. A foreign number's last ten digits must never
+  // happen to match one and get the public code.
+  const trimmed = phone.trim();
+  if (isInternationalPhone(trimmed) || (trimmed.startsWith("+") && !trimmed.startsWith("+91"))) return false;
+  const ten = lastTen(phone);
+  return ten !== null && numbers.has(ten);
+}
+
+/** Called once at boot. Silent when neither flag is set. */
 export function warnIfFixedOtpEnabled(): void {
   const code = fixedOtpCode();
   if (!code) return;
@@ -81,9 +137,11 @@ export function warnIfFixedOtpEnabled(): void {
   );
 }
 
-export function generateOtp(): string {
+/** A new login code. Pass the phone so a listed test account gets 121212. */
+export function generateOtp(phone?: string): string {
   const fixed = fixedOtpCode();
   if (fixed) return fixed;
+  if (phone && isTestOtpNumber(phone)) return TEST_OTP_CODE;
 
   const n = crypto.randomInt(0, 10 ** OTP_LENGTH);
   return String(n).padStart(OTP_LENGTH, "0");
@@ -94,129 +152,79 @@ export function hashOtp(code: string): string {
 }
 
 /**
- * How long to wait for WhatsApp to admit it could not deliver, before falling
- * back to SMS.
+ * The WhatsApp dedupe key for one issued code.
  *
- * There is no way to shorten this honestly. Meta ACCEPTS a message to a number
- * that is not on WhatsApp — returns 200 and a message id — and only reports
- * `failed` on the status webhook a second or two later. So "is this number on
- * WhatsApp?" cannot be answered at send time, and the receipt is the answer.
- *
- * Twelve seconds is comfortably past a normal receipt and comfortably inside
- * the five-minute code lifetime, so a customer who ends up on the SMS path
- * still has four and a half minutes to type it.
+ * Keyed on the `otp_codes` row id, which is new on every request. NOT on the
+ * code: under OTP_FIXED_CODE every code is the same, so a code-derived key made
+ * every send after the first a "duplicate" and nothing went out. The code
+ * never appears in the key either way — `otp_codes` stores only its hash.
  */
-const WHATSAPP_RECEIPT_GRACE_MS = 12_000;
+export function otpDedupeKey(otpId: string, purpose = "otp"): string {
+  return `${purpose}:${otpId}`;
+}
 
 /**
- * Deliver a login code, over whichever channel can carry it.
+ * Deliver a login code — on WhatsApp and by SMS, at the same time.
  *
- * WhatsApp first, SMS if WhatsApp cannot deliver. Phone is the only credential
- * in this app, so a code that does not arrive is not an inconvenience — it is a
- * person who cannot log in and cannot sign up. The most common cause is not
- * "no WhatsApp" at all; it is a dual-SIM customer whose WhatsApp lives on their
- * other number.
+ * Both, not one-then-the-other. Meta ACCEPTS a message to a number with no
+ * WhatsApp and only reports it `failed` on the status webhook afterwards, so a
+ * WhatsApp-first design makes every non-WhatsApp customer wait out a grace
+ * period for their SMS. Sending both costs a message and costs nobody time.
  *
- * Three paths out of here:
+ * The WhatsApp send doubles as the silent "is this number on WhatsApp?" check:
+ * its receipt is what `getWhatsappReachability` reads. It therefore skips the
+ * reachability gate — a number marked unreachable must keep being re-tried on
+ * login, or it could never be marked reachable again.
  *
- *   refused at send   WhatsApp rejected it outright → SMS immediately
- *   accepted, failed  Meta took it and the receipt says undeliverable → SMS
- *                     after the grace period
- *   accepted, fine    nothing further happens
+ * SMS carries the login code and nothing else.
  *
- * A PRE-CHECK WOULD NOT REPLACE THIS. Meta's Cloud API has no contact-check
- * endpoint — the On-Premises `/contacts` call was removed deliberately, since
- * it enables number enumeration. If Tata expose one of their own it belongs in
- * front of this as a fast path, saving the twelve seconds; the receipt fallback
- * still has to stay, because a number can check out as valid and still fail to
- * receive.
+ * With OTP_FIXED_CODE set, both channels still send the fixed code, so testers
+ * see the real SMS and WhatsApp deliveries. Neither result gates login then:
+ * the code is already known, so a failed send must not block anyone.
  *
- * The code is logged in DEVELOPMENT ONLY. It was briefly logged on any failed
- * send, to keep the flow testable — but that wrote plaintext login codes into
- * production logs for exactly the numbers having delivery trouble, which is a
- * credential sitting in a log file. Use `OTP_DEV_BYPASS` instead.
+ * The code is logged in DEVELOPMENT ONLY. Production logs must not hold a
+ * plaintext login code.
  *
- * @returns whether WhatsApp accepted it. Not whether the customer received it,
- *          and not whether the SMS fallback worked — both are decided later.
+ * @returns whether either channel accepted the send (always true under
+ *          OTP_FIXED_CODE). Not whether the handset has it.
  */
-export async function deliverOtp(phone: string, code: string): Promise<boolean> {
+export async function deliverOtp(
+  phone: string,
+  code: string,
+  otpId: string
+): Promise<boolean> {
   if (process.env.NODE_ENV === "development") {
     console.log(`[otp] OTP for ${phone}: ${code}`);
   }
 
+  // A test account: the code is known, and the number cannot receive it.
+  if (isTestOtpNumber(phone)) return true;
+
+  const fixed = fixedOtpCode() !== null;
   const message = loginOtpMessage(code);
-  // The code never appears in the key. `otp_codes` stores only a hash of it,
-  // and a dedupe key is a plain column — putting the code there would undo
-  // that hashing for every code ever sent.
-  const dedupeKey = `otp:${phone}:${hashOtp(code).slice(0, 16)}`;
 
-  const result = await sendTemplate({
-    to: phone,
-    template: message.template,
-    variables: message.variables,
-    otpButtonCode: message.otpButtonCode,
-    dedupeKey,
-    // The login code is a credential. Store a placeholder, send the real thing.
-    redactVariables: true,
-  });
+  const [whatsapp, sms] = await Promise.all([
+    sendTemplate({
+      to: phone,
+      template: message.template,
+      variables: message.variables,
+      otpButtonCode: message.otpButtonCode,
+      dedupeKey: otpDedupeKey(otpId),
+      // The login code is a credential. Store a placeholder, send the real thing.
+      redactVariables: true,
+      skipReachabilityCheck: true,
+    }),
+    sendOtpBySms(phone, code),
+  ]);
 
-  if (result.ok) {
-    scheduleSmsFallback(phone, code, dedupeKey);
-    return true;
-  }
+  if (fixed) return true;
+  if (sms?.ok) return true;
+  if (!whatsapp.ok) return false;
 
-  // A skipped send is a configuration state, not a delivery failure — dry run,
-  // or no token. Falling back to SMS there would send a real message from a
-  // developer's laptop.
-  if (result.reason === "skipped") return false;
-
-  // A duplicate means this exact code was already sent and its own fallback is
-  // already pending. Sending again would deliver the same code twice.
-  if (result.reason === "duplicate") return false;
-
-  console.error("[otp] WhatsApp refused the login code, trying SMS", {
-    phone,
-    reason: result.reason,
-  });
-  await sendOtpBySms(phone, code);
-  return false;
-}
-
-/**
- * Wait out the grace period, then check whether the receipt came back failed.
- *
- * Deliberately in-process rather than driven from the webhook. The webhook
- * cannot do it: the code is redacted out of `whatsapp_messages` on purpose, so
- * by the time a receipt arrives there is nothing left to resend. Here the code
- * is held in a closure for twelve seconds and never written down.
- *
- * The cost is that a restart inside those twelve seconds loses the fallback,
- * and that customer sees nothing. Acceptable against the alternative, which is
- * persisting live login codes so a restart can recover them.
- *
- * `unref()` so a pending timer cannot hold the process open during a shutdown.
- */
-function scheduleSmsFallback(phone: string, code: string, dedupeKey: string): void {
-  const timer = setTimeout(() => {
-    void (async () => {
-      try {
-        const status = await getMessageStatusByDedupeKey(dedupeKey);
-        if (status !== "failed") return;
-
-        console.warn("[otp] WhatsApp could not deliver the code, falling back to SMS", {
-          phone,
-        });
-        await sendOtpBySms(phone, code);
-      } catch (error) {
-        // Nobody is awaiting this. An unhandled rejection here would be an
-        // unexplained process-level warning minutes after the request ended.
-        console.error("[otp] SMS fallback failed", {
-          phone,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    })();
-  }, WHATSAPP_RECEIPT_GRACE_MS);
-
-  timer.unref?.();
+  // SMS refused, WhatsApp accepted. Meta accepts sends to numbers with no
+  // WhatsApp, so "accepted" only counts if this number is not already known to
+  // be one of those — otherwise the customer is told "OTP sent" and gets nothing.
+  const msisdn = toWaMsisdn(phone);
+  if (!msisdn) return false;
+  return (await getWhatsappReachability(msisdn, message.template)) !== "not_on_whatsapp";
 }

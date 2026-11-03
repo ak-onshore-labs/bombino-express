@@ -26,6 +26,14 @@ export type OpsBoardOrderLike = {
   consignee_name: string | null;
   consignee_city: string | null;
   awb_no: string | null;
+  guest_name: string | null;
+  guest_phone: string | null;
+  customer_name: string | null;
+  customer_phone: string | null;
+  /** Set while an agent's cancellation waits on the branch — sorts first. */
+  agent_cancellation?: { open: boolean } | null;
+  /** A test order (shared/testOrders.ts). Only test staff ever receive one. */
+  is_test?: boolean;
 };
 
 export function matchesOpsSection(
@@ -145,7 +153,6 @@ export type OpsDateField = 'booking' | 'pickup';
 export type OpsDateRange = 'all' | 'today' | '7d' | '30d' | 'tomorrow' | 'week';
 export type OpsPaymentMethodFilter = 'all' | PaymentMethod;
 export type OpsBoardSort = 'newest' | 'oldest';
-
 export type OpsBoardFilters = {
   assignment: OpsAssignmentFilter;
   stage: OpsStageFilter;
@@ -209,7 +216,16 @@ function bookingCutoffYmd(range: OpsDateRange): string | null {
 export function matchesSearch(order: OpsBoardOrderLike, query: string): boolean {
   const needle = query.trim().toLowerCase();
   if (!needle) return true;
-  const hay = [order.order_no, order.consignee_name, order.consignee_city, order.awb_no]
+  const hay = [
+    order.order_no,
+    order.consignee_name,
+    order.consignee_city,
+    order.awb_no,
+    order.guest_name,
+    order.guest_phone,
+    order.customer_name,
+    order.customer_phone,
+  ]
     .filter((v): v is string => Boolean(v))
     .join(' ')
     .toLowerCase();
@@ -297,6 +313,11 @@ export function sortOpsBoardOrders<T extends OpsBoardOrderLike>(
   sort: OpsBoardSort,
 ): T[] {
   return [...orders].sort((a, b) => {
+    // An agent cancelled and the branch has not acted yet: always on top,
+    // whatever the sort. A parcel sitting with an agent cannot wait its turn.
+    const flagA = a.agent_cancellation?.open ? 1 : 0;
+    const flagB = b.agent_cancellation?.open ? 1 : 0;
+    if (flagA !== flagB) return flagB - flagA;
     const da = new Date(a.created_at).getTime();
     const db = new Date(b.created_at).getTime();
     const aTime = Number.isFinite(da) ? da : 0;

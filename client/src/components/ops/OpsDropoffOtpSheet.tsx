@@ -71,7 +71,7 @@ export function OpsDropoffOtpSheet({
           autoComplete="one-time-code"
           placeholder="————"
           className={cn(
-            'w-full h-16 rounded-xl border-2 bg-white px-4 outline-none text-center text-2xl font-extrabold tabular-nums tracking-[0.3em] focus:border-primary transition-colors mb-3',
+            'w-full h-16 rounded-md border-2 bg-white px-4 outline-none text-center text-2xl font-extrabold tabular-nums tracking-[0.3em] focus:border-primary transition-colors mb-3',
             error ? 'border-red-600' : 'border-border',
           )}
           data-testid="input-ops-dropoff-otp"
@@ -87,7 +87,7 @@ export function OpsDropoffOtpSheet({
           type="button"
           onClick={submit}
           disabled={!complete || isPending}
-          className="w-full h-14 rounded-xl bg-primary text-white text-base font-bold active:scale-[0.98] transition-transform disabled:opacity-60 grid place-items-center"
+          className="w-full h-14 rounded-md bg-primary text-white text-base font-bold active:scale-[0.98] transition-transform disabled:opacity-60 grid place-items-center"
           data-testid="button-confirm-dropoff-otp"
         >
           {isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Mark received'}

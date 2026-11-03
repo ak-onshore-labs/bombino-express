@@ -36,7 +36,6 @@ import {
   type DocSlot,
 } from "../shared/accountSpec.js";
 import type { DocStatusCard } from "../shared/biaCards.js";
-import { isAccountReviewEnabled } from "./accountApplications.js";
 import { getLatestApplicationByPhone, toCustomerView } from "./accountApplicationsDb.js";
 import {
   APPLICATION_FIELD_LABELS,
@@ -263,7 +262,7 @@ export async function executeGetSignupProgress(context: SupportChatContext): Pro
   if (ownerOf(context)?.kind === "account") {
     return { content: "They already have an account. For its documents, call get_document_status." };
   }
-  if (isAccountReviewEnabled() && context.guestPhone) {
+  if (context.guestPhone) {
     try {
       const app = await getLatestApplicationByPhone(context.guestPhone);
       if (app) return { content: describeApplication(toCustomerView(app)) };

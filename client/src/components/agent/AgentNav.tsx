@@ -1,9 +1,9 @@
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { LayoutGrid, PackageSearch, ClipboardList, Wallet } from 'lucide-react';
+import { LayoutGrid, ClipboardList, Wallet } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import { cn } from '@/lib/utils';
 import { INDICATOR, POP, POP_VARIANTS } from '@/lib/motion';
-import { useAvailablePickups, useMyPickups } from '@/hooks/useAgentPickups';
+import { useMyPickups } from '@/hooks/useAgentPickups';
 
 /**
  * Agent bottom navigation — the agent surface's own bar, not the shared
@@ -49,12 +49,10 @@ interface AgentTab {
 export function AgentNav() {
   const [location] = useLocation();
   const quiet = useReducedMotion();
-  const { data: available } = useAvailablePickups();
   const { data: mine } = useMyPickups();
 
   const items: AgentTab[] = [
     { icon: LayoutGrid, label: 'Home', path: '/agent' },
-    { icon: PackageSearch, label: 'New', path: '/agent/available', badge: available?.length },
     { icon: ClipboardList, label: 'My jobs', path: '/agent/mine', badge: mine?.length },
     { icon: Wallet, label: 'Money', path: '/agent/collections' },
   ];

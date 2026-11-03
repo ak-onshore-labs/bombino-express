@@ -1,18 +1,22 @@
 ﻿import { useEffect, useState } from 'react';
 import {
+  AlertCircle,
   ArrowLeft,
-  User,
+  AtSign,
+  BadgeCheck,
+  Clock,
+  FileWarning,
   Mail,
   Phone,
-  LogOut,
-  Phone as PhoneIcon,
+  User,
   UserCircle,
-  Shield,
-  Calendar,
 } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { useRefreshUserProfile, useUserProfile } from '@/hooks/useUserProfile';
-import { isIndianMobile } from '@shared/contact';
+import { isAccountPhone, isInternationalPhone } from '@shared/contact';
+import { WhatsappAltCard } from '@/components/WhatsappAltCard';
+import { AccountPhoneInput } from '@/components/AccountPhoneInput';
+import { formatGuestPhone } from '@/lib/shadowProfile';
 import { useAppStore } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import {
@@ -40,13 +44,11 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import { parseApiErrorMessage } from '@/lib/apiError';
-import bombinoLogo from '@/assets/bombino-logo.png';
-import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 import { SignedOutState } from '@/components/StateBlock';
 import { BottomNav } from '@/components/BottomNav';
-import { KycUpload } from '@/components/KycUpload';
-import { KycOnFileCard } from '@/components/KycOnFileCard';
+import { IdentityDocumentSection } from '@/components/IdentityDocumentSection';
 import { useKycOnFile } from '@/hooks/useKycOnFile';
+import { useSupportContacts } from '@/hooks/useSupportContacts';
 import { AccountDocuments } from '@/components/AccountDocuments';
 import { NudgePrefs } from '@/components/bia/NudgePrefs';
 import {
@@ -57,18 +59,28 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import type { CompanyCategory, DocSlot } from '@shared/accountSpec';
 import { AskBiaTopButton } from '@/components/bia/AskBiaTopButton';
+import {
+  ProfileFooter,
+  ProfileHero,
+  ProfileRow,
+  ProfileRows,
+  ProfileSection,
+  ProfileSupportSection,
+  RowAction,
+} from '@/components/profile/ProfileBlocks';
 
 function formatMemberSince(iso: string | undefined | null): string | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 }
 
 export default function Profile() {
   const [, setLocation] = useLocation();
   const { isLoggedIn, user, login } = useAppStore();
   const { toast } = useToast();
+  const { waHref, telHref, officeLabel } = useSupportContacts();
   const { data: profile } = useUserProfile(isLoggedIn);
   const refreshProfile = useRefreshUserProfile();
   const [signOutOpen, setSignOutOpen] = useState(false);
@@ -84,6 +96,14 @@ export default function Profile() {
   const [changePassword, setChangePassword] = useState('');
   const [changeError, setChangeError] = useState('');
   const [isChanging, setIsChanging] = useState(false);
+
+  // Verify-WhatsApp flow: for a number Meta says is not on WhatsApp. The code
+  // goes out on WhatsApp only, so typing it back proves WhatsApp is there now.
+  const [waOpen, setWaOpen] = useState(false);
+  const [waStep, setWaStep] = useState<'send' | 'confirm'>('send');
+  const [waOtp, setWaOtp] = useState('');
+  const [waError, setWaError] = useState('');
+  const [isWaBusy, setIsWaBusy] = useState(false);
 
   const [usernameOpen, setUsernameOpen] = useState(false);
   const [usernameDraft, setUsernameDraft] = useState('');
@@ -142,6 +162,10 @@ export default function Profile() {
   const displayUsername = profile?.username ?? user?.username ?? '';
   const displayRole = profile?.role ?? user?.role ?? '';
   const memberSince = profile?.created_at ? formatMemberSince(profile.created_at) : null;
+  // "customer" -> "Customer". Staff never land here (their surface is ops).
+  const roleLabel = displayRole
+    ? displayRole.charAt(0).toUpperCase() + displayRole.slice(1).replace(/_/g, ' ')
+    : '';
 
   const hasLinkedPhone = Boolean(profile?.phone && String(profile.phone).trim());
   // Accounts created in this app carry a synthetic id and have no password
@@ -184,8 +208,8 @@ export default function Profile() {
   };
 
   const handleSendChangeOtp = async () => {
-    if (!isIndianMobile(newPhone.trim())) {
-      setChangeError('Enter a valid 10-digit phone number');
+    if (!isAccountPhone(newPhone.trim())) {
+      setChangeError('Enter a valid mobile number');
       return;
     }
     if (newPhone.trim() === String(profile?.phone ?? '')) {
@@ -244,6 +268,52 @@ export default function Profile() {
     }
   };
 
+  // A number from abroad gets the Indian-alternate card instead (WhatsappAltCard).
+  const internationalPhone = hasLinkedPhone && isInternationalPhone(displayPhone);
+  const notOnWhatsapp = hasLinkedPhone && !internationalPhone && profile?.whatsapp === 'not_on_whatsapp';
+
+  const openWhatsappDialog = () => {
+    setWaOtp('');
+    setWaError('');
+    setWaStep('send');
+    setWaOpen(true);
+  };
+
+  const handleSendWhatsappOtp = async () => {
+    setIsWaBusy(true);
+    setWaError('');
+    try {
+      await apiRequest('POST', '/api/user/whatsapp/verify/request', {});
+      setWaStep('confirm');
+    } catch (err) {
+      setWaError(parseApiErrorMessage(err, 'Could not send the code'));
+    } finally {
+      setIsWaBusy(false);
+    }
+  };
+
+  const handleConfirmWhatsapp = async () => {
+    if (!/^\d{6}$/.test(waOtp)) {
+      setWaError('Enter the 6-digit code');
+      return;
+    }
+    setIsWaBusy(true);
+    setWaError('');
+    try {
+      await apiRequest('POST', '/api/user/whatsapp/verify/confirm', { code: waOtp });
+      void refreshProfile();
+      setWaOpen(false);
+      toast({
+        title: 'WhatsApp verified',
+        description: 'We’ll send your order updates on WhatsApp again.',
+      });
+    } catch (err) {
+      setWaError(parseApiErrorMessage(err, 'Could not verify the code'));
+    } finally {
+      setIsWaBusy(false);
+    }
+  };
+
   const openUsernameDialog = () => {
     setUsernameDraft(displayUsername);
     setUsernameError('');
@@ -283,6 +353,7 @@ export default function Profile() {
         <div className="flex items-center h-14 px-4 max-w-md mx-auto">
           <button
             onClick={() => window.history.back()}
+            aria-label="Back"
             className="p-2 -ml-2 rounded-lg hover:bg-muted transition-colors"
             data-testid="button-back-profile"
           >
@@ -293,128 +364,52 @@ export default function Profile() {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto w-full px-4 md:px-8 py-6">
-        <div className="md:grid md:grid-cols-12 gap-8 items-start">
-
-          {/* LEFT — avatar + identity */}
-          <div className="md:col-span-5 flex flex-col items-center text-center md:text-left md:items-start mb-6 md:mb-0 md:sticky md:top-6">
-            <div className="w-20 h-20 bg-primary/8 rounded-2xl flex items-center justify-center mb-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06)]">
-              <User className="w-10 h-10 text-foreground" />
-            </div>
-            <h2 className="text-xl font-bold text-foreground leading-tight">
-              {displayName || 'User'}
-            </h2>
-            <p className="text-sm text-muted-foreground mt-1">{displayEmail}</p>
-            {memberSince && (
-              <span className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-medium text-secondary bg-[#2F4468]/8 px-3 py-1 rounded-full">
-                <Calendar className="w-3 h-3" />
-                Member since {memberSince}
-              </span>
-            )}
-            <div className="mt-8 hidden md:block">
-              <img src={bombinoLogo} alt="Bombino" className="h-6 w-auto mb-1 opacity-30" />
-              <p className="text-[10px] text-muted-foreground">Bombino Express v1.0</p>
+      <main className="max-w-md md:max-w-5xl mx-auto w-full px-4 md:px-8 py-5 md:py-6">
+        <div className="md:grid md:grid-cols-12 md:gap-6 md:items-start">
+          {/* LEFT — who you are. Sticky on desktop so it stays beside the
+              section being edited. */}
+          <div className="md:col-span-5 md:sticky md:top-6 space-y-4 mb-4 md:mb-0">
+            <ProfileHero
+              name={displayName || 'Your account'}
+              lines={[
+                ...(hasLinkedPhone
+                  ? [{ icon: Phone, text: formatGuestPhone(displayPhone), verified: true }]
+                  : []),
+                ...(displayEmail ? [{ icon: Mail, text: displayEmail }] : []),
+              ]}
+              stats={[
+                { label: 'Account', value: roleLabel || 'Customer' },
+                ...(memberSince ? [{ label: 'Member since', value: memberSince }] : []),
+                ...(verification
+                  ? [
+                      verification.verified
+                        ? { label: 'Status', value: 'Verified', icon: BadgeCheck, tone: 'good' as const }
+                        : { label: 'Status', value: 'Pending', icon: Clock, tone: 'pending' as const },
+                    ]
+                  : []),
+              ]}
+            />
+            <div className="hidden md:block">
+              <ProfileSupportSection waHref={waHref} telHref={telHref} officeLabel={officeLabel} />
             </div>
           </div>
 
-          {/* RIGHT — details + support + sign out */}
-          <div className="md:col-span-7 space-y-5">
-            {/* Details card */}
-            <div className="bg-white rounded-2xl border border-border divide-y divide-[#E2E8F0] shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
-              <div className="flex items-center gap-3 p-4">
-                <div className="w-9 h-9 bg-muted rounded-xl flex items-center justify-center shrink-0">
-                  <Mail className="w-4 h-4 text-secondary" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Email</p>
-                  <p className="font-medium text-sm truncate text-foreground">{displayEmail}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 p-4">
-                <div className="w-9 h-9 bg-muted rounded-xl flex items-center justify-center shrink-0">
-                  <Phone className="w-4 h-4 text-secondary" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Phone</p>
-                  <p className="font-medium text-sm truncate text-foreground">{displayPhone}</p>
-                  {hasLinkedPhone && (
-                    <p className="text-[11px] text-muted-foreground mt-0.5">
-                      You sign in with this number.
-                    </p>
-                  )}
-                </div>
-                {hasLinkedPhone && (
-                  <div className="shrink-0 flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={openChangeDialog}
-                      className="text-xs font-semibold text-secondary hover:underline px-2 py-1 rounded-lg"
-                      data-testid="button-change-phone"
-                    >
-                      Change
-                    </button>
-                    {/* Unlink only where it can be undone. An account created
-                        here has no password anywhere, so removing its number
-                        would shut it permanently — those get Change instead. */}
-                    {canUnlinkPhone && (
-                      <button
-                        type="button"
-                        onClick={() => setUnlinkOpen(true)}
-                        className="text-xs font-semibold text-red-600 hover:text-red-700 hover:underline px-2 py-1 rounded-lg"
-                        data-testid="button-unlink-phone"
-                      >
-                        Unlink
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-              <div className="flex items-center gap-3 p-4">
-                <div className="w-9 h-9 bg-muted rounded-xl flex items-center justify-center shrink-0">
-                  <UserCircle className="w-4 h-4 text-secondary" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Username</p>
-                  <p className="font-medium text-sm truncate text-foreground">{displayUsername}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={openUsernameDialog}
-                  className="shrink-0 text-xs font-semibold text-secondary hover:underline px-2 py-1 rounded-lg"
-                  data-testid="button-edit-username"
-                >
-                  Edit
-                </button>
-              </div>
-              <div className="flex items-center gap-3 p-4">
-                <div className="w-9 h-9 bg-muted rounded-xl flex items-center justify-center shrink-0">
-                  <Shield className="w-4 h-4 text-secondary" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Role</p>
-                  <p className="font-medium text-sm truncate text-foreground">{displayRole}</p>
-                </div>
-              </div>
-            </div>
-
+          {/* RIGHT — what you can look at and change. */}
+          <div className="md:col-span-7 space-y-4">
             {/* Account documents — the completion path for a skipped signup.
                 Rendered only while something is outstanding: a verified account
-                has no business being shown an upload form it does not need. */}
+                has no business being shown an upload form it does not need.
+                First, because it is the one thing here that holds parcels. */}
             {verification && !verification.verified && (
-              <div
+              <ProfileSection
                 id="documents"
-                className="scroll-mt-20 bg-white rounded-2xl border border-amber-200 p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)] space-y-3"
-                data-testid="profile-documents-section"
+                icon={FileWarning}
+                tone="attention"
+                title="Finish verifying your account"
+                description="Indian customs needs these before we can dispatch a parcel."
+                bodyClassName="space-y-3 px-4 pb-4"
+                testId="profile-documents-section"
               >
-                <div>
-                  <h3 className="text-sm font-semibold text-foreground">
-                    Finish verifying your account
-                  </h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Indian customs requires these before we can dispatch a parcel.
-                  </p>
-                </div>
-
                 <AccountDocuments
                   accountType={verification.account_type}
                   category={(verification.company_category as CompanyCategory | null) ?? null}
@@ -427,11 +422,10 @@ export default function Profile() {
                     if (state) publishVerificationState(queryClient, state);
                   }}
                 />
-
                 <p className="text-xs text-muted-foreground">
                   Would rather hand these over in person?{' '}
                   <a
-                    href="https://api.whatsapp.com/send?phone=917045999553"
+                    href={waHref}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="font-semibold text-primary underline underline-offset-2"
@@ -441,83 +435,97 @@ export default function Profile() {
                   </a>{' '}
                   and we will take them from there.
                 </p>
-              </div>
+              </ProfileSection>
             )}
+
+            {/* Account details */}
+            <ProfileSection
+              icon={UserCircle}
+              title="Account details"
+              description="How you sign in and how we reach you."
+              testId="profile-details-section"
+            >
+              <ProfileRows>
+                <ProfileRow icon={Mail} label="Email" value={displayEmail || 'Not set'} />
+                <ProfileRow
+                  id="phone"
+                  icon={Phone}
+                  label="Mobile number"
+                  value={displayPhone}
+                  note={hasLinkedPhone ? 'You sign in with this number.' : undefined}
+                  actions={
+                    hasLinkedPhone ? (
+                      <>
+                        <RowAction onClick={openChangeDialog} testId="button-change-phone">
+                          Change
+                        </RowAction>
+                        {/* Unlink only where it can be undone. An account created
+                            here has no password anywhere, so removing its number
+                            would shut it permanently — those get Change instead. */}
+                        {canUnlinkPhone && (
+                          <RowAction onClick={() => setUnlinkOpen(true)} destructive testId="button-unlink-phone">
+                            Unlink
+                          </RowAction>
+                        )}
+                      </>
+                    ) : undefined
+                  }
+                >
+                  {notOnWhatsapp && (
+                    <div
+                      className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5"
+                      data-testid="notice-not-on-whatsapp"
+                    >
+                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-hidden />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs leading-relaxed text-amber-900">
+                          This number isn’t on WhatsApp, so we can’t send you updates there.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={openWhatsappDialog}
+                          className="mt-1 text-xs font-semibold text-amber-900 underline underline-offset-2"
+                          data-testid="button-verify-whatsapp"
+                        >
+                          Verify WhatsApp
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {internationalPhone && <WhatsappAltCard />}
+                </ProfileRow>
+                <ProfileRow
+                  icon={AtSign}
+                  label="Username"
+                  value={displayUsername || 'Not set'}
+                  actions={
+                    <RowAction onClick={openUsernameDialog} testId="button-edit-username">
+                      Edit
+                    </RowAction>
+                  }
+                />
+              </ProfileRows>
+            </ProfileSection>
 
             {/* Identity document (KYC)
                 Replaces the document already on file. An account that has none
                 has nothing to replace — its path is the checklist above, whose
                 Aadhaar is mirrored into kyc_documents on upload — so the card
                 simply is not drawn. Company accounts never hold one either. */}
-            {kycOnFile && (
-              <div
-                id="kyc"
-                className="bg-white rounded-2xl border border-border p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)] space-y-3"
-                data-testid="profile-kyc-section"
-              >
-                <div>
-                  <h3 className="text-sm font-semibold text-foreground">Identity document</h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    On file and sent with every shipment for Indian customs. Replace it
-                    below only if your details have changed.
-                  </p>
-                </div>
-                <KycOnFileCard kyc={kycOnFile} />
-                <KycUpload />
-              </div>
-            )}
+            {kycOnFile && <IdentityDocumentSection kyc={kycOnFile} />}
 
             {/* BIA's reminders, each one switchable (BIA 3.0, 5.1). */}
             <NudgePrefs />
 
-            {/* Support card */}
-            <div className="bg-white rounded-2xl border border-border divide-y divide-[#E2E8F0] shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
-              <a
-                href="https://api.whatsapp.com/send?phone=917045999553"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-3 p-4 hover:bg-background transition-colors rounded-t-2xl"
-                data-testid="link-profile-whatsapp"
-              >
-                <div className="w-9 h-9 bg-green-50 rounded-xl flex items-center justify-center shrink-0">
-                  <img src={whatsAppLogo} alt="WhatsApp" className="w-4 h-4 object-contain" />
-                </div>
-                <div className="flex-1">
-                  <p className="font-medium text-sm text-foreground">WhatsApp Support</p>
-                  <p className="text-xs text-muted-foreground">Chat with us instantly</p>
-                </div>
-              </a>
-              <a
-                href="tel:+912266400000"
-                className="flex items-center gap-3 p-4 hover:bg-background transition-colors rounded-b-2xl"
-                data-testid="link-profile-call"
-              >
-                <div className="w-9 h-9 bg-[#2F4468]/8 rounded-xl flex items-center justify-center shrink-0">
-                  <PhoneIcon className="w-4 h-4 text-secondary" />
-                </div>
-                <div className="flex-1">
-                  <p className="font-medium text-sm text-foreground">Call Support</p>
-                  <p className="text-xs text-muted-foreground">+91 22 6640 0000</p>
-                </div>
-              </a>
+            <div className="md:hidden">
+              <ProfileSupportSection waHref={waHref} telHref={telHref} officeLabel={officeLabel} />
             </div>
 
-            {/* Sign out */}
-            <Button
-              onClick={() => setSignOutOpen(true)}
-              variant="outline"
-              className="w-full h-10 text-red-600 border-red-200 hover:bg-red-50 text-sm rounded-xl"
-              data-testid="button-profile-logout"
-            >
-              <LogOut className="w-4 h-4 mr-2" />
-              Sign Out
-            </Button>
-
-            {/* Footer (mobile only) */}
-            <div className="mt-4 text-center md:hidden">
-              <img src={bombinoLogo} alt="Bombino" className="h-5 w-auto mx-auto mb-1 opacity-30" />
-              <p className="text-[10px] text-muted-foreground">Bombino Express v1.0</p>
-            </div>
+            <ProfileFooter
+              signOutLabel="Sign out"
+              onSignOut={() => setSignOutOpen(true)}
+              testId="button-profile-logout"
+            />
           </div>
         </div>
       </main>
@@ -569,7 +577,7 @@ export default function Profile() {
             <Button
               onClick={() => void handleSaveUsername()}
               disabled={isSavingUsername}
-              className="bg-accent hover:bg-accent/90 text-accent-foreground font-semibold rounded-xl shadow-[var(--shadow-hover)]"
+              className="bg-accent hover:bg-accent/90 text-accent-foreground font-semibold rounded-xl shadow-card-hover"
               data-testid="button-username-save"
             >
               {isSavingUsername ? 'Saving…' : 'Save'}
@@ -585,7 +593,7 @@ export default function Profile() {
             <DialogDescription>
               {changeStep === 'phone'
                 ? 'Enter the number you want to sign in with. We’ll send it a code to confirm it’s yours.'
-                : `Enter the code we sent to ${newPhone}${
+                : `Enter the code we sent to ${formatGuestPhone(newPhone)}${
                     requiresPassword ? ', and your password to confirm the change.' : '.'
                   }`}
             </DialogDescription>
@@ -594,20 +602,18 @@ export default function Profile() {
           {changeStep === 'phone' ? (
             <div>
               <Label className="text-sm font-medium">New mobile number</Label>
-              <Input
-                type="tel"
-                inputMode="numeric"
-                value={newPhone}
-                onChange={(e) => {
-                  setNewPhone(e.target.value.replace(/\D/g, '').slice(0, 10));
-                  setChangeError('');
-                }}
-                onKeyDown={(e) => e.key === 'Enter' && void handleSendChangeOtp()}
-                placeholder="10-digit mobile number"
-                className="mt-2 h-11 bg-muted border border-border rounded-xl"
-                autoComplete="tel"
-                data-testid="input-new-phone"
-              />
+              <div className="mt-2">
+                <AccountPhoneInput
+                  value={newPhone}
+                  onChange={(next) => {
+                    setNewPhone(next);
+                    setChangeError('');
+                  }}
+                  onEnter={() => void handleSendChangeOtp()}
+                  className="h-11 bg-muted border border-border rounded-xl"
+                  data-testid="input-new-phone"
+                />
+              </div>
             </div>
           ) : (
             <div className="space-y-4">
@@ -678,7 +684,7 @@ export default function Profile() {
                 changeStep === 'phone' ? void handleSendChangeOtp() : void handleConfirmChange()
               }
               disabled={isChanging}
-              className="bg-accent hover:bg-accent/90 text-accent-foreground font-semibold rounded-xl shadow-[var(--shadow-hover)]"
+              className="bg-accent hover:bg-accent/90 text-accent-foreground font-semibold rounded-xl shadow-card-hover"
               data-testid="button-change-submit"
             >
               {isChanging
@@ -686,6 +692,70 @@ export default function Profile() {
                 : changeStep === 'phone'
                   ? 'Send code'
                   : 'Change number'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={waOpen} onOpenChange={setWaOpen}>
+        <DialogContent data-testid="dialog-verify-whatsapp">
+          <DialogHeader>
+            <DialogTitle>Verify WhatsApp</DialogTitle>
+            <DialogDescription>
+              {waStep === 'send'
+                ? `We’ll send a code to ${displayPhone} on WhatsApp. Make sure WhatsApp is set up on this number first.`
+                : `Enter the code we sent to ${displayPhone} on WhatsApp.`}
+            </DialogDescription>
+          </DialogHeader>
+
+          {waStep === 'confirm' && (
+            <div className="flex justify-center">
+              <InputOTP
+                maxLength={6}
+                value={waOtp}
+                onChange={(v) => {
+                  setWaOtp(v);
+                  setWaError('');
+                }}
+              >
+                <InputOTPGroup>
+                  {[0, 1, 2, 3, 4, 5].map((i) => (
+                    <InputOTPSlot
+                      key={i}
+                      index={i}
+                      className="h-11 w-10 text-base"
+                      data-testid={`input-wa-otp-slot-${i}`}
+                    />
+                  ))}
+                </InputOTPGroup>
+              </InputOTP>
+            </div>
+          )}
+
+          {waError && (
+            <p className="text-sm text-red-500" data-testid="text-verify-whatsapp-error">
+              {waError}
+            </p>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setWaOpen(false)}
+              disabled={isWaBusy}
+              className="rounded-xl"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() =>
+                waStep === 'send' ? void handleSendWhatsappOtp() : void handleConfirmWhatsapp()
+              }
+              disabled={isWaBusy}
+              className="bg-accent hover:bg-accent/90 text-accent-foreground font-semibold rounded-xl shadow-card-hover"
+              data-testid="button-verify-whatsapp-submit"
+            >
+              {isWaBusy ? 'Working…' : waStep === 'send' ? 'Send code' : 'Verify'}
             </Button>
           </DialogFooter>
         </DialogContent>

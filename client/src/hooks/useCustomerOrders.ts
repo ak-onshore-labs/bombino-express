@@ -180,7 +180,7 @@ export interface CustomerNotification {
   type: string | null;
   title: string | null;
   body: string | null;
-  data: { awb?: string } | null;
+  data: Record<string, unknown> | null;
   is_read: boolean | null;
   read_at: string | null;
   shipment_id: string | null;
@@ -264,6 +264,78 @@ export function useMarkNotificationRead() {
       return { previous };
     },
     onError: (_err, _id, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(NOTIFICATIONS_KEY, context.previous);
+      }
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: NOTIFICATIONS_KEY });
+    },
+  });
+}
+
+/**
+ * Mark everything in the bell read. Optimistic for the same reasons as the
+ * single-row version above, and rolled back the same way.
+ */
+export function useMarkAllNotificationsRead() {
+  const queryClient = useQueryClient();
+
+  return useMutation<void, Error, void, { previous?: CustomerNotification[] }>({
+    mutationFn: async () => {
+      const res = await fetch('/api/notifications/read-all', {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Could not mark notifications as read');
+    },
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: NOTIFICATIONS_KEY });
+      const previous = queryClient.getQueryData<CustomerNotification[]>(NOTIFICATIONS_KEY);
+      const now = new Date().toISOString();
+      queryClient.setQueryData<CustomerNotification[]>(NOTIFICATIONS_KEY, (old) =>
+        (old ?? []).map((n) => (n.is_read ? n : { ...n, is_read: true, read_at: now })),
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(NOTIFICATIONS_KEY, context.previous);
+      }
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: NOTIFICATIONS_KEY });
+    },
+  });
+}
+
+/**
+ * Clear (delete) a set of bell rows — one tab's worth. Optimistic: the rows
+ * leave the list at once and come back if the server refuses.
+ */
+export function useClearNotifications() {
+  const queryClient = useQueryClient();
+
+  return useMutation<void, Error, string[], { previous?: CustomerNotification[] }>({
+    mutationFn: async (ids: string[]) => {
+      const res = await fetch('/api/notifications/clear', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) throw new Error('Could not clear notifications');
+    },
+    onMutate: async (ids) => {
+      await queryClient.cancelQueries({ queryKey: NOTIFICATIONS_KEY });
+      const previous = queryClient.getQueryData<CustomerNotification[]>(NOTIFICATIONS_KEY);
+      const gone = new Set(ids);
+      queryClient.setQueryData<CustomerNotification[]>(NOTIFICATIONS_KEY, (old) =>
+        (old ?? []).filter((n) => !gone.has(n.id)),
+      );
+      return { previous };
+    },
+    onError: (_err, _ids, context) => {
       if (context?.previous) {
         queryClient.setQueryData(NOTIFICATIONS_KEY, context.previous);
       }

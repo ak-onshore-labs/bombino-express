@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { isIndianMobile } from '@shared/contact';
+import { isAccountPhone } from '@shared/contact';
+import { AccountPhoneInput } from '@/components/AccountPhoneInput';
 import {
   Loader2,
   Mail,
@@ -9,7 +10,6 @@ import {
   UserPlus,
   BadgeCheck,
   ArrowRight,
-  Phone,
   ShieldCheck,
 } from 'lucide-react';
 import { useLocation, Link } from 'wouter';
@@ -64,7 +64,11 @@ type ContinueResponse =
    * put this session back on their `guest_ref`. They are already who they came
    * here to be, so there is nothing left to ask.
    */
-  | { status: 'guest' }
+  | {
+      status: 'guest';
+      /** Parcels on their way TO this number (server/receivingDb.ts). */
+      receiving?: number;
+    }
   | { status: 'needs_account' };
 
 const STEP_META: Record<Step, { title: string; subtitle: string; index: number }> = {
@@ -116,6 +120,8 @@ export default function Login() {
   const [cooldown, setCooldown] = useState(0);
   /** Inline confirmation for a resend, where nothing else on screen changes. */
   const [justSent, setJustSent] = useState(false);
+  /** How many parcels are coming to the number just verified. */
+  const [receiving, setReceiving] = useState(0);
 
   const phoneRef = useRef<HTMLInputElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
@@ -194,8 +200,8 @@ export default function Login() {
   };
 
   const handleSendOtp = (): void => {
-    if (!isIndianMobile(phone.trim())) {
-      setError('Enter a valid 10-digit phone number');
+    if (!isAccountPhone(phone.trim())) {
+      setError('Enter a valid mobile number');
       phoneRef.current?.focus();
       return;
     }
@@ -223,6 +229,7 @@ export default function Login() {
         // sign-out on this tab would still be fresh and the next screen would
         // render as though nobody had verified anything.
         invalidateGuestProfile(queryClient);
+        setReceiving(data.receiving ?? 0);
         // Offered, not assumed. The number is theirs either way, but whether
         // they want to carry on as a guest or turn it into an account is a
         // decision they came to this screen to make.
@@ -306,7 +313,7 @@ export default function Login() {
    *  not read as ordinary body text. */
   const phoneMark = (
     <span className="font-mono font-semibold text-foreground whitespace-nowrap">
-      +91 {phone}
+      {formatGuestPhone(phone)}
     </span>
   );
 
@@ -377,22 +384,17 @@ export default function Login() {
           <Label htmlFor="login-phone" className="text-sm font-medium text-[lab(34.0831_-9.57756_-27.7093)]">
             Mobile number
           </Label>
-          <div className="relative mt-2">
-            <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-            <Input
+          <div className="mt-2">
+            <AccountPhoneInput
               id="login-phone"
               ref={phoneRef}
-              type="tel"
-              inputMode="numeric"
               value={phone}
-              onChange={(e) => {
-                setPhone(e.target.value.replace(/\D/g, '').slice(0, 10));
+              onChange={(next) => {
+                setPhone(next);
                 setError('');
               }}
-              onKeyDown={(e) => e.key === 'Enter' && handleSendOtp()}
-              placeholder="10-digit mobile number"
-              className="pl-10 h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl"
-              autoComplete="tel"
+              onEnter={handleSendOtp}
+              className="h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl"
               aria-invalid={Boolean(error)}
               aria-describedby={error ? 'login-error' : undefined}
               data-testid="input-phone"
@@ -460,9 +462,23 @@ export default function Login() {
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
               {guestProfile?.orders.length
                 ? `${guestProfile.orders.length === 1 ? '1 booking is' : `${guestProfile.orders.length} bookings are`} filed against this number.`
-                : 'This number has shipped with us before.'}
+                : receiving > 0
+                  ? 'Parcels are on their way to this number.'
+                  : 'This number has shipped with us before.'}
             </p>
           </div>
+
+          {/* A receiver came to see what is coming to them, so that is the
+              first door. */}
+          {receiving > 0 && (
+            <Button
+              onClick={() => setLocation('/orders?view=receiving')}
+              className="h-12 w-full rounded-xl bg-[lab(34.0831_-9.57756_-27.7093)] text-base font-semibold text-white hover:bg-[#2F4468]"
+              data-testid="button-see-receiving"
+            >
+              {receiving === 1 ? 'See the parcel coming to me' : `See ${receiving} parcels coming to me`}
+            </Button>
+          )}
 
           {/* An applicant waiting on the Bombino team is a guest until then;
               this says where their account stands. */}
@@ -543,7 +559,7 @@ export default function Login() {
         <>
           <div className="rounded-xl border border-[#E2E8F0] bg-[#F3F4F6] px-4 py-3">
             <p className="text-sm font-medium text-[lab(34.0831_-9.57756_-27.7093)]">Linking</p>
-            <p className="font-mono mt-1 text-sm font-medium text-foreground">+91 {phone}</p>
+            <p className="font-mono mt-1 text-sm font-medium text-foreground">{phone}</p>
           </div>
 
           <div>
@@ -627,7 +643,7 @@ export default function Login() {
           onClick={
             step === 'phone' ? handleSendOtp : step === 'otp' ? handleVerify : () => void handleLink()
           }
-          disabled={isLoading || (step === 'phone' && phone.length !== 10)}
+          disabled={isLoading || (step === 'phone' && !isAccountPhone(phone))}
           className="w-full h-12 text-base font-semibold bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70 mt-1"
           data-testid="button-sign-in"
         >

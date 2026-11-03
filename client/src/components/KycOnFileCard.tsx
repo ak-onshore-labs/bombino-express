@@ -244,7 +244,7 @@ export function KycOnFileCard({
   return (
     <div
       className={cn(
-        'rounded-xl border p-4 shadow-sm space-y-3',
+        'rounded-xl border p-4 shadow-card space-y-3',
         checked ? 'border-green-200 bg-green-50/50' : 'border-blue-200 bg-blue-50/40',
         className,
       )}

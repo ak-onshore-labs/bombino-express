@@ -57,6 +57,8 @@ export function ActionBar({
   pendingAction,
   disabled = false,
   trailing,
+  neverPrimary,
+  danger,
 }: {
   actions: AvailableAction[];
   /** Puts the amount in the money button's label, as the design does. */
@@ -71,12 +73,20 @@ export function ActionBar({
    * and this component must keep holding no lifecycle knowledge.
    */
   trailing?: React.ReactNode;
+  /**
+   * Actions that must never take the navy fill even when nothing else is left
+   * for it — a way out of the job, say, while the only other action is money.
+   */
+  neverPrimary?: ReadonlySet<string>;
+  /** Actions drawn red — a way out of the job, never confused with a step. */
+  danger?: ReadonlySet<string>;
 }) {
   if (actions.length === 0 && !trailing) return null;
 
   const moneyAction = actions.find((a) => a.action === MONEY_ACTION);
   const rest = actions.filter((a) => a.action !== MONEY_ACTION);
-  const [primary, ...secondary] = rest;
+  const primary = rest.find((a) => !neverPrimary?.has(a.action));
+  const secondary = rest.filter((a) => a !== primary);
 
   return (
     <>
@@ -98,7 +108,7 @@ export function ActionBar({
         </PressableButton>
       )}
 
-      {(primary || trailing) && (
+      {(rest.length > 0 || trailing) && (
         <div className="flex gap-2">
           {primary && (
             <PressableButton
@@ -125,7 +135,9 @@ export function ActionBar({
               className={cn(
                 BUTTON_BASE,
                 BAR_HEIGHT,
-                'min-w-[112px] px-3 border border-[#CBD5E1]! bg-white text-[19px] font-semibold text-[#1B2A41]',
+                danger?.has(action)
+                  ? 'min-w-[112px] px-3 bg-[#B91C1C] text-[19px] font-bold text-white'
+                  : 'min-w-[112px] px-3 border border-[#CBD5E1]! bg-white text-[19px] font-semibold text-[#1B2A41]',
               )}
               data-testid={`button-action-${action}`}
             >

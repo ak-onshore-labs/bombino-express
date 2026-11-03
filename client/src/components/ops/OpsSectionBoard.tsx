@@ -8,6 +8,7 @@ import {
 } from '@shared/opsBoardQuery';
 import { nowInIst } from '@shared/istTime';
 import { OpsShell } from '@/components/ops/OpsShell';
+import { ScanParcelButton } from '@/components/ScanParcelSheet';
 import { OpsOrderCard } from '@/components/ops/OpsOrderCard';
 import {
   OpsBoardFilterBar,
@@ -51,6 +52,10 @@ const ORDER_CSV_HEADERS = [
   'order_no',
   'status',
   'mode',
+  'sender_type',
+  'sender_name',
+  'sender_phone',
+  'sender_email',
   'consignee_name',
   'consignee_city',
   'agent_name',
@@ -67,10 +72,15 @@ const ORDER_CSV_HEADERS = [
 
 function orderToCsvRow(order: OpsBoardOrder): (string | number)[] {
   const isCod = order.is_cod || order.payment_method === 'cod';
+  const isGuest = !order.user_id;
   return [
     order.order_no,
     getOrderStatusLabel(order.status),
     order.pickup_request === 2 ? 'Drop-off' : 'Pickup',
+    isGuest ? 'guest' : 'account',
+    (isGuest ? order.guest_name : order.customer_name) ?? '',
+    (isGuest ? order.guest_phone : order.customer_phone) ?? '',
+    isGuest ? order.guest_email ?? '' : '',
     order.consignee_name ?? '',
     order.consignee_city ?? '',
     order.agent_id ? order.agent_name || 'Assigned' : 'Unassigned',
@@ -115,12 +125,18 @@ export function OpsSectionBoard({
   section,
   mode,
   filterConfig,
+  scanToReceive = false,
 }: {
   title: string;
   subtitle: string;
   section: OpsBoardSection;
   mode: 'stages' | 'flat';
   filterConfig: OpsFilterConfig;
+  /**
+   * Drop-offs and Pickups: the counter scans a box and lands on that order
+   * with its receive step in view (OpsOrderDetail reads `?scan=receive`).
+   */
+  scanToReceive?: boolean;
 }) {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
@@ -131,7 +147,11 @@ export function OpsSectionBoard({
     isError,
   } = useOpsOrders();
   const [exporting, setExporting] = useState(false);
-  const [view, setView] = useState<OpsBoardView>('cards');
+  // A table reads faster than cards once there is room for one; phones only
+  // ever get cards (the table is hidden below md).
+  const [view, setView] = useState<OpsBoardView>(() =>
+    typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches ? 'table' : 'cards'
+  );
   const [debouncedQuery, setDebouncedQuery] = useState('');
 
   const forbidden =
@@ -228,7 +248,7 @@ export function OpsSectionBoard({
     return (
       <OpsShell title="Operations" subtitle="Access required">
         <div
-          className="rounded-2xl border border-border bg-white p-6 text-center"
+          className="rounded-md border border-border bg-white p-6 text-center"
           data-testid="ops-forbidden"
         >
           <p className="text-base font-semibold text-foreground">Ops access required</p>
@@ -279,7 +299,22 @@ export function OpsSectionBoard({
     needsUncapped && filteredQuery.isError && !filteredQuery.data;
 
   return (
-    <OpsShell title={title} subtitle={subtitle} wide>
+    <OpsShell
+      title={title}
+      subtitle={subtitle}
+      wide
+      hideScan={scanToReceive}
+      actions={
+        scanToReceive ? (
+          <ScanParcelButton
+            surface="ops"
+            label="Scan to receive"
+            testId="button-scan-to-receive"
+            onResolved={(hit) => setLocation(`/ops/orders/${hit.orderId}?scan=receive`)}
+          />
+        ) : undefined
+      }
+    >
       <OpsBoardFilterBar
         config={filterConfig}
         filters={filters}
@@ -370,7 +405,7 @@ export function OpsSectionBoard({
           {mode === 'flat' && (
             <div
               className={cn(
-                'rounded-2xl border border-border bg-white px-3 divide-y divide-border',
+                'space-y-3',
                 hideCardsOnDesktop && 'md:hidden',
               )}
               data-testid="ops-board-flat"
@@ -394,16 +429,16 @@ export function OpsSectionBoard({
                   return (
                     <section
                       key={phase.id}
-                      className="min-w-0 rounded-2xl border border-border bg-white overflow-hidden"
+                      className="min-w-0"
                       data-testid={`ops-phase-col-${phase.id}`}
                     >
-                      <div className="px-3 pt-3 flex items-start justify-between gap-2">
+                      <div className="flex items-start justify-between gap-2">
                         <BandHeader label={phase.label} />
                         <span className="text-xs font-semibold text-muted-foreground tabular-nums shrink-0">
                           {list.length}
                         </span>
                       </div>
-                      <div className="px-3 pb-2 divide-y divide-border">
+                      <div className="space-y-3">
                         <OrderList orders={list} />
                       </div>
                     </section>
@@ -411,7 +446,7 @@ export function OpsSectionBoard({
                 })}
               </div>
 
-              <div className="md:hidden space-y-6" data-testid="ops-board-mobile">
+              <div className="md:hidden space-y-6 ops-rise" data-testid="ops-board-mobile">
                 {filledPhases.map((phase) => {
                   const list = grouped[phase.id];
                   return (
@@ -422,7 +457,7 @@ export function OpsSectionBoard({
                           {list.length}
                         </span>
                       </div>
-                      <div className="rounded-2xl border border-border bg-white px-3 divide-y divide-border">
+                      <div className="space-y-3 ops-rise">
                         <OrderList orders={list} />
                       </div>
                     </section>

@@ -30,6 +30,7 @@
  */
 
 import { createRequire } from "node:module";
+import { MAX_UPLOAD_BYTES } from "../shared/upload.js";
 import OpenAI from "openai";
 import { validateGstin } from "../shared/gstin.js";
 import type { OcrResult } from "./cashfreeOcr.js";
@@ -42,8 +43,13 @@ import type { OcrResult } from "./cashfreeOcr.js";
  */
 const requireFromHere = createRequire(import.meta.url);
 
-/** GST portal certificates are small; anything larger is not one. */
-const MAX_VISION_BYTES = 5 * 1024 * 1024;
+/**
+ * Whatever the upload limit lets through. A GST certificate straight off the
+ * portal is small, but a phone photo of a printed one is not, and refusing
+ * those here would leave them unread for no reason — the vision API takes far
+ * more than the upload limit.
+ */
+const MAX_VISION_BYTES = MAX_UPLOAD_BYTES;
 /** A vision call must not hang an upload the way a slow OCR must not. */
 const VISION_TIMEOUT_MS = 25_000;
 /** Cheapest model that reads a document reliably. */

@@ -21,7 +21,11 @@ import {
   markNotSent,
   markSent,
   getWhatsappRecipient,
+  getWhatsappReachability,
 } from "./whatsappDb.js";
+import { WA_TEMPLATE } from "./whatsappTemplates.js";
+import { isInternationalPhone, msisdnToAccountPhone } from "../shared/contact.js";
+import type { WaPart } from "../shared/whatsappBiaFormat.js";
 
 const DEFAULT_BASE_URL = "https://wb.omni.tatatelebusiness.com";
 const SEND_PATH = "/whatsapp-cloud/messages";
@@ -70,9 +74,15 @@ function token(): string | null {
  * `+91` prefixes and hyphens. Returns null rather than guessing at anything
  * that is not recognisably an Indian mobile — a message sent to a mangled
  * number is charged for and lands nowhere.
+ *
+ * Customers from any other country (shared/contact.ts) sign in with
+ * "+974…"; those pass through with their own dial code, and so does the bare
+ * E.164 a webhook carries for them. A malformed foreign number is refused.
  */
 export function toWaMsisdn(phone: string | null | undefined): string | null {
   if (!phone) return null;
+  const international = msisdnToAccountPhone(phone.trim().replace(/^\+/, ""));
+  if (international && isInternationalPhone(international)) return international.slice(1);
   const digits = phone.replace(/\D/g, "");
   if (/^[6-9]\d{9}$/.test(digits)) return `91${digits}`;
   if (/^91[6-9]\d{9}$/.test(digits)) return digits;
@@ -83,7 +93,10 @@ export function toWaMsisdn(phone: string | null | undefined): string | null {
 
 export type SendOutcome =
   | { ok: true; messageId: string | null }
-  | { ok: false; reason: "duplicate" | "no_number" | "opted_out" | "skipped" | "failed" };
+  | {
+      ok: false;
+      reason: "duplicate" | "no_number" | "opted_out" | "not_on_whatsapp" | "skipped" | "failed";
+    };
 
 export interface SendTemplateInput {
   /** Phone as stored. Normalised here; a number that will not normalise is refused. */
@@ -109,6 +122,14 @@ export interface SendTemplateInput {
    * the number it belongs to. The provider still receives the real values.
    */
   redactVariables?: boolean;
+  /**
+   * Send even to a number last seen as not on WhatsApp.
+   *
+   * For the login code and the profile "Verify WhatsApp" code only. Those sends
+   * are how a number gets re-checked; skipping them would mark a customer
+   * unreachable for good the first time they signed in without WhatsApp.
+   */
+  skipReachabilityCheck?: boolean;
 }
 
 /**
@@ -135,6 +156,14 @@ export async function sendTemplate(input: SendTemplateInput): Promise<SendOutcom
   if (input.userId) {
     const recipient = await getWhatsappRecipient(input.userId);
     if (recipient?.optedOut) return { ok: false, reason: "opted_out" };
+  }
+
+  // A number Meta has told us has no WhatsApp. Sending would be charged for
+  // and land nowhere; the customer still gets the in-app notification. No row
+  // is claimed, same as `no_number`: there was never a message.
+  if (!input.skipReachabilityCheck) {
+    const reach = await getWhatsappReachability(to, WA_TEMPLATE.loginOtp);
+    if (reach === "not_on_whatsapp") return { ok: false, reason: "not_on_whatsapp" };
   }
 
   const claim = await claimMessage({
@@ -348,4 +377,69 @@ function extractRequestId(text: string): string | null {
   } catch {
     return null;
   }
+}
+
+// ── Session messages (WhatsApp BIA) ─────────────────────────────────────────
+//
+// Free-form replies inside the 24-hour window a customer's own message opens:
+// no template, no approval. Used only by server/whatsappBia.ts. Same transport,
+// token and dry-run rule as templates; nothing is written to
+// whatsapp_messages, which is the template ledger.
+
+function sessionBody(to: string, part: WaPart): Record<string, unknown> {
+  const base = { to, source: "external" };
+  switch (part.kind) {
+    case "text":
+      return { ...base, type: "text", text: { preview_url: false, body: part.body } };
+    case "buttons":
+      return {
+        ...base,
+        type: "interactive",
+        interactive: {
+          type: "button",
+          body: { text: part.body },
+          action: { buttons: part.buttons.map((b) => ({ type: "reply", reply: { id: b.id, title: b.title } })) },
+        },
+      };
+    case "list":
+      return {
+        ...base,
+        type: "interactive",
+        interactive: {
+          type: "list",
+          body: { text: part.body },
+          action: { button: part.button, sections: [{ title: "Ask BIA", rows: part.rows }] },
+        },
+      };
+    case "cta":
+      return {
+        ...base,
+        type: "interactive",
+        interactive: {
+          type: "cta_url",
+          body: { text: part.body },
+          action: { name: "cta_url", parameters: { display_text: part.label, url: part.url } },
+        },
+      };
+  }
+}
+
+/**
+ * Send one reply part to a WhatsApp number (E.164 digits, no plus, as the
+ * webhook gives it). Never throws: a failed part is logged and reported.
+ */
+export async function sendSessionPart(waNumber: string, part: WaPart): Promise<boolean> {
+  const body = sessionBody(waNumber.replace(/\D/g, ""), part);
+  if (isDryRun()) {
+    console.log("[whatsapp] dry run, session part not sent", { kind: part.kind, to: `…${waNumber.slice(-4)}` });
+    return true;
+  }
+  const bearer = token();
+  if (!bearer) return false;
+  const result = await postOnce(bearer, body);
+  if (!result.ok) {
+    console.error("[whatsapp] session part failed", { kind: part.kind, error: result.error });
+    return false;
+  }
+  return true;
 }

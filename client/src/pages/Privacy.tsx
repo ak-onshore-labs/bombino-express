@@ -35,6 +35,10 @@ export default function Privacy() {
             <li>Full name, email address, and phone number</li>
             <li>Aadhaar number and identity documents (for KYC compliance)</li>
             <li>Sender and recipient addresses for shipments</li>
+            <li>
+              The recipient&apos;s mobile number, when the sender gives it, so the recipient can sign in and
+              track parcels sent to them
+            </li>
             <li>Shipment details and tracking information</li>
             <li>Device information and usage data</li>
             <li>Communications with our AI support assistant (BIA)</li>

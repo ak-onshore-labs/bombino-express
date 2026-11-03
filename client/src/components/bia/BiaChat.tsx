@@ -34,6 +34,8 @@ import { parseBiaCards, type BiaCard } from "@shared/biaCards";
 import type { BiaScreen } from "@shared/biaScreen";
 import { useAppStore } from "@/lib/store";
 import { useGuestProfile } from "@/hooks/useGuestProfile";
+import { useSupportContacts } from "@/hooks/useSupportContacts";
+import { useKeyboardOverlay } from "@/lib/keyboardInset";
 
 /**
  * One turn. `cards` ride along on BIA's replies for this conversation only;
@@ -192,6 +194,9 @@ export function BiaChat({
     if (messages.length === 0) return;
     scrollToBottom();
   }, [messages, loading]);
+
+  // Report the keyboard's height on Android too, so the input can sit on it.
+  useKeyboardOverlay();
 
   useEffect(() => {
     return () => {
@@ -438,9 +443,23 @@ export function BiaChat({
   return (
     <div
       className={cn(
-        "relative isolate flex flex-col overflow-hidden",
-        isSheet ? "h-full" : "h-viewport safe-top safe-bottom"
+        "isolate flex flex-col overflow-hidden",
+        isSheet ? "relative h-full" : "fixed inset-x-0 safe-top"
       )}
+      // The page fills exactly what is visible above the keyboard, so the
+      // input (the last row) always sits on top of it and the chat does not
+      // move with the page. The sheet is positioned by BiaSheet instead.
+      style={
+        isSheet
+          ? undefined
+          : {
+              top: "var(--vv-top, 0px)",
+              height: "var(--visible, 100dvh)",
+              // Home-indicator space only while the keyboard is down.
+              paddingBottom: "max(0px, calc(env(safe-area-inset-bottom, 0px) - var(--kb, 0px)))",
+            }
+      }
+      data-keyboard-pinned
       data-testid={isSheet ? "bia-sheet-chat" : "screen-support"}
     >
       <style>{`
@@ -748,6 +767,9 @@ export function BiaChat({
               if (!e.target.value.trim()) setSuggested(null);
             }}
             onKeyDown={handleKeyDown}
+            // The keyboard takes the bottom of the screen; keep the latest
+            // message in view above the input once it has opened.
+            onFocus={() => window.setTimeout(scrollToBottom, 300)}
             disabled={loading}
             rows={1}
             className={cn(
@@ -814,6 +836,7 @@ function CtaButtons({
   ctas: SupportCta[];
   onNavigate: (to: string) => void;
 }): React.JSX.Element {
+  const { waHref, telHref } = useSupportContacts();
   const orders = ctas.filter((c): c is Extract<SupportCta, { kind: "view_order" }> => c.kind === "view_order");
   const create = ctas.some((c) => c.kind === "create_shipment");
   const contact = ctas.some((c) => c.kind === "contact_us");
@@ -953,7 +976,7 @@ function CtaButtons({
       {contact && (
         <div className="flex gap-2">
           <a
-            href="https://api.whatsapp.com/send?phone=917045999553"
+            href={waHref}
             target="_blank"
             rel="noopener noreferrer"
             className="flex-1 flex items-center justify-center gap-2 rounded-xl py-2 px-3 text-sm font-medium text-white"
@@ -962,7 +985,7 @@ function CtaButtons({
             WhatsApp Us
           </a>
           <a
-            href="tel:+912266400000"
+            href={telHref}
             className="flex-1 flex items-center justify-center gap-2 rounded-xl py-2 px-3 text-sm font-medium border border-amber-400/40 text-amber-100/90 bg-amber-500/10"
           >
             <Phone className="w-3.5 h-3.5 shrink-0" aria-hidden />

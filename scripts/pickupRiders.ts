@@ -70,6 +70,29 @@ export const PICKUP_RIDERS: readonly PickupRider[] = [
     note: 'Biker — covers anywhere in the Fort hub, not a fixed round',
   },
 
+  // ── Mumbai, Andheri (hub 1) — 7 PM ───────────────────────────────────────
+  // Numbers from ops' "DELIVERY BOYS AREA DETALS.xls", 6 Oct 2026. The 8 Sep
+  // hand-over named the same ten against the same rounds without numbers.
+  { full_name: 'Shyam Kahar', phone: '7506516919', hub_id: 1, beats: ['andheri-jogeshwari-borivali'], note: 'Vehicle; ops: Jogeshwari to Bhayandar E/W' },
+  { full_name: 'Kishore Shethi', phone: '7506516911', hub_id: 1, beats: ['andheri-jogeshwari-kandivali'], note: 'Biker' },
+  { full_name: 'Yogesh Singh', phone: '9930141933', hub_id: 1, beats: ['andheri-east-powai'], note: 'Biker' },
+  { full_name: 'Rafiq Shaikh', phone: '9930141937', hub_id: 1, beats: ['andheri-east-powai'], note: 'Biker' },
+  { full_name: 'Abrar Farooki', phone: '7506516883', hub_id: 1, beats: ['andheri-west-vile-parle-juhu'], note: 'Biker' },
+  { full_name: 'Sanjay Lawate', phone: '8291299649', hub_id: 1, beats: ['andheri-vile-parle-bandra'], note: 'Biker' },
+  { full_name: 'Shahid Khan', phone: '7506516916', hub_id: 1, beats: ['andheri-west-bandra'], note: 'Vehicle' },
+  { full_name: 'Rupesh Yadav', phone: '9930141973', hub_id: 1, beats: ['andheri-chembur-ghatkopar-vashi'], note: 'Biker' },
+  { full_name: 'Sameer Khan', phone: '7506516897', hub_id: 1, beats: ['andheri-ghatkopar-thane-kurla'], note: 'Vehicle; also handles Sanpada incoming load' },
+  { full_name: 'Abrar Shaikh', phone: '7208141025', hub_id: 1, beats: ['andheri-ghatkopar-thane-vashi'], note: 'Vehicle and bus/train' },
+
+  // ── Mumbai, Lower Parel (hub 12) ─────────────────────────────────────────
+  // From the Fort roster docx, 6 Oct 2026. Ops gave names and numbers only:
+  // no rounds, no pincodes, so no beat. Ops assign them jobs by hand (Mumbai
+  // agents are offered for any Mumbai pickup) until a round list arrives.
+  // Branch head Pritam (7506516889) is not a pickup boy and is not here.
+  { full_name: 'Mahendra', phone: '7506516894', hub_id: 12, beats: [], note: 'Lower Parel team; no round given yet' },
+  { full_name: 'Wahid', phone: '7506516887', hub_id: 12, beats: [], note: 'Lower Parel team; no round given yet' },
+  { full_name: 'Maqsood', phone: '9930141918', hub_id: 12, beats: [], note: 'Lower Parel team; no round given yet (ops spelt it MQSOOD)' },
+
   // ── Delhi (hub 3) — 5 PM, except where noted ─────────────────────────────
   { full_name: 'Ranjeet Yadav', phone: '8506966667', hub_id: 3, beats: ['delhi'] },
   { full_name: 'Puneet Verma', phone: '8506966665', hub_id: 3, beats: ['delhi'] },
@@ -117,39 +140,19 @@ export const PICKUP_RIDERS: readonly PickupRider[] = [
 /**
  * Riders ops have named who cannot be given an account yet.
  *
- * The Andheri hand-over of 8 Sep listed ten pickup boys against nine rounds and
- * carried no phone numbers at all. `itd_users.phone` is the unique key and is
- * what OTP sign-in and the WhatsApp fan-out both resolve, so there is nothing to
- * create an account from — a rider without a number cannot log in and cannot be
- * messaged.
+ * A rider without a phone number cannot log in and cannot be messaged —
+ * `itd_users.phone` is the unique key that OTP sign-in and the WhatsApp fan-out
+ * both resolve. Keep them here so the roster is not lost, and move an entry into
+ * `PICKUP_RIDERS` with its `phone` and `hub_id` the moment a number arrives.
  *
- * They are kept here rather than dropped because the roster is the only record
- * of who runs which round, and losing it would mean asking ops for information
- * they have already sent. Move an entry into `PICKUP_RIDERS` with its `phone`
- * and `hub_id` the moment a number arrives.
- *
- * Consequence while this list is non-empty: a job in any of these beats falls
- * through to notifying every agent in the country — see `listAgentsForPincode`.
- * For Andheri that is 59 pincodes across Mumbai's suburbs, Thane and Navi
- * Mumbai.
+ * Empty since 6 Oct 2026, when ops sent numbers for the ten Andheri riders.
  */
 export interface PendingRider {
   full_name: string;
   beats: readonly string[];
 }
 
-export const PENDING_RIDERS: readonly PendingRider[] = [
-  { full_name: 'Shyam Kahar', beats: ['andheri-jogeshwari-borivali'] },
-  { full_name: 'Kishore Shethi', beats: ['andheri-jogeshwari-kandivali'] },
-  { full_name: 'Yogesh Singh', beats: ['andheri-east-powai'] },
-  { full_name: 'Rafiq Shaikh', beats: ['andheri-east-powai'] },
-  { full_name: 'Abrar Farooki', beats: ['andheri-west-vile-parle-juhu'] },
-  { full_name: 'Sanjay Lawate', beats: ['andheri-vile-parle-bandra'] },
-  { full_name: 'Shahid Khan', beats: ['andheri-west-bandra'] },
-  { full_name: 'Rupesh Yadav', beats: ['andheri-chembur-ghatkopar-vashi'] },
-  { full_name: 'Sameer Khan', beats: ['andheri-ghatkopar-thane-kurla'] },
-  { full_name: 'Abrar Shaikh', beats: ['andheri-ghatkopar-thane-vashi'] },
-];
+export const PENDING_RIDERS: readonly PendingRider[] = [];
 
 /**
  * Beats with nobody on them.
@@ -159,8 +162,7 @@ export const PENDING_RIDERS: readonly PendingRider[] = [
  * worth printing, though, because an unstaffed beat is precisely where the
  * fan-out silently stays as wide as it was before any of this existed.
  *
- * Today that is Kolkata, which has never come with a roster, and the nine
- * Andheri rounds, whose ten riders arrived without phone numbers.
+ * Today that is Kolkata, which has never come with a roster.
  */
 export function unstaffedBeats(allSlugs: readonly string[]): string[] {
   const staffed = new Set<string>();

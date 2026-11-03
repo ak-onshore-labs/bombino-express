@@ -170,14 +170,17 @@ export interface ListApplicationsInput {
   limit?: number;
 }
 
-/** The ops queue. Oldest first, so the longest wait is at the top. */
+/**
+ * The ops queue, newest first so the cap never hides what just arrived. The
+ * page re-sorts it (oldest first, recently changed, name) on its own.
+ */
 export async function listApplications(input: ListApplicationsInput = {}): Promise<ApplicationRow[]> {
   const client = getClient();
   if (!client) return [];
   let query = client
     .from("account_applications")
     .select(COLUMNS)
-    .order("submitted_at", { ascending: true })
+    .order("submitted_at", { ascending: false })
     .limit(Math.min(input.limit ?? 200, 500));
   if (input.statuses && input.statuses.length > 0) query = query.in("status", input.statuses);
   const { data, error } = await query;

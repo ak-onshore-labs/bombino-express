@@ -22,6 +22,7 @@
  * ONE RULE). No agent template below takes a code, and none ever should.
  */
 
+import { createHash } from "crypto";
 import type { Order, OrderStatus } from "../shared/orderContract.js";
 
 // ── Template names ────────────────────────────────────────────────────────
@@ -29,26 +30,96 @@ import type { Order, OrderStatus } from "../shared/orderContract.js";
 // These strings must match the approved template names in the Omni panel
 // exactly. A typo here is a `failed` row and a message nobody receives.
 
+/**
+ * ON since 26 Oct 2026, when Tata's send step began accepting the templates
+ * approved since 30 Sep (before that it answered "Template Not Found" for them
+ * although their lookup showed them APPROVED; nothing new went out 13–26 Oct).
+ * Set to false if that comes back: every message that has an older approved
+ * template then goes on that one instead:
+ *   order booked        bombino_order_booked (with the estimate) for _v2
+ *   reweighed heavier   bombino_amount_due for bombino_extra_charge_due
+ *   pickup cancelled    bombino_agent_job_cancelled for bombino_agent_pickup_cancelled
+ *   agents' morning     bombino_agent_daily_digest for bombino_agent_morning_jobs
+ * Messages with no older template try the new one either way.
+ */
+export const NEW_TEMPLATES_LIVE = true;
+
 export const WA_TEMPLATE = {
   // Customer
-  orderBooked: "bombino_order_booked",
+  // _v2 drops the estimated amount; the price lives in the app, and the Note
+  // line says the final figure comes after weighing. Templates cannot be
+  // edited once approved, hence the new name.
+  orderBooked: NEW_TEMPLATES_LIVE ? "bombino_order_booked_v2" : "bombino_order_booked",
   paymentReceived: "bombino_payment_received",
   paymentFailed: "bombino_payment_failed",
   pickupConfirmed: "bombino_pickup_confirmed",
-  agentOnTheWay: "bombino_agent_on_the_way",
+  agentOnTheWay: "bombino_agent_on_the_way_v3",
   parcelPickedUp: "bombino_parcel_picked_up",
   arrivedAtHub: "bombino_arrived_at_hub",
   amountDue: "bombino_amount_due",
   refundDue: "bombino_refund_due",
   dispatched: "bombino_dispatched",
   cancellationApproved: "bombino_cancellation_approved",
-  cancellationDeclined: "bombino_cancellation_declined",
+  // _v2 takes the support number as {{3}}; v1 has +91 22 6640 0000 in its text.
+  cancellationDeclined: NEW_TEMPLATES_LIVE ? "bombino_cancellation_declined_v2" : "bombino_cancellation_declined",
   loginOtp: "bombino_login_otp",
+  // Authentication category, so Meta fixes the wording ("{code} is your
+  // verification code.") and bolds the code. No security line (it says "do not
+  // share", and this one is shared with the courier), no expiry (it lasts until
+  // pickup). Custom button text was refused by Meta; the button is "Copy code".
+  handoverCode: "bombino_handover_code",
   // Agent
   agentNewJob: "bombino_agent_new_job",
   agentDailyDigest: "bombino_agent_daily_digest",
+  // Approved as Marketing, so only the cancellation *request* still uses it:
+  // there is no Utility wording for "wait for ops" yet. An actual cancellation
+  // goes as agentPickupCancelled (this one while NEW_TEMPLATES_LIVE is off).
   agentJobCancelled: "bombino_agent_job_cancelled",
+  agentPickupCancelled: "bombino_agent_pickup_cancelled",
+  agentJobAssigned: "bombino_agent_job_assigned",
+  // `bombino_agent_job_reassigned` is approved but deliberately absent: a job
+  // cannot be reassigned. Ops can only assign a pickup that has no agent
+  // (`assignPickup` refuses one already held) and there is no unassign or
+  // move action, so nothing could ever send it. Add it with that action.
+  // Replaces agentDailyDigest in the morning run: same message without the
+  // third placeholder the digest still carries for a window that is gone.
+  agentMorningJobs: "bombino_agent_morning_jobs",
+  // Customer, approved 14 Oct 2026 with the staff set.
+  // extraChargeDue is amountDue for when the app cannot take the money: it
+  // asks the customer to call instead of to pay in the app.
+  extraChargeDue: "bombino_extra_charge_due",
+  pickupReassigning: "bombino_pickup_reassigning",
+  accountDecision: "bombino_account_decision",
+  // Staff — the ops console's people. Who gets which is `notifyStaff.ts`, from
+  // docs/final-phase/staff-whatsapp-templates.xlsx (all approved 14 Oct 2026).
+  staffNewApplication: "bombino_staff_new_application",
+  staffParcelAtHub: "bombino_staff_parcel_at_hub",
+  staffWeighedHeavier: "bombino_staff_weighed_heavier",
+  staffCustomerActionNeeded: "bombino_staff_customer_action_needed",
+  staffNewPickup: "bombino_staff_new_pickup",
+  staffAgentCancelled: "bombino_staff_agent_cancelled",
+  staffCancellationRequest: "bombino_staff_cancellation_request",
+  staffAwbFailed: "bombino_staff_awb_failed",
+  staffRefundDue: "bombino_staff_refund_due",
+  // Staff, on a clock (`staffSchedule.ts`).
+  staffPickupsUnassigned: "bombino_staff_pickups_unassigned",
+  staffPickupOverdue: "bombino_staff_pickup_overdue",
+  staffDailySummary: "bombino_staff_daily_summary",
 } as const;
+
+/**
+ * A stored phone number as people read it: `+91 98200 12345` for a mobile,
+ * `+91 22 6640 0000` for a landline. Anything not ten digits comes back as
+ * given.
+ */
+export function displayIndianPhone(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  const ten = digits.length === 12 && digits.startsWith("91") ? digits.slice(2) : digits;
+  if (ten.length !== 10) return phone.trim();
+  return /^[6-9]/.test(ten)
+    ? `+91 ${ten.slice(0, 5)} ${ten.slice(5)}`
+    : `+91 ${ten.slice(0, 2)} ${ten.slice(2, 6)} ${ten.slice(6)}`;
+}
 
 export interface WhatsappMessage {
   template: string;
@@ -61,6 +132,8 @@ export interface WhatsappMessage {
   dedupeSuffix?: string;
   /** Authentication templates only. */
   otpButtonCode?: string;
+  /** The variables are a credential: store a placeholder, send the real thing. */
+  redactVariables?: boolean;
 }
 
 // ── Formatting ────────────────────────────────────────────────────────────
@@ -123,6 +196,13 @@ export function pickupArea(address: { city?: string | null; pincode?: string | n
   return parts.length > 0 ? v(parts.join(" ")) : "-";
 }
 
+/** `pickupArea` read off the booking's sender fields, for callers holding only the order. */
+export function orderArea(order: Pick<Order, "items">): string {
+  const items = (order.items && typeof order.items === "object" ? order.items : {}) as Record<string, unknown>;
+  const text = (value: unknown) => (typeof value === "string" || typeof value === "number" ? String(value) : null);
+  return pickupArea({ city: text(items.shipper_city), pincode: text(items.shipper_zip_code) });
+}
+
 // ── Customer touchpoints ──────────────────────────────────────────────────
 
 export function orderBookedMessage(input: {
@@ -138,7 +218,8 @@ export function orderBookedMessage(input: {
       isPickup
         ? `Pickup on ${shortDate(input.order.pickup_date)}`
         : "Drop-off at the Bombino hub",
-      money(input.order.quoted_amount),
+      // v1's fourth placeholder, the estimate.
+      ...(NEW_TEMPLATES_LIVE ? [] : [money(input.order.quoted_amount)]),
     ],
   };
 }
@@ -188,30 +269,46 @@ export function pickupConfirmedMessage(input: {
 }
 
 /**
- * The one that changes how the handover works.
+ * The agent is on the way.
  *
- * Until now the code lived only on the order screen: the customer had to have
- * the app open, logged in, on the right page, while the agent stood waiting.
- * Here it arrives on their phone before the doorbell.
+ * No handover code in it. It used to carry the code, and Meta rejected the
+ * template as INCORRECT_CATEGORY: a Utility template may not deliver a code,
+ * that is Authentication's job, and an Authentication template is Meta's fixed
+ * "{{1}} is your verification code" with no room for an agent or an order. So
+ * the message sends the customer to the order screen, which shows the code
+ * (OrderDetails.tsx, #handover-code) and always shows the current one.
  *
- * The code itself is the dedupe suffix. Same code, same message — so replaying
- * `start_pickup` sends nothing, while regenerating a locked code sends the new
- * number. Keying on anything else risks the second message being swallowed as
- * a duplicate, leaving the customer reading out a number that opens nothing.
+ * _v3 because the rejected name cannot be reused through the API, and _v2,
+ * which still said "see your pickup code… share it", was rejected by Meta's
+ * automatic check on submission. Don't mention the code here at all.
+ *
+ * Once per order: nothing in it changes between sends.
  */
 export function agentOnTheWayMessage(input: {
   order: Order;
   agentName: string | null;
-  handoverCode: string;
 }): WhatsappMessage {
   return {
     template: WA_TEMPLATE.agentOnTheWay,
-    variables: [
-      v(input.order.order_no),
-      v(input.agentName, "Your Bombino agent"),
-      v(input.handoverCode),
-    ],
-    dedupeSuffix: input.handoverCode,
+    variables: [v(input.order.order_no), v(input.agentName, "Your Bombino agent")],
+  };
+}
+
+/**
+ * The customer's pickup code, on its own. Sent right after `agentOnTheWay`,
+ * which is what gives it meaning, and again whenever the code is regenerated.
+ *
+ * To the customer ONLY — see the header. The suffix is a hash of the code so a
+ * regenerated code is a new message while a retried send of the same one is
+ * not, without the code itself sitting in the dedupe key.
+ */
+export function handoverCodeMessage(code: string): WhatsappMessage {
+  return {
+    template: WA_TEMPLATE.handoverCode,
+    variables: [code],
+    otpButtonCode: code,
+    redactVariables: true,
+    dedupeSuffix: createHash("sha256").update(code).digest("hex").slice(0, 12),
   };
 }
 
@@ -269,6 +366,72 @@ export function repriceMessage(input: {
 }
 
 /**
+ * `amountDue` for when online payment is off: the same news, but the customer
+ * is asked to call rather than sent to an app that cannot take the money.
+ * Same dedupe suffix as `amountDue`, so the two never both go for one reweigh.
+ *
+ * `supportPhone` is the office number from ops Settings, read at send time, so
+ * changing it there changes this message with no new template and no deploy.
+ */
+export function extraChargeDueMessage(input: {
+  order: Order;
+  extra: number;
+  supportPhone: string;
+}): WhatsappMessage {
+  const weight = input.order.actual_weight;
+  return {
+    template: WA_TEMPLATE.extraChargeDue,
+    variables: [
+      v(input.order.order_no),
+      weight === null ? "-" : `${weight} kg`,
+      money(input.extra),
+      v(displayIndianPhone(input.supportPhone)),
+    ],
+    dedupeSuffix: String(Math.round(input.extra)),
+  };
+}
+
+/**
+ * The agent handed the pickup back. The customer would otherwise only notice
+ * when nobody came, so they are told it is in hand. `at` is the agent's
+ * cancellation, so a second agent dropping it is a second message.
+ */
+export function pickupReassigningMessage(input: { order: Order; at: string }): WhatsappMessage {
+  return {
+    template: WA_TEMPLATE.pickupReassigning,
+    variables: [v(input.order.order_no)],
+    dedupeSuffix: input.at,
+  };
+}
+
+export type AccountDecision =
+  | { kind: "approved" }
+  | { kind: "sent_back" }
+  | { kind: "declined"; reason: string | null };
+
+/**
+ * An account request decided. `{{2}}` is a whole sentence with its own full
+ * stop: the approved body runs straight on into "Reply here…".
+ */
+export function accountDecisionMessage(decision: AccountDecision, at: string): WhatsappMessage {
+  const sentence = (text: string) => (/[.!?]$/.test(text) ? text : `${text}.`);
+  const [word, next] =
+    decision.kind === "approved"
+      ? ["approved", "You can now book shipments in the Bombino app."]
+      : decision.kind === "sent_back"
+        ? ["sent back", "Please open the Bombino app to see what to change."]
+        : [
+            "declined",
+            decision.reason ? sentence(`Reason: ${v(decision.reason)}`) : "We could not open an account this time.",
+          ];
+  return {
+    template: WA_TEMPLATE.accountDecision,
+    variables: [word, v(next)],
+    dedupeSuffix: `${decision.kind}:${at}`,
+  };
+}
+
+/**
  * Takes the order number rather than an `Order`, because the docket is written
  * by `persistShipment.ts`, which deals in shipments and may not be holding the
  * order row at all.
@@ -290,15 +453,22 @@ export function cancellationApprovedMessage(order: Order): WhatsappMessage {
   };
 }
 
+/**
+ * The body is "Reason: {{2}}. Call us on {{3}}…", so the reason's own full
+ * stop is dropped. `supportPhone` is the office number from ops Settings, read
+ * at send time, as for `extraChargeDueMessage`.
+ */
 export function cancellationDeclinedMessage(input: {
   order: Order;
   note: string | null;
+  supportPhone: string;
 }): WhatsappMessage {
   return {
     template: WA_TEMPLATE.cancellationDeclined,
     variables: [
       v(input.order.order_no),
-      v(input.note, "Your shipment is still going ahead."),
+      v(input.note, "Your shipment is still going ahead").replace(/\.+$/, ""),
+      ...(NEW_TEMPLATES_LIVE ? [v(displayIndianPhone(input.supportPhone))] : []),
     ],
   };
 }
@@ -331,16 +501,70 @@ export function agentNewJobMessage(input: {
   order: Order;
   area: string;
 }): WhatsappMessage {
-  const collects =
-    input.order.payment_method === "pay_at_pickup" && input.order.payment_status !== "paid";
   return {
     template: WA_TEMPLATE.agentNewJob,
     variables: [
       v(input.order.order_no),
       v(input.area),
       shortDate(input.order.pickup_date),
-      collects ? `Collect ${money(input.order.quoted_amount)} at the door` : "Nothing to collect",
+      collectLine(input.order),
     ],
+  };
+}
+
+/** The morning list: first name and a count. One per agent per day. */
+export function agentMorningJobsMessage(input: {
+  agentName: string | null;
+  jobCount: number;
+  date: string;
+}): WhatsappMessage {
+  const first = v(input.agentName, "there").split(" ")[0];
+  return {
+    template: WA_TEMPLATE.agentMorningJobs,
+    variables: [v(first, "there"), String(input.jobCount)],
+    dedupeSuffix: input.date,
+  };
+}
+
+/**
+ * Whether money changes hands at the door. No full stop: every template that
+ * takes it supplies its own.
+ */
+export function collectLine(order: Order): string {
+  const collects = order.payment_method === "pay_at_pickup" && order.payment_status !== "paid";
+  return collects ? `Collect ${money(order.quoted_amount)} at the door` : "Nothing to collect";
+}
+
+/**
+ * The branch gave this agent a pickup. `at` is when, so a job handed back and
+ * then given to the same agent again is a second message rather than a
+ * duplicate of the first.
+ */
+export function agentJobAssignedMessage(input: {
+  order: Order;
+  area: string;
+  at: string;
+}): WhatsappMessage {
+  return {
+    template: WA_TEMPLATE.agentJobAssigned,
+    variables: [
+      v(input.order.order_no),
+      v(input.area),
+      shortDate(input.order.pickup_date),
+      collectLine(input.order),
+    ],
+    dedupeSuffix: input.at,
+  };
+}
+
+export function agentPickupCancelledMessage(input: {
+  order: Order;
+  area: string;
+}): WhatsappMessage {
+  return {
+    template: WA_TEMPLATE.agentPickupCancelled,
+    variables: [v(input.order.order_no), v(input.area)],
+    dedupeSuffix: "cancelled",
   };
 }
 
@@ -391,6 +615,234 @@ export function agentJobCancelledMessage(input: {
         : "The customer has asked to cancel. Wait for ops before you travel.",
     ],
     dedupeSuffix: input.cancelled ? "cancelled" : "requested",
+  };
+}
+
+// ── Staff touchpoints ─────────────────────────────────────────────────────
+//
+// To the ops console's people, never to a customer. These only say it; who
+// hears which is `notifyStaff.ts`. Some carry the customer's name and number
+// because support and the branch are expected to call them (team review,
+// question 6).
+
+function kg(weight: number | null): string {
+  return weight === null ? "-" : `${weight} kg`;
+}
+
+/** A free-text reason cut to something a lock screen shows whole. */
+function brief(text: string | null | undefined, max = 120): string {
+  const value = v(text);
+  return value.length > max ? `${value.slice(0, max - 1).trimEnd()}…` : value;
+}
+
+/** Where a cancellable order has got to, in the words the branch uses. */
+const STAFF_STAGE: Partial<Record<OrderStatus, string>> = {
+  pickup_requested: "no agent yet",
+  agent_accepted: "agent assigned",
+  out_for_pickup: "agent on the way",
+  awaiting_dropoff: "waiting for drop-off",
+};
+
+/** `at` is the submission time, so a re-submission is a message of its own. */
+export function staffNewApplicationMessage(input: {
+  resent: boolean;
+  name: string;
+  accountType: string;
+  phone: string;
+  at: string;
+}): WhatsappMessage {
+  return {
+    template: WA_TEMPLATE.staffNewApplication,
+    variables: [input.resent ? "updated" : "new", v(input.name), v(input.accountType), v(input.phone)],
+    dedupeSuffix: input.at,
+  };
+}
+
+export function staffParcelAtHubMessage(input: {
+  order: Order;
+  city: string | null;
+  customer: string;
+}): WhatsappMessage {
+  return {
+    template: WA_TEMPLATE.staffParcelAtHub,
+    variables: [
+      v(input.order.order_no),
+      v(input.city, "Bombino"),
+      input.order.pickup_request === 2 ? "customer drop-off" : "pickup by agent",
+      v(input.customer),
+    ],
+  };
+}
+
+export function staffWeighedHeavierMessage(input: {
+  order: Order;
+  extra: number;
+  customer: string;
+}): WhatsappMessage {
+  return {
+    template: WA_TEMPLATE.staffWeighedHeavier,
+    variables: [
+      v(input.order.order_no),
+      kg(input.order.actual_weight),
+      kg(input.order.booked_weight),
+      money(input.extra),
+      v(input.customer),
+    ],
+    // Same key as the customer's amount-due message: a second reweigh to a
+    // different figure is news, the same figure twice is not.
+    dedupeSuffix: String(Math.round(input.extra)),
+  };
+}
+
+export function staffCustomerActionNeededMessage(input: {
+  order: Order;
+  missing: string;
+  customer: string;
+}): WhatsappMessage {
+  return {
+    template: WA_TEMPLATE.staffCustomerActionNeeded,
+    variables: [v(input.order.order_no), brief(input.missing), v(input.customer)],
+  };
+}
+
+export function staffNewPickupMessage(input: { order: Order; area: string }): WhatsappMessage {
+  return {
+    template: WA_TEMPLATE.staffNewPickup,
+    variables: [
+      v(input.area),
+      v(input.order.order_no),
+      shortDate(input.order.pickup_date),
+      collectLine(input.order),
+    ],
+  };
+}
+
+/** `at` is the agent's cancellation, so a second agent dropping it is told too. */
+export function staffAgentCancelledMessage(input: {
+  order: Order;
+  agentName: string | null;
+  area: string;
+  at: string;
+}): WhatsappMessage {
+  return {
+    template: WA_TEMPLATE.staffAgentCancelled,
+    variables: [
+      v(input.agentName, "An agent"),
+      v(input.order.order_no),
+      v(input.area),
+      shortDate(input.order.pickup_date),
+    ],
+    dedupeSuffix: input.at,
+  };
+}
+
+export function staffCancellationRequestMessage(input: {
+  order: Order;
+  city: string | null;
+  reason: string | null;
+  at: string;
+}): WhatsappMessage {
+  return {
+    template: WA_TEMPLATE.staffCancellationRequest,
+    variables: [
+      v(input.order.order_no),
+      v(input.city),
+      v(STAFF_STAGE[input.order.status] ?? input.order.status.replace(/_/g, " ")),
+      brief(input.reason, 100).replace(/^-$/, "none given"),
+    ],
+    dedupeSuffix: input.at,
+  };
+}
+
+/** Keyed on the stage, so ops pressing Retry into the same wall is not re-told. */
+export function staffAwbFailedMessage(input: {
+  order: Order;
+  city: string | null;
+  reason: string;
+  stage: string;
+}): WhatsappMessage {
+  return {
+    template: WA_TEMPLATE.staffAwbFailed,
+    variables: [v(input.order.order_no), v(input.city), brief(input.reason)],
+    dedupeSuffix: input.stage,
+  };
+}
+
+export function staffRefundDueMessage(input: {
+  order: Order;
+  amount: number;
+  customer: string;
+  reason: string;
+}): WhatsappMessage {
+  return {
+    template: WA_TEMPLATE.staffRefundDue,
+    variables: [v(input.order.order_no), money(input.amount), v(input.customer), v(input.reason)],
+    dedupeSuffix: String(Math.round(input.amount)),
+  };
+}
+
+/** `slot` tells the morning reminder from the evening one for the same date. */
+export function staffPickupsUnassignedMessage(input: {
+  count: number;
+  city: string | null;
+  date: string;
+  slot: string;
+}): WhatsappMessage {
+  return {
+    template: WA_TEMPLATE.staffPickupsUnassigned,
+    variables: [String(input.count), v(input.city, "your city"), shortDate(input.date)],
+    dedupeSuffix: `${input.date}:${input.slot}`,
+  };
+}
+
+/** Once per order per evening: `runDate` is the day it was found still waiting. */
+export function staffPickupOverdueMessage(input: {
+  order: Order;
+  city: string | null;
+  agentName: string | null;
+  runDate: string;
+}): WhatsappMessage {
+  return {
+    template: WA_TEMPLATE.staffPickupOverdue,
+    variables: [
+      v(input.order.order_no),
+      v(input.city),
+      shortDate(input.order.pickup_date),
+      v(input.agentName, "none"),
+    ],
+    dedupeSuffix: input.runDate,
+  };
+}
+
+export interface DailySummary {
+  newBookings: number;
+  collected: number;
+  atHub: number;
+  dispatched: number;
+  /** Already worded: "2 pickups unassigned today, 1 AWB failed". Empty for none. */
+  attention: string[];
+}
+
+/** `city` null means every city, for admins. `date` is the day summarised. */
+export function staffDailySummaryMessage(input: {
+  city: string | null;
+  date: string;
+  summary: DailySummary;
+}): WhatsappMessage {
+  const { summary } = input;
+  return {
+    template: WA_TEMPLATE.staffDailySummary,
+    variables: [
+      v(input.city, "All cities"),
+      shortDate(input.date),
+      String(summary.newBookings),
+      String(summary.collected),
+      String(summary.atHub),
+      String(summary.dispatched),
+      // Never blank: a variable cannot be empty, and "nothing" is the news.
+      brief(summary.attention.join(", "), 200).replace(/^-$/, "nothing pending"),
+    ],
+    dedupeSuffix: input.date,
   };
 }
 

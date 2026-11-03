@@ -5,31 +5,22 @@ import { formatIstDate } from '@/lib/orderDetail';
 import { Link } from 'wouter';
 import { Download, Loader2, Search } from 'lucide-react';
 import { OpsDocumentPreviewOverlay, useOpsDocumentPreview } from '@/components/ops/OpsDocumentPreview';
+import { OpsMobileField, OpsMobileItem, OpsMobileList } from '@/components/ops/OpsMobileList';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { Input } from '@/components/ui/input';
+import { TestBadge } from '@/components/ops/TestBadge';
 import {
   fetchOpsCustomerDocumentFile,
   fetchOpsCustomerKycFile,
   useOpsCustomers,
   type OpsCustomerListRow,
 } from '@/hooks/useOpsCustomers';
-import { useIsMobile } from '@/hooks/use-mobile';
 import { useAppStore } from '@/lib/store';
 import { DOC_SLOT_SPECS, isDocSlot } from '@shared/accountSpec';
 import { cn } from '@/lib/utils';
+import { can } from '@shared/staffAccess';
 
 const LIST_CAP = 200;
-
-function DesktopOnlyNotice() {
-  return (
-    <p
-      className="text-sm text-muted-foreground py-10 text-center"
-      data-testid="ops-customers-desktop-only"
-    >
-      Customer records are available on desktop.
-    </p>
-  );
-}
 
 function slotLabel(slot: string): string {
   return isDocSlot(slot) ? DOC_SLOT_SPECS[slot].label : slot;
@@ -68,7 +59,7 @@ function FilterChip({
       onClick={onClick}
       data-testid={testId}
       className={cn(
-        'h-8 px-3 rounded-lg text-xs font-bold transition-colors',
+        'h-8 px-3 rounded-md text-xs font-bold transition-colors',
         selected ? 'bg-[#C62828] text-white' : 'bg-[#F3F4F6] text-foreground hover:bg-muted',
       )}
     >
@@ -223,8 +214,7 @@ function DocumentChips({
 }
 
 export default function OpsCustomers() {
-  const isMobile = useIsMobile();
-  const canViewKyc = useAppStore((s) => s.user?.role) === 'super_admin';
+  const canViewKyc = can(useAppStore((s) => s.user?.role), 'kyc.view');
   const [input, setInput] = useState('');
   const [q, setQ] = useState('');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
@@ -269,10 +259,7 @@ export default function OpsCustomers() {
 
   return (
     <OpsShell title="Customers" subtitle="Find accounts and KYC status" wide>
-      {isMobile ? (
-        <DesktopOnlyNotice />
-      ) : (
-        <>
+      <>
           <div className="relative mb-3">
             <Search
               className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none"
@@ -283,7 +270,7 @@ export default function OpsCustomers() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Search name or phone"
-              className="h-11 pl-9 rounded-xl bg-white"
+              className="h-11 pl-9 rounded-md bg-white"
               data-testid="ops-customers-search"
               aria-label="Search name or phone"
             />
@@ -377,18 +364,64 @@ export default function OpsCustomers() {
               >
                 {listCaption(list.data!.length, filtered)}
               </p>
+              {/* Phones: one card per customer. The name opens the account;
+                  the document chips open or download a file in place. */}
+              <OpsMobileList testId="ops-customers-mobile">
+                {list.data!.map((row) => (
+                  <OpsMobileItem
+                    key={row.id}
+                    title={
+                      <>
+                        <Link href={`/ops/customers/${row.id}`} className="hover:underline">
+                          {row.full_name}
+                        </Link>
+                        {row.is_test && <TestBadge className="ml-1.5 align-middle" />}
+                      </>
+                    }
+                    aside={
+                      <Link
+                        href={`/ops/customers/${row.id}`}
+                        className="inline-flex h-8 items-center rounded-md border border-border bg-white px-3 text-xs font-semibold text-foreground shadow-sm"
+                        aria-label={`Open ${row.full_name}`}
+                      >
+                        Open
+                      </Link>
+                    }
+                    testId={`ops-customer-card-${row.id}`}
+                  >
+                    <OpsMobileField label="Phone">{row.phone ?? '—'}</OpsMobileField>
+                    <OpsMobileField label="Type">
+                      {row.account_type === 'company' ? 'Company' : 'Personal'}
+                    </OpsMobileField>
+                    <OpsMobileField label="Orders">{row.order_count}</OpsMobileField>
+                    <OpsMobileField label="Joined">{formatIstDate(row.created_at)}</OpsMobileField>
+                    <OpsMobileField label="Documents">
+                      <DocumentChips
+                        row={row}
+                        canView={canViewKyc}
+                        fileBusy={fileBusy}
+                        fileErrors={fileErrors}
+                        onOpenSlot={(slot) => openSlot(row.id, slot)}
+                        onOpenShipment={() => openShipment(row.id)}
+                        onDownloadSlot={(slot) => downloadSlot(row.id, slot)}
+                        onDownloadShipment={() => downloadShipment(row.id)}
+                      />
+                    </OpsMobileField>
+                  </OpsMobileItem>
+                ))}
+              </OpsMobileList>
               <div
-                className="rounded-2xl border border-border bg-white overflow-x-auto"
+                className="hidden md:block rounded-md border border-border bg-white overflow-x-auto"
                 data-testid="ops-customers-list"
               >
-                <table className="w-full text-sm" data-testid="ops-customers-table">
+                <table className="ops-table min-w-[860px]" data-testid="ops-customers-table">
                   <thead>
                     <tr className="text-left text-xs font-semibold text-muted-foreground border-b border-border">
                       <th className="px-4 py-3">Customer</th>
                       <th className="px-4 py-3">Contact</th>
                       <th className="px-4 py-3">Type</th>
                       <th className="px-4 py-3">KYC/Documents</th>
-                      <th className="px-4 py-3">Orders</th>
+                      <th className="num">Orders</th>
                       <th className="px-4 py-3">Joined</th>
                     </tr>
                   </thead>
@@ -406,6 +439,7 @@ export default function OpsCustomers() {
                           >
                             {row.full_name}
                           </Link>
+                          {row.is_test && <TestBadge className="ml-1.5 align-middle" />}
                         </td>
                         <td className="px-4 py-3 text-muted-foreground tabular-nums whitespace-nowrap">
                           {row.phone ?? '—'}
@@ -427,7 +461,7 @@ export default function OpsCustomers() {
                             onDownloadShipment={() => downloadShipment(row.id)}
                           />
                         </td>
-                        <td className="px-4 py-3 tabular-nums">
+                        <td className="num">
                           {row.order_count > 0 ? (
                             <Link
                               href={`/ops/customers/${row.id}`}
@@ -450,7 +484,6 @@ export default function OpsCustomers() {
             </>
           )}
         </>
-      )}
 
       {preview && <OpsDocumentPreviewOverlay preview={preview} onClose={closePreview} />}
     </OpsShell>

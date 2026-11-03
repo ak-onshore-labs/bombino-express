@@ -17,7 +17,6 @@ import {
   type OpsIdentityMeta,
   type OpsShipmentKycMeta,
 } from '@/hooks/useOpsCustomers';
-import { useIsMobile } from '@/hooks/use-mobile';
 import { parseApiErrorMessage, isForbiddenError, isNotFoundError } from '@/lib/apiError';
 import { formatIst, formatIstDate } from '@/lib/orderDetail';
 import { useAppStore } from '@/lib/store';
@@ -29,17 +28,7 @@ import {
 } from '@shared/accountSpec';
 import { formatAadhaar } from '@shared/aadhaar';
 import { cn } from '@/lib/utils';
-
-function DesktopOnlyNotice() {
-  return (
-    <p
-      className="text-sm text-muted-foreground py-10 text-center"
-      data-testid="ops-customers-desktop-only"
-    >
-      Customer records are available on desktop.
-    </p>
-  );
-}
+import { can } from '@shared/staffAccess';
 
 function Fact({ label, value }: { label: string; value: string | null | undefined }) {
   return (
@@ -127,9 +116,8 @@ function viewableDocuments(data: OpsCustomerDetail): ViewableDoc[] {
 export default function OpsCustomerDetail() {
   const params = useParams<{ id: string }>();
   const id = params.id;
-  const isMobile = useIsMobile();
   const role = useAppStore((s) => s.user?.role);
-  const canViewKyc = role === 'super_admin';
+  const canViewKyc = can(role, 'kyc.view');
   const { data, isLoading, isError, error } = useOpsCustomerDetail(id);
   const ordersQuery = useOpsCustomerOrders(id);
 
@@ -165,10 +153,7 @@ export default function OpsCustomerDetail() {
       subtitle="Account and KYC status"
       wide
     >
-      {isMobile ? (
-        <DesktopOnlyNotice />
-      ) : (
-        <>
+      <>
           <Link
             href="/ops/customers"
             className="inline-flex items-center gap-1 text-sm font-semibold text-[#F2A123] mb-4"
@@ -209,7 +194,7 @@ export default function OpsCustomerDetail() {
               </div>
 
               <section
-                className="rounded-2xl border border-border bg-white p-4 mb-6"
+                className="rounded-md border border-border bg-white p-4 mb-6"
                 data-testid="ops-customer-kyc-documents"
               >
                 <h2 className="text-base font-extrabold text-foreground mb-3">Documents</h2>
@@ -224,7 +209,7 @@ export default function OpsCustomerDetail() {
                       : 'No KYC records on file — nothing to verify.'}
                   </p>
                 ) : (
-                  <ul className="divide-y divide-border rounded-xl border border-border">
+                  <ul className="divide-y divide-border rounded-md border border-border">
                     {docs.map((doc) => {
                       const kind = mimeKind(doc.mime_type);
                       return (
@@ -241,7 +226,7 @@ export default function OpsCustomerDetail() {
                                 </span>
                               )}
                             </div>
-                            <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                            <p className="text-xs text-muted-foreground mt-0.5 break-words">
                               {showSource
                                 ? `${doc.source === 'shipment' ? 'Shipment' : 'Onboarding'} · `
                                 : ''}
@@ -257,7 +242,7 @@ export default function OpsCustomerDetail() {
                               <Button
                                 type="button"
                                 variant="outline"
-                                className="h-9 rounded-lg text-xs font-semibold"
+                                className="h-9 rounded-md text-xs font-semibold"
                                 disabled={fileBusy === doc.key}
                                 onClick={() =>
                                   void openBlob(doc.key, doc.original_filename || doc.label, () =>
@@ -279,7 +264,7 @@ export default function OpsCustomerDetail() {
                               <Button
                                 type="button"
                                 variant="outline"
-                                className="h-9 rounded-lg text-xs font-semibold gap-1.5"
+                                className="h-9 rounded-md text-xs font-semibold gap-1.5"
                                 disabled={fileBusy === doc.key}
                                 onClick={() =>
                                   void downloadBlob(
@@ -319,11 +304,11 @@ export default function OpsCustomerDetail() {
 
               {data.kyc.identity.length > 0 && (
                 <section
-                  className="rounded-2xl border border-border bg-white p-4 mb-6"
+                  className="rounded-md border border-border bg-white p-4 mb-6"
                   data-testid="ops-customer-kyc-identity"
                 >
                   <h2 className="text-sm font-semibold text-foreground mb-3">Identity numbers</h2>
-                  <ul className="divide-y divide-border rounded-xl border border-border">
+                  <ul className="divide-y divide-border rounded-md border border-border">
                     {data.kyc.identity.map((row) => (
                       <li
                         key={row.kind}
@@ -349,7 +334,7 @@ export default function OpsCustomerDetail() {
                           <Button
                             type="button"
                             variant="outline"
-                            className="h-9 rounded-lg text-xs font-semibold shrink-0"
+                            className="h-9 rounded-md text-xs font-semibold shrink-0"
                             disabled={revealBusy === row.kind}
                             onClick={() => void revealNumber(row.kind)}
                             data-testid={`ops-kyc-reveal-${row.kind}`}
@@ -376,7 +361,7 @@ export default function OpsCustomerDetail() {
               )}
 
               <section
-                className="rounded-2xl border border-border bg-white px-4 mb-6"
+                className="rounded-md border border-border bg-white px-4 mb-6"
                 data-testid="ops-customer-facts"
               >
                 <Fact label="Phone" value={data.customer.phone} />
@@ -398,7 +383,7 @@ export default function OpsCustomerDetail() {
               </section>
 
               <section
-                className="rounded-2xl border border-border bg-white p-4 mb-6"
+                className="rounded-md border border-border bg-white p-4 mb-6"
                 data-testid="ops-customer-orders"
               >
                 <h2 className="text-base font-extrabold text-foreground mb-3">Orders</h2>
@@ -414,7 +399,7 @@ export default function OpsCustomerDetail() {
                   <p className="text-sm text-muted-foreground">No orders on file.</p>
                 )}
                 {!ordersQuery.isLoading && !ordersQuery.isError && (ordersQuery.data?.length ?? 0) > 0 && (
-                  <div className="rounded-xl border border-border px-3">
+                  <div className="space-y-3">
                     {ordersQuery.data!.map((order) => (
                       <OpsOrderCard key={order.id} order={order} />
                     ))}
@@ -424,7 +409,6 @@ export default function OpsCustomerDetail() {
             </>
           )}
         </>
-      )}
 
       {preview && <OpsDocumentPreviewOverlay preview={preview} onClose={closePreview} />}
     </OpsShell>

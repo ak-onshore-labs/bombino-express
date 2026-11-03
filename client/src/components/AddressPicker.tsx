@@ -103,7 +103,7 @@ export function AddressPicker({ type, onSelect, isLoggedIn }: AddressPickerProps
                   onSelect(address);
                 }}
                 className={cn(
-                  'relative min-w-52 text-left bg-card rounded-xl border p-3 shadow-sm transition-colors',
+                  'relative min-w-52 text-left bg-card rounded-xl border p-3 shadow-card transition-colors',
                   isSelected ? 'border-primary' : 'border-border'
                 )}
               >

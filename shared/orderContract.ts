@@ -54,23 +54,43 @@ export function isOrderStatus(value: unknown): value is OrderStatus {
 
 // ── Roles ─────────────────────────────────────────────────────────────────
 
-export type Role = 'customer' | 'agent' | 'admin' | 'super_admin';
+export type Role =
+  | 'customer'
+  | 'agent'
+  | 'admin'
+  | 'super_admin'
+  | 'branch_manager'
+  | 'customer_support'
+  | 'accounts'
+  | 'kyc_reviewer';
 
-export const ROLES: readonly Role[] = ['customer', 'agent', 'admin', 'super_admin'] as const;
+export const ROLES: readonly Role[] = [
+  'customer',
+  'agent',
+  'admin',
+  'super_admin',
+  'branch_manager',
+  'customer_support',
+  'accounts',
+  'kyc_reviewer',
+] as const;
 
 export function isRole(value: unknown): value is Role {
   return typeof value === 'string' && (ROLES as readonly string[]).includes(value);
 }
 
 /**
- * Anything ops can do, super_admin can do. Kept as a helper rather than
- * baked into each transition row so M7 landing (or not landing) changes one
- * place. Note this is *not* a general hierarchy — an admin is not an agent,
- * because ops must never claim a pickup on an agent's behalf (§1).
+ * Anything ops can do, super_admin can do, and so can a branch manager for
+ * their own city (the city check is the route's, not this table's). Kept as a
+ * helper rather than baked into each transition row so the roles that move
+ * orders change in one place. Note this is *not* a general hierarchy — an
+ * admin is not an agent, because ops must never claim a pickup on an agent's
+ * behalf (§1). Customer support, accounts and KYC reviewers match no row:
+ * they see orders but never move them (shared/staffAccess.ts).
  */
 export function roleSatisfies(callerRole: Role, requiredRole: Role): boolean {
   if (callerRole === requiredRole) return true;
-  return callerRole === 'super_admin' && requiredRole === 'admin';
+  return requiredRole === 'admin' && (callerRole === 'super_admin' || callerRole === 'branch_manager');
 }
 
 // ── Payment ───────────────────────────────────────────────────────────────
@@ -150,6 +170,10 @@ export type Action =
   // agent (A5)
   | 'claim'
   | 'start_pickup'
+  // agent — hands an assigned pickup back to the branch before setting off.
+  // Not a cancellation of the order: it returns to unassigned for the branch
+  // head to give to someone else.
+  | 'release_pickup'
   | 'mark_picked_up'
   | 'mark_received_at_hub'
   // collection — agent at the door (A5), ops at the counter (M3)
@@ -169,6 +193,13 @@ export type Action =
   // guarded on `awb_no` being null and not-null respectively, so exactly one
   // is ever offered.
   | 'mark_dispatched'
+  // ops — file the real ITD docket again after a failure (server/docketFiling.ts).
+  // Does not move the order.
+  | 'retry_docket'
+  // ops — for a customer with no ITD login of their own: ops files the docket
+  // in ITD's portal and enters the AWB here. Same destination as
+  // `generate_docket`.
+  | 'record_awb'
   // customer — asks; does not decide. See `cancel` below.
   | 'request_cancellation'
   // ops — the other half of the decision. `cancel` approves a request;
@@ -287,6 +318,54 @@ export function cancellationState(
  */
 export function hasOpenCancellationRequest(order: Pick<Order, 'metadata' | 'status'>): boolean {
   return cancellationState(order) === 'pending';
+}
+
+// ── Agent cancelled a pickup ───────────────────────────────────────────────
+
+/**
+ * An agent's cancellation, as `metadata.agent_cancellation`.
+ *
+ * Only possible before the parcel is collected: the pickup goes back to
+ * unassigned and the branch gives it to someone else. Ops needs to know it
+ * happened, and at which step — that is `from_status`.
+ */
+export interface AgentCancellation {
+  at: string;
+  /** `users.id` of the agent who cancelled. */
+  agent_id: string;
+  /** The order's status when the agent cancelled. */
+  from_status: OrderStatus;
+}
+
+export function readAgentCancellation(
+  order: Pick<Order, 'metadata'>
+): AgentCancellation | null {
+  const raw = order.metadata?.agent_cancellation;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.at !== 'string' || typeof r.agent_id !== 'string' || typeof r.from_status !== 'string') {
+    return null;
+  }
+  return {
+    at: r.at,
+    agent_id: r.agent_id,
+    from_status: r.from_status as OrderStatus,
+  };
+}
+
+/**
+ * The agent's cancellation still needs someone to act on it.
+ *
+ * Derived from where the order is now rather than stored as a flag, so nobody
+ * has to remember to clear it: done with once the pickup has a new agent (or
+ * ops cancels the order).
+ */
+export function openAgentCancellation(
+  order: Pick<Order, 'metadata' | 'status' | 'agent_id'>
+): AgentCancellation | null {
+  const c = readAgentCancellation(order);
+  if (!c) return null;
+  return order.status === 'pickup_requested' && !order.agent_id ? c : null;
 }
 
 // ── Customer-facing derivation (M6 owns the fan-out; this is the mapping) ──

@@ -82,7 +82,7 @@ export function DocumentSlotCard({
       <div
         key={slot}
         className={cn(
-          'bg-card rounded-xl border p-4 shadow-sm space-y-3',
+          'bg-card rounded-xl border p-4 shadow-card space-y-3',
           flagged ? 'border-primary border-2 field-shake' : 'border-border',
         )}
         data-testid={`doc-slot-${slot}`}

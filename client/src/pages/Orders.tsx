@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useSearch } from 'wouter';
-import { Package, Copy, Send, Search, ArrowRight, Download } from 'lucide-react';
+import { Package, PackageOpen, Copy, Send, Search, ArrowRight, Download, Printer } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
 import { Header } from '@/components/Header';
 import { BottomNav } from '@/components/BottomNav';
@@ -12,8 +12,10 @@ import { useAppStore } from '@/lib/store';
 import { useGuestProfile } from '@/hooks/useGuestProfile';
 import { cn } from '@/lib/utils';
 import { getStatusLabel, getStatusColor } from '@/lib/awbStatus';
-import { guestOrderToRow, type DisplayRow } from '@/lib/shipmentRows';
+import { guestOrderToRow, receivingToRow, type DisplayRow } from '@/lib/shipmentRows';
 import { useCancellations, useOrderHistory } from '@/hooks/useCustomerOrders';
+import { useReceiving } from '@/hooks/useReceiving';
+import { useMarkOrdersSeen } from '@/hooks/useParcelsOverview';
 import { CancellationsPanel } from '@/components/CancellationsPanel';
 import { useToast } from '@/hooks/use-toast';
 
@@ -78,7 +80,7 @@ function TrackBar({
   onSubmit: () => void;
 }) {
   return (
-    <div className="rounded-xl bg-white border border-border shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] p-1.5 flex items-center gap-2">
+    <div className="rounded-xl bg-white border border-border shadow-card p-1.5 flex items-center gap-2">
       <div className="relative flex-1">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <input
@@ -101,6 +103,71 @@ function TrackBar({
         <ArrowRight className="w-3.5 h-3.5" />
       </button>
     </div>
+  );
+}
+
+// ─── AWB on an order row ────────────────────────────────────────────────────
+/**
+ * The airway bill under an order's BOM number.
+ *
+ * An order keeps its BOM number as its identity, but once docketed the AWB is
+ * the number everyone else asks for — the agent, the hub counter, the person
+ * the parcel is going to — so it is on the row, copyable on its own, rather
+ * than one tap and a scroll away.
+ */
+function OrderAwbLine({
+  awb,
+  onCopy,
+  className,
+}: {
+  awb: string;
+  onCopy: (e: React.MouseEvent, id: string) => void;
+  className?: string;
+}) {
+  return (
+    <div className={cn('flex items-center min-w-0 text-[11.5px] text-muted-foreground', className)}>
+      <span className="shrink-0 text-[9px] font-bold uppercase tracking-[0.08em] mr-1.5">AWB</span>
+      <span className="font-mono tabular-nums text-foreground/80 truncate" data-testid="text-row-awb">
+        {awb}
+      </span>
+      <span
+        role="button"
+        tabIndex={0}
+        onClick={(e) => onCopy(e, awb)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') onCopy(e as unknown as React.MouseEvent, awb);
+        }}
+        className="ml-0.5 p-1.5 -my-1 rounded-md active:bg-muted hover:bg-muted shrink-0 cursor-pointer text-muted-foreground/60 hover:text-muted-foreground"
+        aria-label={`Copy AWB ${awb}`}
+        data-testid="button-copy-row-awb"
+      >
+        <Copy className="w-3 h-3" />
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Docketed, and the parcel still with the customer: the labels are waiting
+ * to be printed. Only for an account's own orders — a guest's have none.
+ */
+function needsLabels(row: DisplayRow): boolean {
+  const status = row.order?.status;
+  return !!row.awb && row.isOrder && !!status && status !== 'dispatched' && status !== 'cancelled';
+}
+
+/** Still with the guest, no AWB: our QR box label is what goes on the box. */
+const BEFORE_COLLECTION = new Set(['pickup_requested', 'agent_accepted', 'out_for_pickup', 'awaiting_dropoff']);
+function needsBoxLabel(row: DisplayRow): boolean {
+  return !row.awb && !!row.guestStatus && BEFORE_COLLECTION.has(row.guestStatus);
+}
+
+function PrintLabelsChip() {
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.08em] text-[#B26A00] bg-[#F2A123]/15 px-1.5 py-0.5 rounded shrink-0">
+      <Printer className="w-3 h-3" aria-hidden />
+      Print labels
+    </span>
   );
 }
 
@@ -127,7 +194,7 @@ function ShipmentRow({
       data-testid={`order-row-${displayId}`}
     >
       {/* ─── MOBILE CARD — amber-rail brand accent ──────────────── */}
-      <div className="md:hidden relative rounded-xl bg-white border border-[#E2E8F0] shadow-[0_1px_1px_lab(34.0831_-9.57756_-27.7093_/_0.03),0_2px_6px_lab(34.0831_-9.57756_-27.7093_/_0.06),0_12px_28px_-12px_lab(34.0831_-9.57756_-27.7093_/_0.18)] active:shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.05),0_4px_10px_-4px_lab(34.0831_-9.57756_-27.7093_/_0.12)] active:translate-y-px transition-[transform,box-shadow] duration-150 overflow-hidden">
+      <div className="md:hidden relative rounded-xl bg-white border border-[#E2E8F0] shadow-card-hover active:shadow-card active:translate-y-px transition-[transform,box-shadow] duration-150 overflow-hidden">
         {/* Amber accent rail (full height, left edge) */}
         <span
           className="absolute left-0 top-0 bottom-0 w-[3px] bg-gradient-to-b from-[#F2A123] via-[#F2A123] to-[#F2A123]/60 rounded-l-xl"
@@ -171,6 +238,18 @@ function ShipmentRow({
             <StatusBadge status={status} tone={tone} className="shrink-0 mt-0.5" />
           </div>
 
+          {needsBoxLabel(row) && (
+            <div className="mt-1.5">
+              <PrintLabelsChip />
+            </div>
+          )}
+          {isOrder && row.awb && (
+            <div className="mt-1 flex items-center justify-between gap-2">
+              <OrderAwbLine awb={row.awb} onCopy={onCopy} />
+              {needsLabels(row) && <PrintLabelsChip />}
+            </div>
+          )}
+
           {/* Recipient — primary line */}
           <p className="mt-2 text-[14px] leading-snug truncate">
             <span className={recipientRaw ? 'font-semibold text-[#112330]' : 'text-muted-foreground italic'}>
@@ -208,7 +287,8 @@ function ShipmentRow({
       </div>
 
       {/* ─── DESKTOP COLUMNS (unchanged) ──────────────────────────── */}
-      <div className="hidden md:flex md:items-center md:gap-2 md:min-w-0">
+      <div className="hidden md:block md:min-w-0">
+      <div className="flex items-center gap-2 min-w-0">
         {isOrder && (
           <span className="shrink-0 text-[9px] font-bold uppercase tracking-[0.08em] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
             Order
@@ -228,6 +308,18 @@ function ShipmentRow({
           <Copy className="w-3.5 h-3.5 text-muted-foreground" />
         </span>
       </div>
+      {needsBoxLabel(row) && (
+        <div className="mt-1.5">
+          <PrintLabelsChip />
+        </div>
+      )}
+      {isOrder && row.awb && (
+        <div className="mt-0.5 flex items-center gap-2 min-w-0">
+          <OrderAwbLine awb={row.awb} onCopy={onCopy} />
+          {needsLabels(row) && <PrintLabelsChip />}
+        </div>
+      )}
+      </div>
       <p className="hidden md:block text-sm text-foreground/80 truncate">{recipientLine}</p>
       <span className="hidden md:block text-sm text-muted-foreground truncate">{service || '—'}</span>
       <span className="hidden md:block text-sm text-muted-foreground tabular-nums">{bookingDate}</span>
@@ -236,6 +328,80 @@ function ShipmentRow({
         <StatusBadge status={status} tone={tone} />
       </div>
     </button>
+  );
+}
+
+// ─── List (mobile cards + desktop table) ────────────────────────────────────
+function RowList({
+  rows,
+  personHeading,
+  onOpen,
+  onCopy,
+}: {
+  rows: DisplayRow[];
+  /** "Recipient" on what you send, "From" on what is coming to you. */
+  personHeading: string;
+  onOpen: (row: DisplayRow) => void;
+  onCopy: (e: React.MouseEvent, id: string) => void;
+}) {
+  return (
+    <>
+      {/* Mobile — stack of cards */}
+      <div className="md:hidden space-y-2.5">
+        {rows.map((row) => (
+          <ShipmentRow key={`m-${row.key}`} row={row} onOpen={onOpen} onCopy={onCopy} />
+        ))}
+      </div>
+
+      {/* Desktop — single bordered table */}
+      <div className="hidden md:block rounded-xl border border-border bg-white overflow-hidden">
+        <div className="grid grid-cols-[1.6fr_1.7fr_1.2fr_0.9fr_0.7fr_auto] gap-x-6 px-4 py-2.5 text-[10px] font-bold tracking-[0.12em] uppercase text-muted-foreground border-b border-border bg-[#F8F9FA]">
+          <span>AWB / Order number</span>
+          <span>{personHeading}</span>
+          <span>Service</span>
+          <span>Booked</span>
+          <span className="text-right">Amount</span>
+          <span className="text-right">Status</span>
+        </div>
+        <div className="divide-y divide-border">
+          {rows.map((row) => (
+            <ShipmentRow key={`d-${row.key}`} row={row} onOpen={onOpen} onCopy={onCopy} />
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function ListSkeleton() {
+  return (
+    <>
+      {/* Mobile skeleton */}
+      <div className="md:hidden space-y-2.5">
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="rounded-2xl border border-[#E2E8F0] bg-white p-4 space-y-2.5 animate-pulse">
+            <div className="flex items-center justify-between">
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="h-5 w-16 rounded-full" />
+            </div>
+            <Skeleton className="h-3.5 w-52" />
+            <div className="flex items-center justify-between pt-1">
+              <Skeleton className="h-3 w-28" />
+              <Skeleton className="h-3.5 w-12" />
+            </div>
+          </div>
+        ))}
+      </div>
+      {/* Desktop skeleton */}
+      <div className="hidden md:block rounded-xl border border-border bg-white overflow-hidden">
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className={`px-4 py-3.5 ${i > 1 ? 'border-t border-border' : ''} space-y-2 animate-pulse`}>
+            <Skeleton className="h-4 w-44" />
+            <Skeleton className="h-3 w-60" />
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -251,6 +417,13 @@ function ShipmentRow({
  * order.
  */
 type OrdersTab = 'shipments' | 'cancellations';
+
+/**
+ * Which way the parcels go: the ones this person sent, or the ones coming to
+ * their number (shared/receiving.ts). Cancellations belong to Sending — only a
+ * sender can ask for one.
+ */
+type OrdersView = 'sending' | 'receiving';
 
 export default function Orders() {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -269,6 +442,11 @@ export default function Orders() {
   const [tab, setTab] = useState<OrdersTab>(() =>
     new URLSearchParams(search).get('tab') === 'cancellations' ? 'cancellations' : 'shipments',
   );
+  // `?view=receiving` opens on the incoming parcels — Login sends a receiver here.
+  const viewParam = new URLSearchParams(search).get('view');
+  const [view, setView] = useState<OrdersView>(viewParam === 'receiving' ? 'receiving' : 'sending');
+  /** Set once the person picks a side, or a link picked it, so the default below never overrides them. */
+  const viewChosen = useRef(viewParam === 'receiving' || viewParam === 'sending');
 
   const [trackingInput, setTrackingInput] = useState('');
   const [csvOverlayData, setCsvOverlayData] = useState<string | null>(null);
@@ -283,6 +461,26 @@ export default function Orders() {
   );
   const rows: DisplayRow[] = isLoggedIn ? (data ?? []) : guestRows;
   const loading = isLoggedIn ? isLoading : guestLoading;
+  const hasIdentity = isLoggedIn || isGuest;
+
+  // Parcels coming to this number. Fetched on both sides, because the count on
+  // the Receiving tab is how someone learns a parcel is on its way to them.
+  const { data: receivingData, isLoading: receivingLoading } = useReceiving(hasIdentity);
+  const receivingRows = useMemo(() => (receivingData ?? []).map(receivingToRow), [receivingData]);
+
+  // Someone who has only ever received opens on what is coming to them.
+  useEffect(() => {
+    if (viewChosen.current || loading || receivingLoading) return;
+    if (rows.length === 0 && receivingRows.length > 0) setView('receiving');
+  }, [loading, receivingLoading, rows.length, receivingRows.length]);
+
+  // Being here is seeing it: clears the badge on the Orders tab.
+  useMarkOrdersSeen();
+
+  const chooseView = (next: OrdersView) => {
+    viewChosen.current = true;
+    setView(next);
+  };
 
   // Fetched on both tabs, because the count in the tab label is the only hint
   // a customer gets that their request is being looked at. Cheap: one short
@@ -309,20 +507,13 @@ export default function Orders() {
   // are keyed differently — an order has only its BOM number until ops issues
   // an AWB — so each gets its own detail screen.
   const openRow = (row: DisplayRow) => {
-    // A guest has no order-detail screen — /api/orders/:orderNo answers only
-    // to an account. Once the parcel has an AWB, public tracking is theirs as
-    // much as anyone's; before that, the order number is what support needs.
-    if (isGuest) {
-      if (row.awb) {
-        setLocation(`/shipment/${encodeURIComponent(row.awb)}`);
-      } else {
-        toast({
-          title: row.statusLabel,
-          description: `Tracking opens once this parcel has an AWB. Quote ${row.displayId} to support in the meantime.`,
-        });
-      }
+    // The receiver's own screen: tracking and the basics, nothing to act on.
+    if (row.incoming) {
+      setLocation(`/incoming/${encodeURIComponent(row.displayId)}`);
       return;
     }
+    // Guests too: /api/orders/:orderNo answers a verified guest for their own
+    // unclaimed orders, so the pickup code is on the same screen for everyone.
     const path = row.isOrder ? '/order' : '/shipment';
     setLocation(`${path}/${encodeURIComponent(row.displayId)}`);
   };
@@ -395,20 +586,17 @@ export default function Orders() {
         <div className="flex items-end justify-between gap-3">
           <div>
             <h1 className="text-lg md:text-[22px] font-bold tracking-tight text-foreground">
-              My shipments
-              {tab === 'shipments' && (isLoggedIn || isGuest) && !loading && rows.length > 0 && (
-                <span className="ml-2 text-sm font-medium text-muted-foreground tabular-nums">
-                  · {rows.length}
-                </span>
-              )}
+              My parcels
             </h1>
             <p className="text-xs md:text-sm text-muted-foreground mt-0.5">
-              {tab === 'cancellations'
-                ? 'Requests you have raised, and orders our team has cancelled.'
-                : 'Track your outgoing and incoming shipments.'}
+              {view === 'receiving'
+                ? 'Parcels on their way to your number.'
+                : tab === 'cancellations'
+                  ? 'Requests you have raised, and orders our team has cancelled.'
+                  : 'Parcels you have sent with Bombino.'}
             </p>
           </div>
-          {isLoggedIn && (
+          {isLoggedIn && view === 'sending' && (
             <button
               type="button"
               onClick={handleDownloadCSV}
@@ -421,9 +609,57 @@ export default function Orders() {
           )}
         </div>
 
-        {/* Tabs. Only for signed-in customers — there is nothing to switch
-            between when the answer to both is "sign in". */}
-        {isLoggedIn && (
+        {/* Sending | Receiving. For anyone who has proved a number — a receiver
+            is usually a guest. */}
+        {hasIdentity && (
+          <div
+            className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-[#F3F4F6] -mt-2"
+            role="tablist"
+            data-testid="orders-view"
+          >
+            {([
+              { id: 'sending' as const, label: 'Sending', icon: Send, count: loading ? null : rows.length },
+              {
+                id: 'receiving' as const,
+                label: 'Receiving',
+                icon: PackageOpen,
+                count: receivingLoading ? null : receivingRows.length,
+              },
+            ]).map(({ id, label, icon: Icon, count }) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={view === id}
+                onClick={() => chooseView(id)}
+                className={cn(
+                  'h-10 inline-flex items-center justify-center gap-2 rounded-lg text-sm font-semibold transition-colors',
+                  view === id
+                    ? 'bg-white text-foreground shadow-card'
+                    : 'text-muted-foreground hover:text-foreground/80',
+                )}
+                data-testid={`view-${id}`}
+              >
+                <Icon className="w-4 h-4" aria-hidden />
+                {label}
+                {count !== null && count > 0 && (
+                  <span
+                    className={cn(
+                      'inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full text-[11px] font-bold tabular-nums',
+                      id === 'receiving' ? 'bg-[#F2A123] text-white' : 'bg-muted text-muted-foreground',
+                    )}
+                  >
+                    {count}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Shipments | Cancellations, under Sending. Only for signed-in
+            customers — a guest has no cancellations list. */}
+        {isLoggedIn && view === 'sending' && (
           <div
             className="flex items-center gap-1 border-b border-border -mt-2"
             role="tablist"
@@ -465,43 +701,36 @@ export default function Orders() {
         )}
 
         {/* Body */}
-        {isLoggedIn && tab === 'cancellations' ? (
+        {hasIdentity && view === 'receiving' ? (
+          receivingLoading ? (
+            <ListSkeleton />
+          ) : receivingRows.length === 0 ? (
+            <div className="text-center py-16" data-testid="receiving-empty">
+              <div className="w-12 h-12 mx-auto rounded-full bg-[#F3F4F6] flex items-center justify-center">
+                <PackageOpen className="w-5 h-5 text-muted-foreground" />
+              </div>
+              <h2 className="font-semibold text-foreground mt-4">Nothing on its way to you yet</h2>
+              <p className="text-sm text-muted-foreground mt-1 leading-relaxed max-w-xs mx-auto">
+                Parcels sent to your number show up here. Ask the sender to add your Indian mobile
+                number as the receiver&apos;s app number when they book.
+              </p>
+            </div>
+          ) : (
+            <RowList rows={receivingRows} personHeading="From" onOpen={openRow} onCopy={copyId} />
+          )
+        ) : isLoggedIn && tab === 'cancellations' ? (
           <CancellationsPanel enabled={isLoggedIn} />
         ) : !isLoggedIn && !isGuest && !loading ? (
           <div className="text-center py-16">
-            <p className="text-sm text-muted-foreground mb-4">Sign in to view your shipments.</p>
+            <p className="text-sm text-muted-foreground mb-4">
+              Sign in to see parcels you send and parcels coming to your number.
+            </p>
             <Button className="bg-[lab(34.0831_-9.57756_-27.7093)] hover:bg-[#2F4468] rounded-lg" onClick={() => setLocation('/login')}>
               Login
             </Button>
           </div>
         ) : loading ? (
-          <>
-            {/* Mobile skeleton */}
-            <div className="md:hidden space-y-2.5">
-              {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="rounded-2xl border border-[#E2E8F0] bg-white p-4 space-y-2.5 animate-pulse">
-                  <div className="flex items-center justify-between">
-                    <Skeleton className="h-4 w-32" />
-                    <Skeleton className="h-5 w-16 rounded-full" />
-                  </div>
-                  <Skeleton className="h-3.5 w-52" />
-                  <div className="flex items-center justify-between pt-1">
-                    <Skeleton className="h-3 w-28" />
-                    <Skeleton className="h-3.5 w-12" />
-                  </div>
-                </div>
-              ))}
-            </div>
-            {/* Desktop skeleton */}
-            <div className="hidden md:block rounded-xl border border-border bg-white overflow-hidden">
-              {[1, 2, 3, 4].map((i) => (
-                <div key={i} className={`px-4 py-3.5 ${i > 1 ? 'border-t border-border' : ''} space-y-2 animate-pulse`}>
-                  <Skeleton className="h-4 w-44" />
-                  <Skeleton className="h-3 w-60" />
-                </div>
-              ))}
-            </div>
-          </>
+          <ListSkeleton />
         ) : rows.length === 0 ? (
           <div className="text-center py-16">
             <div className="w-12 h-12 mx-auto rounded-full bg-[#F3F4F6] flex items-center justify-center">
@@ -521,35 +750,17 @@ export default function Orders() {
             </Button>
           </div>
         ) : (
-          <>
-            {/* Mobile — stack of cards */}
-            <div className="md:hidden space-y-2.5">
-              {rows.map((row) => (
-                <ShipmentRow key={`m-${row.key}`} row={row} onOpen={openRow} onCopy={copyId} />
-              ))}
-            </div>
-
-            {/* Desktop — single bordered table */}
-            <div className="hidden md:block rounded-xl border border-border bg-white overflow-hidden">
-              <div className="grid grid-cols-[1.6fr_1.7fr_1.2fr_0.9fr_0.7fr_auto] gap-x-6 px-4 py-2.5 text-[10px] font-bold tracking-[0.12em] uppercase text-muted-foreground border-b border-border bg-[#F8F9FA]">
-                <span>AWB / Order number</span>
-                <span>Recipient</span>
-                <span>Service</span>
-                <span>Booked</span>
-                <span className="text-right">Amount</span>
-                <span className="text-right">Status</span>
-              </div>
-              <div className="divide-y divide-border">
-                {rows.map((row) => (
-                  <ShipmentRow key={`d-${row.key}`} row={row} onOpen={openRow} onCopy={copyId} />
-                ))}
-              </div>
-            </div>
-          </>
+          <RowList rows={rows} personHeading="Recipient" onOpen={openRow} onCopy={copyId} />
         )}
 
         {/* Helper footnote */}
-        {tab === 'shipments' && !loading && rows.length > 0 && (
+        {view === 'receiving' && hasIdentity && !receivingLoading && receivingRows.length > 0 && (
+          <p className="text-[11px] text-muted-foreground text-center">
+            {receivingRows.length} {receivingRows.length === 1 ? 'parcel' : 'parcels'} coming to your
+            number · Tap any row to track it
+          </p>
+        )}
+        {view === 'sending' && tab === 'shipments' && !loading && rows.length > 0 && (
           <p className="text-[11px] text-muted-foreground text-center">
             Showing {rows.length} {rows.length === 1 ? 'shipment' : 'shipments'} ·{' '}
             {isGuest

@@ -1,53 +1,37 @@
-import { useMemo, useRef } from 'react';
-import { Loader2, ChevronLeft, ChevronRight, MapPin, Clock, Wallet } from 'lucide-react';
+import { useMemo, type ReactNode } from 'react';
 import { Link } from 'wouter';
+import { BellRing, ChevronRight, ClipboardList, Loader2, Wallet } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AgentShell } from '@/components/agent/AgentShell';
 import { BandHeader } from '@/components/agent/BandHeader';
 import { ActiveJobPanel } from '@/components/agent/ActiveJobCard';
-import { PanelAction } from '@/components/agent/ActionButtons';
-import {
-  JobCard,
-  NumberStrip,
-  houseLine,
-  money,
-  statusWord,
-  timeValue,
-  weightLabel,
-} from '@/components/agent/PickupCard';
+import { JobCard, money } from '@/components/agent/PickupCard';
+import { PressableBox } from '@/components/motion/Pressable';
 import { StaggerItem } from '@/components/motion/Stagger';
 import { bandForDate, isTodaysWork } from '@/lib/agentGrouping';
-import {
-  useAvailablePickups,
-  useMyPickups,
-  useCollections,
-  useOrderAction,
-  type PickupEntry,
-} from '@/hooks/useAgentPickups';
+import { seenJobIds } from '@/lib/agentSeenJobs';
+import { useMyPickups, useCollections, type PickupEntry } from '@/hooks/useAgentPickups';
 import { todayInIst } from '@shared/istTime';
 
 /**
- * The agent's home. Three things and nothing else.
+ * The agent's home, top to bottom:
  *
- *   NEW JOBS  — every free job, as a swipeable rail
- *   DOING NOW — the job furthest along, the one physically in their hands
- *   CASH      — one amber bar with what is in the bag
+ *   NEW JOB    — only when the branch assigned a job this phone has not shown
+ *                yet; one tap to My jobs
+ *   SHORTCUTS  — two big tiles: My jobs (with a count of new jobs), Cash with you
+ *   DOING NOW  — the job furthest along, the one physically in their hands
  *
- * The rail leads. What an idle agent opens this screen for is work to take, and
- * a job they are already holding is one they can also reach from My jobs — so
- * the free queue gets the first screenful and the job in hand follows it, past
- * the fold. Long is fine; the screen scrolls.
+ * Since 6 Oct 2026 agents are not shown new bookings: the branch head assigns
+ * each pickup from the ops console and it arrives as the agent's own job. Home
+ * used to show only the job in hand, so a second assignment arrived silently —
+ * this surface has no toasts. The new-job card is that missing word.
  *
- * The screen carries no title at all. The date sits in the top bar, and the
- * two bands name themselves — a heading over them said nothing that was not
- * already on the screen.
+ * The tiles are doors, not a stats strip: each one opens the screen its figure
+ * belongs to. Cash moved into its tile from the amber bar that used to sit
+ * under Doing now, still amber because amber is money.
  *
- * There is no list of the agent's other jobs here. That is My jobs, and its nav
- * badge counts them — a second list on this screen made two screens of one, and
- * a job that appeared in both read as two jobs.
- *
- * The stats strip is gone too: three figures at the top of a screen are an
- * analytics register, and an agent needs the next action.
+ * There is still no list of other jobs here. That is My jobs, and its nav
+ * badge counts them.
  */
 
 /** Furthest along wins when several jobs are held — that one is in their hands. */
@@ -57,206 +41,77 @@ const PROGRESS_RANK: Record<string, number> = {
   agent_accepted: 1,
 };
 
-/** One card plus the gap: the rail moves exactly one job per arrow press. */
-const RAIL_CARD = 286;
-const RAIL_STEP = RAIL_CARD + 12;
-
-/**
- * The free queue as a horizontal rail.
- *
- * Cards rather than rows because a job being offered has to show enough to
- * decide on — where, when, how heavy — and because a rail keeps the whole queue
- * inside one screenful however long it is.
- *
- * Two scrolling traps, both hit in review and both encoded here:
- *
- *   - `scroll-snap-type: x mandatory` silently swallows a backward programmatic
- *     scroll in Chromium, which leaves the Back arrow looking dead while Next
- *     works. `proximity` does not.
- *   - Scroll to an absolute clamped target, not a relative offset, or the arrow
- *     drifts out of step with the cards at the ends of the rail.
- */
-function NewJobsRail({
-  entries,
-  today,
-  onTake,
-  pendingId,
-  disabled,
-}: {
-  entries: PickupEntry[];
-  today: string;
-  onTake: (orderId: string, action: string) => void;
-  pendingId?: string;
-  disabled: boolean;
-}) {
-  const rail = useRef<HTMLDivElement>(null);
-
-  const step = (dir: 1 | -1): void => {
-    const el = rail.current;
-    if (!el) return;
-    const max = el.scrollWidth - el.clientWidth;
-    el.scrollTo({ left: Math.max(0, Math.min(max, el.scrollLeft + dir * RAIL_STEP)) });
-  };
+/** `2 new jobs assigned`, with the one job named when there is only one. */
+function NewJobsCard({ jobs }: { jobs: PickupEntry[] }) {
+  const only = jobs.length === 1 ? jobs[0].order : null;
+  const detail = only
+    ? [only.order_no, only.origin_address?.full_name].filter(Boolean).join(' · ')
+    : 'Open My jobs to see them';
 
   return (
-    <section data-testid="section-new-jobs">
-      <div className="flex items-center gap-2.5 mb-3">
-        <h2 className="text-xs font-bold uppercase tracking-[0.14em] text-[#64748B] shrink-0">
-          New jobs
-        </h2>
-        {/* The one count on this screen, and it counts the cards beside it. */}
-        {entries.length > 0 && (
-          <span
-            className="bg-[#F2A123] px-[7px] py-[2px] text-xs font-bold leading-[1.4] text-[#1B2A41]"
-            data-testid="count-new-jobs"
-          >
-            {entries.length}
-          </span>
-        )}
-
-        {/* Joined pair, so they read as one control rather than two buttons.
-            Hidden when there is nothing to scroll — two dead arrows over an
-            empty band read as a broken screen. */}
-        <span className={cn('flex shrink-0 ml-auto', entries.length === 0 && 'hidden')}>
-          <button
-            type="button"
-            onClick={() => step(-1)}
-            aria-label="Previous job"
-            className="w-10 h-9 grid place-items-center border border-[#CBD5E1]! bg-white active:bg-[#EEF2F6]"
-            data-testid="button-rail-back"
-          >
-            <ChevronLeft className="w-[19px] h-[19px] text-[#1B2A41]" strokeWidth={1.5} />
-          </button>
-          <button
-            type="button"
-            onClick={() => step(1)}
-            aria-label="Next job"
-            className="w-10 h-9 grid place-items-center border border-l-0 border-[#CBD5E1]! bg-white active:bg-[#EEF2F6]"
-            data-testid="button-rail-next"
-          >
-            <ChevronRight className="w-[19px] h-[19px] text-[#1B2A41]" strokeWidth={1.5} />
-          </button>
-        </span>
-      </div>
-
-      {entries.length === 0 ? (
-        <JobCard testId="empty-new-jobs">
-          <p className="px-4 py-6 text-[17px] font-medium text-[#334155]">
-            No new jobs right now.
-          </p>
-        </JobCard>
-      ) : (
-      <>
-      {/* Bleeds the screen's padding so a card can sit half off the edge — the
-          cut card is what says the rail scrolls.
-          `scroll-pl-5` is not optional: a snap point aligns to the scroll
-          container's padding box, so without it the browser immediately
-          scrolls the 20px of left padding away and the first card sits flush
-          against the edge of the phone. */}
-      <div
-        ref={rail}
-        className="no-scrollbar flex gap-3 overflow-x-auto snap-x scroll-pl-5 -mx-5 px-5"
-        data-testid="rail-new-jobs"
+    <PressableBox>
+      <Link
+        href="/agent/mine"
+        className="flex items-center gap-3.5 min-h-[68px] bg-white border border-[#D8DFE7]! border-l-4 border-l-[#F2A123]! px-4 py-3"
+        data-testid="card-new-jobs"
       >
-        {entries.map((entry) => {
-          const pickup = entry.order;
-          const late = bandForDate(pickup.pickup_date, today) === 'overdue';
-          const take = entry.availableActions.find((a) => a.action === 'claim');
-          const edge = late ? 'border-[#FECACA]!' : 'border-[#E8EDF2]!';
+        <BellRing className="w-[22px] h-[22px] shrink-0 text-[#F2A123]" strokeWidth={1.75} />
+        <span className="min-w-0 flex-1">
+          <span className="block text-[17px] font-bold leading-tight text-[#1B2A41]">
+            {jobs.length === 1 ? 'New job assigned' : `${jobs.length} new jobs assigned`}
+          </span>
+          <span className="block mt-0.5 truncate text-[15px] font-medium text-[#475569]">{detail}</span>
+        </span>
+        <ChevronRight className="w-[22px] h-[22px] shrink-0 text-[#64748B]" strokeWidth={1.75} />
+      </Link>
+    </PressableBox>
+  );
+}
 
-          return (
-            <JobCard
-              key={pickup.id}
-              late={late}
-              className="shrink-0 snap-start"
-              testId={`rail-card-${pickup.order_no}`}
-            >
-              <div style={{ width: RAIL_CARD - 2 }}>
-                <NumberStrip
-                  orderNo={pickup.order_no}
-                  word={statusWord(pickup, today)}
-                  late={late}
-                  compact
-                />
+const TILE =
+  'flex flex-col justify-between gap-3 h-full min-h-[104px] p-4 border focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1B2A41]';
 
-                <Link
-                  href={`/agent/pickup/${pickup.id}`}
-                  className="block"
-                  data-testid={`link-rail-${pickup.order_no}`}
-                >
-                  <span className="flex items-start gap-[11px] p-3.5">
-                    <MapPin
-                      className={cn(
-                        'w-5 h-5 shrink-0 mt-px',
-                        late ? 'text-[#B91C1C]' : 'text-[#F2A123]',
-                      )}
-                      strokeWidth={1.5}
-                    />
-                    <span className="flex-1 min-w-0">
-                      <span className="block text-[17px] font-bold leading-[1.3] text-[#1B2A41] truncate">
-                        {houseLine(pickup)}
-                      </span>
-                      <span className="block text-[15px] font-medium text-[#475569] truncate mt-[3px]">
-                        {pickup.origin_address?.city ?? '—'}
-                      </span>
-                    </span>
-                  </span>
-
-                  <span className={cn('flex items-center gap-[11px] px-3.5 py-3 border-t', edge)}>
-                    <Clock
-                      className={cn(
-                        'w-5 h-5 shrink-0',
-                        late ? 'text-[#B91C1C]' : 'text-[#F2A123]',
-                      )}
-                      strokeWidth={1.5}
-                    />
-                    <span
-                      className={cn(
-                        'text-lg font-bold truncate',
-                        late ? 'text-[#B91C1C]' : 'text-[#1B2A41]',
-                      )}
-                    >
-                      {timeValue(pickup, today)}
-                    </span>
-                    <span className="ml-auto shrink-0 text-base font-semibold text-[#475569]">
-                      {weightLabel(pickup)}
-                    </span>
-                  </span>
-                </Link>
-
-                {take && (
-                  <PanelAction
-                    label="Take job"
-                    height={60}
-                    onClick={() => onTake(pickup.id, take.action)}
-                    pending={pendingId === pickup.id}
-                    disabled={disabled}
-                    className={cn('border-t', edge)}
-                    testId={`button-take-${pickup.order_no}`}
-                  />
-                )}
-              </div>
-            </JobCard>
-          );
-        })}
-      </div>
-      </>
-      )}
-    </section>
+/** One shortcut: label up top, the figure that matters at the bottom. */
+function TileBody({
+  icon,
+  label,
+  value,
+  dark = false,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+  dark?: boolean;
+}) {
+  return (
+    <>
+      <span className="flex items-center gap-2">
+        {icon}
+        <span
+          className={cn(
+            'text-[13px] font-bold uppercase tracking-[0.1em]',
+            dark ? 'text-[#1B2A41]' : 'text-[#64748B]',
+          )}
+        >
+          {label}
+        </span>
+      </span>
+      <span className="text-[22px] font-bold leading-none text-[#1B2A41]">{value}</span>
+    </>
   );
 }
 
 export default function Dashboard() {
-  const { data: available, isLoading: loadingAvailable } = useAvailablePickups();
   const { data: mine, isLoading: loadingMine } = useMyPickups();
   const { data: collections } = useCollections();
-  const action = useOrderAction();
 
   const today = todayInIst();
-  const isLoading = loadingAvailable || loadingMine;
+  const isLoading = loadingMine;
 
-  // Today's jobs, and only today's. A held job dated forward is a commitment,
-  // not work, and lives under Later in My jobs.
+  // Every held job, today's work first. A job dated forward used to be left
+  // off entirely, so taking one for tomorrow left "Doing now" saying "Take a
+  // job above to start" as if nothing had happened. It now shows when there is
+  // nothing due today; each panel states its own date.
   //
   // Furthest along leads, because that is the parcel physically in their hands.
   // Only then does lateness break the tie: two jobs both merely accepted are
@@ -264,8 +119,11 @@ export default function Dashboard() {
   // window opens first.
   const liveJobs = useMemo(() => {
     return [...(mine ?? [])]
-      .filter((e) => isTodaysWork(e, today))
       .sort((a, b) => {
+        const todayA = isTodaysWork(a, today) ? 0 : 1;
+        const todayB = isTodaysWork(b, today) ? 0 : 1;
+        if (todayA !== todayB) return todayA - todayB;
+
         const byProgress =
           (PROGRESS_RANK[b.order.status] ?? 0) - (PROGRESS_RANK[a.order.status] ?? 0);
         if (byProgress !== 0) return byProgress;
@@ -278,49 +136,18 @@ export default function Dashboard() {
       });
   }, [mine, today]);
 
-  /**
-   * Every free job, late first, then today's, then the undated, then the ones
-   * dated ahead.
-   *
-   * The rail used to drop anything dated forward, on the theory that home was
-   * today's work and the rest was New's job. In practice a booking made for
-   * Thursday landed on no screen the agent looks at, and "my new job isn't
-   * showing" is the only report that matters — a free job that exists is work
-   * that can be taken, whatever its date. Ordering carries the distinction that
-   * the filter used to: what is due now sits at the head of the rail, and each
-   * card states its own date.
-   */
-  const freeJobs = useMemo(() => {
-    const rank: Record<string, number> = { overdue: 0, today: 1, undated: 2, scheduled: 3 };
-    // Copied before sorting: `available` is React Query's cached array and
-    // sorting in place rewrites what every other screen reads.
-    return [...(available ?? [])]
-      .sort((a, b) => {
-        const byBand =
-          rank[bandForDate(a.order.pickup_date, today)] -
-          rank[bandForDate(b.order.pickup_date, today)];
-        if (byBand !== 0) return byBand;
-        // `pickup_date` sorts as a plain `YYYY-MM-DD` string, which is calendar
-        // order. Within a day, oldest booking first — there is no finer time on
-        // a pickup any more to break the tie with.
-        const byDate = (a.order.pickup_date ?? '').localeCompare(b.order.pickup_date ?? '');
-        if (byDate !== 0) return byDate;
-        return new Date(a.order.created_at).getTime() - new Date(b.order.created_at).getTime();
-      });
-  }, [available, today]);
+  const current = liveJobs[0] ?? null;
 
-  /**
-   * Taking a job says nothing on success: it leaves the rail and appears under
-   * Doing now, which is a louder answer than any confirmation.
-   *
-   * A failure still has to be said. 409 is the expected outcome of a lost race,
-   * not a malfunction.
-   */
-  const failure = action.error
-    ? action.error.status === 409
-      ? 'Someone else took it'
-      : action.error.message
-    : null;
+  // Assigned and not yet started, not the one already in Doing now, and not
+  // yet shown on My jobs on this phone. Read fresh each poll, so the card goes
+  // the moment My jobs has been opened.
+  const newJobs = useMemo(() => {
+    const seen = seenJobIds();
+    return liveJobs.filter(
+      (entry) =>
+        entry !== current && entry.order.status === 'agent_accepted' && !seen.has(entry.order.id),
+    );
+  }, [liveJobs, current]);
 
   return (
     <AgentShell gap={22}>
@@ -331,57 +158,76 @@ export default function Dashboard() {
         </div>
       ) : (
         <>
-          {failure && (
-            <p
-              className="bg-white border border-[#B91C1C]! px-4 py-3.5 text-[15px] font-bold text-[#B91C1C]"
-              data-testid="claim-error"
-            >
-              {failure}
-            </p>
+          {newJobs.length > 0 && (
+            <StaggerItem index={0}>
+              <NewJobsCard jobs={newJobs} />
+            </StaggerItem>
           )}
 
-          <NewJobsRail
-            entries={freeJobs}
-            today={today}
-            onTake={(orderId, actionName) => action.mutate({ orderId, action: actionName })}
-            pendingId={action.isPending ? action.variables?.orderId : undefined}
-            disabled={action.isPending}
-          />
+          <StaggerItem index={1}>
+            <nav aria-label="Shortcuts" className="grid grid-cols-2 gap-3" data-testid="grid-shortcuts">
+              <PressableBox>
+                <Link
+                  href="/agent/mine"
+                  aria-label={
+                    newJobs.length > 0
+                      ? `My jobs: ${liveJobs.length} ${liveJobs.length === 1 ? 'job' : 'jobs'}, ${newJobs.length} new`
+                      : undefined
+                  }
+                  className={cn(TILE, 'relative bg-white border-[#D8DFE7]!')}
+                  data-testid="tile-my-jobs"
+                >
+                  {/* Unseen assignments, in the nav badge's amber: work owed. */}
+                  {newJobs.length > 0 && (
+                    <span
+                      className="absolute top-3 right-3 min-w-[24px] h-[24px] px-1.5 rounded-full bg-[#F2A123] grid place-items-center text-[13px] font-bold text-[#1B2A41]"
+                      data-testid="badge-new-jobs"
+                    >
+                      {newJobs.length > 99 ? '99+' : newJobs.length}
+                    </span>
+                  )}
+                  <TileBody
+                    icon={<ClipboardList className="w-[21px] h-[21px] text-[#1B2A41]" strokeWidth={1.5} />}
+                    label="My jobs"
+                    value={
+                      liveJobs.length === 0
+                        ? 'None'
+                        : `${liveJobs.length} ${liveJobs.length === 1 ? 'job' : 'jobs'}`
+                    }
+                  />
+                </Link>
+              </PressableBox>
 
-          {/* The rail above is deliberately not staggered: it drives its own
-              imperative `scrollTo` against `snap-x mandatory`, and the two
-              Chromium traps documented on it are not worth reopening for an
-              entrance. It is the top block, so it simply arrives. What follows
-              it ladders in. */}
-          <StaggerItem index={0}>
+              <PressableBox>
+                <Link
+                  href="/agent/collections"
+                  className={cn(TILE, 'bg-[#F2A123] border-[#F2A123]!')}
+                  data-testid="tile-cash-with-you"
+                >
+                  <TileBody
+                    dark
+                    icon={<Wallet className="w-[21px] h-[21px] text-[#1B2A41]" strokeWidth={1.5} />}
+                    label="Cash with you"
+                    value={`₹${money(collections?.totals.cash ?? 0)}`}
+                  />
+                </Link>
+              </PressableBox>
+            </nav>
+          </StaggerItem>
+
+          <StaggerItem index={2}>
             <section>
               <BandHeader label="Doing now" testId="band-doing-now" />
-              {liveJobs.length > 0 ? (
-                <ActiveJobPanel entry={liveJobs[0]} />
+              {current ? (
+                <ActiveJobPanel entry={current} />
               ) : (
                 <JobCard>
                   <p className="px-4 py-6 text-[17px] font-medium text-[#334155]">
-                    {freeJobs.length > 0 ? 'Take a job above to start.' : 'No jobs yet.'}
+                    No jobs yet. Your branch will assign you pickups.
                   </p>
                 </JobCard>
               )}
             </section>
-          </StaggerItem>
-
-          <StaggerItem
-            index={1}
-            className="flex items-center justify-between gap-3 bg-[#F2A123] p-4"
-            data-testid="bar-cash-with-you"
-          >
-            <span className="flex items-center gap-2.5">
-              <Wallet className="w-[21px] h-[21px] text-[#1B2A41]" strokeWidth={1.5} />
-              <span className="text-[13px] font-bold uppercase tracking-[0.1em] text-[#1B2A41]">
-                Cash with you
-              </span>
-            </span>
-            <span className="text-[25px] font-bold leading-none text-[#1B2A41]">
-              ₹{money(collections?.totals.cash ?? 0)}
-            </span>
           </StaggerItem>
         </>
       )}

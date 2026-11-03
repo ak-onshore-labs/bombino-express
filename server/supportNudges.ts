@@ -27,7 +27,6 @@ import { DOC_SLOT_SPECS, isDocSlot, isVerifiedDocSlot } from "../shared/accountS
 import { NUDGE_KINDS, isNudgeKind, type NudgeKind, type NudgeNotificationData } from "../shared/biaNudges.js";
 import { todayInIst } from "../shared/istTime.js";
 import { explainDocumentIssue } from "../shared/ocrExplain.js";
-import { isAccountReviewEnabled } from "./accountApplications.js";
 
 export type NudgeOwner = { kind: "account"; userId: string } | { kind: "guest"; guestRef: string };
 
@@ -570,12 +569,10 @@ export async function loadNudgeSnapshot(now: Date = new Date()): Promise<NudgeSn
         ]);
   const guests = new Set([...profiles, ...booked].map((r) => r.guest_ref));
 
-  const applications = isAccountReviewEnabled()
-    ? await rows<{ signup_ref: string; phone: string }>(
-        "account applications",
-        db.from("account_applications").select("signup_ref, phone")
-      )
-    : [];
+  const applications = await rows<{ signup_ref: string; phone: string }>(
+    "account applications",
+    db.from("account_applications").select("signup_ref, phone")
+  );
 
   return {
     today,

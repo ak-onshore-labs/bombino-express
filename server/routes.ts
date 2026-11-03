@@ -2,6 +2,8 @@ import type { Express, NextFunction, Request, Response } from "express";
 import {
   countUnreadNotifications,
   findItdUserIdByPhone,
+  findItdAccountByPhone,
+  userOwnsShipmentAwb,
   findOrCreateAddress,
   getAccountShapeById,
   getItdUserProfileById,
@@ -16,6 +18,8 @@ import {
   listShipmentsByUserId,
   insertNotification,
   markNotificationRead,
+  markAllNotificationsRead,
+  deleteNotifications,
   mergeItdUserMetadataById,
   clearItdUserPhoneById,
   itdUserHasStoredPassword,
@@ -26,11 +30,13 @@ import {
   upsertTrackingEvents,
   updateShipmentTrackingStatus,
   getLastKnownTracking,
+  getStaffUserById,
 } from "./appDb.js";
 import type { ShipmentDocumentKind } from "./appDb.js";
 import {
   getOrderById,
   getOrderByNumberForUser,
+  findOrderForOwner,
   getUserContactsByIds,
   claimGuestOrdersForUser,
   insertOrderAndReturnRow,
@@ -48,19 +54,29 @@ import {
   isKnownAction,
 } from "./orderLifecycle.js";
 import {
-  notifyAgentsOfNewJob,
-  notifyHandoverCodeReissued,
+  notifyHandoverCodeInApp,
   notifyOrderBooked,
   notifyOrderTransition,
+  notifyPickupCodeRegenerated,
+  notifyPickupReassigning,
 } from "./notify.js";
-import {
-} from "./agentDb.js";
+import { notifyStaffOfAction, notifyStaffOfBooking } from "./notifyStaff.js";
+import { withOrderRefs } from "./notificationRefs.js";
 import {
   getCodeForOwner,
   issueCode,
   type HandoverKind,
 } from "./handoverCodes.js";
-import { ensureDbUser, requireRole, requireUser } from "./routeGuards.js";
+import {
+  ensureDbUser,
+  loadOpsStaffIfOps,
+  requireActiveAgent,
+  requireRole,
+  requireUser,
+} from "./routeGuards.js";
+import { can, isOpsRole } from "../shared/staffAccess.js";
+import { isCallersOrder } from "./staffScope.js";
+import { isTestPhone } from "./testOrders.js";
 import { registerAgentRoutes } from "./routes/agent.js";
 import { registerPaymentRoutes } from "./routes/payments.js";
 import { registerGuestProfileRoutes } from "./routes/guestProfile.js";
@@ -73,18 +89,27 @@ import { applicationToFix, assertFixedSlotsReplaced, FIX_NOT_OPEN_MESSAGE, merge
 import { US_STATE_ERROR, US_ZIP_ERROR, isUsZip, usStateName } from "../shared/usAddress.js";
 import { explainDocketError } from "../shared/docketError.js";
 import { registerWhatsappRoutes } from "./routes/whatsapp.js";
+import { registerUserWhatsappRoutes } from "./routes/userWhatsapp.js";
+import { registerWhatsappAltRoutes } from "./routes/whatsappAlt.js";
+import { toWaMsisdn } from "./whatsapp.js";
+import { getWhatsappReachability } from "./whatsappDb.js";
+import { WA_TEMPLATE } from "./whatsappTemplates.js";
 import { registerWhatsappScheduleRoutes } from "./routes/whatsappSchedule.js";
 import { registerOpsRoutes } from "./routes/ops.js";
+import { boxLabelEligible, registerParcelRoutes } from "./routes/parcel.js";
+import { listPublicSettings } from "./settingsDb.js";
 import { registerBiaRoutes } from "./routes/bia.js";
 import { registerAccountApplicationRoutes } from "./routes/accountApplications.js";
-import { isAccountReviewEnabled } from "./accountApplications.js";
+import { registerReceivingRoutes } from "./routes/receiving.js";
+import { countReceivingParcels } from "./receivingDb.js";
+import { normalizeReceiverAppPhone } from "../shared/receiving.js";
 import { getLatestApplicationByPhone, isOpenApplicationRef, toCustomerView } from "./accountApplicationsDb.js";
 import {
-  handleGenerateDocket,
   handleMarkDispatched,
   handleSettle,
   handleWeigh,
   itdRateAtWeight,
+  repriceOrderAtWeight,
   itdRatesLoginFor,
 } from "./opsActions.js";
 import { isIndiaHubId } from "../shared/hubs.js";
@@ -99,24 +124,22 @@ import type { Order, OrderStatus, Role } from "../shared/orderContract.js";
 import { earliestPickupDate, todayInIst } from "../shared/istTime.js";
 import { sendDocumentFile } from "./documentResponse.js";
 import { OWNER_PROFILES, ownerFrom } from "./sessionOwner.js";
+import { redactTracking } from "./trackingRedact.js";
 import { requireCronSecret } from "./cronAuth.js";
 import {
   handleCancel,
   handleClaim,
   handleCollectPayment,
   handleHandover,
+  handleHubReceipt,
   handleOverrideHandover,
   handleRejectCancellation,
   handleRequestCancellation,
+  handleReleasePickup,
   handleStartPickup,
   type AgentActionResult,
 } from "./orderActions.js";
-import {
-  claimDocumentsForUser,
-  claimGuestBookingsForUser,
-  contractColumns,
-  respondWithApplication,
-} from "./signupClaim.js";
+import { respondWithApplication } from "./signupClaim.js";
 import {
   assertDocumentsStaged,
   resolveKycOwner,
@@ -138,7 +161,16 @@ import {
   signupRefForPhone,
   signupRefForReading,
 } from "./signupRef.js";
-import { INDIAN_MOBILE_MESSAGE, INDIAN_MOBILE_PATTERN } from "../shared/contact.js";
+import {
+  ACCOUNT_PHONE_MESSAGE,
+  INDIAN_MOBILE_MESSAGE,
+  NANP_PHONE_MESSAGE,
+  isAccountPhone,
+  isInternationalPhone,
+  isIndianMobile,
+  isValidReceiverPhone,
+  repairCutMobile,
+} from "../shared/contact.js";
 import { MAX_UPLOAD_BYTES, UPLOAD_TYPE_MESSAGE, isAllowedUploadType } from "../shared/upload.js";
 import {
   formatCutoffHour,
@@ -155,6 +187,7 @@ import {
   deliverOtp,
   OTP_TTL_MINUTES,
   OTP_MAX_REQUESTS_PER_HOUR,
+  isTestOtpNumber,
 } from "./otp.js";
 import type { OtpPurpose } from "./otpDb.js";
 import {
@@ -173,10 +206,12 @@ import type { Server } from "http";
 import crypto from "crypto";
 import multer from "multer";
 import { z } from "zod";
-import { itdClient } from "./itd.js";
+import { itdClient, parseRateBoxes } from "./itd.js";
 import type { CreateShipmentPayload, RateParams } from "./itd.js";
 import { persistShipmentAfterCreate } from "./persistShipment.js";
 import { docketAtBooking } from "./docketAtBooking.js";
+import { handleGenerateDocket, handleRecordAwb, handleRetryDocket } from "./docketActions.js";
+import { retryDocketsDue } from "./docketFiling.js";
 import { lookupPostal } from "./postalLookup.js";
 import {
   getKycByCapabilityId,
@@ -188,6 +223,7 @@ import {
 } from "./kycDb.js";
 import {
   buildItdKycPayload,
+  PASSPORT_NUMBER_PATTERN,
   toKycSummary,
 } from "../shared/kyc.js";
 import {
@@ -218,7 +254,6 @@ import {
   deleteSignupDocument,
   getAccountDocumentByCapabilityId,
   deleteUserDocument,
-  getSignupDocumentWithFile,
   getUserDocumentWithFile,
   getVerificationState,
   listDocumentsByUserId,
@@ -233,7 +268,6 @@ import {
 } from "../shared/contract.js";
 import {
   COMPANY_CATEGORIES,
-  COMPANY_CATEGORY_SPECS,
   EXTRA_FIELD_SPECS,
   IDENTITY_CHECK_LABELS,
   isDocSlot,
@@ -254,11 +288,7 @@ const ITD_LINK_TIMEOUT_MS = 10_000;
 
 const kycUpload = multer({
   storage: multer.memoryStorage(),
-  // 4MB, not 5: a serverless request body is capped at 4.5MB on Vercel and the
-  // platform rejects the request before multer ever sees it — which surfaces as
-  // a bare 413 with no JSON body and no way to say why. Staying under the cap
-  // keeps the error ours. Raise this only if the host is a long-lived server,
-  // and change client/src/components/KycUpload.tsx to match.
+  // Shared with the browser (shared/upload.ts), which says why it is 8MB.
   limits: { fileSize: MAX_UPLOAD_BYTES },
   fileFilter: (_req, file, cb) => {
     if (isAllowedUploadType(file.mimetype)) {
@@ -289,6 +319,8 @@ export async function registerRoutes(
   // WhatsApp delivery receipts, and the STOP word. Unauthenticated by design
   // too — the secret in the path is what the provider was given.
   registerWhatsappRoutes(app);
+  registerUserWhatsappRoutes(app);
+  registerWhatsappAltRoutes(app);
 
   // The agent digest and slot reminders, driven by an external scheduler.
   registerWhatsappScheduleRoutes(app);
@@ -301,6 +333,22 @@ export async function registerRoutes(
   registerBiaRoutes(app);
   // Account review: the customer's application status and the ops queue.
   registerAccountApplicationRoutes(app);
+  // Parcels coming TO the signed-in number: the receiver's read-only view.
+  registerReceivingRoutes(app);
+  // Guest box labels (QR), the public parcel page behind the QR, and the
+  // agent/ops scan lookup.
+  registerParcelRoutes(app);
+
+  // GET /api/settings — public bag. No session.
+  //
+  // Home support pills render for signed-out visitors, so this cannot sit
+  // behind requireUser or even requireUserOrGuest. The handler asks
+  // listPublicSettings(), which iterates the registry's visibility:'public'
+  // keys only — it never selects the whole table. S2 flags cannot appear here.
+  app.get("/api/settings", async (_req: Request, res: Response) => {
+    const settings = await listPublicSettings();
+    res.json(settings);
+  });
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
@@ -398,7 +446,9 @@ export async function registerRoutes(
     // conflation that survives review unnoticed.
     "auth",
   ]);
-  const phoneSchema = z.string().trim().regex(INDIAN_MOBILE_PATTERN, INDIAN_MOBILE_MESSAGE);
+  // A customer's own number: Indian 10 digits, or "+974…" for the countries
+  // listed in shared/contact.ts. Staff and agent numbers stay Indian-only.
+  const phoneSchema = z.string().trim().refine(isAccountPhone, ACCOUNT_PHONE_MESSAGE);
 
   // POST /api/auth/otp/request
   app.post("/api/auth/otp/request", async (req: Request, res: Response) => {
@@ -411,13 +461,15 @@ export async function registerRoutes(
     }
     const { phone, purpose } = parsed.data;
 
-    const recentCount = await countRecentRequests(phone, 60);
+    // Test accounts skip the hourly cap: nothing is sent to them, so there is
+    // no SMS cost to protect, and testers sign in to them many times an hour.
+    const recentCount = isTestOtpNumber(phone) ? 0 : await countRecentRequests(phone, 60);
     if (recentCount !== null && recentCount >= OTP_MAX_REQUESTS_PER_HOUR) {
       res.status(429).json({ message: "Too many OTP requests. Please try again later.", code: "OTP_RATE_LIMITED" });
       return;
     }
 
-    const code = generateOtp();
+    const code = generateOtp(phone);
     const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60_000).toISOString();
     const inserted = await insertOtpCode({
       phone,
@@ -430,7 +482,11 @@ export async function registerRoutes(
       return;
     }
 
-    await deliverOtp(phone, code);
+    const delivered = await deliverOtp(phone, code, inserted.id);
+    if (!delivered) {
+      res.status(502).json({ message: "Could not send OTP. Please try again.", code: "OTP_SEND_FAILED" });
+      return;
+    }
     res.json({ message: "OTP sent" });
   });
 
@@ -1063,9 +1119,9 @@ export async function registerRoutes(
             // The form tells the customer when a document went in unverified,
             // so "Uploaded" never over-promises.
             ocr: { status: ocr.status, message: ocr.message },
-            // With account review on, the Bombino team checks every document by
-            // hand, so one Cashfree couldn't read still lets signup go on.
-            staff_review: isAccountReviewEnabled(),
+            // The Bombino team checks every document by hand before an account
+            // opens, so one Cashfree couldn't read still lets signup go on.
+            staff_review: true,
           });
         });
       } catch (err) {
@@ -1103,6 +1159,21 @@ export async function registerRoutes(
     }
   });
 
+  /**
+   * POST /api/admin/dockets/retry — file the dockets that failed in a way a
+   * retry fixes (server/docketFiling.ts). Also runs in-process every 10
+   * minutes; this is for an external scheduler and for running it by hand.
+   * Safe to call repeatedly: each order is filed under its own lock.
+   */
+  app.post("/api/admin/dockets/retry", requireCronSecret, async (_req: Request, res: Response) => {
+    try {
+      res.json(await retryDocketsDue());
+    } catch (err) {
+      console.error("[dockets] retry sweep failed:", err);
+      res.status(500).json({ message: "Sweep failed." });
+    }
+  });
+
   // GET /api/signup/documents — what this signup has staged so far
   app.get("/api/signup/documents", async (req: Request, res: Response) => {
     const phone = typeof req.query.phone === "string" ? req.query.phone : undefined;
@@ -1125,9 +1196,9 @@ export async function registerRoutes(
     const rows = await listDocumentsBySignupRef(signupRef);
     res.set("Cache-Control", "no-store");
     res.json({
-      // See POST: with account review on, a document Cashfree couldn't read is
-      // left to the Bombino team rather than holding signup up.
-      staff_review: isAccountReviewEnabled(),
+      // See POST: a document Cashfree couldn't read is left to the Bombino
+      // team rather than holding signup up.
+      staff_review: true,
       // TEMPORARY: false while OCR_BYPASS=1, so the form asks only for 12 digits
       // (shared/aadhaar.ts §validateAadhaar), matching the server.
       aadhaar_check_digits: !isOcrBypassed(),
@@ -1526,7 +1597,7 @@ export async function registerRoutes(
       return;
     }
 
-    const existing = await findItdUserIdByPhone(phone);
+    const existing = await findItdAccountByPhone(phone);
     if (existing) {
       res.status(409).json({
         message: "This phone number is already registered. Please sign in instead.",
@@ -1558,69 +1629,17 @@ export async function registerRoutes(
     const staged = await assertDocumentsStaged(req, res, "personal", null, phone);
     if (!staged) return;
 
-    // Account review: everything above has passed, so file it for the Bombino
-    // team instead of opening the account here. See server/accountApplications.ts.
-    if (isAccountReviewEnabled()) {
-      await respondWithApplication(req, res, {
-        phone,
-        accountType: "personal",
-        category: null,
-        details: { full_name, email },
-        contract_signed_name,
-        keepContractOf: fixing,
-      });
-      return;
-    }
-
-    const itdCustomerId = `local-${crypto.randomUUID()}`;
-    const row = await upsertItdUserAndReturnId({
-      itd_customer_id: itdCustomerId,
-      itd_customer_code: itdCustomerId,
-      email,
-      full_name,
-      username: phone,
-      role: "customer",
+    // Everything above has passed: file it for the Bombino team. Signup never
+    // opens an account. The number stays a guest until ops approves it with a
+    // verified ITD email and password (server/accountApproval.ts), so there are
+    // exactly two kinds of customer: guests, and accounts with an ITD login.
+    await respondWithApplication(req, res, {
       phone,
-      account_type: "personal",
-      ...contractColumns(req, contract_signed_name),
-    });
-    if (!row?.id) {
-      res.status(502).json({ message: "Could not create account. Please try again." });
-      return;
-    }
-
-    // Mirror the Aadhaar into kyc_documents. That table is what the shipment
-    // path reads to build ITD's `kyc_details` (buildItdKycPayload), and it
-    // stays the one KYC document of record; account_documents is the
-    // onboarding file, not a second source of truth for customs.
-    //
-    // Present in the ordinary case — signup refuses without it. Guarded anyway
-    // rather than asserted: if it ever is absent, the document centre runs the
-    // same mirror on the same helper later.
-    const aadhaar = req.session.signupRef
-      ? await getSignupDocumentWithFile(req.session.signupRef, "aadhaar_card")
-      : null;
-    await claimDocumentsForUser(req, row.id);
-    await mirrorAadhaarToKyc({ userId: row.id }, aadhaar, "signup/personal");
-    await claimGuestBookingsForUser(req, phone, row.id);
-
-    const user = {
-      id: itdCustomerId,
-      customerId: itdCustomerId,
-      code: itdCustomerId,
-      email,
-      fullName: full_name,
-      username: phone,
-      role: "customer",
-      account_type: "personal" as const,
-    };
-    req.session.user = user;
-    req.session.dbUserId = row.id;
-    req.session.save((err) => {
-      if (err) {
-        console.error("[signup/personal] session save error:", err);
-      }
-      res.json(user);
+      accountType: "personal",
+      category: null,
+      details: { full_name, email },
+      contract_signed_name,
+      keepContractOf: fixing,
     });
   });
 
@@ -1723,7 +1742,7 @@ export async function registerRoutes(
       return;
     }
 
-    const existing = await findItdUserIdByPhone(phone);
+    const existing = await findItdAccountByPhone(phone);
     if (existing) {
       res.status(409).json({
         message: "This phone number is already registered. Please sign in instead.",
@@ -1741,8 +1760,6 @@ export async function registerRoutes(
       return;
     }
     if (fixing && !(await assertFixedSlotsReplaced(fixing, res))) return;
-
-    const categorySpec = COMPANY_CATEGORY_SPECS[company_category];
 
     // The company PAN, verified against the company's own name — every
     // corporate category compels a PAN card, none compels an Aadhaar.
@@ -1771,134 +1788,27 @@ export async function registerRoutes(
     const staged = await assertDocumentsStaged(req, res, "company", company_category, phone);
     if (!staged) return;
 
-    // Account review: file it instead. No ITD add_customer either — the team
-    // creates the customer in ITD by hand, and calling it here as well would
-    // register the company twice.
-    if (isAccountReviewEnabled()) {
-      await respondWithApplication(req, res, {
-        phone,
-        accountType: "company",
-        category: company_category,
-        details: {
-          email,
-          company_name,
-          gstin,
-          contact_person,
-          address,
-          pincode,
-          city,
-          state,
-          hub_id,
-          ...extras.values,
-        },
-        contract_signed_name,
-        keepContractOf: fixing,
-      });
-      return;
-    }
-
-    const itdCustomerId = `local-${crypto.randomUUID()}`;
-    const row = await upsertItdUserAndReturnId({
-      itd_customer_id: itdCustomerId,
-      itd_customer_code: itdCustomerId,
-      email,
-      full_name: company_name,
-      username: phone,
-      role: "customer",
+    // File it for the Bombino team, as personal signup does. No ITD
+    // add_customer either: the team creates the customer in ITD by hand, and
+    // calling it here as well would register the company twice.
+    await respondWithApplication(req, res, {
       phone,
-      account_type: "company",
-      company_name,
-      gstin,
-      company_category,
-      // Denormalised from the spec at creation time: a later change to the
-      // mapping must not silently restate what an existing account signed.
-      contract_head: categorySpec.contractHead,
-      group_code: categorySpec.groupCode ?? null,
-      contact_person,
-      ...extras.values,
-      ...contractColumns(req, contract_signed_name),
-    });
-    if (!row?.id) {
-      res.status(502).json({ message: "Could not create account. Please try again." });
-      return;
-    }
-
-    await claimDocumentsForUser(req, row.id);
-    // A guest books as an individual, but the number is the number: if this
-    // company account was opened on it, the orders behind it are theirs.
-    await claimGuestBookingsForUser(req, phone, row.id);
-
-    let itdRegistered = false;
-    let addCustomerResponse: unknown = null;
-    let addCustomerError: string | null = null;
-    try {
-      const addCustomerResult = await withTimeout(
-        itdClient.addCustomer({
-          name: company_name,
-          contact_no: phone,
-          gst_number: gstin,
-          email,
-          address,
-          pincode,
-          city,
-          state,
-          contact_person,
-          hub_id,
-        }),
-        ITD_LINK_TIMEOUT_MS,
-        "ITD addCustomer"
-      );
-      itdRegistered = !!addCustomerResult.success;
-      addCustomerResponse = addCustomerResult;
-    } catch (err) {
-      addCustomerError = err instanceof Error ? err.message : "addCustomer failed";
-      console.error("[signup/company] itdClient.addCustomer failed (non-fatal):", err);
-    }
-
-    // Persist the attribution context. Without this the ITD registration is
-    // invisible to everything downstream — M5 has to know, days later, whether
-    // this company exists inside ITD and under what identity. `add_customer`
-    // returns no id of its own (§7), so the synthetic `local-<uuid>` we minted
-    // above is the only stable handle either side has; record it explicitly
-    // rather than leaving it implicit in the `itd_customer_id` column.
-    // Non-fatal: a failure here must not cost the customer their account.
-    void mergeItdUserMetadataById(row.id, {
-      itd_registered: itdRegistered,
-      itd_customer_id: itdCustomerId,
-      // add_customer has no field for either, so the only record of which
-      // contract this account opened under lives on our side.
-      company_category,
-      contract_head: categorySpec.contractHead,
-      ...(categorySpec.groupCode ? { group_code: categorySpec.groupCode } : {}),
-      itd_registration_attempted_at: new Date().toISOString(),
-      itd_add_customer_response: addCustomerResponse,
-      email,
-      address,
-      pincode,
-      city,
-      state,
-      contact_person,
-      hub_id,
-      ...(addCustomerError ? { itd_add_customer_error: addCustomerError } : {}),
-    });
-
-    const user = {
-      id: itdCustomerId,
-      customerId: itdCustomerId,
-      code: itdCustomerId,
-      email,
-      fullName: company_name,
-      username: phone,
-      role: "customer",
-      account_type: "company" as const,
-    };
-    req.session.user = user;
-    req.session.dbUserId = row.id;
-    req.session.save((err) => {
-      if (err) {
-        console.error("[signup/company] session save error:", err);
-      }
-      res.json({ ...user, itdRegistered });
+      accountType: "company",
+      category: company_category,
+      details: {
+        email,
+        company_name,
+        gstin,
+        contact_person,
+        address,
+        pincode,
+        city,
+        state,
+        hub_id,
+        ...extras.values,
+      },
+      contract_signed_name,
+      keepContractOf: fixing,
     });
   });
 
@@ -1988,7 +1898,8 @@ export async function registerRoutes(
       return;
     }
 
-    const existing = await findItdUserIdByPhone(phone);
+    // Only an ITD login makes a number an account; anything else is a guest.
+    const existing = await findItdAccountByPhone(phone);
     if (existing) {
       res.status(409).json({
         message: "This number already has a Bombino account.",
@@ -2088,7 +1999,9 @@ export async function registerRoutes(
     }
     markPhoneVerified(req, phone);
 
-    const existing = await findItdUserIdByPhone(phone);
+    // Only an ITD login makes a number an account. A row without one (the old
+    // direct signup's kind) signs in as a guest, like any number with no row.
+    const existing = await findItdAccountByPhone(phone);
     if (!existing) {
       // No account — but not necessarily a stranger.
       //
@@ -2111,13 +2024,38 @@ export async function registerRoutes(
 
         // An applicant waiting on the Bombino team signs in as exactly this: a
         // guest. Their application rides along so the app can say where it is.
-        const application = isAccountReviewEnabled() ? await getLatestApplicationByPhone(phone) : null;
+        const application = await getLatestApplicationByPhone(phone);
+        // A guest who books can be a receiver too; the count lets the app open
+        // on the parcels coming to them.
+        const receiving = await countReceivingParcels({ phone, userId: null });
         req.session.save((err) => {
           if (err) console.error("[phone/continue] guest session save error:", err);
           res.json({
             status: "guest" as const,
             application: application ? toCustomerView(application) : null,
+            receiving,
           });
+        });
+        return;
+      }
+
+      // A receiver: no account and no bookings, but parcels on their way to
+      // this number. They are a guest like any other number we know, so they
+      // get a guest ref of their own and a profile row that holds it, which is
+      // what lets getLatestGuestRefForPhone find them again next time. The
+      // parcels themselves are read by phone (server/receivingDb.ts), not by
+      // this ref.
+      const receiving = await countReceivingParcels({ phone, userId: null });
+      if (receiving > 0) {
+        const ref = await signupRefForPhone(req, phone);
+        req.session.signupRef = ref;
+        req.session.signupPhone = phone;
+        req.session.guestRef = ref;
+        req.session.guestPhone = phone;
+        await upsertGuestProfile({ guest_ref: ref, phone });
+        req.session.save((err) => {
+          if (err) console.error("[phone/continue] receiver session save error:", err);
+          res.json({ status: "guest" as const, application: null, receiving });
         });
         return;
       }
@@ -2130,6 +2068,17 @@ export async function registerRoutes(
       // "auth", …) true for the next few minutes, so the follow-up link or
       // signup call can prove ownership of this number without a second SMS.
       res.json({ status: "needs_account" as const });
+      return;
+    }
+
+    // Staff-only: customers never enter getStaffUserById (role IN staff).
+    // A customer with is_active=false still signs in. Null is_active is active.
+    const staff = await getStaffUserById(existing.id);
+    if (staff && staff.is_active === false) {
+      res.status(403).json({
+        code: "ACCOUNT_DEACTIVATED",
+        message: "This account has been deactivated. Please contact ops.",
+      });
       return;
     }
 
@@ -2315,7 +2264,13 @@ export async function registerRoutes(
       // Derived, not the column itself — drives whether the "change number"
       // flow asks for a password. Accounts created here have none.
       const has_password = await itdUserHasStoredPassword(req.session.dbUserId);
-      return res.json({ ...profile, has_password });
+      // Whether this number is on WhatsApp, as far as Meta's receipts tell us.
+      // Drives the profile's "Verify WhatsApp" prompt (routes/userWhatsapp.ts).
+      const msisdn = toWaMsisdn(profile.phone ? String(profile.phone) : null);
+      const whatsapp = msisdn
+        ? await getWhatsappReachability(msisdn, WA_TEMPLATE.loginOtp)
+        : "unknown";
+      return res.json({ ...profile, has_password, whatsapp });
     }
   );
 
@@ -2591,12 +2546,15 @@ export async function registerRoutes(
 
   app.get(
     "/api/shipments/:awb/documents",
-    requireUser,
     ensureDbUser,
     async (req: Request, res: Response) => {
-      const dbUserId = req.session.dbUserId;
+      // Asked by the tracking screen, which anyone can open. Someone not
+      // signed in has no documents for any AWB, and saying so is the answer:
+      // a 401 here read as "your session expired" (client/src/lib/session.ts)
+      // and signed guests and visitors out for tracking a parcel.
+      const dbUserId = req.session.user ? req.session.dbUserId : undefined;
       if (!dbUserId) {
-        return res.status(401).json({ message: "Unauthorized" });
+        return res.json({ documents: [] });
       }
 
       const documents = await listShipmentDocumentKinds(req.params.awb, dbUserId);
@@ -2775,7 +2733,7 @@ export async function registerRoutes(
       const guestRef = sessionGuestRef(req);
       if (!guestRef) return next();
       const rows = await listNotificationsForOwner({ guestRef });
-      return res.json(rows ?? []);
+      return res.json(await withOrderRefs(rows ?? [], { guestRef }));
     },
     requireUser,
     ensureDbUser,
@@ -2784,7 +2742,52 @@ export async function registerRoutes(
         return res.json([]);
       }
       const rows = await listNotificationsByUserId(req.session.dbUserId);
-      return res.json(rows ?? []);
+      return res.json(await withOrderRefs(rows ?? [], { userId: req.session.dbUserId }));
+    }
+  );
+
+  // The bell's "Clear" on one tab: the ids on it, deleted for this owner only.
+  const clearBody = z.object({ ids: z.array(z.string().min(1).max(64)).min(1).max(500) });
+  app.post(
+    "/api/notifications/clear",
+    async (req: Request, res: Response, next: NextFunction) => {
+      const guestRef = sessionGuestRef(req);
+      if (!guestRef) return next();
+      const body = clearBody.safeParse(req.body);
+      if (!body.success) return res.status(400).json({ message: "Nothing to clear" });
+      const deleted = await deleteNotifications(body.data.ids, { guestRef });
+      if (deleted === null) return res.status(500).json({ message: "Database error" });
+      return res.json({ deleted });
+    },
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      if (!req.session.dbUserId) return res.json({ deleted: 0 });
+      const body = clearBody.safeParse(req.body);
+      if (!body.success) return res.status(400).json({ message: "Nothing to clear" });
+      const deleted = await deleteNotifications(body.data.ids, { userId: req.session.dbUserId });
+      if (deleted === null) return res.status(500).json({ message: "Database error" });
+      return res.json({ deleted });
+    }
+  );
+
+  // The bell's "Mark all read". Same two owners as the single-row route below.
+  app.post(
+    "/api/notifications/read-all",
+    async (req: Request, res: Response, next: NextFunction) => {
+      const guestRef = sessionGuestRef(req);
+      if (!guestRef) return next();
+      const updated = await markAllNotificationsRead({ guestRef });
+      if (updated === null) return res.status(500).json({ message: "Database error" });
+      return res.json({ updated });
+    },
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      if (!req.session.dbUserId) return res.json({ updated: 0 });
+      const updated = await markAllNotificationsRead({ userId: req.session.dbUserId });
+      if (updated === null) return res.status(500).json({ message: "Database error" });
+      return res.json({ updated });
     }
   );
 
@@ -2817,6 +2820,25 @@ export async function registerRoutes(
 
   // ── ITD: Tracking ────────────────────────────────────────────────────────
 
+  /**
+   * Full tracking detail (names, addresses, weights) for: ops staff, the
+   * account that booked this AWB (its order, or a direct shipment), or the
+   * guest whose order it is. Agents and strangers are not owners.
+   */
+  async function mayTrackInFull(req: Request, awb: string): Promise<boolean> {
+    if (isOpsRole(req.session.user?.role)) return true;
+    const owner = ownerFrom(req, OWNER_PROFILES.payment);
+    if (!owner) return false;
+    if (owner.kind === "account" && owner.userId) {
+      if (await findOrderForOwner({ awb }, { kind: "account", userId: owner.userId })) return true;
+      return userOwnsShipmentAwb(awb, owner.userId);
+    }
+    if (owner.guestRef) {
+      return !!(await findOrderForOwner({ awb }, { kind: "guest", guestRef: owner.guestRef }));
+    }
+    return false;
+  }
+
   // GET /api/track/:trackingNo — no login required; guest uses company token + superadmin
   app.get(
     "/api/track/:trackingNo",
@@ -2827,10 +2849,15 @@ export async function registerRoutes(
 
       try {
         const user = req.session.user;
+        // Your own ITD session when you have one (an ITD-linked account).
+        // Staff and accounts without ITD access have none, and tracking under
+        // their non-ITD code returned nothing, so they use the company path
+        // a signed-out visitor gets.
+        const ownItd = !!(user && req.session.itdToken);
         const data = await itdClient.trackShipment(
           trackingNo,
-          user ? req.session.itdToken : undefined,
-          user ? user.code : "superadmin"
+          ownItd ? req.session.itdToken : undefined,
+          ownItd ? user!.code : "superadmin"
         );
         const first = data[0];
         const events = first?.docket_events ?? [];
@@ -2842,8 +2869,14 @@ export async function registerRoutes(
         const trackedAt = new Date().toISOString();
         void upsertTrackingEvents(trackingNo, events);
         void updateShipmentTrackingStatus(trackingNo, latestStatus, trackedAt);
+
+        // Anyone may track any AWB, but only its owner and ops see who sent it
+        // and who it is for. Everyone else gets bombinoexp.com's fields
+        // (server/trackingRedact.ts).
+        const full = await mayTrackInFull(req, trackingNo);
         res.json({
-          results: data,
+          results: full ? data : redactTracking(data),
+          restricted: !full,
           fromCache: false as const,
           lastTrackedAt: trackedAt,
         });
@@ -2950,6 +2983,15 @@ export async function registerRoutes(
         res.status(400).json({ message: "product_code, destination_code, and actual_weight are required" });
         return;
       }
+      // Priced on weight AND size: no box sizes, no quote.
+      const boxes = parseRateBoxes((req.body as { boxes?: unknown }).boxes);
+      if (!boxes) {
+        res.status(400).json({
+          message: "Enter the box length, width and height to see rates.",
+          code: "BOX_SIZE_REQUIRED",
+        });
+        return;
+      }
 
       const rateParams: RateParams = {
         product_code,
@@ -2962,6 +3004,7 @@ export async function registerRoutes(
         ori_pincode,
         dest_city,
         dest_pincode,
+        boxes,
       };
 
       try {
@@ -3180,7 +3223,18 @@ export async function registerRoutes(
       (body) =>
         body.items.consignee_country !== "US" || usStateName(String(body.items.consignee_state ?? "")) !== null,
       { message: US_STATE_ERROR, params: { code: "US_STATE_INVALID" } }
-    );
+    )
+    // The phones go to ITD verbatim. A sender's +91 kept with the last digits
+    // cut, and a receiver's trunk 0 left after +1, got BOM-100333 a reply from
+    // ITD that was not JSON and no AWB. See shared/contact.ts.
+    .refine((body) => isIndianMobile(String(body.items.shipper_contact_no ?? "")), {
+      message: INDIAN_MOBILE_MESSAGE,
+      params: { code: "SENDER_PHONE_INVALID" },
+    })
+    .refine((body) => isValidReceiverPhone(String(body.items.consignee_contact_no ?? "")), {
+      message: "Enter the receiver's phone number (6 to 15 digits).",
+      params: { code: "RECEIVER_PHONE_INVALID" },
+    });
 
   // POST /api/orders — requires login (session)
   /**
@@ -3226,7 +3280,41 @@ export async function registerRoutes(
     // guest whose phone is verified and whose real problem is that they have
     // uploaded nothing yet. The KYC gates below say that properly.
     const bookingAsGuest = !req.session.dbUserId;
-    const guestPhone = bookingAsGuest ? body.origin_address.phone.trim() : null;
+
+    // A sender phone saved before the +91 fix can still be the account's own
+    // number cut to "91" + its first eight digits; picking that saved address
+    // sent BOM-100339 to ITD with it. Put the account's number back on both
+    // copies before anything is stored or filed.
+    let accountPhone: string | null = null;
+    if (req.session.dbUserId) {
+      const account = (await getUserContactsByIds([req.session.dbUserId])).get(req.session.dbUserId);
+      accountPhone = account?.phone ?? null;
+      const shipper = repairCutMobile(String(body.items.shipper_contact_no ?? ""), account?.phone);
+      if (shipper !== body.items.shipper_contact_no) body.items.shipper_contact_no = shipper;
+      body.origin_address.phone = repairCutMobile(body.origin_address.phone, account?.phone);
+    }
+
+    // A guest is the number they verified. For an Indian guest that is the
+    // sender's phone, as it always was. A guest verified on a number from
+    // abroad ("+974…") still needs an Indian sender phone for the pickup and
+    // for ITD, so the two differ, and the verified number is who they are.
+    const sessionGuestPhone = req.session.signupPhone ?? null;
+    const guestPhone = bookingAsGuest
+      ? sessionGuestPhone && isInternationalPhone(sessionGuestPhone)
+        ? sessionGuestPhone
+        : body.origin_address.phone.trim()
+      : null;
+
+    // The receiver's app number: what lets them sign in and watch this parcel
+    // (shared/receiving.ts). Optional, Indian mobiles only, and stored as ten
+    // bare digits or not at all, so a typo cannot match somebody else.
+    const receiverAppPhone = normalizeReceiverAppPhone(body.consignee.app_phone);
+    if (receiverAppPhone) body.consignee.app_phone = receiverAppPhone;
+    else delete body.consignee.app_phone;
+
+    // Booked on a test number: a test order, kept apart from real ones and
+    // given a test AWB instead of a real ITD docket (server/testOrders.ts).
+    const isTestBooking = isTestPhone(bookingAsGuest ? guestPhone : accountPhone);
 
     // A guest has never signed the contract — there was no account creation to
     // sign it at — so the shipment cannot move without it. Checked here as
@@ -3282,7 +3370,7 @@ export async function registerRoutes(
       // true — a client that skipped the dialog, or an account created in the
       // minutes since, must not end with one customer split across an account
       // and a guest record that nothing later reconciles.
-      const owner = await findItdUserIdByPhone(guestPhone!);
+      const owner = await findItdAccountByPhone(guestPhone!);
       if (owner) {
         res.status(409).json({
           message: "This number already has a Bombino account. Please sign in to book.",
@@ -3444,6 +3532,7 @@ export async function registerRoutes(
       payment_method: body.payment_method,
       is_cod: body.payment_method === "cod",
       metadata: {
+        ...(isTestBooking ? { test: true } : {}),
         kyc_verified: bookingKyc.verified,
         quote_verified: !!itdQuote,
         ...(itdQuote && body.quoted_amount != null && itdQuote.total !== body.quoted_amount
@@ -3521,11 +3610,16 @@ export async function registerRoutes(
     // code waits for the claim — nobody needs a code for a job no agent holds.
     if (!isPickup) {
       await issueCode(order.id, "dropoff");
+      void notifyHandoverCodeInApp(toOrder(order), "dropoff");
     }
 
-    // The booking confirmation, and — for a pickup — the shout to the agents
-    // rostered for that window. Neither goes through `notifyOrderTransition`:
+    // The booking confirmation. It does not go through `notifyOrderTransition`:
     // the customer is the actor here, and that function silences self-actions.
+    //
+    // No message to agents. They used to be told "first to accept gets the
+    // job"; since 6 Oct 2026 the branch head assigns every pickup and agents
+    // never see the pool (`notifyAgentsOfNewJob` is no longer called). The
+    // branch is told instead, so it can assign one.
     //
     // Fire-and-forget. A slow provider must not delay the Order ID the customer
     // is waiting on, and a failed message must not fail a paid-for booking.
@@ -3534,10 +3628,7 @@ export async function registerRoutes(
       order: bookedOrder,
       customerName: body.origin_address.full_name,
     });
-    void notifyAgentsOfNewJob({
-      order: bookedOrder,
-      address: { city: body.origin_address.city, pincode: body.origin_address.pincode },
-    });
+    void notifyStaffOfBooking(bookedOrder);
 
     // The airway bill, for the accounts that can have one now.
     //
@@ -3551,12 +3642,19 @@ export async function registerRoutes(
 
     res.json({
       order: docket.status === "issued" ? { ...order, awb_no: docket.awb_no } : order,
+      // No AWB and no ITD login behind the booking: the success screen offers
+      // our QR box label instead (server/routes/parcel.ts).
+      boxLabel:
+        docket.status !== "issued" &&
+        (await boxLabelEligible({ awb_no: null, status: bookedOrder.status, user_id: bookedOrder.user_id })),
       // A refusal goes out as the customer's note (shared/docketError.ts), never
       // as ITD's raw reply: that carries HTTP codes and JSON, and is ops' to read.
       docket:
         docket.status === "failed"
           ? { ...docket, message: explainDocketError(docket.message ?? "").customerNote }
           : docket,
+      // `message` is null unless the customer has something to do (an ID
+      // document to add); a refused or slow docket is ops' to fix, not theirs.
     });
   });
 
@@ -3581,7 +3679,6 @@ export async function registerRoutes(
   /** Which handover an ops override is waving through, by the status it acts on. */
   const HANDOVER_KIND_FOR_STATUS: Partial<Record<OrderStatus, HandoverKind>> = {
     out_for_pickup: "pickup",
-    picked_up: "hub",
     awaiting_dropoff: "dropoff",
   };
 
@@ -3595,10 +3692,73 @@ export async function registerRoutes(
     return isRole(raw) ? raw : null;
   }
 
+  /**
+   * What a weight would do to the price, without weighing.
+   *
+   * The weigh sheet shows this before ops confirms: the new price and the
+   * difference the customer will be asked for or refunded. Nothing is written
+   * and nothing is sent. The weigh itself reprices again on confirm, so this is
+   * a preview, never the amount of record.
+   *
+   * Same gate as the weigh action: whoever may weigh this order may preview it.
+   */
+  app.post(
+    "/api/orders/:id/weigh-preview",
+    requireUser,
+    ensureDbUser,
+    requireActiveAgent,
+    loadOpsStaffIfOps,
+    async (req: Request, res: Response) => {
+      const callerId = req.session.dbUserId;
+      const role = req.staff?.role ?? resolveRole(req.session.user?.role);
+      if (!callerId || !role) {
+        res.status(403).json({ message: "You do not have permission to do this.", code: "FORBIDDEN" });
+        return;
+      }
+      const parsed = z
+        .object({ actual_weight: z.number().positive("Enter the actual weight in kg") })
+        .safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          message: parsed.error.issues[0]?.message ?? "Enter the actual weight in kg",
+          code: "INVALID_PAYLOAD",
+        });
+        return;
+      }
+      const order = await getOrderById(req.params.id);
+      if (!order || !(await isCallersOrder(req, order))) {
+        res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
+        return;
+      }
+      if (!findTransition(order, "weigh", role, { userId: callerId })) {
+        res.status(403).json({
+          message: "This order can't be weighed right now. Refresh and try again.",
+          code: "ACTION_NOT_AVAILABLE",
+        });
+        return;
+      }
+      const reprice = await repriceOrderAtWeight(order, parsed.data.actual_weight);
+      if (!reprice.ok) {
+        res.status(502).json({ message: reprice.message, code: reprice.code });
+        return;
+      }
+      res.json({
+        actual_weight: parsed.data.actual_weight,
+        booked_weight: order.booked_weight,
+        quoted_amount: reprice.quotedAmount,
+        final_amount: reprice.finalAmount,
+        delta: reprice.delta,
+        source: reprice.source,
+      });
+    }
+  );
+
   app.post(
     "/api/orders/:id/actions",
     requireUser,
     ensureDbUser,
+    requireActiveAgent,
+    loadOpsStaffIfOps,
     async (req: Request, res: Response) => {
       const callerId = req.session.dbUserId;
       if (!callerId) {
@@ -3606,7 +3766,8 @@ export async function registerRoutes(
         return;
       }
 
-      const role = resolveRole(req.session.user?.role);
+      // Ops callers' role was just read from the database (loadOpsStaffIfOps).
+      const role = req.staff?.role ?? resolveRole(req.session.user?.role);
       if (!role) {
         res.status(403).json({
           message: "You do not have permission to perform this action.",
@@ -3653,6 +3814,11 @@ export async function registerRoutes(
       // Note RLS is bypassed everywhere (service-role key), so this check is
       // the only thing standing between a customer and someone else's order.
       if (role === "customer" && order.user_id !== callerId) {
+        res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
+        return;
+      }
+      // A branch manager acts on their own city's orders only.
+      if (!(await isCallersOrder(req, order))) {
         res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
         return;
       }
@@ -3717,6 +3883,11 @@ export async function registerRoutes(
           break;
         }
 
+        case "release_pickup": {
+          if (!applyResult(await handleReleasePickup({ order, callerId }))) return;
+          break;
+        }
+
         case "start_pickup": {
           if (!transition.to) {
             res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
@@ -3732,10 +3903,27 @@ export async function registerRoutes(
           break;
         }
 
+        // The parcel reaches the hub. No code since 12 Oct 2026.
+        case "mark_received_at_hub": {
+          if (!transition.to) {
+            res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
+            return;
+          }
+          const result = await handleHubReceipt({
+            order,
+            callerId,
+            role,
+            expectedFrom: transition.from,
+            to: transition.to,
+          });
+          if (!applyResult(result)) return;
+          break;
+        }
+
         // ── OTP-gated handovers ───────────────────────────────────────────
-        // Three steps, one shape, and they live in server/orderActions.ts.
+        // The customer's code at the door and at the counter, in
+        // server/orderActions.ts.
         case "mark_picked_up":
-        case "mark_received_at_hub":
         case "mark_received_dropoff": {
           if (!transition.to) {
             res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
@@ -3868,6 +4056,20 @@ export async function registerRoutes(
             break;
           }
 
+          if (action === "record_awb") {
+            const ok = applyResult(
+              await handleRecordAwb({ order, callerId, payload: parsed.data.payload })
+            );
+            if (!ok) return;
+            break;
+          }
+
+          if (action === "retry_docket") {
+            const ok = applyResult(await handleRetryDocket({ order, callerId }));
+            if (!ok) return;
+            break;
+          }
+
           if (action === "mark_dispatched") {
             if (!transition.to) {
               res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
@@ -3931,11 +4133,18 @@ export async function registerRoutes(
       // `server/notify.ts` alongside the WhatsApp half, so the two channels
       // cannot drift apart. Fire-and-forget: a provider round trip must not sit
       // in front of this response.
+      // An agent handing a pickup back is not shown to the customer as a status
+      // change (it would read as the pickup going backwards). They get one
+      // message saying it is being reassigned, and hear from us again when the
+      // next agent is assigned.
       void notifyOrderTransition({
         order: settled,
-        moved: transition.to !== null,
+        moved: transition.to !== null && action !== "release_pickup",
         actorUserId: callerId,
       });
+      if (action === "release_pickup") void notifyPickupReassigning(settled);
+      // And the team, for the moments they have to act on (notifyStaff.ts).
+      void notifyStaffOfAction({ before: order, after: settled, action, actorUserId: callerId });
 
       res.json({
         order: settled,
@@ -3973,8 +4182,67 @@ export async function registerRoutes(
   // so a customer cannot ask for the agent's hub code by naming it.
   app.post(
     "/api/orders/:id/handover-code",
+    // A guest who booked without an account holds the pickup (or drop-off)
+    // code for their own order just as an account customer does, and needs the
+    // same way out when it locks. Proven the same way the guest order screen
+    // is: the order's guest_ref is this session's, and no account has claimed
+    // it. An account session falls through to the account path below.
+    async (req: Request, res: Response, next: NextFunction) => {
+      if (req.session.user) {
+        next();
+        return;
+      }
+      const owner = ownerFrom(req, OWNER_PROFILES.payment);
+      if (!owner || owner.kind !== "guest" || !owner.guestRef) {
+        res.status(401).json({ message: "Login required" });
+        return;
+      }
+
+      const order = await getOrderById(req.params.id);
+      // Someone else's order reads as no order, as on every customer route.
+      if (!order || order.user_id !== null || order.guest_ref !== owner.guestRef) {
+        res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
+        return;
+      }
+
+      const kind: HandoverKind | null =
+        order.pickup_request === 2 && order.status === "awaiting_dropoff"
+          ? "dropoff"
+          : order.pickup_request === 1 &&
+              (order.status === "agent_accepted" || order.status === "out_for_pickup")
+            ? "pickup"
+            : null;
+      if (!kind) {
+        res.status(409).json({
+          message: "This order has no handover code to refresh right now.",
+          code: "NO_HANDOVER_DUE",
+        });
+        return;
+      }
+
+      const code = await issueCode(order.id, kind);
+      if (!code) {
+        res.status(502).json({
+          message: "Could not generate a new code. Try again.",
+          code: "CODE_ISSUE_FAILED",
+        });
+        return;
+      }
+
+      void insertOrderEvent({
+        order_id: order.id,
+        status: order.status,
+        note: `New ${kind} handover code issued`,
+        actor_user_id: null,
+        metadata: { action: "regenerate_handover_code", handover: kind, role: "guest" },
+      });
+      if (kind === "pickup") void notifyPickupCodeRegenerated(order, code);
+
+      res.json({ handover: { kind, code, locked: false } });
+    },
     requireUser,
     ensureDbUser,
+    loadOpsStaffIfOps,
     async (req: Request, res: Response) => {
       const callerId = req.session.dbUserId;
       if (!callerId) {
@@ -3982,14 +4250,14 @@ export async function registerRoutes(
         return;
       }
 
-      const role = resolveRole(req.session.user?.role);
+      const role = req.staff?.role ?? resolveRole(req.session.user?.role);
       if (!role) {
         res.status(403).json({ message: "Not allowed", code: "FORBIDDEN" });
         return;
       }
 
       const order = await getOrderById(req.params.id);
-      if (!order) {
+      if (!order || !(await isCallersOrder(req, order))) {
         res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
         return;
       }
@@ -4011,22 +4279,9 @@ export async function registerRoutes(
         ) {
           kind = "pickup";
         }
-      } else if (role === "admin" || role === "super_admin") {
-        // The hub code, and only the hub code. Ops shows that one to the agent
-        // at the counter, so ops is the party entitled to refresh it.
-        //
-        // Not `dropoff`, even though it is also read at their counter: that code
-        // is the customer's and ops is the one who types it in. Not `pickup`
-        // either, for the same reason at the other end. A verifier who could
-        // mint a fresh code would be testing themselves, which is the one rule
-        // `handoverCodes.ts` exists to hold.
-        //
-        // The agent has no branch here at all any more — they type the hub code
-        // now, so the entitlement moved with the handover.
-        if (order.status === "picked_up") {
-          kind = "hub";
-        }
       }
+      // No hub code since 12 Oct 2026: the agent taps to hand over, so ops has
+      // nothing to refresh here.
 
       if (!kind) {
         res.status(409).json({
@@ -4055,14 +4310,9 @@ export async function registerRoutes(
         metadata: { action: "regenerate_handover_code", handover: kind, role },
       });
 
-      // Push the new pickup code to the customer's WhatsApp, but only once the
-      // agent is actually on the way — before that the customer is reading it
-      // off their own screen and has nothing to be told. `notifyHandoverCodeReissued`
-      // keys its dedupe on the new code, so this is a different message from
-      // the one carrying the code it replaced rather than a suppressed duplicate.
-      if (kind === "pickup") {
-        void notifyHandoverCodeReissued({ order, code });
-      }
+      // The customer's new pickup code on WhatsApp too, once the agent is on
+      // the way. Fire-and-forget: the code is already on their screen.
+      if (kind === "pickup") void notifyPickupCodeRegenerated(order, code);
 
       res.json({ handover: { kind, code, locked: false } });
     }
@@ -4147,18 +4397,31 @@ export async function registerRoutes(
   function eventActorKind(role: unknown, isOwner: boolean): "agent" | "ops" | "you" | "system" {
     if (isOwner) return "you";
     if (role === "agent") return "agent";
-    if (role === "admin" || role === "super_admin") return "ops";
+    if (isOpsRole(role)) return "ops";
     return "system";
   }
 
   app.get("/api/orders/:orderNo", ensureDbUser, async (req: Request, res: Response) => {
-    const userId = req.session.dbUserId;
-    if (!userId) {
+    // An account, or a guest who verified their number: a guest booking has no
+    // account to open it with, and without this the guest could not open the
+    // order at all, pickup code included. `findOrderForOwner` keeps the owner in
+    // the WHERE, and a guest only matches orders no account has claimed.
+    const owner = ownerFrom(req, OWNER_PROFILES.payment);
+    if (!owner) {
       res.status(401).json({ message: "Login required" });
       return;
     }
+    const userId = owner.userId;
 
-    const order = await getOrderByNumberForUser(req.params.orderNo, userId);
+    const order =
+      owner.kind === "account" && userId
+        ? await getOrderByNumberForUser(req.params.orderNo, userId)
+        : owner.guestRef
+          ? await findOrderForOwner(
+              { orderNo: req.params.orderNo },
+              { kind: "guest", guestRef: owner.guestRef }
+            )
+          : null;
     if (!order) {
       // An order that belongs to someone else is reported the same way as one
       // that does not exist — the distinction is not the caller's business.
@@ -4234,7 +4497,7 @@ export async function registerRoutes(
         note: ev.note,
         action: typeof meta.action === "string" ? meta.action : null,
         actorName: actor?.full_name ?? null,
-        actorKind: eventActorKind(meta.role, ev.actor_user_id === userId),
+        actorKind: eventActorKind(meta.role, userId !== null && ev.actor_user_id === userId),
         amount: typeof meta.amount === "number" ? meta.amount : null,
       };
     });
@@ -4252,6 +4515,8 @@ export async function registerRoutes(
     res.json({
       order,
       customerStatus: deriveCustomerStatus(order),
+      // Whether this order gets our QR box label (no AWB, no ITD login).
+      boxLabel: await boxLabelEligible(order),
       agent,
       events,
       payments: (payments ?? []).map((p) => ({
@@ -4265,7 +4530,9 @@ export async function registerRoutes(
         collectedByName: p.collected_by ? contacts.get(p.collected_by)?.full_name ?? null : null,
       })),
       // Lets the page render its actions without knowing the state machine.
-      availableActions: availableActions(order, "customer", { userId }),
+      // A guest gets none: the action endpoint is account-only, so offering a
+      // button that answers 401 would be worse than no button.
+      availableActions: userId ? availableActions(order, "customer", { userId }) : [],
       /**
        * `kind` is sent even when there is no code, so the page can offer a
        * regenerate instead of silently showing nothing at the one moment the
@@ -4416,7 +4683,7 @@ export async function registerRoutes(
       const docNoValidation: Record<string, RegExp> = {
         "Aadhaar Number": /^\d{12}$/,
         "PAN Number": /^[A-Z]{5}[0-9]{4}[A-Z]$/i,
-        "Passport Number": /^[A-Z0-9]{7,8}$/i,
+        "Passport Number": PASSPORT_NUMBER_PATTERN,
         "Driving Licence": /^[A-Z0-9-]{5,20}$/i,
         "GSTIN (Normal)": /^.{15}$/,
       };

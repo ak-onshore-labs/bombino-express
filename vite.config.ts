@@ -2,10 +2,38 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
+import { execSync } from "child_process";
+import { readFileSync } from "fs";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 import { metaImagesPlugin } from "./vite-plugin-meta-images";
 
+// Which build is running, baked in at build time (client/src/lib/buildInfo.ts).
+// Railway sets RAILWAY_GIT_COMMIT_SHA itself; locally the commit comes from git.
+function buildCommit(): string {
+  const fromRailway = process.env.RAILWAY_GIT_COMMIT_SHA;
+  if (fromRailway) return fromRailway.slice(0, 7);
+  try {
+    return execSync("git rev-parse --short=7 HEAD", { stdio: ["ignore", "pipe", "ignore"] })
+      .toString()
+      .trim();
+  } catch {
+    return "dev";
+  }
+}
+
+// Which deploy this is, bumped by `npm run build:next` (scripts/next-build.mjs).
+const build: { major: number; total: number; date: string; number: number } = JSON.parse(
+  readFileSync(path.resolve(import.meta.dirname, "build.json"), "utf-8"),
+);
+
 export default defineConfig({
+  define: {
+    __BUILD_MAJOR__: JSON.stringify(build.major),
+    __BUILD_TOTAL__: JSON.stringify(build.total),
+    __BUILD_DATE__: JSON.stringify(build.date),
+    __BUILD_NUMBER__: JSON.stringify(build.number),
+    __BUILD_COMMIT__: JSON.stringify(buildCommit()),
+  },
   plugins: [
     react(),
     runtimeErrorOverlay(),

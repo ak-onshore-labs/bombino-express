@@ -29,6 +29,8 @@
 import {
   findItdUserIdByCustomerId,
   findItdUserIdByPhone,
+  findLoginlessRowByPhone,
+  adoptLoginlessRow,
   getItdUserProfileById,
   getItdUserTokenAndSecretsById,
   insertNotification,
@@ -50,6 +52,7 @@ import { decryptPassword, encryptPassword, isEncryptionConfigured } from "./cryp
 import { itdClient, type ITDUserInfo } from "./itd.js";
 import { itdTokenExpiryIso, withTimeout } from "./itdTokenRefresh.js";
 import { sendMail } from "./mailer.js";
+import { notifyAccountDecision } from "./notify.js";
 import { accountReadyEmail, type DocumentOnFile } from "./accountEmails.js";
 import { signContractPdf } from "./contractPdf.js";
 import {
@@ -62,6 +65,7 @@ import {
   type CompanyCategory,
 } from "../shared/accountSpec.js";
 import { ACTION_FROM } from "../shared/applicationStatus.js";
+import { formatAccountPhone } from "../shared/contact.js";
 
 const ITD_LOGIN_TIMEOUT_MS = 10_000;
 
@@ -120,7 +124,7 @@ async function assertLinkable(
       return {
         status: 409,
         code: "PHONE_LINKED_ELSEWHERE",
-        message: `+91 ${phone} already belongs to another account (${profile?.full_name ?? "unknown"}).`,
+        message: `${formatAccountPhone(phone)} already belongs to another account (${profile?.full_name ?? "unknown"}).`,
       };
     }
   }
@@ -131,7 +135,7 @@ async function assertLinkable(
       return {
         status: 409,
         code: "ITD_LOGIN_LINKED_ELSEWHERE",
-        message: `That ITD login is already linked to +91 ${profile.phone}. Create a separate login in ITD for this customer.`,
+        message: `That ITD login is already linked to ${formatAccountPhone(profile.phone)}. Create a separate login in ITD for this customer.`,
       };
     }
   }
@@ -154,7 +158,8 @@ export interface ApproveOutcome {
   emailSent: boolean;
 }
 
-function accountName(app: ApplicationRow): string {
+/** The account holder's name as it goes on the contract: the person, or the company. */
+export function accountName(app: ApplicationRow): string {
   return (app.account_type === "company" ? app.details.company_name : app.details.full_name)?.trim() || app.phone;
 }
 
@@ -195,8 +200,18 @@ export async function approveApplication(input: ApproveInput): Promise<ApprovalR
   if (!login.ok) return login;
   const { user: itdUser, token } = login.value;
 
-  const conflict = await assertLinkable(itdUser, app.phone);
+  // A login-less row on this number (the old direct signup's kind) is the
+  // same customer, treated as a guest until now, so it does not count as the
+  // number belonging to someone else. Every other conflict is checked first;
+  // only then is the row re-keyed onto this login, so the write below
+  // completes it instead of colliding on the phone, and its old orders come
+  // back to the account.
+  const loginless = await findLoginlessRowByPhone(app.phone);
+  const conflict = await assertLinkable(itdUser, app.phone, loginless?.id ?? null);
   if (conflict) return { ok: false, error: conflict };
+  if (loginless && !(await adoptLoginlessRow(loginless.id, itdUser.id))) {
+    return fail(502, "ACCOUNT_WRITE_FAILED", "The account could not be saved. Nothing was changed; please try again.");
+  }
 
   // The winner. From here the application is ours to finish.
   const now = new Date().toISOString();
@@ -332,6 +347,13 @@ export async function finalizeApplication(
       title: "Your account is ready",
       body: "The Bombino team has opened your account. Your guest bookings are in Orders.",
       data: { application_id: app.id },
+    });
+    void notifyAccountDecision({
+      applicationId: app.id,
+      phone: app.phone,
+      userId,
+      decision: { kind: "approved" },
+      at: app.decided_at ?? app.updated_at ?? new Date().toISOString(),
     });
   }
 

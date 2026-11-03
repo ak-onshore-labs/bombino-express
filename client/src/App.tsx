@@ -10,7 +10,8 @@ import { BiaSheet } from '@/components/bia/BiaSheet';
 import { SurfaceGuard } from '@/components/SurfaceGuard';
 import { AgentRoutes } from './routes.agent';
 import { OpsRoutes } from './routes.ops';
-import { surfaceForPath } from '@/lib/surface';
+import { isParcelTagPath, surfaceForPath } from '@/lib/surface';
+import ParcelTag from '@/pages/ParcelTag';
 
 import Splash from "@/pages/Splash";
 import Onboarding from "@/pages/Onboarding";
@@ -19,6 +20,7 @@ import Track from "@/pages/Track";
 import Receive from "@/pages/Receive";
 import ShipmentDetails from "@/pages/ShipmentDetails";
 import OrderDetails from "@/pages/OrderDetails";
+import IncomingParcel from "@/pages/IncomingParcel";
 import Rates from "@/pages/Rates";
 import CreateShipment from "@/pages/CreateShipment";
 import Orders from "@/pages/Orders";
@@ -71,6 +73,7 @@ function CustomerRouter() {
       {/* Pre-docket orders. A shipment has an AWB and lives at /shipment;
           an order has only BOM-xxxxxx until ops generates one. */}
       <Route path="/order/:orderNo" component={OrderDetails} />
+      <Route path="/incoming/:orderNo" component={IncomingParcel} />
       <Route path="/rates" component={Rates} />
       <Route path="/create" component={CreateShipment} />
       <Route path="/orders" component={Orders} />
@@ -134,6 +137,11 @@ function SurfaceToaster() {
 
 function Surfaces() {
   const [location] = useLocation();
+
+  // The QR page stands alone: no customer nav, no BIA, whoever is looking.
+  if (isParcelTagPath(location)) {
+    return <ParcelTag />;
+  }
 
   if (surfaceForPath(location) === 'agent') {
     return <AgentRoutes />;

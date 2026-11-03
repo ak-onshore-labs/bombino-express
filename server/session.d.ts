@@ -17,6 +17,23 @@ declare global {
         signupRef?: string;
         signupPhone?: string;
       };
+      /**
+       * The ops caller, as `loadOpsStaff` read them from the database on this
+       * request. Set only behind an ops gate (`opsGateFor`).
+       */
+      staff?: {
+        role: import("../shared/staffAccess").OpsRole;
+        /** True for a branch manager: orders, agents and beats are one city's. */
+        scoped: boolean;
+        /** Their city when scoped; null when unscoped or the account has no hub. */
+        city: string | null;
+        /** Signed in on a test number (server/testOrders.ts): may switch to test data. */
+        test: boolean;
+        /** A test number switched to live data: sees exactly what real staff see. */
+        liveView: boolean;
+        /** May mark orders test or real by hand (server/testOrders.ts). */
+        marksTest: boolean;
+      };
     }
   }
 }
@@ -66,5 +83,11 @@ declare module "express-session" {
      */
     verifiedPhone?: string;
     verifiedPhoneAt?: number;
+    /**
+     * Which data a test number's ops console shows: test records only, or
+     * live records only, as real staff see them. Unset = test. Ignored for
+     * anyone not on a test number. See server/testOrders.ts.
+     */
+    opsDataMode?: "test" | "live";
   }
 }

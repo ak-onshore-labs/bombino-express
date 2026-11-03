@@ -23,7 +23,7 @@ import { Button } from '@/components/ui/button';
 import { parseApiErrorMessage } from '@/lib/apiError';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
-import { isRole, roleSatisfies } from '@shared/orderContract';
+import { can } from '@shared/staffAccess';
 import {
   useVerifyOpsApplicationDocument,
   type OpsApplicationDetail as Detail,
@@ -63,6 +63,8 @@ export function DocumentsSection({
   onAsk,
   onView,
   onDownload,
+  onViewContract,
+  onDownloadContract,
 }: {
   data: Detail;
   fileBusy: string | null;
@@ -72,9 +74,12 @@ export function DocumentsSection({
   onAsk: (slot: string) => void;
   onView: (doc: OpsApplicationDocument) => void;
   onDownload: (doc: OpsApplicationDocument) => void;
+  /** The contract the customer signed, rebuilt by the server. Not a KYC slot: nothing to verify. */
+  onViewContract: () => void;
+  onDownloadContract: () => void;
 }) {
   const role = useAppStore((s) => s.user?.role);
-  const canViewDocs = isRole(role) && roleSatisfies(role, 'admin');
+  const canViewDocs = can(role, 'applications.review');
   const a = data.application;
   const asked = new Set(a.status === 'changes_requested' ? a.requested_changes?.slots ?? [] : []);
   const pickedSet = new Set(picked);
@@ -170,7 +175,7 @@ export function DocumentsSection({
                     <Button
                       type="button"
                       variant={hasViewed ? 'default' : 'outline'}
-                      className="h-9 rounded-lg text-xs font-semibold gap-1.5"
+                      className="h-9 rounded-md text-xs font-semibold gap-1.5"
                       disabled={!hasViewed || saving !== null}
                       title={hasViewed ? undefined : 'Open the document first'}
                       onClick={() => void markVerified(doc.slot)}
@@ -189,7 +194,7 @@ export function DocumentsSection({
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-9 w-9 rounded-lg"
+                      className="h-9 w-9 rounded-md"
                       disabled={fileBusy === doc.slot}
                       aria-label={`View ${doc.label}`}
                       title={`View ${doc.label}`}
@@ -211,7 +216,7 @@ export function DocumentsSection({
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-9 w-9 rounded-lg"
+                      className="h-9 w-9 rounded-md"
                       disabled={fileBusy === doc.slot}
                       aria-label={`Download ${doc.label}`}
                       title={`Download ${doc.label}`}
@@ -236,6 +241,53 @@ export function DocumentsSection({
             </li>
           );
         })}
+        <li className="px-5 py-3">
+          <div className="flex items-center gap-3">
+            <FileText className="w-5 h-5 text-muted-foreground shrink-0" aria-hidden />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-foreground">Signed contract</p>
+              <p className="mt-0.5 inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
+                <CheckCircle2 className="w-3.5 h-3.5" aria-hidden />
+                Signed by {a.contract.signed_name}
+              </p>
+              {fileErrors.contract && <p className="text-xs text-red-600 mt-1">{fileErrors.contract}</p>}
+            </div>
+            {canViewDocs && (
+              <div className="flex shrink-0 items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9 rounded-md"
+                  disabled={fileBusy === 'contract'}
+                  aria-label="View signed contract"
+                  title="View signed contract"
+                  onClick={onViewContract}
+                  data-testid="ops-application-view-contract"
+                >
+                  {fileBusy === 'contract' ? (
+                    <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
+                  ) : (
+                    <Eye className="w-4 h-4" aria-hidden />
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9 rounded-md"
+                  disabled={fileBusy === 'contract'}
+                  aria-label="Download signed contract"
+                  title="Download signed contract"
+                  onClick={onDownloadContract}
+                  data-testid="ops-application-download-contract"
+                >
+                  <Download className="w-4 h-4" aria-hidden />
+                </Button>
+              </div>
+            )}
+          </div>
+        </li>
       </ul>
       <p className="border-t border-border bg-[#F8F9FA] px-5 py-2.5 text-xs text-muted-foreground">
         {canViewDocs

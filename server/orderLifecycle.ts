@@ -59,8 +59,17 @@ export interface Transition {
 
 // ── Guards ────────────────────────────────────────────────────────────────
 
-/** The order is unclaimed. Race-prone: mirror as `.is('agent_id', null)`. */
-const isUnclaimed = (order: Order): boolean => order.agent_id === null;
+/**
+ * How a failed docket on this order is to be retried, or null when there is
+ * nothing to retry: it has an AWB, no failure on record, or no account to file
+ * under. See shared/docketRules.ts.
+ */
+const docketRetryMode = (order: Order): string | null => {
+  if (order.awb_no !== null || !order.user_id) return null;
+  const err = (order.metadata ?? {})["docket_error"] as { retry?: unknown } | undefined;
+  if (!err) return null;
+  return typeof err.retry === "string" ? err.retry : "ops";
+};
 
 /** The caller is the agent holding this job. */
 const isOwningAgent = (order: Order, ctx: TransitionContext): boolean =>
@@ -91,6 +100,15 @@ const pickupDateArrived = (order: Order): boolean => {
   return order.pickup_date <= todayInIst();
 };
 
+/**
+ * The agent has taken money at the door — all of it or part. Once cash or UPI
+ * has changed hands the pickup cannot be handed back: the agent would be
+ * holding the customer's money for a pickup nobody is doing.
+ */
+const collectedAtDoor = (order: Order): boolean =>
+  order.payment_method === "pay_at_pickup" &&
+  (order.payment_status === "paid" || order.payment_status === "partially_paid");
+
 /** Money is owed at the door and has not been taken yet. */
 const owesAtPickup = (order: Order): boolean =>
   order.payment_method === "pay_at_pickup" && order.payment_status !== "paid";
@@ -107,23 +125,17 @@ const owesAtHub = (order: Order): boolean =>
 
 export const TRANSITIONS: readonly Transition[] = [
   // ── Agent, pickup path (A5) ────────────────────────────────────────────
-  {
-    from: "pickup_requested",
-    action: "claim",
-    role: "agent",
-    to: "agent_accepted",
-    label: "Accept pickup",
-    // Advisory only. The winner is decided by the conditional UPDATE:
-    //   .eq('status','pickup_requested').is('agent_id', null)
-    // Two agents can both pass this guard; exactly one can pass that WHERE.
-    guard: isUnclaimed,
-  },
+  //
+  // No `claim` row. Since 6 Oct 2026 agents do not take pickups themselves:
+  // the branch head assigns each one from the ops console
+  // (POST /api/ops/orders/:id/assign), which lands the order in
+  // `agent_accepted` with the agent on it. An agent's work starts here.
   {
     from: "agent_accepted",
     action: "start_pickup",
     role: "agent",
     to: "out_for_pickup",
-    label: "Start pickup",
+    label: "Start journey",
     // Only on or after the promised day. Everything downstream — collection,
     // pickup, hub handoff — is reachable only through here, so gating this one
     // transition keeps a future-dated job out of the whole flow without
@@ -154,14 +166,9 @@ export const TRANSITIONS: readonly Transition[] = [
     guard: (order, ctx) => isOwningAgent(order, ctx) && !owesAtPickup(order),
   },
   {
-    // The agent closes their own job, but not on their own say-so: the hub code
-    // is on ops' console and appears nowhere in the agent app, so typing it is
-    // proof the agent reached the counter and someone there read it out.
-    //
-    // The verifier is the agent and the owner is ops — the reverse of the
-    // pickup, and the same rule (`handoverCodes.ts`: never return a code to the
-    // party that types it in). Ops still has `override_handover` below for a
-    // dead phone.
+    // The agent drops the parcel at the hub and taps to say so. No code: since
+    // 12 Oct 2026 the hub and the agents do not read codes to each other. The
+    // customer's code at the doorstep is unchanged.
     //
     // This is the last thing the agent does with the parcel: `received_at_hub`
     // has no `role: agent` row, so the job leaves their queue the moment it
@@ -171,9 +178,30 @@ export const TRANSITIONS: readonly Transition[] = [
     role: "agent",
     to: "received_at_hub",
     label: "Hand over at hub",
-    requiresPayload: true,
     guard: isOwningAgent,
   },
+
+  // ── Agent cancels ──
+  // Listed after the forward steps on purpose: the agent app makes the first
+  // action it is sent the big button, and that must never be Cancel.
+  //
+  // The agent cannot do this pickup: it goes back to unassigned and the
+  // branch head assigns it again. Allowed until the parcel is in their hands —
+  // before setting off or on the way — and never after: there is no row from
+  // `picked_up`, so a collected parcel goes to the hub. Not date-gated: a job
+  // for next week can be handed back today. The step it was cancelled at is
+  // kept on the order (`metadata.agent_cancellation`) for ops.
+  ...(["agent_accepted", "out_for_pickup"] as const).map(
+    (from): Transition => ({
+      from,
+      action: "release_pickup",
+      role: "agent",
+      to: "pickup_requested",
+      label: "Cancel pickup",
+      // Not once money has been collected at the door.
+      guard: (order, ctx) => isOwningAgent(order, ctx) && !collectedAtDoor(order),
+    })
+  ),
 
   // ── Ops, drop-off path + hub (M2/M3/M5) ────────────────────────────────
   // Listed so `availableActions` is complete for every role from day one.
@@ -202,12 +230,13 @@ export const TRANSITIONS: readonly Transition[] = [
     requiresPayload: true,
   },
   {
+    // The counter takes the parcel in from the agent. No code either way, so
+    // this is a plain receipt rather than an override.
     from: "picked_up",
-    action: "override_handover",
+    action: "mark_received_at_hub",
     role: "admin",
     to: "received_at_hub",
-    label: "Complete without code",
-    requiresPayload: true,
+    label: "Mark received at hub",
   },
   {
     from: "awaiting_dropoff",
@@ -286,6 +315,56 @@ export const TRANSITIONS: readonly Transition[] = [
     // would strand a shipment ITD has already accepted.
     guard: (order) => order.awb_no !== null,
   },
+
+  {
+    from: "settled",
+    action: "record_awb",
+    role: "admin",
+    to: "dispatched",
+    label: "Enter AWB from ITD portal",
+    requiresPayload: true,
+    // For the customer with no ITD login to file under (guests, OTP signups):
+    // ops files it in ITD's portal and records the AWB. Offered beside
+    // `generate_docket`; the console shows whichever fits the customer
+    // (`owner_has_itd_login` on the ops order detail).
+    guard: (order) => order.awb_no === null,
+  },
+
+  // ── AWB retry ──────────────────────────────────────────────────────────
+  //
+  // A real ITD filing again, for an order whose docket failed. Any status
+  // before dispatch; the order does not move. Two rows, same action, so the
+  // button says what ops must do first when ITD may already hold a docket.
+  ...(
+    [
+      "pickup_requested",
+      "agent_accepted",
+      "out_for_pickup",
+      "picked_up",
+      "awaiting_dropoff",
+      "received_at_hub",
+      "weighed",
+      "settled",
+      "ready_for_docket",
+    ] as const
+  ).flatMap((from): Transition[] => [
+    {
+      from,
+      action: "retry_docket",
+      role: "admin",
+      to: null,
+      label: "Checked ITD portal: retry AWB",
+      guard: (order) => docketRetryMode(order) === "check_itd",
+    },
+    {
+      from,
+      action: "retry_docket",
+      role: "admin",
+      to: null,
+      label: "Retry AWB",
+      guard: (order) => docketRetryMode(order) !== null,
+    },
+  ]),
 
   // ── Cancellation ───────────────────────────────────────────────────────
   //

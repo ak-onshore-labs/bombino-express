@@ -117,7 +117,7 @@ export function DetailsSection({
             },
           ];
     });
-    if (group.title === 'Applicant') rows.push({ key: 'phone', label: 'Phone', value: `+91 ${a.phone}`, copy: a.phone });
+    if (group.title === 'Applicant') rows.push({ key: 'phone', label: 'Phone', value: a.phone, copy: a.phone });
     return { title: group.title, rows };
   }).filter((g) => g.rows.length > 0);
 

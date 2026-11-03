@@ -15,6 +15,7 @@
  */
 
 import "dotenv/config";
+import { UPLOAD_SIZE_MESSAGE } from "../shared/upload.js";
 import { setDefaultResultOrder } from "node:dns";
 
 // Cloud Postgres (e.g. Supabase) often resolves to IPv6 first; some networks time out on IPv6.
@@ -33,11 +34,13 @@ import { warnIfPaymentsTestModeEnabled } from "./paymentsTestMode.js";
 import { warnIfFixedOtpEnabled } from "./otp.js";
 import { warnIfOcrBypassEnabled } from "./cashfreeOcr.js";
 import { warnIfIdentityBypassEnabled } from "./cashfreeIdentity.js";
-import { warnIfDocketAtBookingEnabled } from "./docketAtBooking.js";
+import { isDocketAtBookingEnabled, warnIfDocketAtBookingEnabled } from "./docketAtBooking.js";
+import { startDocketRetryTimer } from "./docketFiling.js";
+import { isScheduleTimerEnabled, startScheduleTimer } from "./staffSchedule.js";
 import { warnIfMailerMissing } from "./mailer.js";
-import { isAccountReviewEnabled } from "./accountApplications.js";
 import { assertFieldCryptoConfigured } from "./fieldCrypto.js";
 import { supabase } from "./supabaseClient.js";
+import { sessionSecret } from "./sessionSecret.js";
 import { createServer, type Server } from "http";
 
 
@@ -154,22 +157,6 @@ async function databaseReachable(): Promise<boolean> {
 /** Vercel sets VERCEL=1 in every function; Railway and local runs never do. */
 function isServerless(): boolean {
   return !!process.env.VERCEL;
-}
-
-/**
- * The key that signs every session cookie.
- *
- * In development a fixed fallback is convenient. In production it would mean
- * anyone who has read this repository can forge a session for any user, so
- * the server refuses to start rather than run with it.
- */
-function sessionSecret(): string {
-  const secret = process.env.SESSION_SECRET?.trim();
-  if (secret) return secret;
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("SESSION_SECRET must be set in production — refusing to start.");
-  }
-  return "dev-secret";
 }
 
 /**
@@ -387,7 +374,15 @@ export async function createApp(): Promise<{ app: Express; httpServer: Server }>
   warnIfIdentityBypassEnabled();
   warnIfFixedOtpEnabled();
   warnIfDocketAtBookingEnabled();
-  warnIfMailerMissing(isAccountReviewEnabled());
+  // Retry dockets that failed in a way that clears by itself (a dead ITD login,
+  // a document since added). Only where real dockets are filed at all: there
+  // is no ITD sandbox, so a development server must never file one.
+  if (isDocketAtBookingEnabled()) startDocketRetryTimer();
+  // The scheduled WhatsApp runs: agents' morning list, the team's reminders
+  // and daily summary. Production only, for the same reason: local servers
+  // share the production database and real staff phone numbers.
+  if (isScheduleTimerEnabled()) startScheduleTimer();
+  warnIfMailerMissing();
 
   await registerRoutes(httpServer, app);
 
@@ -412,7 +407,7 @@ export async function createApp(): Promise<{ app: Express; httpServer: Server }>
       return;
     }
     if (err?.code === "LIMIT_FILE_SIZE") {
-      res.status(413).json({ message: "File too large. Maximum size is 4MB." });
+      res.status(413).json({ message: UPLOAD_SIZE_MESSAGE });
       return;
     }
     if (err?.message?.includes("Only PDF")) {

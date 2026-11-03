@@ -41,7 +41,7 @@ export function Properties({ data }: { data: Detail }) {
       <Eyebrow className="mb-3">About</Eyebrow>
       <dl className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-3 gap-y-2.5">
         <Prop label="Account">{a.category_label}</Prop>
-        <Prop label="Phone">+91 {a.phone}</Prop>
+        <Prop label="Phone">{a.phone}</Prop>
         <Prop label="Sent">{formatIst(a.submitted_at)}</Prop>
         {open && (
           <Prop label="Waiting">
@@ -165,7 +165,7 @@ export function Checks({ data }: { data: Detail }) {
                 {showDuplicates ? 'Hide' : dups.length === 1 ? 'Show it' : `Show all ${dups.length}`}
               </button>
               {showDuplicates && (
-                <ul className="mt-2 max-h-44 overflow-y-auto rounded-lg border border-border divide-y divide-border">
+                <ul className="mt-2 max-h-44 overflow-y-auto rounded-md border border-border divide-y divide-border">
                   {dups.map((dup) => (
                     <li key={`${dup.kind}-${dup.id}-${dup.field}`} className="px-2.5 py-1.5">
                       <Link

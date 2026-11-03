@@ -10,6 +10,8 @@ export type OpsCustomerListRow = {
   created_at: string;
   kyc_on_file: boolean;
   order_count: number;
+  /** Made on a test number (server/testOrders.ts). */
+  is_test?: boolean;
   doc_slots: string[];
   shipment_kyc: boolean;
   identity_kinds: string[];

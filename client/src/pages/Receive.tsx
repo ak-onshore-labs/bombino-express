@@ -8,7 +8,9 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAppStore } from '@/lib/store';
-import { useOrderHistory } from '@/hooks/useCustomerOrders';
+import { useGuestProfile } from '@/hooks/useGuestProfile';
+import { useReceiving } from '@/hooks/useReceiving';
+import { getOrderStatusTone } from '@/lib/orderStatus';
 
 export default function Receive() {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -17,10 +19,14 @@ export default function Receive() {
   const [, setLocation] = useLocation();
   const isLoggedIn = useAppStore((s) => s.isLoggedIn);
 
-  // The same merged list Home and Orders read, so this screen shares their
-  // cache instead of keeping a copy. "Incoming" is anything still moving.
-  const { data: rows, isLoading } = useOrderHistory(isLoggedIn);
-  const incomingShipments = (rows ?? []).filter((row) => row.isLive);
+  // A guest who proved their number is a receiver as much as an account is.
+  const { data: guestProfile } = useGuestProfile({ enabled: !isLoggedIn });
+  const hasIdentity = isLoggedIn || !!guestProfile;
+  // Parcels coming TO this number (shared/receiving.ts), the same list the
+  // Receiving side of Orders shows. Not the person's own bookings: those are
+  // going out.
+  const { data: incoming, isLoading } = useReceiving(hasIdentity);
+  const incomingShipments = incoming ?? [];
 
   const handleTrack = () => {
     const awb = trackingNumber.trim();
@@ -44,7 +50,7 @@ export default function Receive() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 md:gap-8 md:items-start">
           {/* Left — Track by AWB */}
-          <div className="bg-white rounded-2xl border border-[#E2E8F0] p-5 mb-5 md:mb-0 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+          <div className="bg-white rounded-2xl border border-[#E2E8F0] p-5 mb-5 md:mb-0 shadow-card">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-11 h-11 rounded-xl bg-[lab(34.0831_-9.57756_-27.7093)]/8 flex items-center justify-center">
                 <ScanSearch className="w-5 h-5 text-[lab(34.0831_-9.57756_-27.7093)]" />
@@ -68,7 +74,7 @@ export default function Receive() {
               />
               <Button
                 onClick={handleTrack}
-                className="h-12 w-12 bg-[#F2A123] hover:bg-[#F2A123]/90 rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] shrink-0"
+                className="h-12 w-12 bg-[#F2A123] hover:bg-[#F2A123]/90 rounded-xl shadow-card-hover shrink-0"
                 data-testid="button-track-submit"
               >
                 <ArrowRight className="w-5 h-5 text-[lab(34.0831_-9.57756_-27.7093)]" />
@@ -81,7 +87,7 @@ export default function Receive() {
 
           {/* Right — Incoming Shipments */}
           <div>
-            {isLoggedIn ? (
+            {hasIdentity ? (
               isLoading && incomingShipments.length === 0 ? (
                 <div
                   className="h-40 rounded-2xl border border-[#E2E8F0] bg-white animate-pulse motion-reduce:animate-none"
@@ -92,38 +98,41 @@ export default function Receive() {
                 <div>
                   <h2 className="font-semibold text-[lab(34.0831_-9.57756_-27.7093)] text-sm mb-3 md:text-base">Incoming Shipments</h2>
                   <div className="space-y-2">
-                    {incomingShipments.map((shipment) => (
+                    {incomingShipments.map((parcel) => (
                       <Link
-                        key={shipment.key}
-                        href={shipment.awb ? `/shipment/${shipment.awb}` : `/orders/${shipment.displayId}`}
-                        className="block bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)] hover:shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] transition-all"
-                        data-testid={`incoming-shipment-${shipment.displayId}`}
+                        key={parcel.order_no}
+                        href={`/incoming/${encodeURIComponent(parcel.order_no)}`}
+                        className="block bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-card hover:shadow-card-hover transition-all"
+                        data-testid={`incoming-shipment-${parcel.order_no}`}
                       >
                         <div className="flex items-center justify-between mb-2">
-                          <span className="font-semibold text-sm text-[lab(34.0831_-9.57756_-27.7093)]">{shipment.displayId}</span>
-                          <StatusBadge status={shipment.statusLabel} tone={shipment.statusTone} />
+                          <span className="font-semibold text-sm text-[lab(34.0831_-9.57756_-27.7093)]">{parcel.order_no}</span>
+                          <StatusBadge status={parcel.customer_status} tone={getOrderStatusTone(parcel.status)} />
                         </div>
                         <div className="flex items-center justify-between text-xs text-muted-foreground">
-                          <span>{shipment.recipient} → {shipment.city}</span>
-                          <span>{shipment.service}</span>
+                          <span>
+                            From {parcel.sender_first_name ?? 'a Bombino sender'}
+                            {parcel.sender_city ? `, ${parcel.sender_city}` : ''}
+                          </span>
+                          <span>{parcel.service}</span>
                         </div>
                       </Link>
                     ))}
                   </div>
                 </div>
               ) : (
-                <div className="bg-white rounded-2xl border border-[#E2E8F0] p-8 text-center shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+                <div className="bg-white rounded-2xl border border-[#E2E8F0] p-8 text-center shadow-card">
                   <div className="w-14 h-14 bg-[lab(34.0831_-9.57756_-27.7093)]/8 rounded-full flex items-center justify-center mx-auto mb-3">
                     <PackageSearch className="w-7 h-7 text-[lab(34.0831_-9.57756_-27.7093)]" />
                   </div>
                   <p className="font-semibold text-[lab(34.0831_-9.57756_-27.7093)] text-sm mb-1">No incoming shipments</p>
                   <p className="text-xs text-muted-foreground">
-                    Track any shipment using the AWB number
+                    Parcels sent to your number show up here. You can also track any shipment by its AWB.
                   </p>
                 </div>
               )
             ) : (
-              <div className="bg-white rounded-2xl border border-[#E2E8F0] p-8 text-center shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+              <div className="bg-white rounded-2xl border border-[#E2E8F0] p-8 text-center shadow-card">
                 <div className="w-14 h-14 bg-[lab(34.0831_-9.57756_-27.7093)]/8 rounded-full flex items-center justify-center mx-auto mb-3">
                   <Package className="w-7 h-7 text-[lab(34.0831_-9.57756_-27.7093)]" />
                 </div>
@@ -135,7 +144,7 @@ export default function Receive() {
                   <Link href="/login" className="text-[#F2A123] font-semibold hover:underline">
                     Sign in
                   </Link>
-                  {' '}to view your incoming shipments
+                  {' '}with your number to see parcels coming to you
                 </p>
               </div>
             )}

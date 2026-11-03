@@ -150,6 +150,8 @@ export interface OrderDetailResponse {
   handover: OrderDetailHandover | null;
   /** Why there's no airway bill yet, when ITD refused one at booking. */
   awbNote?: string | null;
+  /** No AWB and no ITD login behind the order: our QR box label applies. */
+  boxLabel?: boolean;
   warning?: string;
 }
 

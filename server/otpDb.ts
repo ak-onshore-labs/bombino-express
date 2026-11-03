@@ -1,7 +1,14 @@
 import { supabase } from "./supabaseClient.js";
 import { dbClient, logDbError, type DbError } from "./db/client.js";
 
-export type OtpPurpose = "signup_personal" | "signup_company" | "login" | "auth";
+export type OtpPurpose =
+  | "signup_personal"
+  | "signup_company"
+  | "login"
+  | "auth"
+  // The profile "Verify WhatsApp" button. Its own purpose so a code sent to
+  // prove WhatsApp can never be spent as a sign-in, and the reverse.
+  | "whatsapp_verify";
 
 const logSupabaseError = (operation: string, error: DbError): void =>
   logDbError("otpDb", operation, error);

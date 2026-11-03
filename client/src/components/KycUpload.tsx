@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { MAX_UPLOAD_BYTES, isAllowedUploadType } from '@shared/upload';
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB, isAllowedUploadType } from '@shared/upload';
+import { PASSPORT_NUMBER_PATTERN } from '@shared/kyc';
 import { CloudUpload, CheckCircle2, XCircle, Loader2, FileText } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { publishKycOnFile, type KycOnFile } from '@/hooks/useKycOnFile';
@@ -43,6 +44,12 @@ interface KycUploadProps {
    * account-side caller omits it and is authorised by its session instead.
    */
   guestPhone?: string;
+  /**
+   * Drawn inside a panel that already says what this is (Profile's
+   * "Replace identity document"): no card of its own, no "KYC Details"
+   * heading, and no "Required" pill before a file is chosen.
+   */
+  embedded?: boolean;
 }
 
 type DocConfig = {
@@ -71,9 +78,9 @@ const DOC_TYPES: Record<string, DocConfig> = {
   'Passport Number': {
     label: 'Passport Number',
     placeholder: 'A1234567',
-    hint: '7-8 character passport number',
-    validate: (v) => /^[A-Z0-9]{7,8}$/i.test(v),
-    maxLength: 8,
+    hint: '6-9 letters and digits, as printed on your passport',
+    validate: (v) => PASSPORT_NUMBER_PATTERN.test(v),
+    maxLength: 9,
   },
   'Driving Licence': {
     label: 'Driving Licence',
@@ -120,6 +127,7 @@ export function KycUpload({
   onValidChange = () => undefined,
   fieldErrors,
   guestPhone,
+  embedded = false,
 }: KycUploadProps): React.JSX.Element {
   const [selectedDocType, setSelectedDocType] = useState(KYC_DOCUMENT_TYPE);
   const [docNoRaw, setDocNoRaw] = useState('');
@@ -340,7 +348,7 @@ export function KycUpload({
     }
     if (file.size > MAX_UPLOAD_BYTES) {
       setUploadErrorCode(null);
-      setUploadError('File must be under 4MB.');
+      setUploadError(`File must be under ${MAX_UPLOAD_MB}MB.`);
       setUploadStatus('error');
       return;
     }
@@ -392,13 +400,15 @@ export function KycUpload({
     selectedDocType === 'Aadhaar Number' ? AADHAAR_DISPLAY_MAX_LENGTH : docConfig.maxLength;
 
   return (
-    <div className="bg-card rounded-xl border border-border p-4 shadow-sm space-y-4">
-      <div className="flex items-center justify-between">
-        <Label className="text-sm font-semibold">KYC Details</Label>
-        <span className="text-[10px] text-muted-foreground">
-          Required for Indian customs
-        </span>
-      </div>
+    <div className={cn(!embedded && 'bg-card rounded-xl border border-border p-4 shadow-card', 'space-y-4')}>
+      {!embedded && (
+        <div className="flex items-center justify-between">
+          <Label className="text-sm font-semibold">KYC Details</Label>
+          <span className="text-[10px] text-muted-foreground">
+            Required for Indian customs
+          </span>
+        </div>
+      )}
 
       <div id="kyc-details-fields" className="space-y-4">
       {/* Document Type */}
@@ -458,7 +468,7 @@ export function KycUpload({
           <Label className="text-xs text-muted-foreground">
             {docConfig.label} Document <span className="text-red-400">*</span>
           </Label>
-          <StatusPill status={uploadStatus} />
+          {!(embedded && uploadStatus === 'idle') && <StatusPill status={uploadStatus} />}
         </div>
 
         <input
@@ -577,7 +587,7 @@ export function KycUpload({
         )}
         <div className="flex items-center gap-1 mt-1.5">
           <FileText className="w-3 h-3 text-muted-foreground" />
-          <p className="text-[10px] text-muted-foreground">PDF, JPEG, or PNG · Max 4MB</p>
+          <p className="text-[10px] text-muted-foreground">PDF, JPEG, or PNG · Max {MAX_UPLOAD_MB}MB</p>
         </div>
       </div>
       </div>

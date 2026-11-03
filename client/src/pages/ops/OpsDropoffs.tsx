@@ -9,6 +9,7 @@ export default function OpsDropoffs() {
       section="dropoffs"
       mode="stages"
       filterConfig={DROPOFFS_FILTER_CONFIG}
+      scanToReceive
     />
   );
 }

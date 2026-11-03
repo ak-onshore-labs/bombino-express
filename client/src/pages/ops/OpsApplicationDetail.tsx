@@ -11,7 +11,11 @@ import { DocumentsSection } from '@/components/ops/application/ApplicationDocume
 import { HistorySection } from '@/components/ops/application/ApplicationHistory';
 import { Properties } from '@/components/ops/application/ApplicationSummary';
 import { OpsShell } from '@/components/ops/OpsShell';
-import { fetchOpsApplicationDocumentFile, useOpsApplicationDetail } from '@/hooks/useOpsApplications';
+import {
+  fetchOpsApplicationContract,
+  fetchOpsApplicationDocumentFile,
+  useOpsApplicationDetail,
+} from '@/hooks/useOpsApplications';
 import { isForbiddenError, isNotFoundError } from '@/lib/apiError';
 
 /**
@@ -72,7 +76,7 @@ export default function OpsApplicationDetail() {
 
   return (
     <OpsShell
-      title={data ? (data.application.name ?? `+91 ${data.application.phone}`) : 'Application'}
+      title={data ? (data.application.name ?? data.application.phone) : 'Application'}
       subtitle={data ? `Account application · ${data.application.category_label}` : 'Account application'}
       eyebrow={
         <Link
@@ -114,7 +118,7 @@ export default function OpsApplicationDetail() {
 
           <div className="min-w-0 space-y-8 xl:col-start-1 xl:row-start-1">
             <section
-              className="rounded-2xl border border-border bg-white overflow-hidden"
+              className="rounded-md border border-border bg-white overflow-hidden"
               data-testid="ops-application-sheet"
             >
               <DetailsSection
@@ -138,6 +142,14 @@ export default function OpsApplicationDetail() {
                     fetchOpsApplicationDocumentFile(data.application.id, doc.slot, true),
                   )
                 }
+                onViewContract={() =>
+                  void openBlob('contract', 'Signed contract', () => fetchOpsApplicationContract(data.application.id))
+                }
+                onDownloadContract={() =>
+                  void downloadBlob('contract', 'Signed contract', () =>
+                    fetchOpsApplicationContract(data.application.id, true),
+                  )
+                }
               />
             </section>
             <HistorySection events={data.events} />
@@ -154,8 +166,8 @@ function DetailSkeleton() {
   return (
     <div className="animate-pulse motion-reduce:animate-none" aria-busy="true" data-testid="ops-application-loading">
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_21rem]">
-        <div className="h-[32rem] rounded-2xl bg-[#E9ECF0]" />
-        <div className="h-72 rounded-2xl bg-[#E9ECF0]" />
+        <div className="h-[32rem] rounded-md bg-[#E9ECF0]" />
+        <div className="h-72 rounded-md bg-[#E9ECF0]" />
       </div>
     </div>
   );

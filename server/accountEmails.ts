@@ -6,6 +6,8 @@
  * it we no longer control.
  */
 
+import { formatAccountPhone } from "../shared/contact.js";
+
 const SUPPORT_PHONE = "+91 22 6640 0000";
 
 export interface RenderedEmail {
@@ -78,7 +80,7 @@ export function applicationAlertEmail(input: ApplicationAlertInput): RenderedEma
     "",
     `Name: ${input.name}`,
     `Account: ${input.accountTypeLabel}`,
-    `Phone: +91 ${input.phone}`,
+    `Phone: ${formatAccountPhone(input.phone)}`,
     `Email: ${input.email}`,
     `Sent: ${istTime(input.submittedAt)}`,
     "",
@@ -91,7 +93,7 @@ export function applicationAlertEmail(input: ApplicationAlertInput): RenderedEma
       '<table style="border-collapse:collapse;margin:8px 0 16px">',
       row("Name", input.name),
       row("Account", input.accountTypeLabel),
-      row("Phone", `+91 ${input.phone}`),
+      row("Phone", formatAccountPhone(input.phone)),
       row("Email", input.email),
       row("Sent", istTime(input.submittedAt)),
       "</table>",
@@ -134,7 +136,7 @@ export function accountReadyEmail(input: AccountReadyInput): RenderedEmail {
     "",
     "Your Bombino Express account is open.",
     "",
-    `In the app: sign in with your mobile number (+91 ${input.phone}). We send you a code on WhatsApp; you don't need a password in the app.`,
+    `In the app: sign in with your mobile number (${formatAccountPhone(input.phone)}). We send you a code on WhatsApp; you don't need a password in the app.`,
     "",
     "Your ITD login, for the Bombino/ITD customer portal:",
     `  Email:    ${input.itdEmail}`,
@@ -157,7 +159,7 @@ export function accountReadyEmail(input: AccountReadyInput): RenderedEmail {
     [
       `<p>Hello ${escapeHtml(input.name)},</p>`,
       "<p>Your Bombino Express account is open.</p>",
-      `<p><strong>In the app:</strong> sign in with your mobile number (+91 ${escapeHtml(input.phone)}). We send you a code on WhatsApp; you don't need a password in the app.</p>`,
+      `<p><strong>In the app:</strong> sign in with your mobile number (${escapeHtml(formatAccountPhone(input.phone))}). We send you a code on WhatsApp; you don't need a password in the app.</p>`,
       '<p style="margin-bottom:4px"><strong>Your ITD login</strong>, for the Bombino/ITD customer portal:</p>',
       `<table style="border-collapse:collapse">${row("Email", input.itdEmail)}${row("Password", input.itdPassword)}</table>`,
       '<p style="color:#b91c1c">Keep this safe, and change the password after your first sign-in to the portal.</p>',
@@ -237,7 +239,7 @@ export function applicationReceivedEmail(input: ApplicationReceivedInput): Rende
     : `Thank you for applying for a Bombino ${input.accountTypeLabel.toLowerCase()} account. We've received your application, and the Bombino team is now setting up your account.`;
   const next =
     "We'll email you again when your account is open, with your login details. If anything needs changing, we'll tell you what, and you can make the change in the app under My Profile.";
-  const meanwhile = `In the meantime you can book shipments as a guest with +91 ${input.phone}. They move into your account when it opens.`;
+  const meanwhile = `In the meantime you can book shipments as a guest with ${formatAccountPhone(input.phone)}. They move into your account when it opens.`;
   const text = [`Hello ${input.name},`, "", lead, "", next, "", meanwhile].join("\n");
   const html = layout(
     input.resent ? "We've received your changes" : "We've received your application",

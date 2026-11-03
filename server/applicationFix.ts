@@ -15,7 +15,6 @@
 
 import type { Request, Response } from "express";
 
-import { isAccountReviewEnabled } from "./accountApplications.js";
 import { getOpenApplicationByPhone, listApplicationEvents, type ApplicationRow } from "./accountApplicationsDb.js";
 import { listDocumentsBySignupRef } from "./accountDocsDb.js";
 import {
@@ -39,7 +38,6 @@ import { IDENTITY_KIND_BY_SLOT } from "./identityChecks.js";
  * session that never ran signup — and an empty ref is a whole signup again.
  */
 export async function applicationToFix(req: Request, phone: unknown): Promise<ApplicationRow | null> {
-  if (!isAccountReviewEnabled()) return null;
   if (typeof phone !== "string" || !phone) return null;
   const guestRef = req.session.guestRef;
   if (!guestRef || req.session.guestPhone !== phone) return null;

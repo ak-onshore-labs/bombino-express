@@ -55,11 +55,25 @@ export type OpsBoardFilterState = {
   clear: () => void;
 };
 
+function filtersFromUrl(): OpsBoardFilters {
+  if (typeof window === 'undefined') return DEFAULT_OPS_BOARD_FILTERS;
+  const params = new URLSearchParams(window.location.search);
+  const assignment = params.get('assignment');
+  const stage = params.get('stage');
+  return {
+    ...DEFAULT_OPS_BOARD_FILTERS,
+    ...(assignment === 'assigned' || assignment === 'unassigned' ? { assignment } : {}),
+    ...(stage === 'inbound' || stage === 'hub' || stage === 'settled' ? { stage } : {}),
+  };
+}
+
 export function useOpsBoardFilters(
   orders: OpsBoardOrder[],
   config: OpsFilterConfig,
 ): OpsBoardFilterState {
-  const [filters, setFilters] = useState<OpsBoardFilters>(DEFAULT_OPS_BOARD_FILTERS);
+  // `?assignment=unassigned` and `?stage=hub` open the board pre-filtered, so
+  // the dashboard can link straight to "pickups with no agent".
+  const [filters, setFilters] = useState<OpsBoardFilters>(() => filtersFromUrl());
   const [sort, setSort] = useState<OpsBoardSort>('newest');
   const [query, setQuery] = useState('');
 

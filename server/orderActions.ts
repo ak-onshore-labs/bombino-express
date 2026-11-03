@@ -21,6 +21,7 @@ import { z } from "zod";
 import {
   advanceOrderStatus,
   claimPickup,
+  releasePickup,
   claimOrderRow,
   recordCollectedPayment,
   transitionOrderStatus,
@@ -46,6 +47,7 @@ import {
 import { notifyAgentOfCancellationRequest, notifyCancellationDeclined } from "./notify.js";
 import type { OpsActionResult } from "./opsActions.js";
 import type { Role } from "../shared/orderContract.js";
+import { can } from "../shared/staffAccess.js";
 
 /**
  * Same contract as `opsActions.ts`, with one addition: a collection answers
@@ -86,6 +88,34 @@ export async function handleClaim(input: {
   await issueCode(input.order.id, "pickup");
 
   return { order: updated, eventNote: "Pickup claimed by agent", eventMeta: {} };
+}
+
+/**
+ * The agent hands a pickup back before collecting the parcel — not yet set
+ * off, or on the way. It returns to unassigned on the ops board for the branch
+ * head to assign again; the next assignment issues the customer a fresh pickup
+ * code.
+ */
+export async function handleReleasePickup(input: {
+  order: Order;
+  callerId: string;
+}): Promise<AgentActionResult> {
+  const updated = await releasePickup(input.order, input.callerId);
+  if (!updated) {
+    return {
+      error: {
+        status: 409,
+        message: "This pickup has already moved on. Refresh your list.",
+        code: "ORDER_STATE_CHANGED",
+      },
+    };
+  }
+  const step = input.order.status === "out_for_pickup" ? "on the way" : "before setting off";
+  return {
+    order: updated,
+    eventNote: `Agent cancelled the pickup ${step}; back to unassigned for the branch`,
+    eventMeta: { released_agent_id: input.callerId, cancelled_from: input.order.status },
+  };
 }
 
 /**
@@ -133,7 +163,6 @@ export async function handleStartPickup(input: {
  */
 export const HANDOVER_KIND_FOR_ACTION = {
   mark_picked_up: "pickup",
-  mark_received_at_hub: "hub",
   mark_received_dropoff: "dropoff",
 } as const satisfies Record<string, HandoverKind>;
 
@@ -250,14 +279,6 @@ export async function handleHandover(input: {
     };
   }
 
-  // The parcel is now in the agent's bag and the next handover is at the hub
-  // counter, where ops reads this number off their console. Issued here rather
-  // than at the counter so it is already on the ops screen when the agent walks
-  // up.
-  if (input.action === "mark_picked_up") {
-    await issueCode(input.order.id, "hub");
-  }
-
   return {
     order: updated,
     eventNote: `${input.role === "agent" ? "Agent" : "Ops"} completed the ${kind} handover with ${
@@ -267,10 +288,53 @@ export async function handleHandover(input: {
   };
 }
 
+/**
+ * The parcel reaches the hub: the agent taps to hand it over, or the counter
+ * marks it received. No code — the hub and the agents do not share one.
+ */
+export async function handleHubReceipt(input: {
+  order: Order;
+  callerId: string;
+  role: Role;
+  expectedFrom: OrderStatus;
+  to: OrderStatus;
+}): Promise<AgentActionResult> {
+  // The agent may only hand over a parcel they hold; ops may take in anyone's.
+  const updated =
+    input.role === "agent"
+      ? await advanceOrderStatus({
+          orderId: input.order.id,
+          agentId: input.callerId,
+          expectedFrom: input.expectedFrom,
+          to: input.to,
+        })
+      : await transitionOrderStatus({
+          orderId: input.order.id,
+          expectedFrom: input.expectedFrom,
+          to: input.to,
+        });
+  if (!updated) {
+    return {
+      error: {
+        status: 409,
+        message: "This parcel has already moved on. Refresh your list.",
+        code: "ORDER_STATE_CHANGED",
+      },
+    };
+  }
+  return {
+    order: updated,
+    eventNote:
+      input.role === "agent"
+        ? "Agent handed the parcel over at the hub"
+        : "Ops received the parcel at the hub",
+    eventMeta: { handover: "hub" },
+  };
+}
+
 /** Which handover an ops override is waving through, by the status it acts on. */
 export const HANDOVER_KIND_FOR_STATUS: Partial<Record<OrderStatus, HandoverKind>> = {
   out_for_pickup: "pickup",
-  picked_up: "hub",
   awaiting_dropoff: "dropoff",
 };
 
@@ -361,7 +425,9 @@ export async function handleCollectPayment(input: {
   payload: unknown;
 }): Promise<AgentActionResult> {
   const atPickup = input.role === "agent";
-  const isOps = input.role === "admin" || input.role === "super_admin";
+  // Hub-side collection is an order action: super admin, admin, branch
+  // manager. Customer support and accounts see orders but never take payment.
+  const isOps = can(input.role, "orders.act");
   if (!atPickup && !isOps) {
     return {
       error: {

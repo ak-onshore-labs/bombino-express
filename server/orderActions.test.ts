@@ -193,7 +193,7 @@ test("every handover action maps to a kind, and every kind names whose code it i
   }
   // The statuses an ops override can act from, and what each waves through.
   assert.equal(HANDOVER_KIND_FOR_STATUS.out_for_pickup, "pickup");
-  assert.equal(HANDOVER_KIND_FOR_STATUS.picked_up, "hub");
+  assert.equal(HANDOVER_KIND_FOR_STATUS.picked_up, undefined);
   assert.equal(HANDOVER_KIND_FOR_STATUS.awaiting_dropoff, "dropoff");
   // A status with no handover due must not be overridable into one.
   assert.equal(HANDOVER_KIND_FOR_STATUS.settled, undefined);

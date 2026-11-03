@@ -22,6 +22,8 @@ export type OpsApplicationRow = {
   finalize_error: string | null;
   email_error: string | null;
   email_sent_at: string | null;
+  /** Made on a test number (server/testOrders.ts). */
+  is_test?: boolean;
 };
 
 export type OpsApplicationDocument = {
@@ -78,9 +80,10 @@ export type OpsApplicationFilter = 'open' | 'all' | ApplicationStatus;
 
 export const OPS_APPLICATIONS_KEY = ['/api/ops/applications'] as const;
 
-export function useOpsApplications(filter: OpsApplicationFilter) {
+export function useOpsApplications(filter: OpsApplicationFilter, enabled = true) {
   return useQuery({
     queryKey: [...OPS_APPLICATIONS_KEY, filter],
+    enabled,
     queryFn: async () => {
       const res = await fetch(`/api/ops/applications?status=${encodeURIComponent(filter)}`, {
         credentials: 'include',
@@ -217,6 +220,22 @@ export async function fetchOpsApplicationDocumentFile(
     `/api/ops/applications/${encodeURIComponent(id)}/documents/${encodeURIComponent(slot)}/file${
       download ? '?download=1' : ''
     }`,
+    { credentials: 'include', cache: 'no-store' },
+  );
+  if (!res.ok) {
+    const text = (await res.text()) || res.statusText;
+    throw new Error(`${res.status}: ${text}`);
+  }
+  return res.blob();
+}
+
+/**
+ * The contract as the customer signed it, rebuilt by the server from the
+ * recorded signature. `download` asks for a saved copy rather than a view.
+ */
+export async function fetchOpsApplicationContract(id: string, download = false): Promise<Blob> {
+  const res = await fetch(
+    `/api/ops/applications/${encodeURIComponent(id)}/contract${download ? '?download=1' : ''}`,
     { credentials: 'include', cache: 'no-store' },
   );
   if (!res.ok) {

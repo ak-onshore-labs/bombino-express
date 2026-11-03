@@ -1,6 +1,10 @@
-import { Copy, Package } from 'lucide-react';
+import type { KeyboardEvent, MouseEvent } from 'react';
+import { ChevronRight, Copy, MapPin, Package } from 'lucide-react';
 import { Link } from 'wouter';
 import { cn } from '@/lib/utils';
+import { StatusBadge } from '@/components/StatusBadge';
+import { formatInr } from '@/lib/orderDetail';
+import { getCustomerStatusLabel, getOrderStatusTone } from '@/lib/orderStatus';
 import { useToast } from '@/hooks/use-toast';
 import {
   ORDER_PAYMENT_META,
@@ -15,10 +19,9 @@ import {
  * rather than a lookalike: two copies of a card that quotes an order number
  * and a payment state is two places for them to disagree.
  *
- * `/orders` lists the same bookings as rows (see guestOrderToRow), but
- * `GET /api/orders/:orderNo` answers only to a `dbUserId`, so there is no
- * detail screen behind them. It is a record of what we were told, not live
- * tracking — the copy says so, and nothing here polls.
+ * `/orders` lists the same bookings as rows (see guestOrderToRow), and each
+ * opens the order screen, which answers a verified guest too. This list is a
+ * record of what we were told, not live tracking, and nothing here polls.
  */
 
 interface GuestOrdersProps {
@@ -81,7 +84,7 @@ export function GuestOrders({
         )}
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-3">
         {shown.map((order) => (
           <GuestOrderCard
             key={order.order_no}
@@ -98,6 +101,20 @@ export function GuestOrders({
   );
 }
 
+/** `UNITED STATES` arrives shouting from the booking; say it like a place. */
+function placeName(value: string | null): string {
+  const v = value?.trim();
+  if (!v) return '';
+  return v === v.toUpperCase() ? v.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()) : v;
+}
+
+/**
+ * One booking: where it is, who it is going to, and what is owed.
+ *
+ * The whole card opens the order. The order number still copies on its own —
+ * support asks for it by phone — so it is a button that stops the tap reaching
+ * the link.
+ */
 function GuestOrderCard({
   order,
   onCopy,
@@ -106,56 +123,97 @@ function GuestOrderCard({
   onCopy: () => void;
 }): React.JSX.Element {
   const payment = ORDER_PAYMENT_META[order.payment_status];
+  const owed = order.payment_status !== 'paid' && order.payment_status !== 'refund_due';
+  const amount = formatInr(order.final_amount ?? order.quoted_amount);
+  const place = [placeName(order.city), placeName(order.country)].filter(Boolean).join(', ')
+    || placeName(order.destination);
+
+  const copy = (event: MouseEvent | KeyboardEvent): void => {
+    event.preventDefault();
+    event.stopPropagation();
+    onCopy();
+  };
 
   return (
-    <div
-      className="rounded-xl border border-border bg-card p-3.5 shadow-sm"
+    <Link
+      href={`/order/${encodeURIComponent(order.order_no)}`}
+      className="block overflow-hidden rounded-xl border border-[rgba(198,40,40,0.08)] bg-card shadow-card transition-[box-shadow,transform] duration-200 hover:-translate-y-px hover:shadow-card-hover active:translate-y-0 active:scale-[0.99]"
       data-testid={`guest-order-${order.order_no}`}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-3 p-4">
         <span
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"
+          className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"
           aria-hidden
         >
-          <Package className="h-4 w-4" />
+          <Package className="h-5 w-5" />
         </span>
 
         <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            {/* The number is the whole point of the card, so it is the thing
-                that copies — support asks for it by phone. */}
-            <button
-              type="button"
-              onClick={onCopy}
-              className="flex min-w-0 items-center gap-1.5 text-left"
+          <div className="flex items-center justify-between gap-2">
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={copy}
+              onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && copy(e)}
+              aria-label={`Copy ${order.order_no}`}
+              className="-m-1 flex min-h-8 min-w-0 items-center gap-1.5 rounded-md p-1 hover:bg-muted"
               data-testid={`button-copy-order-${order.order_no}`}
             >
-              <span className="truncate text-sm font-bold text-foreground">{order.order_no}</span>
-              <Copy className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-            </button>
-            {payment && (
-              <span
-                className={cn(
-                  'shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold',
-                  payment.badge
-                )}
-              >
-                {payment.label}
+              <span className="truncate text-sm font-bold tabular-nums text-foreground">
+                {order.order_no}
               </span>
-            )}
+              <Copy className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+            </span>
+            <StatusBadge
+              status={getCustomerStatusLabel(order.status)}
+              tone={getOrderStatusTone(order.status)}
+              className="shrink-0"
+            />
           </div>
 
-          {order.destination && (
-            <p className="mt-1 break-words text-sm leading-snug text-foreground">
-              To {order.destination}
+          <p className="mt-2 truncate text-base font-semibold leading-tight text-foreground">
+            {order.recipient?.trim() || 'Recipient'}
+          </p>
+          {place && (
+            <p className="mt-0.5 flex min-w-0 items-center gap-1 text-sm text-muted-foreground">
+              <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              <span className="truncate">{place}</span>
             </p>
           )}
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Booked {formatOrderDate(order.created_at)}
-            {order.awb_no ? ` · AWB ${order.awb_no}` : ''}
-          </p>
         </div>
       </div>
-    </div>
+
+      <div className="flex items-center justify-between gap-3 border-t border-[rgba(198,40,40,0.06)] bg-[#FBF8F7] px-4 py-3">
+        <p className="min-w-0 truncate text-xs text-muted-foreground">
+          Booked {formatOrderDate(order.created_at)}
+          {order.awb_no ? ` · AWB ${order.awb_no}` : ''}
+        </p>
+        <div className="flex shrink-0 items-center gap-2">
+          {amount && (
+            <span className="text-right leading-tight">
+              <span
+                className={cn(
+                  'block text-sm font-bold tabular-nums',
+                  owed ? 'text-[#B4690E]' : 'text-foreground'
+                )}
+              >
+                {amount}
+              </span>
+              {payment && (
+                <span
+                  className={cn(
+                    'block text-[11px] font-semibold',
+                    owed ? 'text-[#B4690E]' : 'text-muted-foreground'
+                  )}
+                >
+                  {payment.label}
+                </span>
+              )}
+            </span>
+          )}
+          <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden />
+        </div>
+      </div>
+    </Link>
   );
 }

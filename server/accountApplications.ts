@@ -1,12 +1,13 @@
 /**
- * Account review (ACCOUNT_REVIEW=1): signup files an application instead of
- * opening an account. Everything here runs after signup's own gates — identity
- * numbers, the OCR-checked document set, the GSTIN, the signature — have
- * already passed in routes.ts, so an application is always as complete as an
- * account used to be.
+ * Account review: signup files an application, never an account. Everything
+ * here runs after signup's own gates (identity numbers, the OCR-checked
+ * document set, the GSTIN, the signature) have already passed in routes.ts.
  *
- * Off by default. Until the ops console can approve applications, turning it
- * on would leave every new customer waiting on a queue nobody can empty.
+ * Always on, in code, not behind a variable: there are exactly two kinds of
+ * customer, guests and accounts with a verified ITD login, and an account only
+ * opens when ops approves it with that login (server/accountApproval.ts). The
+ * old direct-signup path, which opened accounts with no ITD login at all, is
+ * gone.
  */
 
 import type { Request } from "express";
@@ -24,6 +25,9 @@ import { upsertGuestProfile } from "./guestProfileDb.js";
 import { getKycByGuestRef } from "./kycDb.js";
 import { mirrorAadhaarToKyc } from "./kycMirror.js";
 import { sendMail } from "./mailer.js";
+import { notifyAccountDecision } from "./notify.js";
+import { notifyStaffOfApplication } from "./notifyStaff.js";
+import { isTestPhone } from "./testOrders.js";
 import { applicationAlertEmail, applicationReceivedEmail, changesRequestedEmail, rejectedEmail } from "./accountEmails.js";
 import { getApplicationAlertRecipients } from "./opsSettings.js";
 import { COMPANY_CATEGORY_SPECS, DOC_SLOT_SPECS, isCompanyCategory, isDocSlot } from "../shared/accountSpec.js";
@@ -33,10 +37,8 @@ import {
   isApplicationField,
   type RequestedChanges,
 } from "../shared/applicationStatus.js";
+import { formatAccountPhone } from "../shared/contact.js";
 
-export function isAccountReviewEnabled(): boolean {
-  return process.env.ACCOUNT_REVIEW === "1";
-}
 
 export type ServiceResult<T> = { ok: true; value: T } | { ok: false; status: number; code: string; message: string };
 
@@ -129,6 +131,14 @@ export async function fileApplication(
   // already in the queue, and they were told the first time.
   if (event !== "edited") {
     void notifyTeamOfApplication(row, event === "resubmitted");
+    void notifyStaffOfApplication({
+      applicationId: row.id,
+      resent: event === "resubmitted",
+      name: (row.account_type === "company" ? row.details.company_name : row.details.full_name) || formatAccountPhone(row.phone),
+      accountType: accountTypeLabel(row),
+      phone: row.phone,
+      at: new Date().toISOString(),
+    });
     void notifyCustomerReceived(row, event === "resubmitted");
   }
 
@@ -226,10 +236,13 @@ function accountTypeLabel(app: ApplicationRow): string {
  * way, the queue and the nav pill show it, and a failure is a log line.
  */
 export async function notifyTeamOfApplication(app: ApplicationRow, resent: boolean): Promise<void> {
+  // A test number's application stays off the team's inbox; test staff find
+  // it in the queue (server/testOrders.ts).
+  if (isTestPhone(app.phone)) return;
   try {
     const { emails } = await getApplicationAlertRecipients();
     if (emails.length === 0) return;
-    const name = (app.account_type === "company" ? app.details.company_name : app.details.full_name) || `+91 ${app.phone}`;
+    const name = (app.account_type === "company" ? app.details.company_name : app.details.full_name) || formatAccountPhone(app.phone);
     const mail = applicationAlertEmail({
       name,
       accountTypeLabel: accountTypeLabel(app),
@@ -326,6 +339,13 @@ export async function notifyChangesRequested(app: ApplicationRow): Promise<void>
     body: changes.note || `Please update: ${listed}.`,
     data: { application_id: app.id },
   });
+  void notifyAccountDecision({
+    applicationId: app.id,
+    phone: app.phone,
+    userId: null,
+    decision: { kind: "sent_back" },
+    at: new Date().toISOString(),
+  });
   const email = changesRequestedEmail({ name: customerName(app), note: changes.note, fieldLabels, documentLabels });
   const sent = await sendMail({ to: app.details.email, ...email });
   await insertApplicationEvent({
@@ -344,6 +364,13 @@ export async function notifyRejected(app: ApplicationRow): Promise<void> {
     title: "Account not opened",
     body: reason,
     data: { application_id: app.id },
+  });
+  void notifyAccountDecision({
+    applicationId: app.id,
+    phone: app.phone,
+    userId: null,
+    decision: { kind: "declined", reason: reason || null },
+    at: new Date().toISOString(),
   });
   const sent = await sendMail({ to: app.details.email, ...rejectedEmail({ name: customerName(app), reason }) });
   await insertApplicationEvent({

@@ -1,9 +1,8 @@
 import { useState } from 'react';
-import { Check, ChevronDown, Loader2, ShieldCheck } from 'lucide-react';
+import { Check, ChevronDown, ListChecks, Loader2, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   SHADOW_STATUS_META,
-  formatGuestPhone,
   shadowProfileProgress,
   type GuestProfile,
   type ShadowProfileFieldState,
@@ -49,46 +48,47 @@ export function ProfileProgressTracker({
 
   return (
     <section
-      className={cn('overflow-hidden rounded-2xl border border-border bg-card shadow-sm', className)}
-      aria-label="Your profile"
+      className={cn(
+        'overflow-hidden rounded-2xl border bg-card shadow-card',
+        pending.length > 0 ? 'border-amber-200' : 'border-border',
+        className,
+      )}
+      aria-labelledby="profile-progress-title"
       data-testid="profile-progress-tracker"
     >
-      {/* Identity, stated once and only here. */}
-      <div className="flex items-center gap-3 border-b border-border p-4">
-        <span
-          className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-primary/10 text-sm font-bold text-primary"
+      {/* Opens like every other profile section: icon, title, one line of why.
+          Who this is lives in the hero above, not here. */}
+      <div className="flex items-start gap-3 p-4 pb-0">
+        <div
+          className={cn(
+            'grid h-9 w-9 shrink-0 place-items-center rounded-xl',
+            pending.length > 0 ? 'bg-amber-50 text-amber-700' : 'bg-green-50 text-green-700',
+          )}
           aria-hidden
         >
-          {initials(profile.full_name) || <ShieldCheck className="h-5 w-5" />}
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-base font-semibold text-foreground">
-            {profile.full_name?.trim() || 'Guest'}
-          </p>
-          <p className="mt-0.5 flex items-center gap-1.5 text-sm text-muted-foreground">
-            <ShieldCheck className="h-4 w-4 shrink-0 text-green-600" aria-label="Verified" />
-            <span className="truncate">{formatGuestPhone(profile.phone)}</span>
-          </p>
+          {pending.length > 0 ? <ListChecks className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}
         </div>
-      </div>
-
-      <div className="p-4">
-        {/* The count, then the bar. One number, not three. */}
-        <div className="flex items-baseline justify-between gap-3">
-          <p className="text-sm font-semibold text-foreground">
+        <div className="min-w-0 flex-1">
+          <h3 id="profile-progress-title" className="text-sm font-semibold text-foreground">
             {pending.length === 0
               ? 'Everything on file'
               : pending.length === 1
-                ? '1 thing left'
-                : `${pending.length} things left`}
-          </p>
-          <p className="shrink-0 text-xs text-muted-foreground" data-testid="text-profile-percent">
-            {completed} of {total}
+                ? 'Finish your profile · 1 thing left'
+                : `Finish your profile · ${pending.length} things left`}
+          </h3>
+          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+            What we need to open your account. Your bookings work meanwhile.
           </p>
         </div>
+        <p className="shrink-0 text-xs font-semibold text-muted-foreground tabular-nums" data-testid="text-profile-percent">
+          {completed} of {total}
+        </p>
+      </div>
+
+      <div className="p-4">
 
         <div
-          className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"
+          className="h-1.5 overflow-hidden rounded-full bg-muted"
           role="progressbar"
           aria-valuenow={completed}
           aria-valuemin={0}
@@ -201,10 +201,3 @@ function PendingRow({ field }: { field: ShadowProfileFieldState }): React.JSX.El
   );
 }
 
-/** Two letters at most. A monogram, not a name badly abbreviated. */
-function initials(name: string | null): string {
-  const parts = (name ?? '').trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '';
-  const letters = parts.length === 1 ? parts[0].slice(0, 2) : parts[0][0] + parts[parts.length - 1][0];
-  return letters.toUpperCase();
-}

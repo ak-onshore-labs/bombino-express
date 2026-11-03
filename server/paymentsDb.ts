@@ -17,6 +17,7 @@
 import { supabase } from "./supabaseClient.js";
 import { dbClient, logDbError, type DbError } from "./db/client.js";
 import { toOrder, type OrderRow } from "./ordersDb.js";
+import { notifyStaffOfRefundDue } from "./notifyStaff.js";
 import type { Order } from "../shared/orderContract.js";
 
 const ORDER_COLUMNS =
@@ -277,7 +278,13 @@ export async function reconcilePaymentStatus(orderId: string): Promise<Order | n
     return null;
   }
 
-  return data ? toOrder(data as unknown as OrderRow) : null;
+  const updated = data ? toOrder(data as unknown as OrderRow) : null;
+  // Newly owed back: accounts has to pay it, and nothing else would tell them.
+  if (updated && next === "refund_due") {
+    const due = num(order.final_amount) ?? num(order.quoted_amount) ?? 0;
+    void notifyStaffOfRefundDue({ order: updated, amount: updated.status === "cancelled" ? held : held - due });
+  }
+  return updated;
 }
 
 

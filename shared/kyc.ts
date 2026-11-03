@@ -1,3 +1,14 @@
+/**
+ * A passport number from any country.
+ *
+ * ICAO Doc 9303 gives the passport number a 9-character field of letters and
+ * digits, and every issuing state fits inside it: India uses 8 (A1234567),
+ * the US 9, the UK 9, many others 6-9. The old rule was India's 7-8, which
+ * turned away every foreign passport. Six is the floor so a stray short
+ * entry is still caught.
+ */
+export const PASSPORT_NUMBER_PATTERN = /^[A-Z0-9]{6,9}$/i;
+
 export function getGstinType(documentType: string): string {
   const map: Record<string, string> = {
     "Aadhaar Number": "AADHAAR NUMBER",

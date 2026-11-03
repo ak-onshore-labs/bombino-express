@@ -80,6 +80,12 @@ export interface SupportChatContext {
    * up with ownership checked. Null when the client sent none.
    */
   screen: BiaScreen | null;
+  /**
+   * Where the conversation is happening. Absent means the app. On WhatsApp the
+   * person was identified by the number they message from (server/whatsappBia.ts),
+   * buttons become website links, and BIA is told so (supportPrompts.ts).
+   */
+  channel?: "app" | "whatsapp";
 }
 
 // ─── Tool arguments (LLM → executor) ─────────────────────────────────────────
@@ -89,6 +95,8 @@ export interface GetRatesArgs {
   origin_country?: string;
   destination_country: string;
   weight_kg: string;
+  /** Box size, e.g. "40x30x30 cm" or "16x12x12 in". Required: rates are priced on size too. */
+  box_size: string;
 }
 
 export interface GetTrackingSummaryArgs {

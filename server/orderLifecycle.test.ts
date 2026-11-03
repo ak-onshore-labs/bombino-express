@@ -38,9 +38,9 @@ function order(patch: Partial<Order> = {}): Order {
 const actions = (o: Order, role: Parameters<typeof availableActions>[1], userId: string | null = null): Action[] =>
   availableActions(o, role, { userId }).map((a) => a.action);
 
-test("an unclaimed pickup is offered to an agent, and to nobody else", () => {
+test("nobody claims a pickup: the branch head assigns it", () => {
   const unclaimed = order({ status: "pickup_requested" });
-  assert.ok(actions(unclaimed, "agent", AGENT).includes("claim"));
+  assert.equal(actions(unclaimed, "agent", AGENT).includes("claim"), false);
   assert.equal(actions(unclaimed, "customer").includes("claim"), false);
 });
 
@@ -153,4 +153,58 @@ test("a finished order offers nothing to anyone", () => {
       assert.deepEqual(actions(order({ status }), role, AGENT), [], `${role} had something to do on ${status}`);
     }
   }
+});
+
+test("an assigned agent can start the journey or cancel the pickup", () => {
+  const assigned = order({ status: "agent_accepted", agent_id: AGENT });
+  assert.deepEqual(actions(assigned, "agent", AGENT), ["start_pickup", "release_pickup"]);
+  assert.equal(
+    findTransition(assigned, "release_pickup", "agent", { userId: AGENT })?.to,
+    "pickup_requested"
+  );
+});
+
+test("another agent cannot cancel someone else's pickup", () => {
+  const assigned = order({ status: "agent_accepted", agent_id: OTHER_AGENT });
+  assert.equal(actions(assigned, "agent", AGENT).includes("release_pickup"), false);
+});
+
+test("on the way, the agent can still hand the pickup back, after the forward steps", () => {
+  const onTheWay = order({ status: "out_for_pickup", agent_id: AGENT });
+  const offered = actions(onTheWay, "agent", AGENT);
+  assert.equal(offered.at(-1), "release_pickup");
+  assert.equal(
+    findTransition(onTheWay, "release_pickup", "agent", { userId: AGENT })?.to,
+    "pickup_requested"
+  );
+});
+
+test("once money is collected at the door the pickup cannot be cancelled", () => {
+  for (const payment_status of ["paid", "partially_paid"] as const) {
+    const paidAtDoor = order({
+      status: "out_for_pickup",
+      agent_id: AGENT,
+      payment_method: "pay_at_pickup",
+      payment_status,
+    });
+    assert.equal(actions(paidAtDoor, "agent", AGENT).includes("release_pickup"), false, payment_status);
+  }
+  // Paid online before the agent came: nothing changed hands at the door.
+  const prepaid = order({ status: "out_for_pickup", agent_id: AGENT, payment_method: "pay_now", payment_status: "paid" });
+  assert.ok(actions(prepaid, "agent", AGENT).includes("release_pickup"));
+});
+
+test("once the parcel is collected the pickup cannot be cancelled", () => {
+  const collected = order({ status: "picked_up", agent_id: AGENT });
+  assert.deepEqual(actions(collected, "agent", AGENT), ["mark_received_at_hub"]);
+});
+
+test("handing over at the hub needs no code, from the agent or the counter", () => {
+  const collected = order({ status: "picked_up", agent_id: AGENT });
+  const agentStep = findTransition(collected, "mark_received_at_hub", "agent", { userId: AGENT });
+  assert.equal(agentStep?.requiresPayload ?? false, false);
+  const opsStep = findTransition(collected, "mark_received_at_hub", "admin", { userId: "ops-1" });
+  assert.equal(opsStep?.to, "received_at_hub");
+  assert.equal(opsStep?.requiresPayload ?? false, false);
+  assert.equal(actions(collected, "admin", "ops-1").includes("override_handover"), false);
 });

@@ -41,7 +41,7 @@ If the screen then says **Application sent**, the Bombino team sets the account 
 Asked as: book, ship, send a parcel, create shipment, new shipment, how to ship, booking form, steps, place an order
 Buttons: TAP_CREATE_SHIPMENT
 
-Tap **Ship** at the bottom (**Create Shipment** on a computer). You go through the steps: your own details and whether we pick the parcel up from your door (choose a date) or you drop it at a Bombino counter; the receiver; the parcel's weight, pieces, packing and value; then the service, what's inside and its invoice details; and finally review and pay. On every step, **Ask BIA about this step** at the top explains what that step needs. You get an Order ID (BOM-…) as soon as you book.
+Tap **Ship** at the bottom (**Create Shipment** on a computer). You go through the steps: your own details and whether we pick the parcel up from your door (choose a date) or you drop it at a Bombino counter; the receiver (add their Indian mobile under **Receiver's Indian mobile** and they can sign in to the app with it to track the parcel); the parcel's weight, pieces, packing and value; then the service, what's inside and its invoice details; and finally review and pay. On every step, **Ask BIA about this step** at the top explains what that step needs. You get an Order ID (BOM-…) as soon as you book.
 
 ## Booking as a guest, and your guest profile
 Asked as: guest, without account, no account, guest profile, my details, save my details, guest booking, book without signing up
@@ -58,7 +58,7 @@ Tap **Rates** at the bottom. Enter where it's going from (your pincode), the des
 Asked as: my orders, my shipments, order list, find my order, orders tab, history, past orders, export, download, csv, spreadsheet, share list
 Buttons: TAP_MY_ORDERS
 
-Tap **Orders** at the bottom (**My Orders** on a computer). Every booking is listed, newest first; tap any row for its details. The box at the top tracks any AWB. Signed in, **Export CSV** downloads your shipments as a spreadsheet you can share. The **Cancellations** tab lists cancellation requests you've made and orders our team has cancelled. Booked as a guest? Your bookings also show on your guest profile.
+Tap **Orders** at the bottom (**My Orders** on a computer). It has two sides: **Sending**, every parcel you booked, newest first, and **Receiving**, parcels on their way to your number. Tap any row for its details. The box at the top tracks any AWB. Signed in, **Export CSV** downloads your shipments as a spreadsheet you can share. Under **Sending**, the **Cancellations** tab lists cancellation requests you've made and orders our team has cancelled. Booked as a guest? Your bookings also show on your guest profile.
 
 ## An order's page
 Asked as: order page, order details, order status, timeline, pickup code, drop-off code, handover code, new code, pay now, call the rider, call agent, order information
@@ -69,7 +69,13 @@ Open **Orders** and tap the order. At the top: the Order ID, its status and, onc
 ## Tracking a shipment
 Asked as: track, tracking, where is my parcel, AWB, tracking number, incoming, receive, shipment status, delivery status, track a parcel sent to me
 
-Once your parcel has a tracking number (AWB), enter it in **Track Any Order** on **Home**, in the box at the top of **Orders**, or on **Track** (on a computer, in the sidebar). It shows the status and every scan. On the shipment's page, the refresh button gets the latest scans and the copy button copies the AWB. Signed in, **Track & Receive** also lists shipments coming to you. Before the AWB is issued, your order shows in **Orders** under its Order ID. Or give me the AWB and I'll track it here.
+Once your parcel has a tracking number (AWB), enter it in **Track Any Order** on **Home**, in the box at the top of **Orders**, or on **Track** (on a computer, in the sidebar). It shows the status and every scan. On the shipment's page, the refresh button gets the latest scans and the copy button copies the AWB. Signed in, **Track & Receive** also lists parcels coming to your number. Before the AWB is issued, your order shows in **Orders** under its Order ID. Or give me the AWB and I'll track it here.
+
+## Parcels coming to you
+Asked as: receive, receiving, incoming, parcel for me, someone sent me, track a parcel sent to me, receiver, I am the receiver, coming to me
+Buttons: TAP_MY_ORDERS
+
+If someone sends you a parcel and adds your Indian mobile as the receiver's number, sign in with that number (Login, then the code we send). You don't need an account: you're signed in as a guest. Open **Orders** and tap **Receiving**: each parcel shows who sent it (first name and city), its status, and once it has one, the tracking number (AWB). Tap it for the tracking scans. Price, payment and pickup details stay with the sender. Nothing there? Ask the sender to add your number when they book, or track the parcel by its AWB. Only Indian mobile numbers can sign in for now.
 
 ## Shipping labels and invoice
 Asked as: label, shipping label, postal label, box label, invoice, print, download label, commercial invoice

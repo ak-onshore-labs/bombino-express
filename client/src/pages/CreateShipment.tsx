@@ -5,12 +5,14 @@ import {
   formatInr,
   itemizedChargesEmpty,
   normalizeRateRow,
+  rateBoxesFromForm,
   type ITDChargeApplyEntry,
   type ITDRateResponse,
   type ITDRateRow,
   type RateParams,
 } from '@/lib/itdRates';
-import { isIndianMobile } from '@shared/contact';
+import { isIndianMobile, isValidReceiverPhone, toIndianMobile, withoutTrunkZero } from '@shared/contact';
+import { normalizeReceiverAppPhone, suggestedReceiverAppPhone } from '@shared/receiving';
 import {
   ArrowLeft,
   Check,
@@ -65,6 +67,7 @@ import {
   pickupCutoffHour,
 } from '@shared/pickupPincodes';
 import { usePickupCoverage } from '@/hooks/usePickupCoverage';
+import { rateOriginFor, rateOriginNote, rateRouteNote } from '@shared/rateOrigin';
 import { lbToKg, inToCm } from '@/lib/units';
 import { apiRequest } from '@/lib/queryClient';
 import { parseApiErrorCode, parseApiErrorMessage } from '@/lib/apiError';
@@ -80,6 +83,8 @@ import { US_STATES, US_STATE_ERROR, US_ZIP_ERROR, isUsZip, usStateName } from '@
 import { useToast } from '@/hooks/use-toast';
 import { usePincodeLookup } from '@/hooks/usePincodeLookup';
 import { DropoffBranches } from '@/components/DropoffBranches';
+import { ShipmentDocuments } from '@/components/ShipmentDocuments';
+import { PdfDocButton, fetchPdfBase64 } from '@/components/PdfDocButton';
 import {
   ITD_COUNTRY_LIST,
   ITD_COUNTRY_MAP,
@@ -203,6 +208,8 @@ interface OrderCreateResponse {
     id: string;
     order_no: string;
   };
+  /** No AWB and no ITD login behind the booking: offer our QR box label. */
+  boxLabel?: boolean;
   /**
    * Whether an airway bill was filed with ITD as part of this booking.
    *
@@ -242,12 +249,16 @@ const steps = [
 interface CountryComboboxProps {
   value: string;
   onValueChange: (code: string) => void;
+  /** Error styling from the step's field validation. */
+  className?: string;
 }
 
-function CountryCombobox({ value, onValueChange }: CountryComboboxProps) {
+function CountryCombobox({ value, onValueChange, className }: CountryComboboxProps) {
   const [open, setOpen] = useState(false);
   const country = ITD_COUNTRY_MAP[value];
-  const displayName = country ? formatCountryDisplay(country.name) : value;
+  // No default: the customer picks where the parcel is going. Pre-selecting
+  // the US booked non-US parcels to the US whenever nobody noticed the field.
+  const displayName = country ? formatCountryDisplay(country.name) : value || null;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -257,9 +268,15 @@ function CountryCombobox({ value, onValueChange }: CountryComboboxProps) {
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          className="w-full h-11 justify-between font-normal text-sm bg-muted/30 border-border rounded-xl px-3"
+          data-testid="select-destination-country"
+          className={cn(
+            'w-full h-11 justify-between font-normal text-sm bg-muted/30 border-border rounded-xl px-3',
+            className
+          )}
         >
-          <span className="truncate text-left">{displayName}</span>
+          <span className={cn('truncate text-left', !displayName && 'text-muted-foreground')}>
+            {displayName ?? 'Select destination country'}
+          </span>
           <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
@@ -449,7 +466,7 @@ function StepActions({
 
         <Button
           onClick={onNext}
-          className="h-12 flex-1 rounded-xl bg-[#F2A123] text-sm font-semibold text-[lab(34.0831_-9.57756_-27.7093)] shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] hover:bg-[#F2A123]/90"
+          className="h-12 flex-1 rounded-xl bg-[#F2A123] text-sm font-semibold text-[lab(34.0831_-9.57756_-27.7093)] shadow-card-hover hover:bg-[#F2A123]/90"
           data-testid="button-next-step"
         >
           {nextLabel}
@@ -467,6 +484,7 @@ export default function CreateShipment() {
   const [currentStep, setCurrentStep] = useState(1);
   const [newOrderNo, setNewOrderNo] = useState('');
   const [newAwbNo, setNewAwbNo] = useState('');
+  const [newBoxLabel, setNewBoxLabel] = useState(false);
   const [docketMessage, setDocketMessage] = useState('');
   const [newOrderId, setNewOrderId] = useState('');
   const [submitError, setSubmitError] = useState('');
@@ -560,7 +578,11 @@ export default function CreateShipment() {
     if (!guestMode || !recognisedGuest) return;
 
     setGuestVerifiedPhone((current) => current ?? recognisedGuest.phone);
-    setSenderPhone((current) => current || recognisedGuest.phone);
+    // The sender phone is the Indian pickup contact. A guest from abroad
+    // ("+974…") types that one in themselves.
+    if (isIndianMobile(recognisedGuest.phone)) {
+      setSenderPhone((current) => current || recognisedGuest.phone);
+    }
     setSenderName((current) => current || recognisedGuest.full_name || '');
     setSenderEmail((current) => current || recognisedGuest.email || '');
   }, [guestMode, recognisedGuest]);
@@ -590,6 +612,9 @@ export default function CreateShipment() {
   );
   const pickupBlocked = isPickupBlocked(senderZip, coverage);
   const pickupSurcharge = pickupCoverage.serviceable && pickupCoverage.remark === 'out_of_city';
+  // Rates are priced from Mumbai. Sending from another city, the leg to Mumbai
+  // is extra and the team quotes it, which the customer is told beside the rates.
+  const rateOrigin = rateOriginFor(senderZip, coverage, senderCity);
 
   // Covers a pincode typed after pickup was chosen, and one arriving whole
   // from a saved address.
@@ -622,13 +647,30 @@ export default function CreateShipment() {
   const [receiverName, setReceiverName] = useState('');
   const [receiverPhone, setReceiverPhone] = useState('');
   const [receiverEmail, setReceiverEmail] = useState('');
+  /**
+   * The Indian mobile the receiver signs in with to watch this parcel
+   * (shared/receiving.ts). Optional, and separate from the receiver phone ITD
+   * gets: that one has no dial code, so it cannot say whose number it is.
+   * Filled in from the receiver phone only when that is Indian beyond doubt,
+   * and left alone once the sender has typed here themselves.
+   */
+  const [receiverAppPhone, setReceiverAppPhone] = useState('');
+  const receiverAppPhoneEdited = useRef(false);
   const [receiverCompany, setReceiverCompany] = useState('');
   const [receiverCity, setReceiverCity] = useState('');
   const [receiverState, setReceiverState] = useState('');
   const [receiverZip, setReceiverZip] = useState('');
   const [receiverAddress, setReceiverAddress] = useState('');
 
-  const [destinationCountry, setDestinationCountry] = useState('US');
+  const [destinationCountry, setDestinationCountry] = useState('');
+  // Every quote says it runs Mumbai to the destination; a sender known to be
+  // elsewhere gets the version naming their city.
+  const rateOriginNoteText = rateOrigin.outsideMumbai
+    ? rateOriginNote(rateOrigin.city)
+    : rateRouteNote(
+        formatCountryDisplay(ITD_COUNTRY_MAP[destinationCountry]?.name ?? destinationCountry) ||
+          'your destination'
+      );
   const [selectedCurrency, setSelectedCurrency] = useState('USD');
 
   const [weightUnit, setWeightUnit] = useState<'lb' | 'kg'>('lb');
@@ -856,15 +898,32 @@ export default function CreateShipment() {
     setSelectedCurrency(destCurrency == null || destCurrency === 'INR' ? 'INR' : destCurrency);
   }, [destinationCountry]);
 
+  // Its own instance, not the default `confetti()`. The default draws in a Web
+  // Worker on an OffscreenCanvas and only removes its full-screen canvas when
+  // the worker reports back; in the app's WebView that worker can stall, and
+  // the order-placed screen froze under a canvas that never went away. On the
+  // main thread 120 particles cost nothing, and the timer below clears the
+  // canvas even if the animation never finishes.
   useEffect(() => {
     if (!newOrderNo) return;
-    confetti({
+    const fire = confetti.create(undefined, {
+      resize: true,
+      useWorker: false,
+      disableForReducedMotion: true,
+    });
+    void fire({
       particleCount: 120,
       spread: 70,
       origin: { x: 0.5, y: 0.5 },
       startVelocity: 40,
+      ticks: 150,
       colors: ['#14567C', '#ffffff'],
     });
+    const stop = window.setTimeout(() => fire.reset(), 4000);
+    return () => {
+      window.clearTimeout(stop);
+      fire.reset();
+    };
   }, [newOrderNo]);
 
   // ── Steps and the back button ──────────────────────────────────────────
@@ -1018,6 +1077,7 @@ export default function CreateShipment() {
       setNewOrderNo(data.order.order_no);
       setNewOrderId(data.order.id);
       setNewAwbNo(data.docket?.status === 'issued' ? data.docket.awb_no ?? '' : '');
+      setNewBoxLabel(data.boxLabel === true);
       setDocketMessage(data.docket?.status === 'failed' ? data.docket.message ?? '' : '');
 
       // POST /api/orders wrote the profile row and the order against this
@@ -1090,11 +1150,41 @@ export default function CreateShipment() {
     setExpandedById({ [bestId]: true });
   }, [displayRates]);
 
+  // The inputs a quote depends on. Rates are only good for the values they
+  // were fetched with: change the weight, pieces or box size afterwards and
+  // the shown prices (and the picked service's amount) are someone else's
+  // parcel, so they are dropped and the next "choose service" fetches again.
+  const quoteInputs = `${weight}|${weightUnit}|${pieces}|${dimL}|${dimW}|${dimH}|${dimUnit}`;
+  const quotedForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (quotedForRef.current === null || quotedForRef.current === quoteInputs) return;
+    quotedForRef.current = null;
+    setRateResults(null);
+    setSelectedService(null);
+    setServiceSelectionError('');
+    setRatesError('Weight, pieces or box size changed. Tap Get Rates for the new price.');
+  }, [quoteInputs]);
+
   const handleGetRates = (): void => {
     if (!productType.trim()) return;
     setRatesError('');
-    const w = parseFloat(weight) || 1;
+    const w = parseFloat(weight);
     const weightKg = weightUnit === 'kg' ? w : lbToKg(w);
+    // No quote without the parcel's weight and box size: a rate on a guess is
+    // a price the customer will see change at pickup.
+    const boxes = rateBoxesFromForm({
+      length: dimL,
+      width: dimW,
+      height: dimH,
+      unit: dimUnit,
+      pieces: parseInt(pieces) || 1,
+      weightKg,
+    });
+    if (!(weightKg > 0) || !boxes) {
+      setRatesError('Enter the package weight and box length, width and height to see rates.');
+      return;
+    }
+    quotedForRef.current = quoteInputs;
     rateMutation.mutate({
       product_code: productType,
       destination_code: destinationCountry,
@@ -1106,6 +1196,7 @@ export default function CreateShipment() {
       ori_pincode: senderZip,
       dest_city: receiverCity.toUpperCase(),
       dest_pincode: receiverZip,
+      boxes,
     });
   };
 
@@ -1229,7 +1320,7 @@ export default function CreateShipment() {
             <div className="mt-5 w-full space-y-3">
               <Button
                 onClick={() => setGuestMode(true)}
-                className="w-full h-auto flex-col gap-1 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] font-semibold py-3 rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
+                className="w-full h-auto flex-col gap-1 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] font-semibold py-3 rounded-xl shadow-card-hover"
                 data-testid="button-continue-as-known-guest"
               >
                 <span className="text-sm font-semibold">
@@ -1266,7 +1357,7 @@ export default function CreateShipment() {
             <div className="mt-6 w-full space-y-3">
               <Button
                 onClick={() => setLocation('/login?redirect=/create')}
-                className="w-full bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] font-semibold h-12 rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
+                className="w-full bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] font-semibold h-12 rounded-xl shadow-card-hover"
                 data-testid="button-login-to-create"
               >
                 Sign in
@@ -1316,6 +1407,12 @@ export default function CreateShipment() {
       });
     };
 
+    const copyAwbNo = (): void => {
+      void navigator.clipboard.writeText(newAwbNo).then(() => {
+        toast({ title: 'Copied', description: 'Airway bill copied to clipboard' });
+      });
+    };
+
     return (
       <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-create-success">
         <main className="px-4 py-12 max-w-md mx-auto text-center">
@@ -1329,7 +1426,7 @@ export default function CreateShipment() {
               : 'Drop your parcel off whenever suits you.'}
           </p>
 
-          <div className="bg-card rounded-xl border border-border p-4 mb-6 text-left shadow-sm w-full">
+          <div className="bg-card rounded-xl border border-border p-4 mb-6 text-left shadow-card w-full">
             <button
               type="button"
               onClick={copyOrderNo}
@@ -1349,28 +1446,77 @@ export default function CreateShipment() {
                 the customer needs both until the parcel is collected. */}
             {newAwbNo && (
               <div className="mt-3 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
-                <p className="text-xs text-muted-foreground mb-0.5">Airway bill</p>
-                <p className="text-sm font-bold font-mono text-foreground break-all">
-                  {newAwbNo}
-                </p>
+                <button
+                  type="button"
+                  onClick={copyAwbNo}
+                  className="w-full text-left rounded-md -m-1 p-1 hover:bg-muted/60 transition-colors active:scale-[0.99]"
+                  data-testid="button-copy-awb"
+                >
+                  <p className="text-xs text-muted-foreground mb-0.5">Airway bill · tap to copy</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-bold font-mono text-foreground break-all">
+                      {newAwbNo}
+                    </p>
+                    <Copy className="w-4 h-4 shrink-0 text-muted-foreground" aria-hidden />
+                  </div>
+                </button>
                 <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
                   Carrier tracking opens once we collect your parcel.
                 </p>
               </div>
             )}
 
-            {/* The booking is safe; only the airway bill is missing. Said
-                plainly rather than hidden, because the customer would
-                otherwise find no AWB where they expected one and assume the
-                booking itself had gone wrong. */}
+            {/* The labels, the moment they exist: the customer leaves this
+                screen to pack the parcel, and the box label goes on it before
+                anyone collects it. The docket row is saved just after the
+                booking answers, so this waits a few seconds for it. */}
+            {newAwbNo && isLoggedIn && (
+              <ShipmentDocuments awb={newAwbNo} variant="card" pollUntilReady className="mt-3" />
+            )}
+
+            {/* Booked without an ITD login (a guest, or an account we hold no
+                ITD password for): no AWB, so no ITD labels. Ours carries the
+                order number and a QR the agent and hub scan. The server decides. */}
+            {!newAwbNo && newBoxLabel && (
+              <div
+                className="mt-3 rounded-lg border border-[#E2E8F0] bg-white p-4"
+                data-testid="card-box-label"
+              >
+                <p className="text-sm font-semibold text-foreground">Print your box label</p>
+                <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                  Stick it on the box before handing it over. The QR lets our agent and
+                  hub find your order.
+                </p>
+                <div className="mt-3">
+                  <PdfDocButton
+                    text="View box label"
+                    title="Box label"
+                    fileName={`${newOrderNo}-box-label.pdf`}
+                    primary
+                    testId="button-box-label"
+                    fetchBase64={() =>
+                      fetchPdfBase64(
+                        `/api/orders/${encodeURIComponent(newOrderNo)}/box-label`,
+                        'boxLabel',
+                        'Box label',
+                        toast
+                      )
+                    }
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Only when the AWB is waiting on the customer (an ID document to
+                add). A refused or slow docket is ops' to fix and is not shown:
+                the AWB reads "Not issued yet" like any order before dispatch. */}
             {docketMessage && (
               <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
                 <p className="text-xs font-semibold text-amber-900">
-                  Airway bill still to be issued
+                  One thing needed from you
                 </p>
                 <p className="text-[11px] text-amber-800/90 mt-1 leading-relaxed">
-                  {/* The server's customer note (shared/docketError.ts): why, and
-                      whether anything is theirs to check. */}
+                  {/* The server's customer note (shared/docketError.ts). */}
                   {docketMessage}
                 </p>
               </div>
@@ -1383,6 +1529,14 @@ export default function CreateShipment() {
                   {selectedService
                     ? selectedService.internal_api_service_code || selectedService.code
                     : '—'}
+                  {rateOrigin.outsideMumbai && (
+                    <span
+                      className="block text-[10px] font-normal text-muted-foreground"
+                      data-testid="text-review-rate-origin"
+                    >
+                      From Mumbai · {rateOrigin.city ?? 'your city'} to Mumbai added separately
+                    </span>
+                  )}
                 </span>
               </div>
               <div className="flex justify-between gap-3">
@@ -1590,9 +1744,12 @@ export default function CreateShipment() {
     }
     if (currentStep === 2) {
       const e: Record<string, boolean> = {};
+      if (!destinationCountry) e.destinationCountry = true;
       if (!receiverName.trim()) e.receiverName = true;
+      // The number exactly as typed: no country code is added anywhere.
       const phoneDigits = receiverPhone.replace(/\D/g, '');
       if (phoneDigits.length < 6 || phoneDigits.length > 15) e.receiverPhone = true;
+      if (receiverAppPhone.trim() && !normalizeReceiverAppPhone(receiverAppPhone)) e.receiverAppPhone = true;
       if (!receiverAddress.trim()) e.receiverAddress = true;
       if (!receiverCity.trim()) e.receiverCity = true;
       if (!receiverState.trim()) e.receiverState = true;
@@ -1614,9 +1771,12 @@ export default function CreateShipment() {
       if (!weight || parseFloat(weight) <= 0) e.weight = true;
       if (!shipmentValue || parseFloat(shipmentValue) <= 0) e.shipmentValue = true;
       if (!shipmentContent.trim()) e.shipmentContent = true;
-      if (!dimL.trim()) e.dimL = true;
-      if (!dimW.trim()) e.dimW = true;
-      if (!dimH.trim()) e.dimH = true;
+      // Box size is priced (ITD charges the greater of weight and size), so
+      // each side has to be a real measurement, not just filled in.
+      const positive = (v: string): boolean => parseFloat(v) > 0;
+      if (!positive(dimL)) e.dimL = true;
+      if (!positive(dimW)) e.dimW = true;
+      if (!positive(dimH)) e.dimH = true;
       if (Object.keys(e).length) {
         setFieldErrors(e);
         scrollToFirstError();
@@ -1802,10 +1962,9 @@ export default function CreateShipment() {
       shipper_zip_code: senderZip,
       consignee_name: receiverName,
       consignee_company_name: receiverCompany || receiverName,
-      consignee_contact_no:
-        ITD_COUNTRY_MAP[destinationCountry]?.dialCode
-          ? `${ITD_COUNTRY_MAP[destinationCountry].dialCode}${receiverPhone}`
-          : receiverPhone,
+      // As typed. A dial code added here printed "+1" in front of numbers
+      // that were never American ("+109198332075" on the label).
+      consignee_contact_no: receiverPhone,
       consignee_email: receiverEmail || senderEmail,
       consignee_address_line_1: receiverAddress,
       consignee_city: receiverCity,
@@ -1872,6 +2031,10 @@ export default function CreateShipment() {
         pincode: receiverZip || null,
         country_code: destinationCountry,
         country_name: ITD_COUNTRY_MAP[destinationCountry]?.name ?? destinationCountry,
+        // Ours only, never sent to ITD: who may watch this parcel in the app.
+        ...(normalizeReceiverAppPhone(receiverAppPhone)
+          ? { app_phone: normalizeReceiverAppPhone(receiverAppPhone) }
+          : {}),
       },
       items: payload as unknown as Record<string, unknown>,
       // Only a guest signs here. The server refuses a guest booking without
@@ -2094,7 +2257,7 @@ export default function CreateShipment() {
                 onVerifiedPhoneChange={(verified) => {
                   setGuestVerifiedPhone(verified);
                   clearFieldError('guestPhone');
-                  if (verified) {
+                  if (verified && isIndianMobile(verified)) {
                     setSenderPhone(verified);
                     clearFieldError('senderPhone');
                   }
@@ -2139,7 +2302,7 @@ export default function CreateShipment() {
               onSelect={(address: SavedAddress) => {
                 setSenderName(address.full_name);
                 setSenderCompany(address.company ?? '');
-                setSenderPhone(address.phone.replace(/\D/g, '').slice(0, 10));
+                setSenderPhone(toIndianMobile(address.phone));
                 setSenderAddress(address.address_line_1);
                 setSenderCity(address.city);
                 setSenderState(address.state ?? '');
@@ -2150,7 +2313,7 @@ export default function CreateShipment() {
 
             <SectionLabel>Sender details</SectionLabel>
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-3 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-3 shadow-card">
               <div>
                 <Label className="text-xs text-muted-foreground">Full Name <span className="text-red-400">*</span></Label>
                 <Input
@@ -2196,11 +2359,10 @@ export default function CreateShipment() {
                   <Input
                     value={senderPhone}
                     onChange={(e) => {
-                      const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
-                      setSenderPhone(digits);
+                      setSenderPhone(toIndianMobile(e.target.value));
                       clearFieldError('senderPhone');
                     }}
-                    placeholder="+91"
+                    placeholder="10-digit mobile"
                     // A guest's booking is authorised by an OTP on this exact
                     // number, and their documents are staged against it. Left
                     // editable, a change here would send the server a number it
@@ -2305,7 +2467,7 @@ export default function CreateShipment() {
 
             <SectionLabel>Collection</SectionLabel>
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-card">
               <Label className="text-sm font-semibold mb-3 block">Pickup or Drop-off?</Label>
 
               <div className="flex items-center justify-between">
@@ -2389,7 +2551,8 @@ export default function CreateShipment() {
                     </Label>
                     <button
                       type="button"
-                      onClick={() => setPickupDatePickerOpen(true)}
+                      onClick={() => setPickupDatePickerOpen((open) => !open)}
+                      aria-expanded={pickupDatePickerOpen}
                       className={cn(
                         fieldBorderClass('pickupDate'),
                         'w-full flex items-center justify-between px-3 text-left'
@@ -2403,6 +2566,43 @@ export default function CreateShipment() {
                       </span>
                       <CalendarIcon className="w-4 h-4 shrink-0 text-muted-foreground" aria-hidden />
                     </button>
+                    {/* Opens in place, under the field. A bottom sheet came out
+                        clipped in the iOS app's WebView; inline needs no
+                        fixed positioning or screen-height maths. */}
+                    {pickupDatePickerOpen && (
+                      <div
+                        className="mt-2 rounded-xl border border-border bg-white p-2"
+                        data-testid="panel-pickup-date"
+                      >
+                        <Calendar
+                          mode="single"
+                          selected={pickupDate ? new Date(`${pickupDate}T00:00:00`) : undefined}
+                          onSelect={(date) => {
+                            if (!date) return;
+                            const iso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+                            setPickupDate(iso);
+                            clearFieldError('pickupDate');
+                            setPickupDatePickerOpen(false);
+                          }}
+                          // Everything before the earliest bookable date is off: today
+                          // up to the hub's cutoff, tomorrow from the cutoff onwards.
+                          disabled={{ before: new Date(`${earliestDate}T00:00:00`) }}
+                          className="w-full [--cell-size:2.75rem]"
+                          classNames={{ root: 'w-full' }}
+                        />
+                        {/* Say why today is greyed out. An unexplained disabled date
+                            reads as a bug; a reason reads as a fact. */}
+                        {cutoffPassed && (
+                          <p
+                            className="text-xs text-muted-foreground mt-3 text-center"
+                            data-testid="text-pickup-cutoff"
+                          >
+                            Bookings made after {formatCutoffHour(pickupCutoff)} are collected from the
+                            next day.
+                          </p>
+                        )}
+                      </div>
+                    )}
                     {fieldErrors.pickupDate && (
                       <p className="text-xs text-red-600 mt-1">This field is required</p>
                     )}
@@ -2552,22 +2752,41 @@ export default function CreateShipment() {
 
         {currentStep === 2 && (
           <div className="space-y-4 animate-fade-in">
-            <CorridorRouteInfo
-              destinationCode={destinationCountry}
-              destinationName={formatCountryDisplay(
-                ITD_COUNTRY_MAP[destinationCountry]?.name ?? destinationCountry
-              )}
-            />
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)] space-y-2">
+            {destinationCountry && (
+              <CorridorRouteInfo
+                destinationCode={destinationCountry}
+                destinationName={formatCountryDisplay(
+                  ITD_COUNTRY_MAP[destinationCountry]?.name ?? destinationCountry
+                )}
+              />
+            )}
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-card space-y-2">
               <Label className="text-xs text-muted-foreground">Destination Country</Label>
               <CountryCombobox
                 value={destinationCountry}
+                className={fieldBorderClass('destinationCountry')}
                 onValueChange={(code) => {
                   setDestinationCountry(code);
                   clearFieldError('destinationCountry');
                 }}
               />
+              {fieldErrors.destinationCountry ? (
+                <p className="text-xs text-red-600 mt-1">Select the destination country</p>
+              ) : (
+                !destinationCountry && (
+                  <p className="text-xs text-muted-foreground mt-1" data-testid="text-receiver-country-first">
+                    Choose the destination country first to add the receiver's details.
+                  </p>
+                )
+              )}
             </div>
+            {/* Receiver details stay locked until a country is chosen: postal
+                code lookup, state list and phone format all depend on it. */}
+            <fieldset
+              disabled={!destinationCountry}
+              className={cn('space-y-4 min-w-0', !destinationCountry && 'opacity-50')}
+              data-testid="fieldset-receiver-details"
+            >
             <AddressPicker
               type="recipient"
               isLoggedIn={isLoggedIn}
@@ -2593,10 +2812,13 @@ export default function CreateShipment() {
                 const phoneDigits =
                   dialCode && rawPhone.startsWith(dialCode) ? rawPhone.slice(dialCode.length) : rawPhone;
                 setReceiverPhone(phoneDigits);
+                if (!receiverAppPhoneEdited.current) {
+                  setReceiverAppPhone(suggestedReceiverAppPhone(address.phone, address.country_code ?? ''));
+                }
               }}
             />
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-3 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-3 shadow-card">
               <div>
                 <Label className="text-xs text-muted-foreground">Receiver Name</Label>
                 <Input
@@ -2628,17 +2850,15 @@ export default function CreateShipment() {
                   <span className="text-red-400">*</span>
                 </Label>
                 <div className="flex gap-2 mt-1">
-                  {ITD_COUNTRY_MAP[destinationCountry]?.dialCode ? (
-                    <div className="h-11 px-3 flex items-center bg-muted/50 border border-border rounded-xl text-sm text-muted-foreground shrink-0 font-medium">
-                      {ITD_COUNTRY_MAP[destinationCountry].dialCode}
-                    </div>
-                  ) : null}
                   <Input
                     value={receiverPhone}
                     onChange={(e) => {
                       const digits = e.target.value.replace(/\D/g, '');
                       setReceiverPhone(digits);
                       clearFieldError('receiverPhone');
+                      if (!receiverAppPhoneEdited.current) {
+                        setReceiverAppPhone(suggestedReceiverAppPhone(digits, destinationCountry));
+                      }
                     }}
                     placeholder="Phone number"
                     className={cn(
@@ -2663,6 +2883,35 @@ export default function CreateShipment() {
                   className="h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl"
                   data-testid="input-receiver-email"
                 />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">
+                  Receiver&apos;s Indian mobile <span className="text-muted-foreground/60 ml-1">(optional)</span>
+                </Label>
+                <div className="flex gap-2">
+                  <span className="h-11 mt-1 px-3 inline-flex items-center rounded-xl bg-muted/30 border border-border text-sm text-muted-foreground shrink-0">
+                    +91
+                  </span>
+                  <Input
+                    value={receiverAppPhone}
+                    inputMode="numeric"
+                    onChange={(e) => {
+                      receiverAppPhoneEdited.current = true;
+                      setReceiverAppPhone(e.target.value.replace(/\D/g, '').slice(0, 10));
+                      clearFieldError('receiverAppPhone');
+                    }}
+                    placeholder="10-digit mobile"
+                    className={cn('flex-1 min-w-0', fieldBorderClass('receiverAppPhone'))}
+                    data-testid="input-receiver-app-phone"
+                  />
+                </div>
+                {fieldErrors.receiverAppPhone ? (
+                  <p className="text-xs text-red-600 mt-1">Enter a 10-digit Indian mobile, or leave it blank</p>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    Lets the receiver sign in to the Bombino app with this number and track the parcel.
+                  </p>
+                )}
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">Address</Label>
@@ -2765,6 +3014,7 @@ export default function CreateShipment() {
                 </div>
               </div>
             </div>
+            </fieldset>
 
             <StepActions
               stepError={stepError}
@@ -2778,7 +3028,7 @@ export default function CreateShipment() {
 
         {currentStep === 3 && (
           <div className="space-y-4 animate-fade-in">
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-card">
               <ShipmentContentSearch
                 value={shipmentContent}
                 onChange={(v) => {
@@ -2826,7 +3076,7 @@ export default function CreateShipment() {
               </button>
             </div>
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-card">
               <div className="flex items-center justify-between mb-3">
                 <Label className="text-sm font-semibold">Weight</Label>
                 <div className="flex bg-muted rounded-lg p-0.5">
@@ -2896,7 +3146,7 @@ export default function CreateShipment() {
                 box and not theirs. Carries no price: any packaging cost is
                 settled at the hub with the rest of the reprice, so nothing on
                 this card moves the quote. */}
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-card">
               <Label className="text-sm font-semibold mb-3 block">Packaging</Label>
 
               <div className="flex items-center justify-between gap-3">
@@ -2949,7 +3199,7 @@ export default function CreateShipment() {
               </p>
             </div>
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-card">
               <div className="flex items-center justify-between mb-3">
                 <Label className="text-sm font-semibold">
                   Dimensions <span className="text-red-400">*</span>
@@ -3091,7 +3341,7 @@ export default function CreateShipment() {
               </div>
             </div>
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-card">
               <Label className="text-sm font-semibold mb-3 block">Shipment Value</Label>
               <div className="grid grid-cols-3 gap-2">
                 <div className="col-span-2">
@@ -3167,7 +3417,7 @@ export default function CreateShipment() {
               Required for Indian customs clearance. These details appear on the commercial invoice.
             </div>
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-card">
               <Label className="text-sm font-semibold mb-3 block">Service Details</Label>
               <div className="space-y-2">
                 <div className="space-y-1">
@@ -3546,7 +3796,7 @@ export default function CreateShipment() {
                       type="button"
                       onClick={handleOpenServiceModal}
                       disabled={!productType.trim() || rateMutation.isPending}
-                      className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70 flex items-center justify-center gap-2"
+                      className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-card-hover disabled:opacity-70 flex items-center justify-center gap-2"
                       data-testid="button-get-rates-invoice"
                     >
                       {rateMutation.isPending ? (
@@ -3577,7 +3827,7 @@ export default function CreateShipment() {
               </div>
             </div>
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-3 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-3 shadow-card">
               <div>
                 <Label className="text-sm font-semibold">Invoice Item</Label>
                 <p className="text-xs text-muted-foreground mt-0.5">
@@ -3683,7 +3933,7 @@ export default function CreateShipment() {
             <Button
               onClick={handleSubmit}
               disabled={createMutation.isPending || !selectedService}
-              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70"
+              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-card-hover disabled:opacity-70"
               data-testid="button-submit-shipment"
             >
               {createMutation.isPending ? (
@@ -3701,7 +3951,7 @@ export default function CreateShipment() {
         <div className="hidden lg:block lg:col-span-5">
           <div className="sticky top-6 space-y-4">
             {currentStep < 4 && (
-              <div className="bg-white rounded-2xl border border-[#E2E8F0] overflow-hidden shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+              <div className="bg-white rounded-2xl border border-[#E2E8F0] overflow-hidden shadow-card">
                 <div className="px-5 py-3.5 border-b border-[#E2E8F0] flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-bold tracking-[0.14em] uppercase text-[#F2A123]">Draft</span>
@@ -3805,7 +4055,7 @@ export default function CreateShipment() {
                   type="button"
                   onClick={handleOpenServiceModal}
                   disabled={!productType.trim() || rateMutation.isPending}
-                  className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70 flex items-center justify-center gap-2"
+                  className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-card-hover disabled:opacity-70 flex items-center justify-center gap-2"
                 >
                   {rateMutation.isPending ? (
                     <Loader2 className="w-5 h-5 animate-spin" />
@@ -3825,7 +4075,7 @@ export default function CreateShipment() {
                 ) : null}
 
                 {selectedService && (
-                  <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-1.5 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06)]">
+                  <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-1.5 shadow-card">
                     <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Selected service</p>
                     <p className="font-semibold text-sm text-[lab(34.0831_-9.57756_-27.7093)]">{selectedService.internal_api_service_code || selectedService.code}</p>
                     <p className="font-mono text-lg font-semibold text-[#2F4468]">{formatInr(selectedService.total)}</p>
@@ -3853,7 +4103,7 @@ export default function CreateShipment() {
                 <Button
                   onClick={handleSubmit}
                   disabled={createMutation.isPending || !selectedService}
-                  className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70"
+                  className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-card-hover disabled:opacity-70"
                   data-testid="button-submit-shipment-desktop"
                 >
                   {createMutation.isPending ? (
@@ -3936,6 +4186,14 @@ export default function CreateShipment() {
             </div>
 
             <div className="overflow-y-auto p-4" style={ratesResultsShellStyle} data-testid="invoice-rate-results">
+              {rateOriginNoteText && (
+                <p
+                  className="mb-3 text-[11px] leading-snug text-muted-foreground"
+                  data-testid="text-service-rate-origin"
+                >
+                  {rateOriginNoteText}
+                </p>
+              )}
               {rateMutation.isPending ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
@@ -3975,7 +4233,7 @@ export default function CreateShipment() {
                           }
                         }}
                         className={cn(
-                          'rounded-xl border border-[#E2E8F0] bg-white overflow-hidden relative outline-none focus-visible:ring-2 focus-visible:ring-[#2F4468] cursor-pointer shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]',
+                          'rounded-xl border border-[#E2E8F0] bg-white overflow-hidden relative outline-none focus-visible:ring-2 focus-visible:ring-[#2F4468] cursor-pointer shadow-card',
                           isSelected && 'ring-2 ring-[#F2A123] border-[#F2A123]'
                         )}
                         data-testid={`invoice-rate-card-${idx}`}
@@ -4132,74 +4390,11 @@ export default function CreateShipment() {
                   setShowServiceModal(false);
                 }}
                 disabled={!pendingService}
-                className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70"
+                className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-card-hover disabled:opacity-70"
                 data-testid="button-confirm-service"
               >
                 {pendingService ? 'Confirm Selection' : 'Select a service to continue'}
               </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {pickupDatePickerOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50"
-          onClick={() => setPickupDatePickerOpen(false)}
-          role="presentation"
-        >
-          <div
-            className="w-full max-w-lg bg-white rounded-t-2xl max-h-[80vh] overflow-y-auto shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="pickup-date-sheet-title"
-          >
-            <div className="flex justify-center pt-3 pb-1">
-              <div className="w-10 h-1 bg-gray-200 rounded-full" />
-            </div>
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-              <h3 id="pickup-date-sheet-title" className="font-semibold text-base text-gray-900">
-                Choose pickup date
-              </h3>
-              <button
-                type="button"
-                onClick={() => setPickupDatePickerOpen(false)}
-                className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200 transition-colors"
-                aria-label="Close"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="p-4">
-              <Calendar
-                mode="single"
-                selected={pickupDate ? new Date(`${pickupDate}T00:00:00`) : undefined}
-                onSelect={(date) => {
-                  if (!date) return;
-                  const iso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-                  setPickupDate(iso);
-                  clearFieldError('pickupDate');
-                  setPickupDatePickerOpen(false);
-                }}
-                // Everything before the earliest bookable date is off: today
-                // up to the hub's cutoff, tomorrow from the cutoff onwards.
-                disabled={{ before: new Date(`${earliestDate}T00:00:00`) }}
-                autoFocus
-                className="w-full [--cell-size:2.75rem]"
-                classNames={{ root: 'w-full' }}
-              />
-              {/* Say why today is greyed out. An unexplained disabled date
-                  reads as a bug; a reason reads as a fact. */}
-              {cutoffPassed && (
-                <p
-                  className="text-xs text-muted-foreground mt-3 text-center"
-                  data-testid="text-pickup-cutoff"
-                >
-                  Bookings made after {formatCutoffHour(pickupCutoff)} are collected from the
-                  next day.
-                </p>
-              )}
             </div>
           </div>
         </div>
@@ -4234,6 +4429,14 @@ export default function CreateShipment() {
                   {selectedService
                     ? selectedService.internal_api_service_code || selectedService.code
                     : '—'}
+                  {rateOrigin.outsideMumbai && (
+                    <span
+                      className="block text-[10px] font-normal text-muted-foreground"
+                      data-testid="text-review-rate-origin"
+                    >
+                      From Mumbai · {rateOrigin.city ?? 'your city'} to Mumbai added separately
+                    </span>
+                  )}
                 </span>
               </div>
               <div className="flex justify-between gap-3">
@@ -4316,7 +4519,7 @@ export default function CreateShipment() {
             <Button
               onClick={handleConfirmBooking}
               disabled={createMutation.isPending}
-              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70"
+              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-card-hover disabled:opacity-70"
               data-testid="button-confirm-booking"
             >
               {createMutation.isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirm Booking'}

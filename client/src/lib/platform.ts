@@ -25,6 +25,12 @@ export function isCapacitorNative(): boolean {
   return getCapacitor()?.isNativePlatform?.() === true;
 }
 
+/** Running inside the iOS app shell (not iOS Safari). */
+export function isIosApp(): boolean {
+  const cap = getCapacitor();
+  return cap?.isNativePlatform?.() === true && cap.getPlatform?.() === 'ios';
+}
+
 export function getCapacitorShare(): CapacitorPlugin | null {
   return getCapacitor()?.Plugins?.Share ?? null;
 }

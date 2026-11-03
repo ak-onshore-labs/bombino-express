@@ -13,6 +13,11 @@ export type OpsBoardOrder = {
   order_no: string;
   user_id: string | null;
   customer_name: string | null;
+  customer_phone: string | null;
+  guest_ref: string | null;
+  guest_name: string | null;
+  guest_email: string | null;
+  guest_phone: string | null;
   status: string;
   created_at: string;
   pickup_request: number;
@@ -24,6 +29,9 @@ export type OpsBoardOrder = {
   final_amount: number | null;
   consignee_name: string | null;
   consignee_city: string | null;
+  /** Pickup locality (address line 2, else city), from the origin address. */
+  pickup_area?: string | null;
+  pickup_pincode?: string | null;
   agent_id: string | null;
   agent_name: string | null;
   awb_no: string | null;
@@ -35,6 +43,27 @@ export type OpsBoardOrder = {
   docket_error: string | null;
   /** What usually causes that refusal and what to do. */
   docket_error_hint?: string | null;
+  /** What the pre-check found missing, for ops to fix. */
+  docket_error_problems?: string[];
+  /** Who acts next: "auto" (retrying by itself), "ops", or "check_itd". */
+  docket_retry?: string | null;
+  /**
+   * An agent cancelled this pickup. On board rows only while the branch still
+   * has to act; on the order page always, with `open` saying which.
+   */
+  agent_cancellation?: OpsAgentCancellation | null;
+  /** Booked on a test number: a test AWB, never filed with ITD. */
+  is_test?: boolean;
+};
+
+export type OpsAgentCancellation = {
+  at: string;
+  /** The order's status when the agent cancelled. */
+  from_status: string;
+  open: boolean;
+  agent_id: string;
+  agent_name: string | null;
+  agent_phone: string | null;
 };
 
 export type OpsOrderEvent = {
@@ -48,6 +77,11 @@ export type OpsOrderEvent = {
 
 export type OpsOrderDetail = OpsBoardOrder & {
   origin_address_id: string | null;
+  /** Full pickup address on one line. */
+  pickup_address?: string | null;
+  /** The assigned agent's phone number. */
+  agent_phone?: string | null;
+  packaging_required?: boolean;
   consignee: unknown;
   items: unknown;
   booked_weight: number | null;
@@ -68,6 +102,14 @@ export type OpsOrderDetailResponse = {
   events: OpsOrderEvent[];
   availableActions: AvailableAction[];
   handover: OpsHubHandover | null;
+  /**
+   * The customer has an ITD login of their own: their AWB is a real filing
+   * (Generate docket / Retry AWB). Otherwise ops files it in ITD's portal and
+   * enters it (Enter AWB from ITD portal).
+   */
+  owner_has_itd_login?: boolean;
+  /** This account may mark the order test or real (server/testOrders.ts). */
+  can_mark_test?: boolean;
 };
 
 export type OpsActionResult = {
@@ -143,6 +185,7 @@ export type OpsStaffUser = {
   id: string;
   full_name: string;
   phone: string | null;
+  email: string | null;
   role: string;
   is_active: boolean;
 };
@@ -158,10 +201,11 @@ export async function fetchOpsOrders(): Promise<OpsBoardOrder[]> {
   return data.orders;
 }
 
-export function useOpsOrders() {
+export function useOpsOrders(enabled = true) {
   return useQuery({
     queryKey: OPS_ORDERS_KEY,
     queryFn: fetchOpsOrders,
+    enabled,
     retry: false,
     refetchOnMount: 'always',
   });
@@ -178,6 +222,69 @@ export function useOpsOrderDetail(orderId: string | undefined) {
       return readJson<OpsOrderDetailResponse>(res);
     },
     retry: false,
+  });
+}
+
+export const OPS_TEST_ACCESS_KEY = ['/api/ops/test-access'] as const;
+
+export type OpsTestAccess = {
+  /** Signed in on a test number: gets the test/live data switch. */
+  test_staff: boolean;
+  /** On test data now (test records only); false = live records only. */
+  sees_test: boolean;
+  can_mark: boolean;
+};
+
+/** Whether this account is on test data, and may mark orders test or real. */
+export function useOpsTestAccess() {
+  return useQuery({
+    queryKey: OPS_TEST_ACCESS_KEY,
+    queryFn: async () => {
+      const res = await fetch('/api/ops/test-access', { credentials: 'include' });
+      return readJson<OpsTestAccess>(res);
+    },
+    retry: false,
+    staleTime: Infinity,
+  });
+}
+
+/**
+ * Switch a test number's console between test data and live data
+ * (PUT /api/ops/data-mode). Every ops list changes, so everything refetches.
+ */
+export function useOpsSetDataMode() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (mode: 'test' | 'live') => {
+      const res = await apiRequest('PUT', '/api/ops/data-mode', { mode });
+      return (await res.json()) as { mode: 'test' | 'live' };
+    },
+    onSuccess: ({ mode }) => {
+      queryClient.setQueryData<OpsTestAccess>(OPS_TEST_ACCESS_KEY, (prev) =>
+        prev ? { ...prev, sees_test: mode === 'test' } : prev
+      );
+      void queryClient.invalidateQueries({
+        predicate: (q) => q.queryKey[0] !== OPS_TEST_ACCESS_KEY[0],
+      });
+    },
+  });
+}
+
+/** Mark an order test or real (PUT /api/ops/orders/:id/test). */
+export function useOpsSetTestMark(orderId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (test: boolean) => {
+      if (!orderId) throw new Error('Missing order id');
+      const res = await apiRequest('PUT', `/api/ops/orders/${orderId}/test`, { test });
+      return (await res.json()) as { test: boolean; removed_awb: string | null };
+    },
+    onSettled: () => {
+      if (!orderId) return;
+      void queryClient.invalidateQueries({ queryKey: opsOrderDetailKey(orderId) });
+      void queryClient.invalidateQueries({ queryKey: OPS_ORDERS_KEY });
+      void queryClient.invalidateQueries({ queryKey: OPS_ORDERS_EXPORT_KEY });
+    },
   });
 }
 
@@ -239,9 +346,10 @@ export function useOpsStaffUsers() {
   });
 }
 
-export function useOpsPayments(range: OpsPaymentRange) {
+export function useOpsPayments(range: OpsPaymentRange, enabled = true) {
   return useQuery({
     queryKey: [...OPS_PAYMENTS_KEY, range],
+    enabled,
     queryFn: async () => {
       const res = await fetch(`/api/ops/payments?range=${encodeURIComponent(range)}`, {
         credentials: 'include',
@@ -328,9 +436,10 @@ export function useOpsBoardFiltered(opts: {
   });
 }
 
-export function useOpsCancellations() {
+export function useOpsCancellations(enabled = true) {
   return useQuery({
     queryKey: OPS_CANCELLATIONS_KEY,
+    enabled,
     queryFn: async () => {
       const res = await fetch('/api/ops/cancellations', { credentials: 'include' });
       return readJson<{ cancellations: OpsPendingCancellation[]; count: number }>(res);
@@ -347,13 +456,38 @@ export function useOpsCancellations() {
  * date after the account is open, and the customer is told to contact the
  * Bombino team — which needs someone at Bombino able to see who is waiting.
  */
-export function useOpsVerifications() {
+export function useOpsVerifications(enabled = true) {
   return useQuery({
     queryKey: OPS_VERIFICATIONS_KEY,
+    enabled,
     queryFn: async () => {
       const res = await fetch('/api/ops/verifications', { credentials: 'include' });
       return readJson<{ accounts: OpsVerificationRow[]; count: number }>(res);
     },
+    retry: false,
+    refetchOnMount: 'always',
+  });
+}
+
+export interface OpsAssignableAgents {
+  /** The pickup's city, or null when it can't be told. */
+  city: string | null;
+  /** False when the list is every active agent rather than the city's. */
+  scoped: boolean;
+  agents: { id: string; full_name: string; phone: string | null }[];
+}
+
+/** The agents in this pickup's city, for the Assign to agent picker. */
+export function useOpsAssignableAgents(orderId: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: ['/api/ops/orders', orderId, 'assignable-agents'] as const,
+    queryFn: async () => {
+      const res = await fetch(`/api/ops/orders/${orderId}/assignable-agents`, {
+        credentials: 'include',
+      });
+      return readJson<OpsAssignableAgents>(res);
+    },
+    enabled: !!orderId && enabled,
     retry: false,
     refetchOnMount: 'always',
   });

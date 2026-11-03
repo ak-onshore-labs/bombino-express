@@ -20,6 +20,7 @@ import { useUnreadNotificationCount } from '@/hooks/useCustomerOrders';
 import { GuestSignOutDialog } from '@/components/GuestSignOutDialog';
 import { AccountSignOutDialog } from '@/components/AccountSignOutDialog';
 import { formatGuestPhone } from '@/lib/shadowProfile';
+import { useParcelsOverview } from '@/hooks/useParcelsOverview';
 
 const MAIN_NAV = [
   { label: 'Home', icon: Home, path: '/home' },
@@ -46,11 +47,14 @@ function NavItem({
   label,
   path,
   active,
+  badge = 0,
 }: {
   icon: ComponentType<{ className?: string }>;
   label: string;
   path: string;
   active: boolean;
+  /** Small count after the label. 0 hides it. */
+  badge?: number;
 }) {
   return (
     <Link
@@ -71,6 +75,14 @@ function NavItem({
       <span className={cn('text-sm leading-none', active ? 'font-semibold' : 'font-medium')}>
         {label}
       </span>
+      {badge > 0 && (
+        <span
+          className="ml-auto min-w-5 h-5 px-1.5 rounded-full bg-[#F2A123] text-[11px] font-bold text-[#1B2A41] grid place-items-center tabular-nums"
+          data-testid={`sidebar-badge-${path.slice(1)}`}
+        >
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
     </Link>
   );
 }
@@ -86,6 +98,8 @@ export function DesktopSidebar() {
   // on `useUnreadNotificationCount`. One query, two badges, always in step.
   // A verified guest's bell counts too — see Header.
   const unreadCount = useUnreadNotificationCount(isLoggedIn || !!guestProfile);
+  // Parcels, sent or coming to you, that moved since My Orders was last open.
+  const { unseen: ordersUnseen } = useParcelsOverview();
 
   const initials = useMemo(() => {
     if (user?.fullName?.trim()) {
@@ -200,6 +214,7 @@ export function DesktopSidebar() {
             label={label}
             path={path}
             active={isActive(path)}
+            badge={path === '/orders' ? ordersUnseen : 0}
           />
         ))}
 

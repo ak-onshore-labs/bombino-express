@@ -10,8 +10,11 @@ import { explainDocketError, type DocketFailure } from "../shared/docketError.js
 import { dbClient, logDbError, type DbError } from "./db/client.js";
 import {
   cancellationState,
+  openAgentCancellation,
+  readAgentCancellation,
   readCancellationRequest,
   type Order,
+  type OrderStatus,
 } from "../shared/orderContract.js";
 import {
   applyOpsBoardQuery,
@@ -21,17 +24,24 @@ import {
   type OpsBoardSort,
 } from "../shared/opsBoardQuery.js";
 import { nowInIst, startOfIstDayIso } from "../shared/istTime.js";
+import { isTestAwb, isTestOrderMetadata } from "../shared/testOrders.js";
 import { getUserContactsByIds, toOrder, type OrderRow } from "./ordersDb.js";
 import { reconcilePaymentStatus } from "./paymentsDb.js";
 
 /** PostgREST default max-rows is ~1000; page past that so export never truncates. */
 const EXPORT_PAGE_SIZE = 1000;
 
+// origin_address: where the parcel is in India — the branch's view of an
+// order. The US receiver means nothing to the person running pickups.
 const BOARD_COLUMNS =
-  "id, order_no, user_id, status, created_at, pickup_request, pickup_date, payment_method, payment_status, is_cod, quoted_amount, final_amount, consignee, agent_id, awb_no, metadata";
+  "id, order_no, user_id, guest_ref, guest_name, guest_email, guest_phone, status, created_at, pickup_request, pickup_date, payment_method, payment_status, is_cod, quoted_amount, final_amount, consignee, agent_id, awb_no, metadata, origin_address:addresses(address_line_2, city, pincode)";
 
 const DETAIL_COLUMNS =
-  "id, order_no, user_id, status, pickup_request, pickup_date, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, itd_docket_response, metadata, created_at, updated_at";
+  "id, order_no, user_id, guest_ref, guest_name, guest_email, guest_phone, status, pickup_request, pickup_date, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, itd_docket_response, metadata, created_at, updated_at";
+
+// The order page also shows where the parcel is collected from.
+const DETAIL_COLUMNS_WITH_ORIGIN =
+  "id, order_no, user_id, guest_ref, guest_name, guest_email, guest_phone, status, pickup_request, pickup_date, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, itd_docket_response, metadata, created_at, updated_at, origin_address:addresses(address_line_1, address_line_2, city, pincode)";
 
 const logSupabaseError = (operation: string, error: DbError): void =>
   logDbError("opsDb", operation, error);
@@ -58,6 +68,11 @@ export type OpsBoardOrder = {
   order_no: string;
   user_id: string | null;
   customer_name: string | null;
+  customer_phone: string | null;
+  guest_ref: string | null;
+  guest_name: string | null;
+  guest_email: string | null;
+  guest_phone: string | null;
   status: string;
   created_at: string;
   pickup_request: number;
@@ -69,6 +84,9 @@ export type OpsBoardOrder = {
   final_amount: number | null;
   consignee_name: string | null;
   consignee_city: string | null;
+  /** Pickup locality (address line 2, else city), from the origin address. */
+  pickup_area: string | null;
+  pickup_pincode: string | null;
   agent_id: string | null;
   agent_name: string | null;
   awb_no: string | null;
@@ -81,17 +99,36 @@ export type OpsBoardOrder = {
   docket_error: string | null;
   /** What usually causes that refusal and what to do (shared/docketError.ts). */
   docket_error_hint: string | null;
+  /** What the pre-check found missing, for ops to fix. */
+  docket_error_problems: string[];
+  /** Who acts next on a failed docket: "auto", "ops" or "check_itd". */
+  docket_retry: string | null;
+  /** An agent cancelled this pickup and the branch has yet to act on it. */
+  agent_cancellation: OpsAgentCancellation | null;
+  /** Booked on a test number (shared/testOrders.ts). */
+  is_test: boolean;
 };
 
 export type OpsOrderDetail = {
   id: string;
   order_no: string;
+  /** Booked on a test number (shared/testOrders.ts). */
+  is_test: boolean;
   user_id: string | null;
   customer_name: string | null;
+  customer_phone: string | null;
+  guest_ref: string | null;
+  guest_name: string | null;
+  guest_email: string | null;
+  guest_phone: string | null;
   status: string;
   pickup_request: number;
   pickup_date: string | null;
   origin_address_id: string | null;
+  /** Full pickup address on one line, when the order page asked for it. */
+  pickup_address: string | null;
+  pickup_area: string | null;
+  pickup_pincode: string | null;
   consignee: unknown;
   items: unknown;
   booked_weight: number | null;
@@ -102,6 +139,8 @@ export type OpsOrderDetail = {
   is_cod: boolean;
   agent_id: string | null;
   agent_name: string | null;
+  /** The assigned agent's number, for the branch to call. Order page only. */
+  agent_phone: string | null;
   actual_weight: number | null;
   final_amount: number | null;
   awb_no: string | null;
@@ -110,9 +149,45 @@ export type OpsOrderDetail = {
   docket_error: string | null;
   /** What usually causes that refusal and what to do (shared/docketError.ts). */
   docket_error_hint: string | null;
+  /** What the pre-check found missing, for ops to fix. */
+  docket_error_problems: string[];
+  /** Who acts next on a failed docket: "auto", "ops" or "check_itd". */
+  docket_retry: string | null;
+  /** An agent's cancellation, open or already dealt with. */
+  agent_cancellation: OpsAgentCancellation | null;
   created_at: string;
   updated_at: string;
 };
+
+/**
+ * An agent's cancellation, for the console (shared/orderContract.ts
+ * `readAgentCancellation`). `open` while the pickup still needs a new agent.
+ */
+export type OpsAgentCancellation = {
+  at: string;
+  /** The order's status when the agent cancelled. */
+  from_status: OrderStatus;
+  open: boolean;
+  agent_id: string;
+  agent_name: string | null;
+  agent_phone: string | null;
+};
+
+function agentCancellationFor(
+  row: Record<string, unknown>,
+  onlyOpen: boolean
+): OpsAgentCancellation | null {
+  const order = {
+    metadata: (row.metadata as Record<string, unknown> | null) ?? null,
+    status: String(row.status) as OrderStatus,
+    agent_id: (row.agent_id as string | null) ?? null,
+  };
+  const c = readAgentCancellation(order);
+  if (!c) return null;
+  const open = openAgentCancellation(order) !== null;
+  if (onlyOpen && !open) return null;
+  return { ...c, open, agent_name: null, agent_phone: null };
+}
 
 export type OpsOrderEvent = {
   id: string;
@@ -135,9 +210,26 @@ function docketFailure(metadata: unknown): DocketFailure | null {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
   const err = (metadata as Record<string, unknown>).docket_error;
   if (!err || typeof err !== "object" || Array.isArray(err)) return null;
-  const { message, stage } = err as Record<string, unknown>;
+  const { message, stage, retry } = err as Record<string, unknown>;
   if (typeof message !== "string" || message.trim() === "") return null;
-  return explainDocketError(message, typeof stage === "string" ? stage : null);
+  return explainDocketError(
+    message,
+    typeof stage === "string" ? stage : null,
+    typeof retry === "string" ? retry : null
+  );
+}
+
+/** What the pre-check found missing (server/docketFiling.ts), for ops to fix. */
+function docketErrorProblems(metadata: unknown): string[] {
+  const err = (metadata as Record<string, unknown> | null)?.docket_error as { problems?: unknown } | undefined;
+  return Array.isArray(err?.problems) ? err.problems.filter((p): p is string => typeof p === "string") : [];
+}
+
+/** Who acts next: "auto" (the retry sweep), "ops", or "check_itd". Null when nothing failed. */
+function docketErrorRetry(metadata: unknown): string | null {
+  const err = (metadata as Record<string, unknown> | null)?.docket_error as { retry?: unknown } | undefined;
+  if (!err) return null;
+  return typeof err.retry === "string" ? err.retry : "ops";
 }
 
 /** ITD's own reason, without the HTTP wrapping it was stored in. */
@@ -155,7 +247,7 @@ function toNum(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function parseUserId(value: unknown): string | null {
+function parseNullableString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed !== "" ? trimmed : null;
@@ -165,8 +257,13 @@ function mapBoardRow(row: Record<string, unknown>): OpsBoardOrder {
   return {
     id: String(row.id),
     order_no: String(row.order_no),
-    user_id: parseUserId(row.user_id),
+    user_id: parseNullableString(row.user_id),
     customer_name: null,
+    customer_phone: null,
+    guest_ref: parseNullableString(row.guest_ref),
+    guest_name: parseNullableString(row.guest_name),
+    guest_email: parseNullableString(row.guest_email),
+    guest_phone: parseNullableString(row.guest_phone),
     status: String(row.status),
     created_at: String(row.created_at),
     pickup_request: row.pickup_request === 2 ? 2 : 1,
@@ -178,24 +275,50 @@ function mapBoardRow(row: Record<string, unknown>): OpsBoardOrder {
     final_amount: toNum(row.final_amount),
     consignee_name: consigneeField(row.consignee, ["name", "full_name"]),
     consignee_city: consigneeField(row.consignee, ["city", "consignee_city"]),
+    pickup_area: originField(row.origin_address, "address_line_2") ?? originField(row.origin_address, "city"),
+    pickup_pincode: originField(row.origin_address, "pincode"),
     agent_id: (row.agent_id as string | null) ?? null,
     agent_name: null,
     awb_no: (row.awb_no as string | null) ?? null,
     docket_error: docketErrorMessage(row.metadata),
     docket_error_hint: docketErrorHint(row.metadata),
+    docket_error_problems: docketErrorProblems(row.metadata),
+    docket_retry: docketErrorRetry(row.metadata),
+    agent_cancellation: agentCancellationFor(row, true),
+    is_test: isTestOrderMetadata(row.metadata),
   };
+}
+
+/** One trimmed string off the embedded origin address (object, or one-row array). */
+function originField(address: unknown, key: string): string | null {
+  const row = Array.isArray(address) ? address[0] : address;
+  if (!row || typeof row !== "object") return null;
+  return parseNullableString((row as Record<string, unknown>)[key]);
 }
 
 function mapDetailRow(row: Record<string, unknown>): OpsOrderDetail {
   return {
     id: String(row.id),
     order_no: String(row.order_no),
-    user_id: parseUserId(row.user_id),
+    is_test: isTestOrderMetadata(row.metadata),
+    user_id: parseNullableString(row.user_id),
     customer_name: null,
+    customer_phone: null,
+    guest_ref: parseNullableString(row.guest_ref),
+    guest_name: parseNullableString(row.guest_name),
+    guest_email: parseNullableString(row.guest_email),
+    guest_phone: parseNullableString(row.guest_phone),
     status: String(row.status),
     pickup_request: row.pickup_request === 2 ? 2 : 1,
     pickup_date: (row.pickup_date as string | null) ?? null,
     origin_address_id: (row.origin_address_id as string | null) ?? null,
+    pickup_address:
+      ["address_line_1", "address_line_2", "city", "pincode"]
+        .map((key) => originField(row.origin_address, key))
+        .filter(Boolean)
+        .join(", ") || null,
+    pickup_area: originField(row.origin_address, "address_line_2") ?? originField(row.origin_address, "city"),
+    pickup_pincode: originField(row.origin_address, "pincode"),
     consignee: row.consignee ?? null,
     items: row.items ?? null,
     booked_weight: toNum(row.booked_weight),
@@ -206,6 +329,7 @@ function mapDetailRow(row: Record<string, unknown>): OpsOrderDetail {
     is_cod: Boolean(row.is_cod),
     agent_id: (row.agent_id as string | null) ?? null,
     agent_name: null,
+    agent_phone: null,
     actual_weight: toNum(row.actual_weight),
     final_amount: toNum(row.final_amount),
     awb_no: (row.awb_no as string | null) ?? null,
@@ -213,6 +337,9 @@ function mapDetailRow(row: Record<string, unknown>): OpsOrderDetail {
     metadata: row.metadata ?? null,
     docket_error: docketErrorMessage(row.metadata),
     docket_error_hint: docketErrorHint(row.metadata),
+    docket_error_problems: docketErrorProblems(row.metadata),
+    docket_retry: docketErrorRetry(row.metadata),
+    agent_cancellation: agentCancellationFor(row, false),
     created_at: String(row.created_at),
     updated_at: String(row.updated_at),
   };
@@ -235,9 +362,13 @@ async function withAgentNames<T extends { agent_id: string | null; agent_name: s
   });
 }
 
-/** Batch-resolve user_id → account-holder full_name. Missing contacts stay null. */
+/** Batch-resolve user_id → account-holder full_name and phone. Missing contacts stay null. */
 async function withCustomerNames<
-  T extends { user_id: string | null; customer_name: string | null },
+  T extends {
+    user_id: string | null;
+    customer_name: string | null;
+    customer_phone: string | null;
+  },
 >(orders: T[]): Promise<T[]> {
   const ids = orders
     .map((order) => order.user_id)
@@ -247,8 +378,14 @@ async function withCustomerNames<
   const contacts = await getUserContactsByIds(ids);
   return orders.map((order) => {
     if (!order.user_id) return order;
-    const name = contacts.get(order.user_id)?.full_name?.trim();
-    return { ...order, customer_name: name ? name : null };
+    const contact = contacts.get(order.user_id);
+    const name = contact?.full_name?.trim();
+    const phone = contact?.phone?.trim();
+    return {
+      ...order,
+      customer_name: name ? name : null,
+      customer_phone: phone ? phone : null,
+    };
   });
 }
 
@@ -285,6 +422,54 @@ export async function listAllOrdersForOps(opts: {
   return withBoardNames((data ?? []).map((row) => mapBoardRow(row as Record<string, unknown>)));
 }
 
+/**
+ * Mark an order test or real by hand (PUT /api/ops/orders/:id/test).
+ *
+ * Marking it real takes off a test AWB, so the order can be filed with ITD
+ * like any other. A real ITD AWB stays either way: that shipment exists in
+ * ITD whatever the order is marked here.
+ *
+ * Read-then-write: `metadata` is one jsonb value, so its other keys are
+ * carried across by hand.
+ */
+export async function setOrderTestMark(
+  id: string,
+  test: boolean
+): Promise<{ changed: boolean; removedAwb: string | null } | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client.from("orders").select("metadata, awb_no").eq("id", id).maybeSingle();
+  if (error) {
+    logSupabaseError("setOrderTestMark.read", error);
+    return null;
+  }
+  if (!data) return null;
+
+  const metadata =
+    data.metadata && typeof data.metadata === "object" ? (data.metadata as Record<string, unknown>) : {};
+  if (isTestOrderMetadata(metadata) === test) return { changed: false, removedAwb: null };
+
+  const awb = typeof data.awb_no === "string" ? data.awb_no : null;
+  const removedAwb = !test && isTestAwb(awb) ? awb : null;
+  const { test: _old, ...rest } = metadata;
+  const update: Record<string, unknown> = {
+    metadata: test ? { ...rest, test: true } : rest,
+    updated_at: new Date().toISOString(),
+  };
+  if (removedAwb) {
+    update.awb_no = null;
+    update.itd_docket_response = null;
+  }
+
+  const { error: writeError } = await client.from("orders").update(update).eq("id", id);
+  if (writeError) {
+    logSupabaseError("setOrderTestMark.write", writeError);
+    return null;
+  }
+  return { changed: true, removedAwb };
+}
+
 /** Full order by id — no user_id filter. */
 export async function getOrderByIdForOps(id: string): Promise<OpsOrderDetail | null> {
   const client = getSupabaseClient();
@@ -292,7 +477,7 @@ export async function getOrderByIdForOps(id: string): Promise<OpsOrderDetail | n
 
   const { data, error } = await client
     .from("orders")
-    .select(DETAIL_COLUMNS)
+    .select(DETAIL_COLUMNS_WITH_ORIGIN)
     .eq("id", id)
     .maybeSingle();
 
@@ -305,7 +490,22 @@ export async function getOrderByIdForOps(id: string): Promise<OpsOrderDetail | n
   const [detail] = await withCustomerNames(
     await withAgentNames([mapDetailRow(data as Record<string, unknown>)])
   );
-  return detail ?? null;
+  if (!detail) return null;
+  // The agent on the job and, if one handed it back, who: both by name and
+  // number, because the branch rings them. One lookup for both.
+  const cancelledBy = detail.agent_cancellation?.agent_id ?? null;
+  const ids = [detail.agent_id, cancelledBy].filter((id): id is string => Boolean(id));
+  if (ids.length > 0) {
+    const contacts = await getUserContactsByIds(ids);
+    if (detail.agent_id) {
+      detail.agent_phone = contacts.get(detail.agent_id)?.phone ?? null;
+    }
+    if (detail.agent_cancellation && cancelledBy) {
+      detail.agent_cancellation.agent_name = contacts.get(cancelledBy)?.full_name ?? null;
+      detail.agent_cancellation.agent_phone = contacts.get(cancelledBy)?.phone ?? null;
+    }
+  }
+  return detail;
 }
 
 /** Registered customer's orders — never matches null user_id (guests). */
@@ -323,6 +523,28 @@ export async function listOpsOrdersByCustomer(
 
   if (error) {
     logSupabaseError("listOpsOrdersByCustomer", error);
+    return null;
+  }
+
+  return withBoardNames((data ?? []).map((row) => mapBoardRow(row as Record<string, unknown>)));
+}
+
+/** Unclaimed guest orders — guest_ref match and user_id still null. */
+export async function listOpsOrdersByGuestRef(
+  guestRef: string
+): Promise<OpsBoardOrder[] | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("orders")
+    .select(BOARD_COLUMNS)
+    .eq("guest_ref", guestRef)
+    .is("user_id", null)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    logSupabaseError("listOpsOrdersByGuestRef", error);
     return null;
   }
 
@@ -354,6 +576,35 @@ export async function countOrdersForOpsCustomers(
     if (typeof rec.user_id !== "string") continue;
     const n = typeof rec.order_count === "number" ? rec.order_count : Number(rec.order_count);
     if (Number.isFinite(n)) counts.set(rec.user_id, n);
+  }
+  return counts;
+}
+
+/** Unclaimed order counts for a page of guest refs. Grouped in JS — no RPC. */
+export async function countOrdersForOpsGuests(
+  guestRefs: string[]
+): Promise<Map<string, number> | null> {
+  const counts = new Map<string, number>();
+  if (guestRefs.length === 0) return counts;
+
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("orders")
+    .select("guest_ref")
+    .in("guest_ref", guestRefs)
+    .is("user_id", null);
+
+  if (error) {
+    logSupabaseError("countOrdersForOpsGuests", error);
+    return null;
+  }
+
+  for (const row of data ?? []) {
+    const ref = (row as { guest_ref?: unknown }).guest_ref;
+    if (typeof ref !== "string") continue;
+    counts.set(ref, (counts.get(ref) ?? 0) + 1);
   }
   return counts;
 }
@@ -494,13 +745,13 @@ export type MockDocketResponse = {
 };
 
 /**
- * Mock docket write: settled → dispatched with a fake AWB.
- * Double-fire guard is `awb_no IS NULL` plus status = settled.
+ * settled → dispatched with an AWB entered by ops (`record_awb`, filed in
+ * ITD's portal). Double-fire guard is `awb_no IS NULL` plus status = settled.
  */
 export async function applyGenerateDocket(input: {
   orderId: string;
   awbNo: string;
-  docketResponse: MockDocketResponse;
+  docketResponse: Record<string, unknown>;
 }): Promise<Order | null> {
   const client = getSupabaseClient();
   if (!client) return null;
@@ -584,6 +835,8 @@ export type OpsPaymentRow = {
   collected_at: string | null;
   status: string;
   reference: string | null;
+  /** The payment is for a test order. */
+  is_test: boolean;
 };
 
 export type OpsPaymentTotals = {
@@ -600,6 +853,7 @@ export type OpsPendingCancellation = {
   consignee_name: string | null;
   requested_at: string;
   reason: string | null;
+  is_test: boolean;
 };
 
 function addCalendarDays(ymd: string, days: number): string {
@@ -639,7 +893,7 @@ function threeWayTotals(payments: OpsPaymentRow[]): OpsPaymentTotals {
  */
 export async function listOpsPayments(
   range: OpsPaymentRange,
-  opts?: { limit?: number | null }
+  opts?: { limit?: number | null; testOnly?: boolean }
 ): Promise<{ payments: OpsPaymentRow[]; totals: OpsPaymentTotals } | null> {
   const client = getSupabaseClient();
   if (!client) return null;
@@ -649,7 +903,7 @@ export async function listOpsPayments(
   let query = client
     .from("payments")
     .select(
-      "id, txn_id, order_id, amount, currency, method, collection_mode, collected_by, collected_at, status, reference, orders(order_no)"
+      "id, txn_id, order_id, amount, currency, method, collection_mode, collected_by, collected_at, status, reference, orders(order_no, metadata)"
     )
     .gte("collected_at", startIso)
     .order("collected_at", { ascending: false });
@@ -675,12 +929,11 @@ export async function listOpsPayments(
     const collectedBy = (row.collected_by as string | null) ?? null;
     const named = collectedBy ? contacts.get(collectedBy)?.full_name?.trim() : null;
     const embedded = row.orders as
-      | { order_no?: string }
-      | { order_no?: string }[]
+      | { order_no?: string; metadata?: unknown }
+      | { order_no?: string; metadata?: unknown }[]
       | null;
-    const orderNo = Array.isArray(embedded)
-      ? (embedded[0]?.order_no ?? null)
-      : (embedded?.order_no ?? null);
+    const embeddedOrder = Array.isArray(embedded) ? embedded[0] : embedded;
+    const orderNo = embeddedOrder?.order_no ?? null;
     const mode = row.collection_mode;
     return {
       id: String(row.id),
@@ -696,10 +949,14 @@ export async function listOpsPayments(
       collected_at: (row.collected_at as string | null) ?? null,
       status: String(row.status),
       reference: (row.reference as string | null) ?? null,
+      is_test: isTestOrderMetadata(embeddedOrder?.metadata),
     };
   });
 
-  return { payments, totals: threeWayTotals(payments) };
+  // Test orders' money and live orders' money never share a total.
+  const testOnly = opts?.testOnly === true;
+  const shown = payments.filter((p) => p.is_test === testOnly);
+  return { payments: shown, totals: threeWayTotals(shown) };
 }
 
 export type OpsOrdersExportParams = {
@@ -802,6 +1059,7 @@ export async function listPendingCancellationsForOps(): Promise<{
         consignee_name: consigneeField(order.consignee, ["name", "full_name"]),
         requested_at: request?.requested_at ?? order.updated_at,
         reason: request?.reason ?? null,
+        is_test: isTestOrderMetadata(order.metadata),
       };
     })
     .sort((a, b) => (a.requested_at < b.requested_at ? 1 : -1))

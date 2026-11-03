@@ -1,6 +1,7 @@
 import { Home, BadgeDollarSign, Send, PackageSearch } from 'lucide-react';
 import { SupportFab } from '@/components/SupportFab';
 import { TabBar, type TabItem } from '@/components/TabBar';
+import { useParcelsOverview } from '@/hooks/useParcelsOverview';
 
 /**
  * Customer bottom navigation.
@@ -18,12 +19,15 @@ const navItems: TabItem[] = [
 ];
 
 export function BottomNav() {
+  // Parcels, sent or coming to you, that moved since Orders was last open.
+  const { unseen } = useParcelsOverview();
+  const items = navItems.map((item) => (item.path === '/orders' ? { ...item, badge: unseen } : item));
   return (
     <>
       <div className="md:hidden">
         <SupportFab />
       </div>
-      <TabBar items={navItems} className="md:hidden" testId="bottom-nav" />
+      <TabBar items={items} className="md:hidden" testId="bottom-nav" />
     </>
   );
 }

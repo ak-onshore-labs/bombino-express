@@ -58,6 +58,19 @@ export const ERROR_CATALOG = {
     why: "A US delivery needs one of the 50 states or DC, and the one given isn't a US state.",
     fix: "Pick the state from the list on the Receiver step.",
   },
+  // ── Phone numbers on a booking ────────────────────────────────────────────
+  SENDER_PHONE_INVALID: {
+    area: "booking",
+    title: "The sender's phone number isn't right",
+    why: "The courier needs the sender's 10-digit mobile number, without +91 or a 0 in front.",
+    fix: "Enter the 10-digit number on the Sender step, like 9876543210.",
+  },
+  RECEIVER_PHONE_INVALID: {
+    area: "booking",
+    title: "The receiver's phone number isn't right",
+    why: "A US or Canadian number has 10 digits after +1, and never starts with 0 or 1.",
+    fix: "Enter the receiver's 10-digit number on the Receiver step, like 212 555 0100.",
+  },
   // ── Fixing an application the Bombino team sent back ──────────────────────
   APPLICATION_NOT_AWAITING_CHANGES: {
     area: "signup",
@@ -98,6 +111,25 @@ export const ERROR_CATALOG = {
     fix: "Try again in a moment. If it keeps failing, contact support.",
     button: "TAP_CONTACT_US",
   },
+  WHATSAPP_SEND_FAILED: {
+    area: "auth",
+    title: "The code couldn't be sent on WhatsApp",
+    why: "WhatsApp didn't accept the message for this number. It may not be set up on WhatsApp yet.",
+    fix: "Make sure WhatsApp is installed and registered on this number, then try again.",
+  },
+  NO_PHONE: {
+    area: "auth",
+    title: "No mobile number on your account",
+    why: "A number is needed before it can be checked on WhatsApp.",
+    fix: "Add a mobile number to your profile first.",
+  },
+  SAVE_FAILED: {
+    area: "auth",
+    title: "That couldn't be saved",
+    why: "Something failed on our side while saving it.",
+    fix: "Try again in a moment. If it keeps failing, contact support.",
+    button: "TAP_CONTACT_US",
+  },
   OTP_NOT_REQUESTED: {
     area: "auth",
     title: "No code is waiting for this number",
@@ -133,6 +165,13 @@ export const ERROR_CATALOG = {
     title: "This number belongs to another account",
     why: "The mobile number is already linked to a different Bombino account.",
     fix: "Sign in with that number, or contact support to move it.",
+    button: "TAP_CONTACT_US",
+  },
+  ACCOUNT_DEACTIVATED: {
+    area: "auth",
+    title: "This account has been deactivated",
+    why: "This account has been deactivated, so it can no longer be used to sign in.",
+    fix: "Please contact ops.",
     button: "TAP_CONTACT_US",
   },
 
@@ -339,6 +378,12 @@ export const ERROR_CATALOG = {
     why: "The product type decides the customs paperwork for the parcel.",
     fix: "Choose one on the package step: Documents (DOX) for paper only, Package (SPX) for other goods, or Commercial for goods you're selling.",
   },
+  BOX_SIZE_REQUIRED: {
+    area: "booking",
+    title: "Add the box size",
+    why: "Shipping is charged on whichever is greater, the parcel's weight or the space its box takes up, so a rate can't be worked out without the size.",
+    fix: "Measure the outside of the box and enter its length, width and height.",
+  },
   PAY_AT_PICKUP_NEEDS_PICKUP: {
     area: "booking",
     title: "Pay at pickup needs a doorstep pickup",
@@ -482,12 +527,23 @@ export function identityFailureCode(failure: string): ErrorCode {
  * ERROR_CATALOG when a screen or BIA needs to explain it.
  */
 export const UNCATALOGUED_CODES = [
+  // Indian WhatsApp number for a customer from abroad: the card only renders
+  // for a signed-in customer whose number is from abroad, so neither shows.
+  "NOT_SIGNED_IN",
+  "NOT_INTERNATIONAL",
   "ACCOUNT_SESSION",
   "ACTION_NOT_AVAILABLE",
+  "BAD_AWB",
   "BAD_TRANSITION",
   "CODE_ISSUE_FAILED",
+  "DOCKET_BUSY",
+  "DOCKET_FAILED",
   "FORBIDDEN",
   "INVALID_AGENT",
+  // Ops console: a branch manager assigning an agent from another city.
+  "AGENT_OUTSIDE_CITY",
+  // Ops console: a test order to a real agent, or a real order to a test agent.
+  "TEST_AGENT_MISMATCH",
   // Ops console: marking an application's document verified by hand.
   "ALREADY_VERIFIED",
   "DOCUMENT_NOT_UPLOADED",
@@ -508,6 +564,7 @@ export const UNCATALOGUED_CODES = [
   "NO_HANDOVER_DUE",
   "NO_OPEN_REQUEST",
   "NO_ORDER",
+  "NEEDS_MANUAL_AWB",
   "NOT_IMPLEMENTED",
   "NUDGES_NOT_SET_UP",
   "ORDER_MISMATCH",

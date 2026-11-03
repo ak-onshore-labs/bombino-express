@@ -3,25 +3,32 @@ import { AskBiaTopButton } from '@/components/bia/AskBiaTopButton';
 import { useLocation } from 'wouter';
 import {
   ArrowLeft,
+  ChevronRight,
   Loader2,
-  LogOut,
+  Mail,
+  Phone,
   ShieldCheck,
   UserCircle,
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { useGuestProfile } from '@/hooks/useGuestProfile';
+import { useSupportContacts } from '@/hooks/useSupportContacts';
 import { parseApiErrorMessage } from '@/lib/apiError';
 import { Button } from '@/components/ui/button';
 import { GuestSignOutDialog } from '@/components/GuestSignOutDialog';
 import { BottomNav } from '@/components/BottomNav';
+import { ProfileFooter, ProfileHero, ProfileSupportSection } from '@/components/profile/ProfileBlocks';
 import { StateBlock } from '@/components/StateBlock';
 import { ProfileProgressTracker } from '@/components/ProfileProgressTracker';
 import { GuestOrders } from '@/components/GuestOrders';
 import { NudgePrefs } from '@/components/bia/NudgePrefs';
+import { WhatsappAltCard } from '@/components/WhatsappAltCard';
 import { ApplicationStatusCard } from '@/components/ApplicationStatusCard';
 import { isOpenApplicationStatus } from '@shared/applicationStatus';
 import {
   ACCOUNT_TYPE_LABEL,
+  formatGuestPhone,
+  listPendingLabels,
   shadowProfileProgress,
   type GuestAccountType,
 } from '@/lib/shadowProfile';
@@ -47,6 +54,7 @@ export default function GuestProfileDashboard(): React.JSX.Element {
   const { data: guestProfile, isLoading } = useGuestProfile({ enabled: !isLoggedIn });
 
   const [signOutOpen, setSignOutOpen] = useState(false);
+  const { waHref, telHref, officeLabel } = useSupportContacts();
 
   // A real account outranks a shadow of one. Someone who signed in since this
   // screen was linked belongs on the account profile, which can actually
@@ -135,8 +143,29 @@ export default function GuestProfileDashboard(): React.JSX.Element {
 
   return (
     <GuestShell onBack={() => setLocation('/home')}>
-      <div className="space-y-4 px-4 py-4">
+      <div className="space-y-4 px-4 py-5">
+        {/* Who this is — the same hero the account profile opens with. */}
+        <ProfileHero
+          name={guestProfile.full_name?.trim() || 'Guest'}
+          lines={[
+            { icon: Phone, text: formatGuestPhone(guestProfile.phone), verified: true },
+            ...(guestProfile.email ? [{ icon: Mail, text: guestProfile.email }] : []),
+          ]}
+          stats={[
+            { label: 'Account', value: 'Guest' },
+            {
+              label: 'Type',
+              value: guestProfile.account_type ? ACCOUNT_TYPE_LABEL[guestProfile.account_type] : 'Not chosen',
+              tone: guestProfile.account_type ? 'plain' : 'pending',
+            },
+            { label: 'Bookings', value: String(guestProfile.orders.length) },
+          ]}
+        />
+
         {application && <ApplicationStatusCard application={application} phone={guestProfile.phone} />}
+
+        {/* A guest from abroad: where their WhatsApp updates go. */}
+        <WhatsappAltCard />
 
         {/* One card, one ask.
             The action lives with the list of gaps rather than in a card of its
@@ -168,9 +197,12 @@ export default function GuestProfileDashboard(): React.JSX.Element {
               ) : (
                 <>
                   <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
-                    {typedPending.length === 1
-                      ? 'One detail left. Add it once and your next booking is mostly done, with nothing to retype.'
-                      : `${typedPending.length} details left. Add them once and your next booking is mostly done, with nothing to retype.`}
+                    {/* Names what this button collects, so it never reads as
+                        a different count from the header above (that one also
+                        counts the document and the account itself). */}
+                    {`Start here with your ${listPendingLabels(typedPending)}. Add ${
+                      typedPending.length === 1 ? 'it' : 'them'
+                    } once and your next booking needs no retyping.`}
                   </p>
                   <Button
                     onClick={() => setLocation('/guest-profile/setup')}
@@ -202,29 +234,35 @@ export default function GuestProfileDashboard(): React.JSX.Element {
             read them: /orders is an account screen, and /api/orders/:orderNo
             answers only to an account. Shared with Home rather than duplicated
             — see components/GuestOrders.tsx. */}
-        <GuestOrders orders={orders} />
+        {/* The newest few; Orders has them all, both directions. */}
+        {orders.length > 0 && (
+          <div>
+            <GuestOrders orders={orders} limit={3} />
+            <button
+              type="button"
+              onClick={() => setLocation('/orders')}
+              className="mt-2 flex h-11 w-full items-center justify-center gap-1 rounded-xl text-sm font-semibold text-[#2F4468] hover:bg-muted"
+              data-testid="link-guest-profile-all-orders"
+            >
+              See all in Orders
+              <ChevronRight className="h-4 w-4" aria-hidden />
+            </button>
+          </div>
+        )}
 
         {/* BIA's reminders, each one switchable (BIA 3.0, 5.1). */}
         <NudgePrefs />
 
+        <ProfileSupportSection waHref={waHref} telHref={telHref} officeLabel={officeLabel} />
+
         {/* Last, and quiet. Nothing here is destroyed by it — the copy in the
             dialog says so — but it is the only way to stop this device being
             somebody, so it must be findable rather than hidden. */}
-        {/* Auto width, centred, and deliberately not full bleed.
-            The support orb floats in the bottom-right corner on every customer
-            screen, and a full-width button as the last row ran straight under
-            it — one tap, two targets. Keeping this one out of the corner is
-            steadier than pushing the orb around per page, and a quiet exit
-            reads better as a short button than as a bar. */}
-        <button
-          type="button"
-          onClick={() => setSignOutOpen(true)}
-          className="mx-auto flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-card px-5 py-3 text-sm font-semibold text-red-600 hover:bg-red-50"
-          data-testid="button-guest-sign-out"
-        >
-          <LogOut className="h-4 w-4" aria-hidden />
-          Sign out of this device
-        </button>
+        <ProfileFooter
+          signOutLabel="Sign out of this device"
+          onSignOut={() => setSignOutOpen(true)}
+          testId="button-guest-sign-out"
+        />
       </div>
 
       {/* Forget this device — see GuestSignOutDialog. */}

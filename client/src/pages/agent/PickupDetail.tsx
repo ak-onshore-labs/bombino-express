@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useLocation, useRoute } from 'wouter';
-import { Loader2, Phone, Navigation, MapPin, Clock, Package, Globe, CreditCard } from 'lucide-react';
+import { Loader2, Phone, MapPin, Clock, Package, Globe, CreditCard } from 'lucide-react';
 import { AgentJobSheet } from '@/components/agent/AgentShell';
 import { ActionBar } from '@/components/agent/ActionButtons';
 import { PressableButton } from '@/components/motion/Pressable';
@@ -21,9 +21,16 @@ import {
 } from '@/components/agent/PickupCard';
 import { todayInIst } from '@shared/istTime';
 import { docketItem, type OrderConsignee } from '@/lib/orderDetail';
+import { GoogleMapsIcon } from '@/components/agent/GoogleMapsIcon';
 import { HandoverOtpSheet, type HandoverOtpKind } from '@/components/agent/HandoverOtpSheet';
-import { useAvailablePickups, useMyPickups, useOrderAction } from '@/hooks/useAgentPickups';
+import { useMyPickups, useOrderAction } from '@/hooks/useAgentPickups';
 import type { AgentPickup } from '@/hooks/useAgentPickups';
+import {
+  CANCEL_ACTIONS,
+  ConfirmActionDialog,
+  CONFIRMED_ACTIONS,
+  ProblemDialog,
+} from '@/components/agent/AgentDialogs';
 
 /**
  * One job, as a single white sheet under a navy bar carrying its number.
@@ -50,9 +57,6 @@ import type { AgentPickup } from '@/hooks/useAgentPickups';
  * cancellation, a job taken back) still redirects.
  */
 
-/** The office, for the `Problem` button. No endpoint behind it, by design. */
-const OFFICE_PHONE = '+912266400000';
-
 /**
  * The two actions that need a code, and which handover each one checks.
  *
@@ -61,7 +65,6 @@ const OFFICE_PHONE = '+912266400000';
  */
 const OTP_ACTIONS = {
   mark_picked_up: 'pickup',
-  mark_received_at_hub: 'hub',
 } as const satisfies Record<string, HandoverOtpKind>;
 
 type OtpAction = keyof typeof OTP_ACTIONS;
@@ -87,19 +90,17 @@ export default function PickupDetail() {
   const [, params] = useRoute('/agent/pickup/:id');
   const [, setLocation] = useLocation();
   const mine = useMyPickups();
-  const available = useAvailablePickups();
   const action = useOrderAction();
   const today = todayInIst();
 
-  const entry =
-    mine.data?.find((p) => p.order.id === params?.id) ??
-    available.data?.find((p) => p.order.id === params?.id);
+  // Only the agent's own jobs: they are not shown unassigned bookings.
+  const entry = mine.data?.find((p) => p.order.id === params?.id);
   const order = entry?.order;
 
-  const isLoading = mine.isLoading || available.isLoading;
+  const isLoading = mine.isLoading;
   // Only fatal when we have nothing to show. One list failing while the other
   // holds the job is not worth an error screen.
-  const isError = (mine.isError || available.isError) && !entry;
+  const isError = mine.isError && !entry;
 
   // The order as the server returned it from a completed hub handover. Set once
   // and never cleared: the job has left both lists by then, and this is the only
@@ -118,7 +119,7 @@ export default function PickupDetail() {
   // Also suppressed once the hub handover lands. The job leaves both lists at
   // exactly that moment, and that departure is the thing being reported — this
   // is the one disappearance the agent should be shown rather than moved past.
-  const settling = mine.isFetching || available.isFetching;
+  const settling = mine.isFetching;
   const vanished = !isLoading && !settling && !isError && !entry && !handedOver;
   useEffect(() => {
     if (vanished) setLocation('/agent/mine', { replace: true });
@@ -126,9 +127,8 @@ export default function PickupDetail() {
 
   // Where "back" goes depends on where the job actually is, not on where the
   // agent happened to tap in from.
-  const isFree = !!entry && !mine.data?.some((p) => p.order.id === entry.order.id);
-  const backHref = isFree ? '/agent/available' : '/agent/mine';
-  const backLabel = isFree ? 'New jobs' : 'My jobs';
+  const backHref = '/agent/mine';
+  const backLabel = 'My jobs';
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [receipt, setReceipt] = useState<{ txnId: string | null; amount: number } | null>(null);
@@ -143,6 +143,9 @@ export default function PickupDetail() {
   // The server's verdict on the last code, held so the sheet can show it. Not
   // a toast: the agent is retyping into the field the message is about.
   const [otpError, setOtpError] = useState<string | null>(null);
+  // Start journey and Cancel pickup ask first; Problem opens the call popup.
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [problemOpen, setProblemOpen] = useState(false);
 
   const runAction = (actionName: string, payload?: Record<string, unknown>): void => {
     if (!order) return;
@@ -201,6 +204,10 @@ export default function PickupDetail() {
       setOtpAction(actionName);
       return;
     }
+    if (CONFIRMED_ACTIONS.has(actionName)) {
+      setConfirming(actionName);
+      return;
+    }
     runAction(actionName);
   };
 
@@ -254,14 +261,17 @@ export default function PickupDetail() {
                   pendingAction={action.isPending ? action.variables?.action ?? null : null}
                   disabled={action.isPending}
                   onAction={handleAction}
+                  neverPrimary={CANCEL_ACTIONS}
+                  danger={CANCEL_ACTIONS}
                   trailing={
-                    <a
-                      href={`tel:${OFFICE_PHONE}`}
-                      className="w-full h-full flex items-center justify-center border border-[#CBD5E1]! bg-white text-[19px] font-semibold text-[#1B2A41]"
+                    <button
+                      type="button"
+                      onClick={() => setProblemOpen(true)}
+                      className="w-full h-full flex items-center justify-center bg-[#FACC15] text-[19px] font-bold text-[#1B2A41]"
                       data-testid="button-problem"
                     >
                       Problem
-                    </a>
+                    </button>
                   }
                 />
               </motion.div>
@@ -350,12 +360,12 @@ export default function PickupDetail() {
             className="border-t border-[#E8EDF2]!"
           />
 
-          {/* The two things done with a phone, one hairline apart. */}
-          <div className="flex border-t border-[#E8EDF2]!">
+          {/* The two things done with a phone: Call in green, Map in blue. */}
+          <div className="flex gap-2.5 border-t border-[#E8EDF2]! px-5 py-4">
             {address?.phone ? (
               <a
                 href={`tel:${address.phone}`}
-                className="flex-1 h-[68px] flex items-center justify-center gap-2.5 bg-[#15803D]"
+                className="flex-1 h-[60px] flex items-center justify-center gap-2.5 bg-[#15803D] active:opacity-90"
                 data-testid="button-call-sender"
               >
                 <Phone className="w-[21px] h-[21px] text-white" strokeWidth={1.5} />
@@ -363,7 +373,7 @@ export default function PickupDetail() {
               </a>
             ) : (
               <span
-                className="flex-1 h-[68px] flex items-center justify-center border-r border-[#E8EDF2]! text-[17px] font-semibold text-[#94A3B8]"
+                className="flex-1 h-[60px] flex items-center justify-center border border-[#E8EDF2]! text-[17px] font-semibold text-[#94A3B8]"
                 data-testid="no-phone"
               >
                 No phone
@@ -373,11 +383,13 @@ export default function PickupDetail() {
               href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapsQuery)}`}
               target="_blank"
               rel="noreferrer"
-              className="flex-1 h-[68px] flex items-center justify-center gap-2.5 border-l border-[#E8EDF2]!"
+              className="flex-1 h-[60px] flex items-center justify-center gap-2.5 bg-[#1D4ED8] active:opacity-90"
               data-testid="button-navigate"
             >
-              <Navigation className="w-[21px] h-[21px] text-[#1B2A41]" strokeWidth={1.5} />
-              <span className="text-[19px] font-semibold text-[#1B2A41]">Map</span>
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white">
+                <GoogleMapsIcon className="h-[22px] w-auto" />
+              </span>
+              <span className="text-[19px] font-bold text-white">Open map</span>
             </a>
           </div>
 
@@ -409,6 +421,16 @@ export default function PickupDetail() {
               {notDueYet}
             </p>
           )}
+
+          <ConfirmActionDialog
+            action={confirming}
+            onClose={() => setConfirming(null)}
+            onConfirm={(name) => {
+              setConfirming(null);
+              runAction(name);
+            }}
+          />
+          <ProblemDialog open={problemOpen} onClose={() => setProblemOpen(false)} />
 
           <CollectPaymentSheet
             open={sheetOpen}

@@ -2,20 +2,23 @@
  * Phase 3A/3B — Ops read endpoints (board + order detail + availableActions).
  *
  * Self-registering: `registerOpsRoutes(app)` is called from `routes.ts`.
- * Every route is gated requireUser + requireRole("admin","super_admin") so
- * super_admin is never rejected by an exact single-arg "admin" match.
+ * Every route is gated on a permission from shared/staffAccess.ts via
+ * `opsGateFor`. A branch manager's orders, agents and beats are filtered to
+ * their city (server/staffScope.ts).
  */
 
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
-import { isIndiaHubId } from "../../shared/hubs.js";
+import { hubCity, hubCityForId, isIndiaHubId } from "../../shared/hubs.js";
 import {
+  beatIdsForAgent,
   beatNamesByAgent,
   getBeat,
   insertBeat,
   listBeats,
   replaceBeatAgents,
   replaceBeatPincodes,
+  setAgentBeats,
   updateBeat,
   type BeatPincode,
 } from "../beatsDb.js";
@@ -41,28 +44,51 @@ import {
   findActiveAgentById,
   findItdUserIdByPhone,
   getCustomerForOps,
+  getStaffUserById,
   insertStaffUser,
+  itdUserHasStoredPassword,
   listCustomerAccounts,
   listCustomersForOps,
   listStaffUsers,
+  updateStaffUser,
 } from "../appDb.js";
-import { getCodeForOwner, issueCode } from "../handoverCodes.js";
+import { issueCode } from "../handoverCodes.js";
 import {
   getIdentityVerificationByUserIdAndKind,
   identityKindsForUserIds,
   listIdentityOpsMetaByUserId,
   type IdentityKind,
 } from "../identityDb.js";
-import { getKycFileByUserId, getKycOpsMetaByUserId, kycExistsForUserIds } from "../kycDb.js";
-import { notifyOrderTransition } from "../notify.js";
+import {
+  getGuestProfile,
+  listGuestsForOps,
+} from "../guestProfileDb.js";
+import {
+  getKycFileByGuestRef,
+  getKycFileByUserId,
+  getKycOpsMetaByGuestRef,
+  getKycOpsMetaByUserId,
+  kycExistsForGuestRefs,
+  kycExistsForUserIds,
+} from "../kycDb.js";
+import { notifyAgentOfAssignment, notifyOrderTransition } from "../notify.js";
 import { availableActions } from "../orderLifecycle.js";
-import { insertOrderEvent } from "../ordersDb.js";
+import { getOrderById, getUserContactsByIds, insertOrderEvent } from "../ordersDb.js";
+import {
+  SETTINGS,
+  isSettingKey,
+  listAllSettings,
+  setSetting,
+} from "../settingsDb.js";
 import {
   assignPickup,
   countOrdersForOpsCustomers,
+  countOrdersForOpsGuests,
   getOrderByIdForOps,
+  setOrderTestMark,
   listAllOrdersForOps,
   listOpsOrdersByCustomer,
+  listOpsOrdersByGuestRef,
   listOpsOrdersForExport,
   listOpsPayments,
   listOrderEventsForOps,
@@ -70,9 +96,15 @@ import {
   type OpsOrderDetail,
   type OpsPaymentRange,
 } from "../opsDb.js";
-import { opsGate, requireRole, requireUser, ensureDbUser } from "../routeGuards.js";
+import { buildPincodeReport } from "../pincodeReport.js";
+import { opsGateFor } from "../routeGuards.js";
+import { boxLabelEligible, boxLabelFor } from "./parcel.js";
+import { isCallersOrder, isScoped, keepCallersOrders } from "../staffScope.js";
+import { isTestPhone, seesTestOrders, withoutHiddenTestRows } from "../testOrders.js";
+import { assignableRoles, can, STAFF_ROLES } from "../../shared/staffAccess.js";
 import { INDIAN_MOBILE_MESSAGE, INDIAN_MOBILE_PATTERN } from "../../shared/contact.js";
 import { sendDocumentFile, wantsDownload } from "../documentResponse.js";
+import { loadAgentsWithCities, pickAgentsForCity, pickupCity } from "../assignableAgents.js";
 import {
   AuditLogUnavailableError,
   logDocumentAccess,
@@ -88,8 +120,46 @@ import {
 const createStaffSchema = z.object({
   full_name: z.string().trim().min(1, "Full name is required"),
   phone: z.string().trim().regex(INDIAN_MOBILE_PATTERN, INDIAN_MOBILE_MESSAGE),
-  role: z.enum(["agent", "admin"]),
+  role: z.enum(STAFF_ROLES).refine((r) => r !== "super_admin", "A super admin cannot be created here"),
   hub_id: z.coerce.number().int().refine(isIndiaHubId, "Select a valid hub"),
+});
+
+const staffUserIdSchema = z.string().uuid();
+
+const patchStaffSchema = z
+  .object({
+    full_name: z.string().trim().min(1, "Full name is required").optional(),
+    phone: z
+      .string()
+      .trim()
+      .regex(/^\d{10}$/, "Enter a valid 10-digit phone number")
+      .optional(),
+    email: z
+      .string()
+      .trim()
+      .refine(
+        (value) => value === "" || z.string().email().safeParse(value).success,
+        "Enter a valid email"
+      )
+      .optional(),
+    is_active: z.boolean().optional(),
+    role: z
+      .enum(STAFF_ROLES)
+      .refine((r) => r !== "super_admin", "A super admin cannot be made here")
+      .optional(),
+  })
+  .refine(
+    (patch) =>
+      patch.full_name !== undefined ||
+      patch.phone !== undefined ||
+      patch.email !== undefined ||
+      patch.is_active !== undefined ||
+      patch.role !== undefined,
+    "Nothing to change"
+  );
+
+const setAgentBeatsSchema = z.object({
+  beat_ids: z.array(z.string().uuid()).max(200),
 });
 
 /**
@@ -144,7 +214,13 @@ const customersListQuerySchema = z.object({
   kyc: z.enum(["on_file", "none"]).optional(),
 });
 
+const guestsListQuerySchema = z.object({
+  q: z.string().max(80).optional(),
+  account_type: z.enum(["personal", "company", "unset"]).optional(),
+});
+
 const customerIdSchema = z.string().uuid();
+const guestRefSchema = z.string().uuid();
 
 const identityKindSchema = z.enum(["aadhaar", "pan", "gstin"]);
 
@@ -168,6 +244,28 @@ async function requireOpsKycActorAndCustomer(
     return null;
   }
   return { customerId: customer.id, actorId };
+}
+
+async function requireOpsKycActorAndGuest(
+  req: Request,
+  res: Response
+): Promise<{ guestRef: string; actorId: string } | null> {
+  const actorId = req.session.dbUserId;
+  if (!actorId) {
+    res.status(401).json({ message: "Not authenticated" });
+    return null;
+  }
+  const parsedRef = guestRefSchema.safeParse(req.params.ref);
+  if (!parsedRef.success) {
+    res.status(404).json({ message: "Guest not found" });
+    return null;
+  }
+  const guest = await getGuestProfile(parsedRef.data);
+  if (!guest) {
+    res.status(404).json({ message: "Guest not found" });
+    return null;
+  }
+  return { guestRef: guest.guest_ref, actorId };
 }
 
 const assignPickupSchema = z.object({
@@ -223,11 +321,128 @@ function asOrder(row: OpsOrderDetail): Order {
   };
 }
 
+/** A branch manager sees beats whose hub is in their city. */
+function isCallersBeat(req: Request, hub: string): boolean {
+  const own = req.staff?.city ?? null;
+  return own !== null && hubCity(hub) === own;
+}
+
+/**
+ * Writes a branch manager may make are confined to their own city, the same
+ * line as what they may see. Each guard answers true for an unscoped caller.
+ */
+const OUTSIDE_CITY = (req: Request, what: string): string =>
+  `You can only manage ${what} in ${req.staff?.city ?? "your city"}.`;
+
+/** The pickup agent is in the caller's city (by hub or by beat). */
+async function isCallersAgent(req: Request, agentId: string): Promise<boolean> {
+  if (!isScoped(req)) return true;
+  const own = req.staff?.city ?? null;
+  if (!own) return false;
+  const agents = await loadAgentsWithCities({ includeInactive: true });
+  return !!agents?.some((a) => a.id === agentId && a.cities.includes(own));
+}
+
+/** The beat exists and runs out of the caller's city. */
+async function isCallersBeatId(req: Request, beatId: string): Promise<boolean> {
+  if (!isScoped(req)) return true;
+  const beat = await getBeat(beatId);
+  return beat !== null && beat !== "missing" && isCallersBeat(req, beat.hub);
+}
+
+/**
+ * The staff rows the caller may see. A branch manager sees their own city's
+ * pickup agents and nobody else; every other role sees all staff.
+ */
+async function keepCallersStaff<T extends { id: string; role: string }>(
+  req: Request,
+  rows: T[]
+): Promise<T[] | null> {
+  if (!isScoped(req)) return rows;
+  const own = req.staff?.city ?? null;
+  if (!own) return [];
+  const agents = await loadAgentsWithCities({ includeInactive: true });
+  if (!agents) return null;
+  const inCity = new Set(agents.filter((a) => a.cities.includes(own)).map((a) => a.id));
+  return rows.filter((r) => r.role === "agent" && inCity.has(r.id));
+}
+
 export function registerOpsRoutes(app: Express): void {
+  // GET /api/ops/test-access — what this caller does with test orders
+  // (server/testOrders.ts): whether they are on a test number and so get the
+  // test/live data switch, which data they are on now, and whether they may
+  // mark an order test or real.
+  app.get("/api/ops/test-access", ...opsGateFor("orders.view"), (req: Request, res: Response) => {
+    res.json({
+      test_staff: req.staff?.test === true,
+      sees_test: seesTestOrders(req),
+      can_mark: req.staff?.marksTest === true,
+    });
+  });
+
+  // PUT /api/ops/data-mode — a test number switches its console between test
+  // data and live data. Held in the session, so it lasts until sign-out.
+  app.put("/api/ops/data-mode", ...opsGateFor("orders.view"), (req: Request, res: Response) => {
+    if (req.staff?.test !== true) {
+      res.status(403).json({
+        message: "You do not have permission to perform this action.",
+        code: "FORBIDDEN",
+      });
+      return;
+    }
+    const mode = (req.body as { mode?: unknown } | null)?.mode;
+    if (mode !== "test" && mode !== "live") {
+      res.status(400).json({ message: "mode must be test or live", code: "INVALID_REQUEST" });
+      return;
+    }
+    req.session.opsDataMode = mode;
+    res.json({ mode });
+  });
+
+  // PUT /api/ops/orders/:id/test — mark an order test or real by hand. Only
+  // the accounts in TEST_ORDER_MARKER_PHONES.
+  app.put("/api/ops/orders/:id/test", ...opsGateFor("orders.view"), async (req: Request, res: Response) => {
+    if (req.staff?.marksTest !== true) {
+      res.status(403).json({
+        message: "You do not have permission to perform this action.",
+        code: "FORBIDDEN",
+      });
+      return;
+    }
+    const test = (req.body as { test?: unknown } | null)?.test;
+    if (typeof test !== "boolean") {
+      res.status(400).json({ message: "test must be true or false", code: "INVALID_REQUEST" });
+      return;
+    }
+    const order = await getOrderByIdForOps(req.params.id);
+    if (!order) {
+      res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
+      return;
+    }
+    const result = await setOrderTestMark(order.id, test);
+    if (!result) {
+      res.status(502).json({ message: "Could not change this order. Please try again." });
+      return;
+    }
+    if (result.changed) {
+      const note = test
+        ? "Marked as a test order"
+        : `Marked as a real order${result.removedAwb ? ` · test AWB ${result.removedAwb} removed` : ""}`;
+      void insertOrderEvent({
+        order_id: order.id,
+        status: order.status,
+        note,
+        actor_user_id: req.session.dbUserId ?? null,
+        metadata: { action: "test_mark", test, removed_awb: result.removedAwb },
+      });
+    }
+    res.json({ test, removed_awb: result.removedAwb });
+  });
+
   // GET /api/ops/orders — all orders, newest first (cap 200)
   app.get(
     "/api/ops/orders",
-    ...opsGate,
+    ...opsGateFor("orders.view"),
     async (req: Request, res: Response) => {
       const rawStatus = req.query.status;
       let status: string | undefined;
@@ -242,7 +457,8 @@ export function registerOpsRoutes(app: Express): void {
         status = rawStatus;
       }
 
-      const orders = await listAllOrdersForOps({ status, limit: 200 });
+      const all = await listAllOrdersForOps({ status, limit: 200 });
+      const orders = all === null ? null : await keepCallersOrders(req, all);
       if (orders === null) {
         res.status(502).json({ message: "Could not load orders" });
         return;
@@ -256,7 +472,7 @@ export function registerOpsRoutes(app: Express): void {
   // Registered before /orders/:id so "export" is not parsed as an id.
   app.get(
     "/api/ops/orders/export",
-    ...opsGate,
+    ...opsGateFor("orders.view"),
     async (req: Request, res: Response) => {
       const parsed = ordersExportQuerySchema.safeParse(req.query);
       if (!parsed.success) {
@@ -268,7 +484,7 @@ export function registerOpsRoutes(app: Express): void {
 
       const q = parsed.data;
       const section = q.section as OpsBoardSection;
-      const orders = await listOpsOrdersForExport({
+      const all = await listOpsOrdersForExport({
         section,
         filters: {
           assignment: q.assignment ?? DEFAULT_OPS_BOARD_FILTERS.assignment,
@@ -280,6 +496,7 @@ export function registerOpsRoutes(app: Express): void {
         query: q.q ?? "",
         sort: q.sort ?? "newest",
       });
+      const orders = all === null ? null : await keepCallersOrders(req, all);
       if (orders === null) {
         res.status(502).json({ message: "Could not export orders" });
         return;
@@ -292,7 +509,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/payments — ops-wide ledger (IST today | last 7 days)
   app.get(
     "/api/ops/payments",
-    ...opsGate,
+    ...opsGateFor("payments.view"),
     async (req: Request, res: Response) => {
       const range = parsePaymentRange(req.query.range);
       if (range === null) {
@@ -300,7 +517,7 @@ export function registerOpsRoutes(app: Express): void {
         return;
       }
 
-      const result = await listOpsPayments(range);
+      const result = await listOpsPayments(range, { testOnly: seesTestOrders(req) });
       if (result === null) {
         res.status(502).json({ message: "Could not load payments" });
         return;
@@ -313,7 +530,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/payments/export — uncapped ledger rows (same IST window)
   app.get(
     "/api/ops/payments/export",
-    ...opsGate,
+    ...opsGateFor("payments.view"),
     async (req: Request, res: Response) => {
       const range = parsePaymentRange(req.query.range);
       if (range === null) {
@@ -321,7 +538,7 @@ export function registerOpsRoutes(app: Express): void {
         return;
       }
 
-      const result = await listOpsPayments(range, { limit: null });
+      const result = await listOpsPayments(range, { limit: null, testOnly: seesTestOrders(req) });
       if (result === null) {
         res.status(502).json({ message: "Could not export payments" });
         return;
@@ -334,25 +551,26 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/cancellations — pending cancellation requests
   app.get(
     "/api/ops/cancellations",
-    ...opsGate,
-    async (_req: Request, res: Response) => {
+    ...opsGateFor("orders.view"),
+    async (req: Request, res: Response) => {
       const result = await listPendingCancellationsForOps();
-      if (result === null) {
+      const cancellations = result === null ? null : await keepCallersOrders(req, result.cancellations);
+      if (cancellations === null) {
         res.status(502).json({ message: "Could not load cancellations" });
         return;
       }
 
-      res.json(result);
+      res.json({ cancellations, count: cancellations.length });
     }
   );
 
   // GET /api/ops/orders/:id — any order by id + events + availableActions
   app.get(
     "/api/ops/orders/:id",
-    ...opsGate,
+    ...opsGateFor("orders.view"),
     async (req: Request, res: Response) => {
       const order = await getOrderByIdForOps(req.params.id);
-      if (!order) {
+      if (!order || !(await isCallersOrder(req, order))) {
         res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
         return;
       }
@@ -365,31 +583,88 @@ export function registerOpsRoutes(app: Express): void {
 
       const role = isRole(req.session.user?.role) ? req.session.user!.role : null;
       const callerId = req.session.dbUserId;
+      // View-only roles (customer support, accounts) match no transition row,
+      // so they get an empty list and the page renders no buttons.
       const actions =
         role && callerId
           ? availableActions(asOrder(order), role, { userId: callerId })
           : [];
 
-      // Hub code is owned by ops and typed by the agent. Read only — never
-      // issueCode here, or a page load would rotate the number the agent was told.
-      let handover: { kind: "hub"; code: string | null; locked: boolean } | null = null;
-      if (order.status === "picked_up") {
-        const hub = await getCodeForOwner(order.id, "hub");
-        handover = {
-          kind: "hub",
-          code: hub?.code ?? null,
-          locked: hub?.locked ?? false,
-        };
-      }
+      // No hub handover code since 12 Oct 2026: the agent taps to hand over.
+      // Kept in the response as null so older clients render nothing.
+      const handover = null;
 
-      res.json({ order, events, availableActions: actions, handover });
+      // Which way to an AWB this order has: a real filing on the customer's own
+      // ITD login (Generate docket / Retry AWB), or ops filing it in ITD's
+      // portal and entering the number (Enter AWB from ITD portal).
+      const ownerHasItdLogin = order.user_id ? await itdUserHasStoredPassword(order.user_id) : false;
+
+      res.json({
+        order,
+        events,
+        availableActions: actions,
+        handover,
+        owner_has_itd_login: ownerHasItdLogin,
+        can_mark_test: req.staff?.marksTest === true,
+      });
+    }
+  );
+
+  // GET /api/ops/orders/:id/box-label — reprint a guest's QR box label at the
+  // counter, for the guest who arrived without one. Same PDF the guest prints.
+  app.get(
+    "/api/ops/orders/:id/box-label",
+    ...opsGateFor("orders.view"),
+    async (req: Request, res: Response) => {
+      const order = await getOrderById(req.params.id);
+      if (!order || !(await isCallersOrder(req, order)) || !(await boxLabelEligible(order))) {
+        res.status(404).json({ message: "Box label not available" });
+        return;
+      }
+      res.json({ boxLabel: await boxLabelFor(req, order) });
+    }
+  );
+
+  // GET /api/ops/orders/:id/assignable-agents — the agents in the pickup's
+  // city, for the Assign to agent picker. See server/assignableAgents.ts.
+  app.get(
+    "/api/ops/orders/:id/assignable-agents",
+    ...opsGateFor("orders.act"),
+    async (req: Request, res: Response) => {
+      const order = await getOrderByIdForOps(req.params.id);
+      if (!order || !(await isCallersOrder(req, order))) {
+        res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
+        return;
+      }
+      const [city, allAgents] = await Promise.all([pickupCity(order.items), loadAgentsWithCities()]);
+      if (!allAgents) {
+        res.status(502).json({ message: "Could not load agents" });
+        return;
+      }
+      // A test order goes to test agents only, and a real one never to them.
+      const agents = allAgents.filter((a) => isTestPhone(a.phone) === order.is_test);
+      // A branch manager picks from their own city's agents only, never the
+      // whole-country fallback.
+      if (isScoped(req)) {
+        const own = req.staff?.city ?? null;
+        res.json({
+          city: own,
+          scoped: true,
+          agents: agents
+            .filter((a) => own !== null && a.cities.includes(own))
+            .map(({ id, full_name, phone }) => ({ id, full_name, phone }))
+            .sort((a, b) => a.full_name.localeCompare(b.full_name)),
+        });
+        return;
+      }
+      res.json(pickAgentsForCity(agents, city));
     }
   );
 
   // POST /api/ops/orders/:id/assign — admin-directed pickup assign (auto-advance)
   app.post(
     "/api/ops/orders/:id/assign",
-    ...opsGate,
+    ...opsGateFor("orders.act"),
     async (req: Request, res: Response) => {
       const callerId = req.session.dbUserId;
       if (!callerId) {
@@ -413,6 +688,36 @@ export function registerOpsRoutes(app: Express): void {
           code: "INVALID_AGENT",
         });
         return;
+      }
+
+      const target = await getOrderByIdForOps(req.params.id);
+      if (target && target.is_test !== isTestPhone(agent.phone)) {
+        res.status(409).json({
+          message: target.is_test
+            ? "This is a test order. Assign it to a test agent."
+            : "Test agents can only take test orders. Choose a real agent.",
+          code: "TEST_AGENT_MISMATCH",
+        });
+        return;
+      }
+
+      // A branch manager assigns their own city's pickups to their own city's
+      // agents. Everyone else with orders.act may assign anywhere.
+      if (isScoped(req)) {
+        if (!target || !(await isCallersOrder(req, target))) {
+          res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
+          return;
+        }
+        const own = req.staff?.city ?? null;
+        const agents = await loadAgentsWithCities();
+        const inCity = agents?.some((a) => a.id === agentId && own !== null && a.cities.includes(own));
+        if (!inCity) {
+          res.status(403).json({
+            message: "You can only assign agents from your own city.",
+            code: "AGENT_OUTSIDE_CITY",
+          });
+          return;
+        }
       }
 
       const updated = await assignPickup(req.params.id, agentId);
@@ -453,6 +758,7 @@ export function registerOpsRoutes(app: Express): void {
         moved: true,
         actorUserId: callerId,
       });
+      void notifyAgentOfAssignment(updated);
 
       res.json({ order: updated });
     }
@@ -461,7 +767,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/customers — customer directory (meta + KYC-on-file, no numbers)
   app.get(
     "/api/ops/customers",
-    ...opsGate,
+    ...opsGateFor("customers.view"),
     async (req: Request, res: Response) => {
       const parsed = customersListQuerySchema.safeParse(req.query);
       if (!parsed.success) {
@@ -500,7 +806,7 @@ export function registerOpsRoutes(app: Express): void {
       }
 
       res.json({
-        customers: rows.map((row) => {
+        customers: withoutHiddenTestRows(req, rows.map((row) => ({ ...row, is_test: isTestPhone(row.phone) }))).map((row) => {
           const doc_slots = slotsByUser.get(row.id) ?? [];
           const identity_kinds = kindsByUser.get(row.id) ?? [];
           const shipment_kyc = shipmentByUser.has(row.id);
@@ -516,6 +822,7 @@ export function registerOpsRoutes(app: Express): void {
             doc_slots,
             shipment_kyc,
             identity_kinds,
+            is_test: row.is_test,
           };
         }),
       });
@@ -525,7 +832,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/customers/:id — one customer + KYC meta (no numbers / bytes)
   app.get(
     "/api/ops/customers/:id",
-    ...opsGate,
+    ...opsGateFor("customers.view"),
     async (req: Request, res: Response) => {
       const parsedId = customerIdSchema.safeParse(req.params.id);
       if (!parsedId.success) {
@@ -572,7 +879,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/customers/:id/orders — this customer's bookings (registered only)
   app.get(
     "/api/ops/customers/:id/orders",
-    ...opsGate,
+    ...opsGateFor("customers.view"),
     async (req: Request, res: Response) => {
       const parsedId = customerIdSchema.safeParse(req.params.id);
       if (!parsedId.success) {
@@ -596,11 +903,134 @@ export function registerOpsRoutes(app: Express): void {
     }
   );
 
-  const opsKycGate = [
-    requireUser,
-    ensureDbUser,
-    requireRole("super_admin"),
-  ] as const;
+  // GET /api/ops/guests — guest directory (meta + KYC-on-file, no numbers)
+  app.get(
+    "/api/ops/guests",
+    ...opsGateFor("guests.view"),
+    async (req: Request, res: Response) => {
+      const parsed = guestsListQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        res.status(400).json({
+          message: parsed.error.issues[0]?.message ?? "Invalid query",
+        });
+        return;
+      }
+
+      const rows = await listGuestsForOps({
+        q: parsed.data.q,
+        account_type: parsed.data.account_type,
+      });
+      if (rows === null) {
+        res.status(502).json({ message: "Could not load guests" });
+        return;
+      }
+
+      const pageRefs = rows.map((row) => row.guest_ref);
+      const [shipmentByRef, orderCounts] = await Promise.all([
+        kycExistsForGuestRefs(pageRefs),
+        countOrdersForOpsGuests(pageRefs),
+      ]);
+      if (shipmentByRef === null || orderCounts === null) {
+        res.status(502).json({ message: "Could not load guests" });
+        return;
+      }
+
+      res.json({
+        guests: withoutHiddenTestRows(req, rows.map((row) => ({ ...row, is_test: isTestPhone(row.phone) }))).map((row) => {
+          const kyc_on_file = shipmentByRef.has(row.guest_ref);
+          return {
+            guest_ref: row.guest_ref,
+            full_name: row.full_name,
+            phone: row.phone,
+            email: row.email,
+            account_type: row.account_type,
+            created_at: row.created_at,
+            kyc_on_file,
+            order_count: orderCounts.get(row.guest_ref) ?? 0,
+            is_test: row.is_test,
+          };
+        }),
+      });
+    }
+  );
+
+  // GET /api/ops/guests/:ref — one guest + KYC meta (no numbers / bytes)
+  app.get(
+    "/api/ops/guests/:ref",
+    ...opsGateFor("guests.view"),
+    async (req: Request, res: Response) => {
+      const parsedRef = guestRefSchema.safeParse(req.params.ref);
+      if (!parsedRef.success) {
+        res.status(404).json({ message: "Guest not found" });
+        return;
+      }
+
+      const guest = await getGuestProfile(parsedRef.data);
+      if (!guest) {
+        res.status(404).json({ message: "Guest not found" });
+        return;
+      }
+
+      const shipmentKyc = await getKycOpsMetaByGuestRef(guest.guest_ref);
+
+      res.json({
+        guest: {
+          guest_ref: guest.guest_ref,
+          full_name: guest.full_name,
+          phone: guest.phone,
+          email: guest.email,
+          account_type: guest.account_type,
+          company_category: guest.company_category,
+          company_name: guest.company_name,
+          gstin: guest.account_type === "company" ? guest.gstin : null,
+          gstin_verified_name:
+            guest.account_type === "company" ? guest.gstin_verified_name : null,
+          contact_person: guest.contact_person,
+          address_line_1: guest.address_line_1,
+          pincode: guest.pincode,
+          city: guest.city,
+          state: guest.state,
+          hub_id: guest.hub_id,
+          extras: guest.extras,
+          created_at: guest.created_at,
+        },
+        kyc: {
+          on_file: shipmentKyc !== null,
+          shipment_kyc: shipmentKyc,
+        },
+      });
+    }
+  );
+
+  // GET /api/ops/guests/:ref/orders — this guest's unclaimed bookings
+  app.get(
+    "/api/ops/guests/:ref/orders",
+    ...opsGateFor("guests.view"),
+    async (req: Request, res: Response) => {
+      const parsedRef = guestRefSchema.safeParse(req.params.ref);
+      if (!parsedRef.success) {
+        res.status(404).json({ message: "Guest not found" });
+        return;
+      }
+
+      const guest = await getGuestProfile(parsedRef.data);
+      if (!guest) {
+        res.status(404).json({ message: "Guest not found" });
+        return;
+      }
+
+      const orders = await listOpsOrdersByGuestRef(guest.guest_ref);
+      if (orders === null) {
+        res.status(502).json({ message: "Could not load orders" });
+        return;
+      }
+
+      res.json({ orders });
+    }
+  );
+
+  // Super admin, customer support and KYC reviewers. Every view is logged.
+  const opsKycGate = opsGateFor("kyc.view");
 
   // GET /api/ops/customers/:id/kyc/file — shipment KYC image (super_admin, logged)
   app.get(
@@ -642,6 +1072,53 @@ export function registerOpsRoutes(app: Express): void {
           return;
         }
         console.error("[GET /api/ops/customers/:id/kyc/file] failed:", err);
+        res.status(500).json({ message: "Failed to retrieve document." });
+      }
+    }
+  );
+
+  // GET /api/ops/guests/:ref/kyc/file — shipment KYC image (super_admin, logged)
+  app.get(
+    "/api/ops/guests/:ref/kyc/file",
+    ...opsKycGate,
+    async (req: Request, res: Response) => {
+      const ctx = await requireOpsKycActorAndGuest(req, res);
+      if (!ctx) return;
+
+      try {
+        const doc = await getKycFileByGuestRef(ctx.guestRef);
+        // Runtime user_id is null on a live guest row; the TS type says string.
+        // A set user_id means the guest claimed — refuse as not found.
+        if (!doc || doc.user_id) {
+          logDocumentAccess(req, {
+            source: "kyc",
+            outcome: "not_found",
+            userId: null,
+            guestRef: ctx.guestRef,
+            actorUserId: ctx.actorId,
+            action: "view",
+          });
+          res.status(404).json({ message: "Document not found." });
+          return;
+        }
+
+        await logDocumentAccessOrThrow(req, {
+          source: "kyc",
+          outcome: "served",
+          documentId: doc.id,
+          userId: null,
+          guestRef: ctx.guestRef,
+          actorUserId: ctx.actorId,
+          action: "view",
+          capabilityId: doc.capability_id,
+        });
+        sendDocumentFile(res, doc, "inline");
+      } catch (err) {
+        if (err instanceof AuditLogUnavailableError) {
+          res.status(500).json({ message: "Audit unavailable." });
+          return;
+        }
+        console.error("[GET /api/ops/guests/:ref/kyc/file] failed:", err);
         res.status(500).json({ message: "Failed to retrieve document." });
       }
     }
@@ -769,7 +1246,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/verifications — customers who still owe documents
   app.get(
     "/api/ops/verifications",
-    ...opsGate,
+    ...opsGateFor("customers.view"),
     async (_req: Request, res: Response) => {
       const accounts = await listCustomerAccounts();
       if (accounts === null) {
@@ -808,12 +1285,23 @@ export function registerOpsRoutes(app: Express): void {
     }
   );
 
+  // GET /api/ops/scope — the caller's city, or null for an all-cities role.
+  // Lets forms offer only what the caller may write (a branch manager's hubs).
+  app.get(
+    "/api/ops/scope",
+    ...opsGateFor("users.view"),
+    (req: Request, res: Response) => {
+      res.json({ city: isScoped(req) ? req.staff?.city ?? null : null });
+    }
+  );
+
   // GET /api/ops/users — staff accounts (agent / admin / super_admin)
   app.get(
     "/api/ops/users",
-    ...opsGate,
-    async (_req: Request, res: Response) => {
-      const users = await listStaffUsers();
+    ...opsGateFor("users.view"),
+    async (req: Request, res: Response) => {
+      const all = await listStaffUsers();
+      const users = all === null ? null : await keepCallersStaff(req, all);
       if (users === null) {
         res.status(502).json({ message: "Could not load users" });
         return;
@@ -837,6 +1325,208 @@ export function registerOpsRoutes(app: Express): void {
     }
   );
 
+  // GET /api/ops/users/:id — one staff row + this agent's beat ids
+  app.get(
+    "/api/ops/users/:id",
+    ...opsGateFor("users.view"),
+    async (req: Request, res: Response) => {
+      const id = staffUserIdSchema.safeParse(req.params.id);
+      if (!id.success) {
+        res.status(400).json({ message: "Invalid user id" });
+        return;
+      }
+
+      const user = await getStaffUserById(id.data);
+      const visible = user ? await keepCallersStaff(req, [user]) : [];
+      if (!user || !visible?.length) {
+        res.status(404).json({ message: "User not found" });
+        return;
+      }
+
+      const beatIds =
+        user.role === "agent" ? await beatIdsForAgent(user.id) : [];
+      res.json({
+        user,
+        beat_ids: beatIds ?? [],
+      });
+    }
+  );
+
+  // PUT /api/ops/users/:id/beats — replace THIS agent's rounds.
+  // Registered before PATCH /users/:id so "beats" is never parsed as an id.
+  app.put(
+    "/api/ops/users/:id/beats",
+    ...opsGateFor("users.manage"),
+    async (req: Request, res: Response) => {
+      const id = staffUserIdSchema.safeParse(req.params.id);
+      if (!id.success) {
+        res.status(400).json({ message: "Invalid user id" });
+        return;
+      }
+
+      const parsed = setAgentBeatsSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          message: parsed.error.issues[0]?.message ?? "Invalid request",
+        });
+        return;
+      }
+
+      const staff = await getStaffUserById(id.data);
+      if (!staff) {
+        res.status(404).json({ message: "User not found" });
+        return;
+      }
+      if (staff.role !== "agent") {
+        res.status(400).json({ message: "Only pickup agents have beats" });
+        return;
+      }
+
+      const agent = await findActiveAgentById(id.data);
+      if (!agent) {
+        res.status(400).json({ message: "That agent is not active" });
+        return;
+      }
+
+      if (!(await isCallersAgent(req, id.data))) {
+        res.status(403).json({ message: OUTSIDE_CITY(req, "pickup agents"), code: "FORBIDDEN" });
+        return;
+      }
+      for (const beatId of parsed.data.beat_ids) {
+        if (!(await isCallersBeatId(req, beatId))) {
+          res.status(403).json({ message: OUTSIDE_CITY(req, "beats"), code: "FORBIDDEN" });
+          return;
+        }
+      }
+
+      const written = await setAgentBeats(id.data, parsed.data.beat_ids);
+      if (written === "missing") {
+        res.status(400).json({ message: "One of those beats does not exist" });
+        return;
+      }
+      if (written === null) {
+        res.status(502).json({ message: "Could not save beats" });
+        return;
+      }
+
+      res.json({ beat_ids: parsed.data.beat_ids });
+    }
+  );
+
+  // PATCH /api/ops/users/:id — name / phone / email / is_active, and role for
+  // a super admin. Nobody changes their own role, or anyone's to or from super
+  // admin: there is one owner of the system and it is not edited from here.
+  app.patch(
+    "/api/ops/users/:id",
+    ...opsGateFor("users.manage"),
+    async (req: Request, res: Response) => {
+      const id = staffUserIdSchema.safeParse(req.params.id);
+      if (!id.success) {
+        res.status(400).json({ message: "Invalid user id" });
+        return;
+      }
+
+      const parsed = patchStaffSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          message: parsed.error.issues[0]?.message ?? "Invalid request",
+        });
+        return;
+      }
+
+      // An admin edits pickup agents; a super admin edits anyone.
+      const target = await getStaffUserById(id.data);
+      if (!target) {
+        res.status(404).json({ message: "User not found" });
+        return;
+      }
+      if (!can(req.staff?.role, "users.assign_roles") && target.role !== "agent") {
+        res.status(403).json({
+          message: "Only a super admin can edit this account.",
+          code: "FORBIDDEN",
+        });
+        return;
+      }
+      // A branch manager edits only their own city's agents.
+      if (!(await isCallersAgent(req, id.data))) {
+        res.status(403).json({ message: OUTSIDE_CITY(req, "pickup agents"), code: "FORBIDDEN" });
+        return;
+      }
+
+      if (parsed.data.role !== undefined && parsed.data.role !== target.role) {
+        if (!can(req.staff?.role, "users.assign_roles")) {
+          res.status(403).json({ message: "Only a super admin can change roles.", code: "FORBIDDEN" });
+          return;
+        }
+        if (req.session.dbUserId === id.data) {
+          res.status(400).json({ message: "You cannot change your own role." });
+          return;
+        }
+        if (target.role === "super_admin") {
+          res.status(400).json({ message: "A super admin's role cannot be changed here." });
+          return;
+        }
+      }
+
+      if (parsed.data.is_active === false) {
+        if (req.session.dbUserId === id.data) {
+          res.status(400).json({
+            message: "You cannot deactivate your own account.",
+          });
+          return;
+        }
+        if (target.role === "super_admin") {
+          res.status(400).json({
+            message: "A super admin account cannot be deactivated.",
+          });
+          return;
+        }
+      }
+
+      const updated = await updateStaffUser(id.data, parsed.data);
+      if (updated === "taken") {
+        res.status(409).json({
+          message: "This phone number is already registered.",
+        });
+        return;
+      }
+      if (updated === "missing") {
+        res.status(404).json({ message: "User not found" });
+        return;
+      }
+      if (!updated) {
+        res.status(502).json({ message: "Could not save user" });
+        return;
+      }
+
+      res.json({ user: updated });
+    }
+  );
+
+
+  // ── Pincode lookup ────────────────────────────────────────────────────────
+  //
+  // Uncollapsed ops report for one pincode: every active round it sits on,
+  // the customer-facing resolved answer (same getCoverage() booking reads),
+  // and who would be WhatsApped — including the honest "all riders" fallback.
+  // Uncovered is a 200 with the report, not a 404.
+
+  const pincodeParamSchema = z.string().regex(/^\d{6}$/, "Pincodes are six digits");
+
+  app.get(
+    "/api/ops/pincodes/:pincode",
+    ...opsGateFor("pincodes.view"),
+    async (req: Request, res: Response) => {
+      const parsed = pincodeParamSchema.safeParse(req.params.pincode);
+      if (!parsed.success) {
+        res.status(400).json({ message: "Pincodes are six digits" });
+        return;
+      }
+
+      const report = await buildPincodeReport(parsed.data);
+      res.json(report);
+    }
+  );
 
   // ── Pickup beats ──────────────────────────────────────────────────────────
   //
@@ -850,13 +1540,14 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/beats — every beat, retired ones included
   app.get(
     "/api/ops/beats",
-    ...opsGate,
-    async (_req: Request, res: Response) => {
-      const beats = await listBeats();
-      if (beats === null) {
+    ...opsGateFor("beats.view"),
+    async (req: Request, res: Response) => {
+      const all = await listBeats();
+      if (all === null) {
         res.status(502).json({ message: "Could not load beats" });
         return;
       }
+      const beats = isScoped(req) ? all.filter((b) => isCallersBeat(req, b.hub)) : all;
       res.json({ beats });
     }
   );
@@ -864,7 +1555,7 @@ export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/beats/:id — one beat with its full pincode list
   app.get(
     "/api/ops/beats/:id",
-    ...opsGate,
+    ...opsGateFor("beats.view"),
     async (req: Request, res: Response) => {
       const id = beatIdSchema.safeParse(req.params.id);
       if (!id.success) {
@@ -873,7 +1564,7 @@ export function registerOpsRoutes(app: Express): void {
       }
 
       const beat = await getBeat(id.data);
-      if (beat === "missing") {
+      if (beat === "missing" || (beat !== null && isScoped(req) && !isCallersBeat(req, beat.hub))) {
         res.status(404).json({ message: "No such beat" });
         return;
       }
@@ -888,13 +1579,18 @@ export function registerOpsRoutes(app: Express): void {
   // POST /api/ops/beats — create one
   app.post(
     "/api/ops/beats",
-    ...opsGate,
+    ...opsGateFor("beats.manage"),
     async (req: Request, res: Response) => {
       const parsed = createBeatSchema.safeParse(req.body);
       if (!parsed.success) {
         res.status(400).json({
           message: parsed.error.issues[0]?.message ?? "Invalid request",
         });
+        return;
+      }
+
+      if (isScoped(req) && !isCallersBeat(req, parsed.data.hub)) {
+        res.status(403).json({ message: OUTSIDE_CITY(req, "beats"), code: "FORBIDDEN" });
         return;
       }
 
@@ -914,7 +1610,7 @@ export function registerOpsRoutes(app: Express): void {
   // PATCH /api/ops/beats/:id — name, hub, cut-off, or retire it
   app.patch(
     "/api/ops/beats/:id",
-    ...opsGate,
+    ...opsGateFor("beats.manage"),
     async (req: Request, res: Response) => {
       const id = beatIdSchema.safeParse(req.params.id);
       if (!id.success) {
@@ -927,6 +1623,15 @@ export function registerOpsRoutes(app: Express): void {
         res.status(400).json({
           message: parsed.error.issues[0]?.message ?? "Invalid request",
         });
+        return;
+      }
+
+      // Their own city's beats, and never moved to another city's hub.
+      if (
+        !(await isCallersBeatId(req, id.data)) ||
+        (isScoped(req) && parsed.data.hub !== undefined && !isCallersBeat(req, parsed.data.hub))
+      ) {
+        res.status(403).json({ message: OUTSIDE_CITY(req, "beats"), code: "FORBIDDEN" });
         return;
       }
 
@@ -957,7 +1662,7 @@ export function registerOpsRoutes(app: Express): void {
    */
   app.put(
     "/api/ops/beats/:id/pincodes",
-    ...opsGate,
+    ...opsGateFor("beats.manage"),
     async (req: Request, res: Response) => {
       const id = beatIdSchema.safeParse(req.params.id);
       if (!id.success) {
@@ -970,6 +1675,11 @@ export function registerOpsRoutes(app: Express): void {
         res.status(400).json({
           message: parsed.error.issues[0]?.message ?? "Invalid request",
         });
+        return;
+      }
+
+      if (!(await isCallersBeatId(req, id.data))) {
+        res.status(403).json({ message: OUTSIDE_CITY(req, "beats"), code: "FORBIDDEN" });
         return;
       }
 
@@ -1003,7 +1713,7 @@ export function registerOpsRoutes(app: Express): void {
    */
   app.put(
     "/api/ops/beats/:id/agents",
-    ...opsGate,
+    ...opsGateFor("beats.manage"),
     async (req: Request, res: Response) => {
       const id = beatIdSchema.safeParse(req.params.id);
       if (!id.success) {
@@ -1019,10 +1729,19 @@ export function registerOpsRoutes(app: Express): void {
         return;
       }
 
+      if (!(await isCallersBeatId(req, id.data))) {
+        res.status(403).json({ message: OUTSIDE_CITY(req, "beats"), code: "FORBIDDEN" });
+        return;
+      }
+
       for (const agentId of parsed.data.agent_ids) {
         const agent = await findActiveAgentById(agentId);
         if (!agent) {
           res.status(400).json({ message: "One of those is not an active agent" });
+          return;
+        }
+        if (!(await isCallersAgent(req, agentId))) {
+          res.status(403).json({ message: OUTSIDE_CITY(req, "pickup agents"), code: "FORBIDDEN" });
           return;
         }
       }
@@ -1043,7 +1762,7 @@ export function registerOpsRoutes(app: Express): void {
   // POST /api/ops/users — mint a real itd_users staff row (seed-script shape)
   app.post(
     "/api/ops/users",
-    ...opsGate,
+    ...opsGateFor("users.manage"),
     async (req: Request, res: Response) => {
       const parsed = createStaffSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -1053,6 +1772,21 @@ export function registerOpsRoutes(app: Express): void {
         return;
       }
       const { full_name, phone, role, hub_id } = parsed.data;
+
+      // An admin creates pickup agents; only a super admin creates other staff.
+      if (!assignableRoles(req.staff?.role).includes(role)) {
+        res.status(403).json({
+          message: "Only a super admin can create this kind of account.",
+          code: "FORBIDDEN",
+        });
+        return;
+      }
+
+      // A branch manager adds agents to their own city's hubs only.
+      if (isScoped(req) && hubCityForId(hub_id) !== (req.staff?.city ?? null)) {
+        res.status(403).json({ message: OUTSIDE_CITY(req, "pickup agents"), code: "FORBIDDEN" });
+        return;
+      }
 
       const existing = await findItdUserIdByPhone(phone);
       if (existing) {
@@ -1079,6 +1813,95 @@ export function registerOpsRoutes(app: Express): void {
         phone: created.phone,
         full_name: created.full_name,
         role: created.role,
+      });
+    }
+  );
+
+  const opsSettingsGate = opsGateFor("settings");
+
+  // GET /api/ops/settings — every registry key + last-write audit. Super_admin.
+  app.get(
+    "/api/ops/settings",
+    ...opsSettingsGate,
+    async (_req: Request, res: Response) => {
+      const rows = await listAllSettings();
+      const actorIds = rows
+        .map((row) => row.updated_by)
+        .filter((id): id is string => Boolean(id));
+      const contacts = await getUserContactsByIds(actorIds);
+
+      res.json({
+        settings: rows.map((row) => ({
+          key: row.key,
+          value: row.value,
+          updated_at: row.updated_at,
+          updated_by: row.updated_by,
+          updated_by_name: row.updated_by
+            ? (contacts.get(row.updated_by)?.full_name ?? null)
+            : null,
+        })),
+      });
+    }
+  );
+
+  const patchSettingSchema = z.object({
+    key: z.string().min(1),
+    value: z.unknown(),
+  });
+
+  // PATCH /api/ops/settings — one key. Super_admin. updated_by = dbUserId.
+  app.patch(
+    "/api/ops/settings",
+    ...opsSettingsGate,
+    async (req: Request, res: Response) => {
+      const parsed = patchSettingSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          message: parsed.error.issues[0]?.message ?? "Invalid request",
+        });
+        return;
+      }
+
+      const { key, value } = parsed.data;
+      if (!isSettingKey(key)) {
+        res.status(400).json({ message: "Unknown setting." });
+        return;
+      }
+
+      const valueParsed = SETTINGS[key].schema.safeParse(value);
+      if (!valueParsed.success) {
+        res.status(400).json({
+          message: valueParsed.error.issues[0]?.message ?? "Invalid value",
+        });
+        return;
+      }
+
+      const actorId = req.session.dbUserId;
+      if (!actorId) {
+        res.status(401).json({ message: "Login required" });
+        return;
+      }
+
+      const updated = await setSetting(key, valueParsed.data, actorId);
+      if (!updated) {
+        res.status(502).json({ message: "Could not save setting" });
+        return;
+      }
+
+      const contacts = await getUserContactsByIds(
+        updated.updated_by ? [updated.updated_by] : []
+      );
+
+      res.json({
+        setting: {
+          key: updated.key,
+          value: updated.value,
+          updated_at: updated.updated_at,
+          updated_by: updated.updated_by,
+          updated_by_name: updated.updated_by
+            ? (contacts.get(updated.updated_by)?.full_name ?? null)
+            : null,
+        },
       });
     }
   );

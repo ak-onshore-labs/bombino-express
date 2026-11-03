@@ -38,7 +38,6 @@ import { listDocumentsBySignupRef } from "../accountDocsDb.js";
 import { seedSignupDocumentFromGuestKyc } from "../guestKycMirror.js";
 import { INDIA_HUBS } from "../../shared/hubs.js";
 import { getLatestApplicationByPhone, toCustomerView } from "../accountApplicationsDb.js";
-import { isAccountReviewEnabled } from "../accountApplications.js";
 import type { CustomerApplicationView } from "../../shared/applicationStatus.js";
 import {
   getGuestKycSummary,
@@ -122,9 +121,7 @@ async function buildProfile(guest: { ref: string; phone: string }): Promise<Gues
     getGuestKycSummary(guest.ref),
     listGuestOrders(guest.ref),
     listDocumentsBySignupRef(guest.ref),
-    // Only asked with review on: before its migration has run the table does
-    // not exist, and every guest screen would log the failure.
-    isAccountReviewEnabled() ? getLatestApplicationByPhone(guest.phone) : Promise.resolve(null),
+    getLatestApplicationByPhone(guest.phone),
   ]);
 
   // The stored profile wins, then whatever the newest booking declared. A

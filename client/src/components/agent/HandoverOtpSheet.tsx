@@ -3,6 +3,7 @@ import { Loader2, ShieldCheck } from 'lucide-react';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
 import { AGENT_SHEET_MOTION } from '@/lib/motion';
+import { useKeyboardOverlay } from '@/lib/keyboardInset';
 import { PressableButton } from '@/components/motion/Pressable';
 import { type AgentPickup } from '@/hooks/useAgentPickups';
 
@@ -66,6 +67,16 @@ const COPY: Record<
   },
 };
 
+/**
+ * Mounted only while the sheet is open (Radix unmounts closed content), so
+ * Android reports the keyboard for this sheet without the page behind it
+ * losing its normal resize-under-keyboard.
+ */
+function KeyboardOverlay(): null {
+  useKeyboardOverlay();
+  return null;
+}
+
 export function HandoverOtpSheet({
   open,
   onOpenChange,
@@ -110,17 +121,26 @@ export function HandoverOtpSheet({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
-        side="bottom"
+        side="top"
         className={cn(
-          'agent-surface rounded-none border-t-2 border-[#1B2A41] p-0 [&>button]:hidden',
-          'max-h-[92dvh] overflow-y-auto',
+          'agent-surface rounded-none border-b-2 border-[#1B2A41] p-0 [&>button]:hidden',
+          'overflow-y-auto pt-[env(safe-area-inset-top)]',
           // The shared primitive's 500ms open is a desktop drawer's timing. An
           // agent opens this one standing at a door with a code being read out
           // to them; it has to be there when they look down.
           AGENT_SHEET_MOTION,
         )}
+        // Drops from the top, where the keyboard never reaches: on iOS the
+        // keyboard covers a bottom sheet without moving it, which hid the
+        // field and both buttons, and lifting it left it floating mid-screen.
+        // Capped at the space above the keyboard (lib/keyboardInset.ts).
+        style={{
+          top: 'var(--vv-top, 0px)',
+          maxHeight: 'min(92dvh, var(--visible, 100dvh))',
+        }}
         data-testid="sheet-handover-otp"
       >
+        <KeyboardOverlay />
         <div className="px-5 pt-5 pb-4 border-b border-[#E8EDF2]!">
           <span className="text-[21px] font-bold tracking-[0.02em] text-[#1B2A41]">
             {pickup.order_no}
@@ -142,7 +162,9 @@ export function HandoverOtpSheet({
               if (e.key === 'Enter') submit();
             }}
             inputMode="numeric"
-            autoComplete="one-time-code"
+            // Not "one-time-code": the code is the other party's, never in the
+            // agent's own texts. iOS offered the agent's SMS login code here.
+            autoComplete="off"
             placeholder="————"
             aria-label={copy.field}
             className={cn(

@@ -1,5 +1,6 @@
 import type { ShipmentHistoryItem } from '@/lib/shipmentApiTypes';
 import type { GuestOrderSummary } from '@/lib/shadowProfile';
+import type { ReceivingParcel } from '@shared/receiving';
 import {
   getStatusLabel,
   getStatusColor,
@@ -24,6 +25,26 @@ export interface OrderApiRow {
   awb_no: string | null;
   created_at: string;
   updated_at: string;
+  /** Present on account orders (`listOrdersByUserId` selects them); optional for older callers. */
+  pickup_request?: number | null;
+  pickup_date?: string | null;
+  payment_method?: string | null;
+  payment_status?: string | null;
+}
+
+/**
+ * The order facts Home's "Needs your attention" reads. Only on order rows —
+ * a bare ITD shipment has no pickup, OTP or payment of ours to chase.
+ */
+export interface OrderFacts {
+  status: string;
+  /** ITD's convention: 1 = pickup, 2 = drop-off. */
+  pickupRequest: number | null;
+  pickupDate: string | null;
+  paymentMethod: string | null;
+  paymentStatus: string | null;
+  /** What is owed: the final (weighed) amount once there is one, else the quote. */
+  amountDue: number | null;
 }
 
 /** Unified display row — either a real ITD shipment or a pre-docket Bombino order. */
@@ -62,6 +83,21 @@ export interface DisplayRow {
    * from `isOrder` because an AWB no longer answers "is this an order".
    */
   awb: string | null;
+  /** Order rows only. */
+  order?: OrderFacts;
+  /**
+   * A guest booking's raw status. Kept apart from `order`, which drives Home's
+   * attention list for accounts and would change what a guest is nagged about.
+   */
+  guestStatus?: string;
+  /**
+   * A parcel coming TO this person, not one they sent. `recipient` and `city`
+   * then name the sender ("From Aditya" · Mumbai), and nothing on the row is
+   * theirs to act on.
+   */
+  incoming?: boolean;
+  /** Incoming rows only: where the parcel is going (the receiver's city, country). */
+  destination?: string;
 }
 
 export function formatShipmentAmount(amount: string | number | null, currency: string | null): string | null {
@@ -123,6 +159,14 @@ export function orderToRow(order: OrderApiRow): DisplayRow {
     updatedAt: order.updated_at ?? order.created_at,
     isLive: !isTerminalOrderStatus(order.status),
     awb: order.awb_no,
+    order: {
+      status: order.status,
+      pickupRequest: order.pickup_request ?? null,
+      pickupDate: order.pickup_date ?? null,
+      paymentMethod: order.payment_method ?? null,
+      paymentStatus: order.payment_status ?? null,
+      amountDue: order.final_amount ?? order.quoted_amount ?? null,
+    },
   };
 }
 
@@ -150,6 +194,34 @@ export function guestOrderToRow(order: GuestOrderSummary): DisplayRow {
     updatedAt: order.updated_at ?? order.created_at,
     isLive: !isTerminalOrderStatus(order.status),
     awb: order.awb_no,
+    guestStatus: order.status,
+  };
+}
+
+/**
+ * A parcel on its way to this person, as a row. Drawn like the sender's rows
+ * so both halves of the Orders screen read alike, minus the amount: the
+ * receiver is not who pays.
+ */
+export function receivingToRow(parcel: ReceivingParcel): DisplayRow {
+  return {
+    key: `incoming-${parcel.order_no}`,
+    displayId: parcel.order_no,
+    isOrder: true,
+    recipient: parcel.sender_first_name ? `From ${parcel.sender_first_name}` : 'From a Bombino sender',
+    city: parcel.sender_city ?? '',
+    country: 'India',
+    service: parcel.service ?? '',
+    bookingDate: parcel.created_at,
+    amountStr: null,
+    statusLabel: parcel.customer_status || getCustomerStatusLabel(parcel.status),
+    statusTone: getOrderStatusTone(parcel.status),
+    createdAt: parcel.created_at,
+    updatedAt: parcel.updated_at,
+    isLive: !isTerminalOrderStatus(parcel.status),
+    awb: parcel.awb_no,
+    incoming: true,
+    destination: [parcel.receiver_city, parcel.receiver_country].filter(Boolean).join(', '),
   };
 }
 
