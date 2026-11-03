@@ -858,7 +858,6 @@ export default function Signup() {
                   onEnter={handleSubmitDetails}
                   error={errors.phone}
                   labelClass={fieldLabelClass}
-                  inputClass={fieldClass}
                 />
               </>
             )}
@@ -903,7 +902,6 @@ export default function Signup() {
                   disabled={preVerified}
                   error={errors.phone}
                   labelClass={fieldLabelClass}
-                  inputClass={fieldClass}
                 />
 
                 <div>
@@ -1296,7 +1294,6 @@ function PhoneField({
   onEnter,
   error,
   labelClass,
-  inputClass,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -1304,7 +1301,6 @@ function PhoneField({
   onEnter?: () => void;
   error?: string;
   labelClass: string;
-  inputClass: string;
 }) {
   return (
     <div>
@@ -1317,7 +1313,8 @@ function PhoneField({
           // the code from the number being saved.
           disabled={disabled}
           onEnter={onEnter}
-          className={inputClass.replace(/pl-\d+/, '')}
+          // The other fields' look, minus their icon padding.
+          className="h-12 shadow-sm"
           data-testid="input-phone"
         />
       </div>

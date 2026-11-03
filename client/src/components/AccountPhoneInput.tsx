@@ -121,7 +121,6 @@ export const AccountPhoneInput = forwardRef<HTMLInputElement, AccountPhoneInputP
           'flex h-12 items-stretch overflow-hidden rounded-xl border border-[#E2E8F0] bg-[#F3F4F6]',
           // The same focus look every other input has (index.css), on the whole field.
           'transition-shadow focus-within:border-[#2F4468] focus-within:shadow-[0_0_0_3px_oklch(37%_0.092_245/0.40)]',
-          disabled && 'opacity-60',
           className,
         )}
       >
@@ -136,7 +135,8 @@ export const AccountPhoneInput = forwardRef<HTMLInputElement, AccountPhoneInputP
             >
               <CountryMark country={country} />
               <span className="tabular-nums">+{country.dialCode}</span>
-              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+              {/* Locked (already verified, or a request in flight): no arrow, nothing to open. */}
+              {!disabled && <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />}
             </button>
           </PopoverTrigger>
           <PopoverContent align="start" sideOffset={6} className="w-[min(20rem,calc(100vw-2rem))] p-0">
