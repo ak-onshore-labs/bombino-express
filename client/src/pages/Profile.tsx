@@ -19,16 +19,6 @@ import { AccountPhoneInput } from '@/components/AccountPhoneInput';
 import { formatGuestPhone } from '@/lib/shadowProfile';
 import { useAppStore } from '@/lib/store';
 import { Button } from '@/components/ui/button';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { AccountSignOutDialog } from '@/components/AccountSignOutDialog';
 import {
   Dialog,
@@ -84,8 +74,6 @@ export default function Profile() {
   const { data: profile } = useUserProfile(isLoggedIn);
   const refreshProfile = useRefreshUserProfile();
   const [signOutOpen, setSignOutOpen] = useState(false);
-  const [unlinkOpen, setUnlinkOpen] = useState(false);
-  const [isUnlinking, setIsUnlinking] = useState(false);
 
   // Change-number flow: collect the new number, prove it by OTP, and — where
   // the account has one — confirm with the password before moving it.
@@ -168,32 +156,6 @@ export default function Profile() {
     : '';
 
   const hasLinkedPhone = Boolean(profile?.phone && String(profile.phone).trim());
-  // Accounts created in this app carry a synthetic id and have no password
-  // anywhere, so their number is the only way back in — the server refuses to
-  // unlink those, and offering the button would just surface that refusal.
-  const isLocalAccount = String(profile?.itd_customer_id ?? '').startsWith('local-');
-  const canUnlinkPhone = hasLinkedPhone && !isLocalAccount;
-
-  const handleUnlinkPhone = async () => {
-    setIsUnlinking(true);
-    try {
-      await apiRequest('POST', '/api/user/phone/unlink', {});
-      void refreshProfile();
-      setUnlinkOpen(false);
-      toast({
-        title: 'Mobile number unlinked',
-        description: 'Sign in with your email and password to link a number again.',
-      });
-    } catch (err) {
-      toast({
-        title: 'Could not unlink',
-        description: parseApiErrorMessage(err, 'Please try again.'),
-        variant: 'destructive',
-      });
-    } finally {
-      setIsUnlinking(false);
-    }
-  };
 
   // Set by the server from the credential column without exposing it.
   const requiresPassword = Boolean(profile?.has_password);
@@ -456,17 +418,11 @@ export default function Profile() {
                   actions={
                     hasLinkedPhone ? (
                       <>
+                        {/* No Unlink: a number only leaves an account by being
+                            replaced with a new one. */}
                         <RowAction onClick={openChangeDialog} testId="button-change-phone">
                           Change
                         </RowAction>
-                        {/* Unlink only where it can be undone. An account created
-                            here has no password anywhere, so removing its number
-                            would shut it permanently — those get Change instead. */}
-                        {canUnlinkPhone && (
-                          <RowAction onClick={() => setUnlinkOpen(true)} destructive testId="button-unlink-phone">
-                            Unlink
-                          </RowAction>
-                        )}
                       </>
                     ) : undefined
                   }
@@ -762,37 +718,6 @@ export default function Profile() {
       </Dialog>
 
       <AccountSignOutDialog open={signOutOpen} onOpenChange={setSignOutOpen} />
-
-      <AlertDialog open={unlinkOpen} onOpenChange={setUnlinkOpen}>
-        <AlertDialogContent data-testid="dialog-unlink-phone">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Unlink {displayPhone}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              You will no longer be able to sign in with this number. To get back in, choose
-              &ldquo;I have an account&rdquo; on the sign-in screen and enter your email and
-              password — you can link a number again from there.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isUnlinking} data-testid="button-unlink-cancel">
-              Keep it
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                // Confirming runs a request; letting the dialog close on click
-                // would drop the pending/error state before it can be shown.
-                e.preventDefault();
-                void handleUnlinkPhone();
-              }}
-              disabled={isUnlinking}
-              className="bg-red-600 hover:bg-red-700 text-white"
-              data-testid="button-unlink-confirm"
-            >
-              {isUnlinking ? 'Unlinking…' : 'Unlink number'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       <BottomNav />
     </div>

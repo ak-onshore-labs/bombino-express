@@ -59,6 +59,8 @@ export type ReceivingRow = {
  * pure check in `isReceiverOf` is what decides.
  */
 function receiverFilter(phone: string): string {
+  // From abroad only app_phone can name it: older bookings never did.
+  if (phone.startsWith("+")) return `consignee->>app_phone.eq."${phone}"`;
   return [
     `consignee->>app_phone.eq.${phone}`,
     `consignee->>phone.in.("91${phone}","+91${phone}","+91 ${phone}")`,
@@ -78,7 +80,11 @@ export function isReceiverOf(row: ReceivingRow, viewer: ReceivingViewer): boolea
   if (receiverAppPhoneOf(row.consignee) !== viewer.phone) return false;
   if (row.status === "cancelled") return false;
   if (viewer.userId && row.user_id === viewer.userId) return false;
-  if (!row.user_id && row.guest_phone && row.guest_phone.replace(/\D/g, "").slice(-10) === viewer.phone) {
+  if (
+    !row.user_id &&
+    row.guest_phone &&
+    (row.guest_phone.trim() === viewer.phone || row.guest_phone.replace(/\D/g, "").slice(-10) === viewer.phone)
+  ) {
     return false;
   }
   if (isTestOrderMetadata(row.metadata) && !isTestPhone(viewer.phone)) return false;

@@ -1,4 +1,4 @@
-import { forwardRef, useState } from 'react';
+import { forwardRef, useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
@@ -14,6 +14,7 @@ import { supportsFlagEmoji } from '@/lib/flagEmoji';
 import {
   ACCOUNT_PHONE_COUNTRIES,
   INDIA,
+  phoneCountryByIso,
   splitAccountPhone,
   toAccountPhone,
   type PhoneCountry,
@@ -24,6 +25,13 @@ interface AccountPhoneInputProps {
   value: string;
   onChange: (stored: string) => void;
   onEnter?: () => void;
+  /**
+   * ISO code the country starts on while the field is empty (India if not
+   * given). When it changes, the field moves to it and keeps what was typed.
+   */
+  defaultCountry?: string;
+  /** Placeholder for the number part. */
+  placeholder?: string;
   id?: string;
   disabled?: boolean;
   /** Classes for the whole field (height, background, border, radius). */
@@ -69,12 +77,41 @@ function CountryMark({ country }: { country: PhoneCountry }) {
  * and send it to the server as it is.
  */
 export const AccountPhoneInput = forwardRef<HTMLInputElement, AccountPhoneInputProps>(
-  function AccountPhoneInput({ value, onChange, onEnter, id, disabled, className, ...rest }, ref) {
+  function AccountPhoneInput(
+    { value, onChange, onEnter, defaultCountry, placeholder, id, disabled, className, ...rest },
+    ref,
+  ) {
     // Held separately: an empty value cannot say which country was picked, and
     // +1 is shared by several.
-    const [country, setCountry] = useState<PhoneCountry>(() => splitAccountPhone(value).country);
+    const [country, setCountry] = useState<PhoneCountry>(() =>
+      value
+        ? splitAccountPhone(value, defaultCountry).country
+        : (defaultCountry && phoneCountryByIso(defaultCountry)) || INDIA,
+    );
     const [open, setOpen] = useState(false);
     const local = value ? splitAccountPhone(value, country.iso).local : '';
+
+    // A new default (the booking's destination changed): follow it, and carry
+    // the digits already typed over to the new dial code.
+    const lastDefault = useRef(defaultCountry);
+    useEffect(() => {
+      if (defaultCountry === lastDefault.current) return;
+      lastDefault.current = defaultCountry;
+      const next = defaultCountry ? phoneCountryByIso(defaultCountry) : null;
+      if (!next || next.iso === country.iso) return;
+      setCountry(next);
+      if (local) onChange(toAccountPhone(next.iso, local));
+      // Only a change of default moves the field; typing never does.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [defaultCountry]);
+
+    // A number set from outside (a saved address) brings its own country.
+    useEffect(() => {
+      if (!value) return;
+      const own = splitAccountPhone(value, country.iso).country;
+      if (own.iso !== country.iso) setCountry(own);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [value]);
 
     const pick = (next: PhoneCountry): void => {
       setCountry(next);
@@ -166,7 +203,7 @@ export const AccountPhoneInput = forwardRef<HTMLInputElement, AccountPhoneInputP
               onEnter();
             }
           }}
-          placeholder={country.iso === INDIA.iso ? '98765 43210' : 'Mobile number'}
+          placeholder={placeholder ?? (country.iso === INDIA.iso ? '98765 43210' : 'Mobile number')}
           disabled={disabled}
           className="min-w-0 flex-1 border-0 bg-transparent px-3 text-base tabular-nums text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
           style={NO_FOCUS_GLOW}

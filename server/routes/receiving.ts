@@ -14,7 +14,7 @@ import type { Express, Request, Response } from "express";
 import { asyncRoutes } from "../routeGuards.js";
 import { OWNER_PROFILES, ownerFrom } from "../sessionOwner.js";
 import { getUserContactsByIds } from "../ordersDb.js";
-import { isIndianMobile, toIndianMobile } from "../../shared/contact.js";
+import { isIndianMobile, isInternationalPhone, toIndianMobile } from "../../shared/contact.js";
 import { findReceivingParcel, listReceivingParcels, type ReceivingViewer } from "../receivingDb.js";
 
 /**
@@ -31,9 +31,12 @@ export async function receivingViewerFrom(req: Request): Promise<ReceivingViewer
     const account = (await getUserContactsByIds([owner.userId])).get(owner.userId);
     phone = account?.phone ?? null;
   }
+  const userId = owner.kind === "account" ? owner.userId : null;
+  // A number from abroad is kept whole ("+974…"), the form app_phone has.
+  if (phone && isInternationalPhone(phone.trim())) return { phone: phone.trim(), userId };
   const ten = phone ? toIndianMobile(phone) : "";
   if (!isIndianMobile(ten)) return null;
-  return { phone: ten, userId: owner.kind === "account" ? owner.userId : null };
+  return { phone: ten, userId };
 }
 
 export function registerReceivingRoutes(app: Express): void {

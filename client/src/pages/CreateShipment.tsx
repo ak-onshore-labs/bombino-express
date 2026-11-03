@@ -11,8 +11,16 @@ import {
   type ITDRateRow,
   type RateParams,
 } from '@/lib/itdRates';
-import { isIndianMobile, isValidReceiverPhone, toIndianMobile, withoutTrunkZero } from '@shared/contact';
-import { normalizeReceiverAppPhone, suggestedReceiverAppPhone } from '@shared/receiving';
+import {
+  isAccountPhone,
+  isIndianMobile,
+  isValidReceiverPhone,
+  splitAccountPhone,
+  toAccountPhone,
+  toIndianMobile,
+  withoutTrunkZero,
+} from '@shared/contact';
+import { AccountPhoneInput } from '@/components/AccountPhoneInput';
 import {
   ArrowLeft,
   Check,
@@ -645,17 +653,15 @@ export default function CreateShipment() {
   const [senderAddress, setSenderAddress] = useState('');
 
   const [receiverName, setReceiverName] = useState('');
+  /**
+   * The receiver's phone in the account form (shared/contact.ts): "9876543210"
+   * for India, "+12125550100" abroad. The country starts on the destination.
+   * ITD gets the number without its dial code, as it always has; the full
+   * number is also the one the receiver signs in with to watch this parcel
+   * (shared/receiving.ts).
+   */
   const [receiverPhone, setReceiverPhone] = useState('');
   const [receiverEmail, setReceiverEmail] = useState('');
-  /**
-   * The Indian mobile the receiver signs in with to watch this parcel
-   * (shared/receiving.ts). Optional, and separate from the receiver phone ITD
-   * gets: that one has no dial code, so it cannot say whose number it is.
-   * Filled in from the receiver phone only when that is Indian beyond doubt,
-   * and left alone once the sender has typed here themselves.
-   */
-  const [receiverAppPhone, setReceiverAppPhone] = useState('');
-  const receiverAppPhoneEdited = useRef(false);
   const [receiverCompany, setReceiverCompany] = useState('');
   const [receiverCity, setReceiverCity] = useState('');
   const [receiverState, setReceiverState] = useState('');
@@ -663,6 +669,10 @@ export default function CreateShipment() {
   const [receiverAddress, setReceiverAddress] = useState('');
 
   const [destinationCountry, setDestinationCountry] = useState('');
+  /** The receiver phone without its dial code: what ITD gets. */
+  const receiverPhoneLocal = receiverPhone
+    ? splitAccountPhone(receiverPhone, destinationCountry || undefined).local
+    : '';
   // Every quote says it runs Mumbai to the destination; a sender known to be
   // elsewhere gets the version naming their city.
   const rateOriginNoteText = rateOrigin.outsideMumbai
@@ -1746,10 +1756,9 @@ export default function CreateShipment() {
       const e: Record<string, boolean> = {};
       if (!destinationCountry) e.destinationCountry = true;
       if (!receiverName.trim()) e.receiverName = true;
-      // The number exactly as typed: no country code is added anywhere.
-      const phoneDigits = receiverPhone.replace(/\D/g, '');
+      // The number without its dial code, as ITD takes it.
+      const phoneDigits = receiverPhoneLocal.replace(/\D/g, '');
       if (phoneDigits.length < 6 || phoneDigits.length > 15) e.receiverPhone = true;
-      if (receiverAppPhone.trim() && !normalizeReceiverAppPhone(receiverAppPhone)) e.receiverAppPhone = true;
       if (!receiverAddress.trim()) e.receiverAddress = true;
       if (!receiverCity.trim()) e.receiverCity = true;
       if (!receiverState.trim()) e.receiverState = true;
@@ -1962,9 +1971,9 @@ export default function CreateShipment() {
       shipper_zip_code: senderZip,
       consignee_name: receiverName,
       consignee_company_name: receiverCompany || receiverName,
-      // As typed. A dial code added here printed "+1" in front of numbers
-      // that were never American ("+109198332075" on the label).
-      consignee_contact_no: receiverPhone,
+      // No dial code. One added here printed "+1" in front of numbers that
+      // were never American ("+109198332075" on the label).
+      consignee_contact_no: receiverPhoneLocal,
       consignee_email: receiverEmail || senderEmail,
       consignee_address_line_1: receiverAddress,
       consignee_city: receiverCity,
@@ -2032,9 +2041,8 @@ export default function CreateShipment() {
         country_code: destinationCountry,
         country_name: ITD_COUNTRY_MAP[destinationCountry]?.name ?? destinationCountry,
         // Ours only, never sent to ITD: who may watch this parcel in the app.
-        ...(normalizeReceiverAppPhone(receiverAppPhone)
-          ? { app_phone: normalizeReceiverAppPhone(receiverAppPhone) }
-          : {}),
+        // The receiver phone with its country, when one can sign in with it.
+        ...(isAccountPhone(receiverPhone) ? { app_phone: receiverPhone } : {}),
       },
       items: payload as unknown as Record<string, unknown>,
       // Only a guest signs here. The server refuses a guest booking without
@@ -2811,10 +2819,11 @@ export default function CreateShipment() {
                   : '';
                 const phoneDigits =
                   dialCode && rawPhone.startsWith(dialCode) ? rawPhone.slice(dialCode.length) : rawPhone;
-                setReceiverPhone(phoneDigits);
-                if (!receiverAppPhoneEdited.current) {
-                  setReceiverAppPhone(suggestedReceiverAppPhone(address.phone, address.country_code ?? ''));
-                }
+                setReceiverPhone(
+                  phoneDigits
+                    ? toAccountPhone(address.country_code || destinationCountry || 'IN', phoneDigits)
+                    : ''
+                );
               }}
             />
 
@@ -2849,27 +2858,28 @@ export default function CreateShipment() {
                   Phone
                   <span className="text-red-400">*</span>
                 </Label>
-                <div className="flex gap-2 mt-1">
-                  <Input
-                    value={receiverPhone}
-                    onChange={(e) => {
-                      const digits = e.target.value.replace(/\D/g, '');
-                      setReceiverPhone(digits);
-                      clearFieldError('receiverPhone');
-                      if (!receiverAppPhoneEdited.current) {
-                        setReceiverAppPhone(suggestedReceiverAppPhone(digits, destinationCountry));
-                      }
-                    }}
-                    placeholder="Phone number"
-                    className={cn(
-                      'flex-1 min-w-0',
-                      fieldBorderClass('receiverPhone')
-                    )}
-                    data-testid="input-receiver-phone"
-                  />
-                </div>
-                {fieldErrors.receiverPhone && (
+                <AccountPhoneInput
+                  value={receiverPhone}
+                  defaultCountry={destinationCountry || undefined}
+                  onChange={(stored) => {
+                    setReceiverPhone(stored);
+                    clearFieldError('receiverPhone');
+                  }}
+                  placeholder="Phone number"
+                  className={cn(
+                    'h-11 mt-1 bg-muted/30 border-border',
+                    fieldErrors.receiverPhone && 'border-2 border-primary field-shake'
+                  )}
+                  aria-invalid={fieldErrors.receiverPhone || undefined}
+                  data-testid="input-receiver-phone"
+                />
+                {fieldErrors.receiverPhone ? (
                   <p className="text-xs text-red-600 mt-1">Must be 6–15 digits</p>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground mt-1" data-testid="text-receiver-phone-info">
+                    The receiver can sign in to the Bombino app with this number to track the parcel.
+                    Regular updates are sent on WhatsApp.
+                  </p>
                 )}
               </div>
               <div>
@@ -2883,35 +2893,6 @@ export default function CreateShipment() {
                   className="h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl"
                   data-testid="input-receiver-email"
                 />
-              </div>
-              <div>
-                <Label className="text-xs text-muted-foreground">
-                  Receiver&apos;s Indian mobile <span className="text-muted-foreground/60 ml-1">(optional)</span>
-                </Label>
-                <div className="flex gap-2">
-                  <span className="h-11 mt-1 px-3 inline-flex items-center rounded-xl bg-muted/30 border border-border text-sm text-muted-foreground shrink-0">
-                    +91
-                  </span>
-                  <Input
-                    value={receiverAppPhone}
-                    inputMode="numeric"
-                    onChange={(e) => {
-                      receiverAppPhoneEdited.current = true;
-                      setReceiverAppPhone(e.target.value.replace(/\D/g, '').slice(0, 10));
-                      clearFieldError('receiverAppPhone');
-                    }}
-                    placeholder="10-digit mobile"
-                    className={cn('flex-1 min-w-0', fieldBorderClass('receiverAppPhone'))}
-                    data-testid="input-receiver-app-phone"
-                  />
-                </div>
-                {fieldErrors.receiverAppPhone ? (
-                  <p className="text-xs text-red-600 mt-1">Enter a 10-digit Indian mobile, or leave it blank</p>
-                ) : (
-                  <p className="text-[11px] text-muted-foreground mt-1">
-                    Lets the receiver sign in to the Bombino app with this number and track the parcel.
-                  </p>
-                )}
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">Address</Label>
