@@ -26,7 +26,7 @@
  * failures. A parcel moves whether or not anyone can be told about it.
  */
 
-import type { Order } from "../shared/orderContract.js";
+import type { Order, OrderStatus } from "../shared/orderContract.js";
 import { deriveCustomerStatus, isInternalOnlyStatus, readAgentCancellation } from "../shared/orderContract.js";
 import { insertNotification, insertOrderStatusNotification, type NotificationOwner } from "./appDb.js";
 import { customerStatusDetail } from "./notificationCopy.js";
@@ -39,6 +39,10 @@ import { getAgent, listAgentsForPincode } from "./whatsappAgents.js";
 import { getCodeForOwner } from "./handoverCodes.js";
 import { isRazorpayConfigured } from "./razorpay.js";
 import { getSupportContacts } from "./settingsDb.js";
+import { isTestPhone } from "./testOrders.js";
+import { isTestOrderMetadata } from "../shared/testOrders.js";
+import { receiverAppPhoneOf } from "../shared/receiving.js";
+import { msisdnToAccountPhone } from "../shared/contact.js";
 import {
   accountDecisionMessage,
   extraChargeDueMessage,
@@ -55,6 +59,7 @@ import {
   NEW_TEMPLATES_LIVE,
   orderArea,
   orderBookedMessage,
+  parcelPickedUpMessage,
   paymentFailedMessage,
   paymentReceivedMessage,
   pickupArea,
@@ -181,6 +186,7 @@ export async function notifyOrderTransition(notice: OrderTransitionNotice): Prom
   await Promise.all([
     notifyCustomerInApp(order, actorUserId),
     notifyCustomerWhatsapp(order, actorUserId),
+    notifyReceiverWhatsapp(order),
     notifyAgentOfDisruption(order),
   ]);
 }
@@ -359,6 +365,70 @@ async function buildCustomerMessage(order: Order): Promise<WhatsappMessage | nul
 
     default:
       return simpleStatusMessage(order);
+  }
+}
+
+// ── The receiver ──────────────────────────────────────────────────────────
+
+/**
+ * Which updates the receiver gets, and on which template.
+ *
+ * Only the approved templates whose words fit someone who did not book the
+ * parcel: no name, no money, no "your booking". Booked, at the hub (talks
+ * about weighing and the final amount) and cancelled (talks about refunds)
+ * are the sender's, and wait for receiver templates of their own.
+ */
+const RECEIVER_UPDATES: Partial<Record<OrderStatus, (order: Order) => WhatsappMessage | null>> = {
+  picked_up: parcelPickedUpMessage,
+  dispatched: (order) =>
+    order.awb_no ? dispatchedMessage({ orderNo: order.order_no, awb: order.awb_no }) : null,
+};
+
+/** Two stored numbers in any of their shapes, compared as dial code + number. */
+function samePhone(a: string, b: string): boolean {
+  const norm = (p: string) => {
+    const digits = p.replace(/\D/g, "");
+    return msisdnToAccountPhone(digits) ?? digits;
+  };
+  return norm(a) === norm(b);
+}
+
+/**
+ * The receiver's WhatsApp: the number the sender gave for them, which is also
+ * the one they sign in with to watch the parcel (shared/receiving.ts).
+ *
+ * Never on a test order unless the receiver is a test phone, so a tester's
+ * typed-in receiver is not a real person getting a fake parcel. Not when the
+ * sender named themselves as the receiver: they already get the sender's copy.
+ * Its own dedupe scope, so it never collides with the sender's message.
+ */
+async function notifyReceiverWhatsapp(order: Order): Promise<void> {
+  try {
+    const build = RECEIVER_UPDATES[order.status];
+    if (!build) return;
+    const receiver = receiverAppPhoneOf(order.consignee);
+    if (!receiver) return;
+    if (isTestOrderMetadata(order.metadata) && !isTestPhone(receiver)) return;
+
+    const sender = order.user_id
+      ? ((await getUserContactsByIds([order.user_id])).get(order.user_id)?.phone ?? null)
+      : (order.guest_phone ?? null);
+    if (sender && samePhone(sender, receiver)) return;
+
+    const message = build(order);
+    if (!message) return;
+    await deliver({
+      message,
+      to: await whatsappTargetFor(receiver),
+      userId: null,
+      orderId: order.id,
+      scope: `${order.id}:receiver`,
+    });
+  } catch (error) {
+    console.error("[notify] receiver update threw (swallowed)", {
+      order: order.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
