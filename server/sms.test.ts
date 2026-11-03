@@ -139,6 +139,7 @@ test("toSmsNumber puts the right dial code in front", () => {
   assert.equal(toSmsNumber("9876543210"), "919876543210");
   assert.equal(toSmsNumber("+91 98765 43210"), "919876543210");
   assert.equal(toSmsNumber("+97450123456"), "97450123456");
-  // Not a listed country: refused rather than sent somewhere unpaid-for.
-  assert.equal(toSmsNumber("+12125550100"), null);
+  // Any country now; a malformed number is still refused.
+  assert.equal(toSmsNumber("+12125550100"), "12125550100");
+  assert.equal(toSmsNumber("+9745011"), null);
 });

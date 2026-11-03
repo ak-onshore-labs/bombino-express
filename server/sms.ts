@@ -48,7 +48,7 @@ function otpExpiryMin(): string {
 /**
  * A stored phone number as MSG91 wants it: dial code + number, digits only.
  *
- * Indian numbers get `91` in front; a listed international number ("+974…",
+ * Indian numbers get `91` in front; any other valid number ("+974…",
  * shared/contact.ts) goes out with its own dial code. MSG91 has to have that
  * country switched on, or it refuses the send and we report `failed`.
  *

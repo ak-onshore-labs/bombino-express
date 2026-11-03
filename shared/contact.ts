@@ -7,8 +7,15 @@
  *
  * Ten digits, no country code: every agent and member of staff is in India, and
  * the number is stored bare and prefixed with +91 for display. A CUSTOMER can
- * also sign in from a few other countries — see "Account phones" below.
+ * also sign in from any other country — see "Account phones" below.
  */
+
+import {
+  getCountries,
+  getCountryCallingCode,
+  parsePhoneNumberFromString,
+  type CountryCode,
+} from "libphonenumber-js";
 
 export const INDIAN_MOBILE_PATTERN = /^\d{10}$/;
 
@@ -91,115 +98,165 @@ export function withoutDialCode(phone: string, dialCode: string | null | undefin
   return digits.startsWith(code) && digits.length > code.length ? digits.slice(code.length) : trimmed;
 }
 
-// ── Account phones: India plus the countries we can send a login code to ─────
+// ── Account phones: India, or any country ──────────────────────────────────
 //
 // A customer's own number — the one they sign in with — is stored in one of
 // two shapes, and nothing else:
 //
 //   Indian         "9876543210"      bare 10 digits, exactly as before
-//   international  "+97450123456"    "+" dial code + local number, no spaces
+//   international  "+97450123456"    E.164: "+" dial code + number, no spaces
 //
 // Indian rows keep their old shape so nothing already saved has to move. The
 // "+" is what tells the two apart: a bare number is always Indian.
 //
-// Only countries in this list are accepted. Each one costs money per code and
-// has to be switched on in MSG91 first, so adding a country is a code change on
-// purpose, not a setting. Qatar went live on MSG91 on 3 Nov 2026.
+// Every country is accepted (Aditya, 3 Nov 2026, after Qatar worked end to
+// end). Whether a number is real for its country — length and leading digits —
+// is libphonenumber-js's call, not a table of ours. MSG91 still has to deliver
+// SMS to that country; WhatsApp reaches any country.
 
 export interface PhoneCountry {
-  /** ISO 3166 alpha-2, for keys and tests. */
+  /** ISO 3166 alpha-2, e.g. "QA". Unique; dial codes are not (+1 is shared). */
   iso: string;
   name: string;
   /** Digits only, no "+". */
   dialCode: string;
   flag: string;
-  /** How many digits the number has after the dial code. */
-  localLength: number;
-  /** An example local number, for the input's placeholder. */
-  example: string;
 }
 
-export const INDIA: PhoneCountry = {
-  iso: "IN",
-  name: "India",
-  dialCode: "91",
-  flag: "🇮🇳",
-  localLength: 10,
-  example: "98765 43210",
-};
+/** "QA" → the regional-indicator flag emoji. */
+function flagOf(iso: string): string {
+  return String.fromCodePoint(
+    ...iso
+      .toUpperCase()
+      .split("")
+      .map((c) => 0x1f1e6 + c.charCodeAt(0) - 65),
+  );
+}
 
-/** Countries other than India that can sign in. MSG91 must be on for each. */
-export const INTERNATIONAL_PHONE_COUNTRIES: readonly PhoneCountry[] = [
-  { iso: "QA", name: "Qatar", dialCode: "974", flag: "🇶🇦", localLength: 8, example: "5012 3456" },
+let regionNames: Intl.DisplayNames | null = null;
+try {
+  regionNames = new Intl.DisplayNames(["en"], { type: "region" });
+} catch {
+  regionNames = null;
+}
+
+function countryOf(iso: CountryCode): PhoneCountry {
+  return {
+    iso,
+    name: regionNames?.of(iso) ?? iso,
+    dialCode: getCountryCallingCode(iso),
+    flag: flagOf(iso),
+  };
+}
+
+export const INDIA: PhoneCountry = countryOf("IN");
+
+/** Every country, India first, the rest by name. */
+export const ACCOUNT_PHONE_COUNTRIES: readonly PhoneCountry[] = [
+  INDIA,
+  ...getCountries()
+    .filter((iso) => iso !== "IN")
+    .map(countryOf)
+    .sort((a, b) => a.name.localeCompare(b.name)),
 ];
 
-export const ACCOUNT_PHONE_COUNTRIES: readonly PhoneCountry[] = [INDIA, ...INTERNATIONAL_PHONE_COUNTRIES];
+const COUNTRY_BY_ISO = new Map(ACCOUNT_PHONE_COUNTRIES.map((c) => [c.iso, c]));
+
+export function phoneCountryByIso(iso: string): PhoneCountry | null {
+  return COUNTRY_BY_ISO.get(iso.toUpperCase()) ?? null;
+}
 
 export const ACCOUNT_PHONE_MESSAGE = "Enter a valid mobile number";
 
-function countryForDialCode(dialCode: string): PhoneCountry | null {
-  return ACCOUNT_PHONE_COUNTRIES.find((c) => c.dialCode === dialCode) ?? null;
-}
+/** E.164 digits can never be longer than this, dial code included. */
+const E164_MAX_DIGITS = 15;
 
-/** The listed country whose dial code and length a run of digits matches. */
-function internationalCountryOf(digits: string): PhoneCountry | null {
-  for (const country of INTERNATIONAL_PHONE_COUNTRIES) {
-    if (digits.startsWith(country.dialCode) && digits.length === country.dialCode.length + country.localLength) {
-      return country;
-    }
-  }
-  return null;
-}
-
-/** "+97450123456" for a listed country. Never true for an Indian number. */
+/** "+97450123456": a valid number for a country other than India. */
 export function isInternationalPhone(value: string): boolean {
   const trimmed = value.trim();
-  if (!/^\+\d+$/.test(trimmed)) return false;
-  return internationalCountryOf(trimmed.slice(1)) !== null;
+  if (!/^\+\d{6,15}$/.test(trimmed)) return false;
+  const parsed = parsePhoneNumberFromString(trimmed);
+  return (
+    !!parsed &&
+    !!parsed.country &&
+    parsed.country !== "IN" &&
+    parsed.countryCallingCode !== "91" &&
+    parsed.isValid()
+  );
 }
 
-/** A number someone can sign in with: Indian 10 digits, or a listed country. */
+/** A number someone can sign in with: Indian 10 digits, or any valid number abroad. */
 export function isAccountPhone(value: string): boolean {
   return isIndianMobile(value) || isInternationalPhone(value);
 }
 
 /**
- * A country and what was typed → the stored form. India goes through
- * `toIndianMobile`, so a pasted "+91 …" still lands on the ten digits.
+ * A country and what was typed → the stored form.
+ *
+ * India goes through `toIndianMobile`, so a pasted "+91 …" still lands on the
+ * ten digits. Anywhere else: a complete number is normalised by
+ * libphonenumber (trunk "0" dropped where the country uses one); a number
+ * still being typed is kept as dial code + digits so the box can show it.
  */
-export function toAccountPhone(dialCode: string, local: string): string {
-  if (dialCode === INDIA.dialCode) return toIndianMobile(local);
-  const country = countryForDialCode(dialCode);
-  let digits = withoutTrunkZero(local);
-  // A pasted number that already carries the dial code.
-  if (country && digits.length > country.localLength && digits.startsWith(dialCode)) {
-    digits = digits.slice(dialCode.length);
+export function toAccountPhone(iso: string, local: string): string {
+  const country = phoneCountryByIso(iso) ?? INDIA;
+  if (country.iso === "IN") return toIndianMobile(local);
+
+  const raw = local.trim();
+  // A pasted number that already carries its "+" and dial code.
+  if (raw.startsWith("+")) {
+    const pasted = parsePhoneNumberFromString(raw);
+    if (pasted?.isValid()) return pasted.number;
+    return `+${raw.replace(/\D/g, "").slice(0, E164_MAX_DIGITS)}`;
   }
-  if (country) digits = digits.slice(0, country.localLength);
-  return `+${dialCode}${digits}`;
+
+  const parsed = parsePhoneNumberFromString(raw, country.iso as CountryCode);
+  if (parsed?.isValid() && parsed.countryCallingCode === country.dialCode) return parsed.number;
+  const digits = raw.replace(/\D/g, "").replace(/^0+/, "");
+  return `+${country.dialCode}${digits.slice(0, E164_MAX_DIGITS - country.dialCode.length)}`;
 }
 
-/** A stored number → its country and the local part, for an input to edit. */
-export function splitAccountPhone(stored: string | null | undefined): { country: PhoneCountry; local: string } {
+/**
+ * A stored number → its country and the local part, for an input to edit.
+ *
+ * `preferIso` breaks ties between countries that share a dial code (+1 is the
+ * US, Canada and the Caribbean) while a number is only half typed.
+ */
+export function splitAccountPhone(
+  stored: string | null | undefined,
+  preferIso?: string,
+): { country: PhoneCountry; local: string } {
   const trimmed = (stored ?? "").trim();
-  if (trimmed.startsWith("+")) {
+  if (trimmed.startsWith("+") && !trimmed.startsWith("+91")) {
     const digits = trimmed.slice(1).replace(/\D/g, "");
-    for (const country of INTERNATIONAL_PHONE_COUNTRIES) {
-      if (digits.startsWith(country.dialCode)) {
-        return { country, local: digits.slice(country.dialCode.length) };
+    const preferred = preferIso ? phoneCountryByIso(preferIso) : null;
+    if (preferred && preferred.iso !== "IN" && digits.startsWith(preferred.dialCode)) {
+      return { country: preferred, local: digits.slice(preferred.dialCode.length) };
+    }
+    const parsed = parsePhoneNumberFromString(trimmed);
+    const known = parsed?.country ? phoneCountryByIso(parsed.country) : null;
+    if (parsed && known) return { country: known, local: parsed.nationalNumber };
+    // Half typed: the longest dial code it starts with.
+    let best: PhoneCountry | null = null;
+    for (const c of ACCOUNT_PHONE_COUNTRIES) {
+      if (
+        c.iso !== "IN" &&
+        digits.startsWith(c.dialCode) &&
+        (!best || c.dialCode.length > best.dialCode.length)
+      ) {
+        best = c;
       }
     }
+    if (best) return { country: best, local: digits.slice(best.dialCode.length) };
   }
   return { country: INDIA, local: toIndianMobile(trimmed) };
 }
 
-/** `+91 98765 43210` / `+974 5012 3456`. Anything unrecognised comes back as given. */
+/** `+91 98765 43210` / `+974 5011 3086`. Anything unrecognised comes back as given. */
 export function formatAccountPhone(stored: string | null | undefined): string {
   const value = (stored ?? "").trim();
   if (isInternationalPhone(value)) {
-    const { country, local } = splitAccountPhone(value);
-    const half = Math.ceil(local.length / 2);
-    return `+${country.dialCode} ${local.slice(0, half)} ${local.slice(half)}`;
+    return parsePhoneNumberFromString(value)?.formatInternational() ?? value;
   }
   const ten = toIndianMobile(value);
   if (ten.length !== 10) return value;
@@ -225,7 +282,7 @@ export function msisdnToAccountPhone(msisdn: string): string | null {
   const digits = msisdn.replace(/\D/g, "");
   if (/^91[6-9]\d{9}$/.test(digits)) return digits.slice(2);
   if (/^[6-9]\d{9}$/.test(digits)) return digits;
-  return internationalCountryOf(digits) ? `+${digits}` : null;
+  return isInternationalPhone(`+${digits}`) ? `+${digits}` : null;
 }
 
 /**

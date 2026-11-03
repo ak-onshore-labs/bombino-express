@@ -75,9 +75,9 @@ function token(): string | null {
  * that is not recognisably an Indian mobile — a message sent to a mangled
  * number is charged for and lands nowhere.
  *
- * Customers in the listed countries (shared/contact.ts) sign in with
+ * Customers from any other country (shared/contact.ts) sign in with
  * "+974…"; those pass through with their own dial code, and so does the bare
- * E.164 a webhook carries for them. Any other foreign number stays refused.
+ * E.164 a webhook carries for them. A malformed foreign number is refused.
  */
 export function toWaMsisdn(phone: string | null | undefined): string | null {
   if (!phone) return null;

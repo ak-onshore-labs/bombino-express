@@ -1,6 +1,6 @@
 -- An Indian WhatsApp number for a customer who signs in from abroad.
 --
--- A customer can sign in with a number from a listed country ("+974…",
+-- A customer can sign in with a number from any country ("+974…",
 -- shared/contact.ts). WhatsApp updates go to that number by default. When it
 -- turns out not to be on WhatsApp (whatsappDb §Reachability), the app asks for
 -- an Indian number that is, and updates go there instead.

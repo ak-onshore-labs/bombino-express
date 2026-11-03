@@ -108,7 +108,8 @@ function lastTen(phone: string): string | null {
 export function isTestOtpNumber(phone: string, numbers: ReadonlySet<string> = TEST_OTP_NUMBERS): boolean {
   // Test accounts are Indian. A foreign number's last ten digits must never
   // happen to match one and get the public code.
-  if (isInternationalPhone(phone)) return false;
+  const trimmed = phone.trim();
+  if (isInternationalPhone(trimmed) || (trimmed.startsWith("+") && !trimmed.startsWith("+91"))) return false;
   const ten = lastTen(phone);
   return ten !== null && numbers.has(ten);
 }

@@ -28,9 +28,10 @@ test("a number from abroad is never a test account", () => {
   assert.equal(isTestOtpNumber("+97490000000"), false);
 });
 
-test("WhatsApp takes listed countries with their own dial code, nothing else", () => {
+test("WhatsApp takes any valid number with its own dial code", () => {
   assert.equal(toWaMsisdn(QA), "97450123456");
   assert.equal(toWaMsisdn("97450123456"), "97450123456");
   assert.equal(toWaMsisdn("9876543210"), "919876543210");
-  assert.equal(toWaMsisdn("+12125550100"), null);
+  assert.equal(toWaMsisdn("+12125550100"), "12125550100");
+  assert.equal(toWaMsisdn("+9745011"), null);
 });

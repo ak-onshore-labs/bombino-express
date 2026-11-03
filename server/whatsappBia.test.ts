@@ -25,7 +25,8 @@ function conv(over: Partial<WaConversation> = {}): WaConversation {
 test("only Indian mobiles can be an account here", () => {
   assert.equal(accountNumberOf("919876543210"), "9876543210");
   assert.equal(accountNumberOf("+91 98765 43210"), "9876543210");
-  assert.equal(accountNumberOf("12125550100"), null);
+  assert.equal(accountNumberOf("12125550100"), "+12125550100");
+  assert.equal(accountNumberOf("9745011"), null);
   assert.equal(accountNumberOf("911234567890"), null);
   assert.equal(accountNumberOf("97450123456"), "+97450123456");
 });

@@ -1,7 +1,16 @@
-import { forwardRef, useState, type KeyboardEvent } from 'react';
-import { ChevronDown } from 'lucide-react';
-import { Input } from '@/components/ui/input';
+import { forwardRef, useState } from 'react';
+import { Check, ChevronDown } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
 import { cn } from '@/lib/utils';
+import { supportsFlagEmoji } from '@/lib/flagEmoji';
 import {
   ACCOUNT_PHONE_COUNTRIES,
   INDIA,
@@ -11,13 +20,13 @@ import {
 } from '@shared/contact';
 
 interface AccountPhoneInputProps {
-  /** The stored form: "9876543210" for India, "+97450123456" abroad. */
+  /** The stored form: "9876543210" for India, "+97450113086" abroad. */
   value: string;
   onChange: (stored: string) => void;
   onEnter?: () => void;
   id?: string;
   disabled?: boolean;
-  /** Classes for the number box. The country picker matches its height. */
+  /** Classes for the whole field (height, background, border, radius). */
   className?: string;
   'aria-invalid'?: boolean;
   'aria-describedby'?: string;
@@ -25,94 +34,145 @@ interface AccountPhoneInputProps {
 }
 
 /**
- * A customer's own mobile number: a country picker and the local number.
+ * index.css gives every focused <input> a glow, unlayered, so a utility class
+ * cannot turn it off. Inside this field the whole box glows instead.
+ */
+const NO_FOCUS_GLOW = { boxShadow: 'none' } as const;
+
+/** The flag, or the country's letters in a small badge where flags don't draw (Windows). */
+function CountryMark({ country }: { country: PhoneCountry }) {
+  if (supportsFlagEmoji()) {
+    return (
+      <span className="text-lg leading-none" aria-hidden>
+        {country.flag}
+      </span>
+    );
+  }
+  return (
+    <span
+      className="inline-flex h-4 min-w-[22px] items-center justify-center rounded-[3px] bg-foreground/10 px-1 text-[10px] font-bold tracking-wide text-foreground/80"
+      aria-hidden
+    >
+      {country.iso}
+    </span>
+  );
+}
+
+/**
+ * A customer's own mobile number: one field, with the country inside it.
+ *
+ *   [ 🇮🇳 +91 ⌄ | 98765 43210 ]
  *
  * India is the default and behaves exactly as the old 10-digit box did. The
- * other countries are the ones MSG91 can send a login code to
- * (INTERNATIONAL_PHONE_COUNTRIES in shared/contact.ts) — nothing else is
- * offered, so a customer can never type a number we cannot reach.
- *
+ * country button opens a searchable list of every country (by name or code).
  * The value going in and out is the stored form, so callers keep one string
  * and send it to the server as it is.
  */
 export const AccountPhoneInput = forwardRef<HTMLInputElement, AccountPhoneInputProps>(
-  function AccountPhoneInput(
-    { value, onChange, onEnter, id, disabled, className, ...rest },
-    ref
-  ) {
-    // Held separately: an empty value cannot say which country was picked.
+  function AccountPhoneInput({ value, onChange, onEnter, id, disabled, className, ...rest }, ref) {
+    // Held separately: an empty value cannot say which country was picked, and
+    // +1 is shared by several.
     const [country, setCountry] = useState<PhoneCountry>(() => splitAccountPhone(value).country);
-    const local = value ? splitAccountPhone(value).local : '';
+    const [open, setOpen] = useState(false);
+    const local = value ? splitAccountPhone(value, country.iso).local : '';
 
-    const pickCountry = (dialCode: string): void => {
-      const next = ACCOUNT_PHONE_COUNTRIES.find((c) => c.dialCode === dialCode) ?? INDIA;
+    const pick = (next: PhoneCountry): void => {
       setCountry(next);
-      onChange(local ? toAccountPhone(next.dialCode, local) : '');
+      setOpen(false);
+      onChange(local ? toAccountPhone(next.iso, local) : '');
     };
 
-    const onKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
-      if (e.key === 'Enter' && onEnter) {
-        e.preventDefault();
-        onEnter();
+    const onType = (raw: string): void => {
+      if (!raw.trim()) {
+        onChange('');
+        return;
       }
+      // A pasted "+974 5011 3086" picks its own country.
+      if (raw.trim().startsWith('+')) {
+        const pasted = splitAccountPhone(`+${raw.replace(/\D/g, '')}`, country.iso).country;
+        if (pasted.iso !== country.iso) {
+          setCountry(pasted);
+          onChange(toAccountPhone(pasted.iso, raw));
+          return;
+        }
+      }
+      onChange(toAccountPhone(country.iso, raw));
     };
+
+    const items = ACCOUNT_PHONE_COUNTRIES.map((c) => (
+      <CommandItem
+        key={c.iso}
+        // What the search matches: name, code with and without "+", ISO.
+        value={`${c.name} +${c.dialCode} ${c.dialCode} ${c.iso}`}
+        onSelect={() => pick(c)}
+        className="gap-2.5"
+        data-testid={`option-country-${c.iso}`}
+      >
+        <CountryMark country={c} />
+        <span className="min-w-0 flex-1 truncate">{c.name}</span>
+        <span className="text-xs tabular-nums text-muted-foreground">+{c.dialCode}</span>
+        <Check className={cn('h-4 w-4 text-primary', c.iso === country.iso ? 'opacity-100' : 'opacity-0')} />
+      </CommandItem>
+    ));
 
     return (
-      <div className="flex items-stretch gap-2">
-        <div className="relative shrink-0">
-          <select
-            aria-label="Country code"
-            value={country.dialCode}
-            onChange={(e) => pickCountry(e.target.value)}
-            disabled={disabled}
-            className={cn(
-              'h-full appearance-none rounded-xl border border-[#E2E8F0] bg-[#F3F4F6] pl-3 pr-7 text-sm font-medium',
-              'focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50'
-            )}
-            data-testid="select-phone-country"
-          >
-            {ACCOUNT_PHONE_COUNTRIES.map((c) => (
-              <option key={c.iso} value={c.dialCode}>
-                {c.flag} +{c.dialCode}
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        </div>
-        <Input
+      <div
+        className={cn(
+          'flex h-12 items-stretch overflow-hidden rounded-xl border border-[#E2E8F0] bg-[#F3F4F6]',
+          // The same focus look every other input has (index.css), on the whole field.
+          'transition-shadow focus-within:border-[#2F4468] focus-within:shadow-[0_0_0_3px_oklch(37%_0.092_245/0.40)]',
+          disabled && 'opacity-60',
+          className,
+        )}
+      >
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              disabled={disabled}
+              aria-label={`Country: ${country.name} +${country.dialCode}. Change country`}
+              className="flex shrink-0 items-center gap-1.5 pl-3 pr-2 text-sm font-semibold text-foreground transition-colors hover:bg-black/[0.04] focus:outline-none disabled:cursor-not-allowed"
+              data-testid="button-phone-country"
+            >
+              <CountryMark country={country} />
+              <span className="tabular-nums">+{country.dialCode}</span>
+              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="start" sideOffset={6} className="w-[min(20rem,calc(100vw-2rem))] p-0">
+            <Command>
+              <CommandInput placeholder="Search country or code" className="border-0" style={NO_FOCUS_GLOW} />
+              <CommandList className="max-h-72">
+                <CommandEmpty>No country found.</CommandEmpty>
+                <CommandGroup>{items}</CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
+
+        <span className="my-3 w-px shrink-0 bg-[#D7DDE5]" aria-hidden />
+
+        <input
           id={id}
           ref={ref}
           type="tel"
           inputMode="numeric"
           autoComplete="tel-national"
           value={local}
-          onChange={(e) => {
-            const raw = e.target.value;
-            if (!raw.trim()) {
-              onChange('');
-              return;
+          onChange={(e) => onType(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && onEnter) {
+              e.preventDefault();
+              onEnter();
             }
-            // A pasted "+974 5012 3456" picks its own country.
-            if (raw.trim().startsWith('+')) {
-              const digits = raw.replace(/\D/g, '');
-              const pasted = ACCOUNT_PHONE_COUNTRIES.find(
-                (c) => c.dialCode !== country.dialCode && digits.startsWith(c.dialCode)
-              );
-              if (pasted) {
-                setCountry(pasted);
-                onChange(toAccountPhone(pasted.dialCode, digits.slice(pasted.dialCode.length)));
-                return;
-              }
-            }
-            onChange(toAccountPhone(country.dialCode, raw));
           }}
-          onKeyDown={onKeyDown}
-          placeholder={country.example}
+          placeholder={country.iso === INDIA.iso ? '98765 43210' : 'Mobile number'}
           disabled={disabled}
-          className={cn('min-w-0 flex-1', className)}
+          className="min-w-0 flex-1 border-0 bg-transparent px-3 text-base tabular-nums text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
+          style={NO_FOCUS_GLOW}
           {...rest}
         />
       </div>
     );
-  }
+  },
 );
