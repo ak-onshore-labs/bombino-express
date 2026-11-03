@@ -9,28 +9,32 @@
  * Matching on it would show a stranger's parcel to whoever owns the Indian one.
  *
  * So a booking names the receiver's app number separately, as
- * `consignee.app_phone`, an Indian mobile the sender chose to give. Bookings
- * from before that field count only when their receiver phone is Indian beyond
- * doubt: written with its +91, or on a parcel going to India.
- *
- * Indian numbers only, because the login code only reaches Indian numbers
- * (server/sms.ts, server/whatsapp.ts). When it reaches others, this is the one
- * place that widens.
+ * `consignee.app_phone`: the receiver phone with the country the sender picked
+ * for it, in the account form (shared/contact.ts), so it is the same string
+ * the receiver signs in with. Bookings from before that field count only when
+ * their receiver phone is Indian beyond doubt: written with its +91, or on a
+ * parcel going to India.
  *
  * Pure, so the booking form and the server read the same rules.
  */
 
-import { isIndianMobile, toIndianMobile } from "./contact.js";
+import { isIndianMobile, isInternationalPhone, toIndianMobile } from "./contact.js";
 
 /** A ten-digit Indian mobile: starts 6 to 9. */
 const INDIAN_MOBILE_START = /^[6-9]\d{9}$/;
 
 /**
- * The app number a sender typed for the receiver, as stored: ten bare digits,
- * or null when it is blank or not an Indian mobile.
+ * The receiver's app number, as stored: ten bare digits for India, E.164
+ * ("+12125550100") abroad, or null when it is blank or not a number one can
+ * sign in with.
  */
 export function normalizeReceiverAppPhone(value: unknown): string | null {
   if (typeof value !== "string" || !value.trim()) return null;
+  const trimmed = value.trim();
+  if (trimmed.startsWith("+") && !trimmed.startsWith("+91")) {
+    const e164 = `+${trimmed.replace(/\D/g, "")}`;
+    return isInternationalPhone(e164) ? e164 : null;
+  }
   const ten = toIndianMobile(value);
   return isIndianMobile(ten) && INDIAN_MOBILE_START.test(ten) ? ten : null;
 }

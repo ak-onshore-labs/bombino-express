@@ -41,7 +41,7 @@ If the screen then says **Application sent**, the Bombino team sets the account 
 Asked as: book, ship, send a parcel, create shipment, new shipment, how to ship, booking form, steps, place an order
 Buttons: TAP_CREATE_SHIPMENT
 
-Tap **Ship** at the bottom (**Create Shipment** on a computer). You go through the steps: your own details and whether we pick the parcel up from your door (choose a date) or you drop it at a Bombino counter; the receiver (add their Indian mobile under **Receiver's Indian mobile** and they can sign in to the app with it to track the parcel); the parcel's weight, pieces, packing and value; then the service, what's inside and its invoice details; and finally review and pay. On every step, **Ask BIA about this step** at the top explains what that step needs. You get an Order ID (BOM-…) as soon as you book.
+Tap **Ship** at the bottom (**Create Shipment** on a computer). You go through the steps: your own details and whether we pick the parcel up from your door (choose a date) or you drop it at a Bombino counter; the receiver (their phone number takes a country, set to the destination country to start; the receiver can sign in to the app with that number to track the parcel, and gets regular updates on WhatsApp); the parcel's weight, pieces, packing and value; then the service, what's inside and its invoice details; and finally review and pay. On every step, **Ask BIA about this step** at the top explains what that step needs. You get an Order ID (BOM-…) as soon as you book.
 
 ## Booking as a guest, and your guest profile
 Asked as: guest, without account, no account, guest profile, my details, save my details, guest booking, book without signing up
@@ -75,7 +75,7 @@ Once your parcel has a tracking number (AWB), enter it in **Track Any Order** on
 Asked as: receive, receiving, incoming, parcel for me, someone sent me, track a parcel sent to me, receiver, I am the receiver, coming to me
 Buttons: TAP_MY_ORDERS
 
-If someone sends you a parcel and adds your Indian mobile as the receiver's number, sign in with that number (Login, then the code we send). You don't need an account: you're signed in as a guest. Open **Orders** and tap **Receiving**: each parcel shows who sent it (first name and city), its status, and once it has one, the tracking number (AWB). Tap it for the tracking scans. Price, payment and pickup details stay with the sender. Nothing there? Ask the sender to add your number when they book, or track the parcel by its AWB. Only Indian mobile numbers can sign in for now.
+If someone sends you a parcel with your number as the receiver's phone, sign in with that number (Login, then the code we send). You don't need an account: you're signed in as a guest. Open **Orders** and tap **Receiving**: each parcel shows who sent it (first name and city), its status, and once it has one, the tracking number (AWB). Tap it for the tracking scans. Price, payment and pickup details stay with the sender. Nothing there? Ask the sender to add your number when they book, or track the parcel by its AWB. Only Indian mobile numbers can sign in for now.
 
 ## Shipping labels and invoice
 Asked as: label, shipping label, postal label, box label, invoice, print, download label, commercial invoice
@@ -95,7 +95,7 @@ Now and then I write to your notifications when something of yours needs you: th
 ## Your profile and account details
 Asked as: profile, my profile, account details, change username, edit username, change phone number, change mobile number, new number, unlink number, email, account settings, sign out, log out, logout
 
-Open the menu (☰) and tap **My Profile** (**My Profile** in the sidebar on a computer). There you can edit your username, change your mobile number (**Change number**: we send a code to the new number, and an account that signs in with a password asks for it too), see your identity document and your account documents, switch reminders on or off, and reach support. To sign out, tap **Sign Out** in the menu, or at the bottom of your profile.
+Open the menu (☰) and tap **My Profile** (**My Profile** in the sidebar on a computer). There you can edit your username, change your mobile number (**Change number**: we send a code to the new number, and an account that signs in with a password asks for it too). A number cannot be removed from an account without giving a new one: to stop using a number, use **Change number** and switch to the new one. You can also see your identity document and your account documents, switch reminders on or off, and reach support. To sign out, tap **Sign Out** in the menu, or at the bottom of your profile.
 
 ## Documents and your identity document
 Asked as: documents, upload document, replace document, aadhaar, PAN, passport, driving licence, GST certificate, identity document, KYC, verify account, document rejected, clearer photo, reupload
