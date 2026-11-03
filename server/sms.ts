@@ -11,6 +11,8 @@
  * code.
  */
 
+import { isInternationalPhone } from "../shared/contact.js";
+
 const OTP_URL = "https://control.msg91.com/api/v5/otp";
 /** Matches OTP_LENGTH in server/otp.ts. Not imported: otp.ts already imports this file. */
 const OTP_LENGTH = "6";
@@ -44,18 +46,24 @@ function otpExpiryMin(): string {
 }
 
 /**
- * A stored phone number as 10 Indian digits.
+ * A stored phone number as MSG91 wants it: dial code + number, digits only.
  *
- * MSG91 wants `91` in front of these; the caller adds it. Kept separate from
- * the WhatsApp helper — the two channels have disagreed about the country
- * prefix, and one shared function is how a working number becomes undeliverable.
+ * Indian numbers get `91` in front; a listed international number ("+974…",
+ * shared/contact.ts) goes out with its own dial code. MSG91 has to have that
+ * country switched on, or it refuses the send and we report `failed`.
+ *
+ * Kept separate from the WhatsApp helper — the two channels have disagreed
+ * about the country prefix before, and one shared function is how a working
+ * number becomes undeliverable.
  */
 export function toSmsNumber(phone: string | null | undefined): string | null {
   if (!phone) return null;
-  const digits = phone.replace(/\D/g, "");
-  if (/^[6-9]\d{9}$/.test(digits)) return digits;
-  if (/^91[6-9]\d{9}$/.test(digits)) return digits.slice(2);
-  if (/^0[6-9]\d{9}$/.test(digits)) return digits.slice(1);
+  const trimmed = phone.trim();
+  if (isInternationalPhone(trimmed)) return trimmed.slice(1);
+  const digits = trimmed.replace(/\D/g, "");
+  if (/^[6-9]\d{9}$/.test(digits)) return `91${digits}`;
+  if (/^91[6-9]\d{9}$/.test(digits)) return digits;
+  if (/^0[6-9]\d{9}$/.test(digits)) return `91${digits.slice(1)}`;
   return null;
 }
 
@@ -89,7 +97,7 @@ export async function sendOtpBySms(phone: string, code: string): Promise<SmsOutc
 
   const query = new URLSearchParams({
     template_id: config.templateId,
-    mobile: `91${to}`,
+    mobile: to,
     otp: code,
     otp_length: OTP_LENGTH,
     otp_expiry: otpExpiryMin(),

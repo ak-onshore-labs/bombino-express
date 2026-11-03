@@ -37,6 +37,7 @@ import {
   isApplicationField,
   type RequestedChanges,
 } from "../shared/applicationStatus.js";
+import { formatAccountPhone } from "../shared/contact.js";
 
 
 export type ServiceResult<T> = { ok: true; value: T } | { ok: false; status: number; code: string; message: string };
@@ -133,7 +134,7 @@ export async function fileApplication(
     void notifyStaffOfApplication({
       applicationId: row.id,
       resent: event === "resubmitted",
-      name: (row.account_type === "company" ? row.details.company_name : row.details.full_name) || `+91 ${row.phone}`,
+      name: (row.account_type === "company" ? row.details.company_name : row.details.full_name) || formatAccountPhone(row.phone),
       accountType: accountTypeLabel(row),
       phone: row.phone,
       at: new Date().toISOString(),
@@ -241,7 +242,7 @@ export async function notifyTeamOfApplication(app: ApplicationRow, resent: boole
   try {
     const { emails } = await getApplicationAlertRecipients();
     if (emails.length === 0) return;
-    const name = (app.account_type === "company" ? app.details.company_name : app.details.full_name) || `+91 ${app.phone}`;
+    const name = (app.account_type === "company" ? app.details.company_name : app.details.full_name) || formatAccountPhone(app.phone);
     const mail = applicationAlertEmail({
       name,
       accountTypeLabel: accountTypeLabel(app),

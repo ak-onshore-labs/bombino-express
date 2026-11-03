@@ -13,7 +13,9 @@ import {
 } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { useRefreshUserProfile, useUserProfile } from '@/hooks/useUserProfile';
-import { isIndianMobile, toIndianMobile } from '@shared/contact';
+import { isAccountPhone, isInternationalPhone } from '@shared/contact';
+import { WhatsappAltCard } from '@/components/WhatsappAltCard';
+import { AccountPhoneInput } from '@/components/AccountPhoneInput';
 import { formatGuestPhone } from '@/lib/shadowProfile';
 import { useAppStore } from '@/lib/store';
 import { Button } from '@/components/ui/button';
@@ -206,8 +208,8 @@ export default function Profile() {
   };
 
   const handleSendChangeOtp = async () => {
-    if (!isIndianMobile(newPhone.trim())) {
-      setChangeError('Enter a valid 10-digit phone number');
+    if (!isAccountPhone(newPhone.trim())) {
+      setChangeError('Enter a valid mobile number');
       return;
     }
     if (newPhone.trim() === String(profile?.phone ?? '')) {
@@ -266,7 +268,9 @@ export default function Profile() {
     }
   };
 
-  const notOnWhatsapp = hasLinkedPhone && profile?.whatsapp === 'not_on_whatsapp';
+  // A number from abroad gets the Indian-alternate card instead (WhatsappAltCard).
+  const internationalPhone = hasLinkedPhone && isInternationalPhone(displayPhone);
+  const notOnWhatsapp = hasLinkedPhone && !internationalPhone && profile?.whatsapp === 'not_on_whatsapp';
 
   const openWhatsappDialog = () => {
     setWaOtp('');
@@ -369,7 +373,7 @@ export default function Profile() {
               name={displayName || 'Your account'}
               lines={[
                 ...(hasLinkedPhone
-                  ? [{ icon: Phone, text: formatGuestPhone(toIndianMobile(displayPhone)), verified: true }]
+                  ? [{ icon: Phone, text: formatGuestPhone(displayPhone), verified: true }]
                   : []),
                 ...(displayEmail ? [{ icon: Mail, text: displayEmail }] : []),
               ]}
@@ -488,6 +492,7 @@ export default function Profile() {
                       </div>
                     </div>
                   )}
+                  {internationalPhone && <WhatsappAltCard />}
                 </ProfileRow>
                 <ProfileRow
                   icon={AtSign}
@@ -588,7 +593,7 @@ export default function Profile() {
             <DialogDescription>
               {changeStep === 'phone'
                 ? 'Enter the number you want to sign in with. We’ll send it a code to confirm it’s yours.'
-                : `Enter the code we sent to ${newPhone}${
+                : `Enter the code we sent to ${formatGuestPhone(newPhone)}${
                     requiresPassword ? ', and your password to confirm the change.' : '.'
                   }`}
             </DialogDescription>
@@ -597,20 +602,18 @@ export default function Profile() {
           {changeStep === 'phone' ? (
             <div>
               <Label className="text-sm font-medium">New mobile number</Label>
-              <Input
-                type="tel"
-                inputMode="numeric"
-                value={newPhone}
-                onChange={(e) => {
-                  setNewPhone(toIndianMobile(e.target.value));
-                  setChangeError('');
-                }}
-                onKeyDown={(e) => e.key === 'Enter' && void handleSendChangeOtp()}
-                placeholder="10-digit mobile number"
-                className="mt-2 h-11 bg-muted border border-border rounded-xl"
-                autoComplete="tel"
-                data-testid="input-new-phone"
-              />
+              <div className="mt-2">
+                <AccountPhoneInput
+                  value={newPhone}
+                  onChange={(next) => {
+                    setNewPhone(next);
+                    setChangeError('');
+                  }}
+                  onEnter={() => void handleSendChangeOtp()}
+                  className="h-11 bg-muted border border-border rounded-xl"
+                  data-testid="input-new-phone"
+                />
+              </div>
             </div>
           ) : (
             <div className="space-y-4">

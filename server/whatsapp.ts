@@ -24,6 +24,7 @@ import {
   getWhatsappReachability,
 } from "./whatsappDb.js";
 import { WA_TEMPLATE } from "./whatsappTemplates.js";
+import { isInternationalPhone, msisdnToAccountPhone } from "../shared/contact.js";
 import type { WaPart } from "../shared/whatsappBiaFormat.js";
 
 const DEFAULT_BASE_URL = "https://wb.omni.tatatelebusiness.com";
@@ -73,9 +74,15 @@ function token(): string | null {
  * `+91` prefixes and hyphens. Returns null rather than guessing at anything
  * that is not recognisably an Indian mobile — a message sent to a mangled
  * number is charged for and lands nowhere.
+ *
+ * Customers in the listed countries (shared/contact.ts) sign in with
+ * "+974…"; those pass through with their own dial code, and so does the bare
+ * E.164 a webhook carries for them. Any other foreign number stays refused.
  */
 export function toWaMsisdn(phone: string | null | undefined): string | null {
   if (!phone) return null;
+  const international = msisdnToAccountPhone(phone.trim().replace(/^\+/, ""));
+  if (international && isInternationalPhone(international)) return international.slice(1);
   const digits = phone.replace(/\D/g, "");
   if (/^[6-9]\d{9}$/.test(digits)) return `91${digits}`;
   if (/^91[6-9]\d{9}$/.test(digits)) return digits;

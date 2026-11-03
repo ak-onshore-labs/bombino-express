@@ -3,6 +3,7 @@ import { sendOtpBySms } from "./sms.js";
 import { sendTemplate, toWaMsisdn } from "./whatsapp.js";
 import { getWhatsappReachability } from "./whatsappDb.js";
 import { loginOtpMessage } from "./whatsappTemplates.js";
+import { isInternationalPhone } from "../shared/contact.js";
 
 export const OTP_LENGTH = 6;
 export const OTP_TTL_MINUTES = 5;
@@ -105,6 +106,9 @@ function lastTen(phone: string): string | null {
 }
 
 export function isTestOtpNumber(phone: string, numbers: ReadonlySet<string> = TEST_OTP_NUMBERS): boolean {
+  // Test accounts are Indian. A foreign number's last ten digits must never
+  // happen to match one and get the public code.
+  if (isInternationalPhone(phone)) return false;
   const ten = lastTen(phone);
   return ten !== null && numbers.has(ten);
 }

@@ -22,6 +22,7 @@ import { StateBlock } from '@/components/StateBlock';
 import { ProfileProgressTracker } from '@/components/ProfileProgressTracker';
 import { GuestOrders } from '@/components/GuestOrders';
 import { NudgePrefs } from '@/components/bia/NudgePrefs';
+import { WhatsappAltCard } from '@/components/WhatsappAltCard';
 import { ApplicationStatusCard } from '@/components/ApplicationStatusCard';
 import { isOpenApplicationStatus } from '@shared/applicationStatus';
 import {
@@ -162,6 +163,9 @@ export default function GuestProfileDashboard(): React.JSX.Element {
         />
 
         {application && <ApplicationStatusCard application={application} phone={guestProfile.phone} />}
+
+        {/* A guest from abroad: where their WhatsApp updates go. */}
+        <WhatsappAltCard />
 
         {/* One card, one ask.
             The action lives with the list of gaps rather than in a card of its

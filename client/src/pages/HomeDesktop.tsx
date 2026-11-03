@@ -1,5 +1,7 @@
 ﻿import { useState } from 'react';
 import { Link, useLocation } from 'wouter';
+import { useGuestProfile } from '@/hooks/useGuestProfile';
+import { WhatsappAltCard } from '@/components/WhatsappAltCard';
 import {
   Search,
   ArrowRight,
@@ -517,6 +519,7 @@ function TipsWidget() {
 export default function HomeDesktop() {
   const [, setLocation] = useLocation();
   const { isLoggedIn, user } = useAppStore();
+  const { data: guestProfile } = useGuestProfile({ enabled: !isLoggedIn });
 
   const [trackingNumber, setTrackingNumber] = useState('');
 
@@ -542,6 +545,9 @@ export default function HomeDesktop() {
           onTrack={handleTrack}
           recent={recentAwbs}
         />
+        {/* A customer from abroad whose number has no WhatsApp: ask for an
+            Indian one, or their parcel updates reach nobody. */}
+        {(isLoggedIn || guestProfile) && <WhatsappAltCard onlyWhenNeeded className="mt-4" />}
       </section>
 
       <div className="grid grid-cols-12 gap-6 pb-10">

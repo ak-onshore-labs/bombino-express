@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { isIndianMobile, toIndianMobile } from '@shared/contact';
+import { isAccountPhone } from '@shared/contact';
+import { AccountPhoneInput } from '@/components/AccountPhoneInput';
 import {
   Loader2,
   Mail,
@@ -9,7 +10,6 @@ import {
   UserPlus,
   BadgeCheck,
   ArrowRight,
-  Phone,
   ShieldCheck,
 } from 'lucide-react';
 import { useLocation, Link } from 'wouter';
@@ -200,8 +200,8 @@ export default function Login() {
   };
 
   const handleSendOtp = (): void => {
-    if (!isIndianMobile(phone.trim())) {
-      setError('Enter a valid 10-digit phone number');
+    if (!isAccountPhone(phone.trim())) {
+      setError('Enter a valid mobile number');
       phoneRef.current?.focus();
       return;
     }
@@ -313,7 +313,7 @@ export default function Login() {
    *  not read as ordinary body text. */
   const phoneMark = (
     <span className="font-mono font-semibold text-foreground whitespace-nowrap">
-      {phone}
+      {formatGuestPhone(phone)}
     </span>
   );
 
@@ -384,22 +384,17 @@ export default function Login() {
           <Label htmlFor="login-phone" className="text-sm font-medium text-[lab(34.0831_-9.57756_-27.7093)]">
             Mobile number
           </Label>
-          <div className="relative mt-2">
-            <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-            <Input
+          <div className="mt-2">
+            <AccountPhoneInput
               id="login-phone"
               ref={phoneRef}
-              type="tel"
-              inputMode="numeric"
               value={phone}
-              onChange={(e) => {
-                setPhone(toIndianMobile(e.target.value));
+              onChange={(next) => {
+                setPhone(next);
                 setError('');
               }}
-              onKeyDown={(e) => e.key === 'Enter' && handleSendOtp()}
-              placeholder="10-digit mobile number"
-              className="pl-10 h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl"
-              autoComplete="tel"
+              onEnter={handleSendOtp}
+              className="h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl"
               aria-invalid={Boolean(error)}
               aria-describedby={error ? 'login-error' : undefined}
               data-testid="input-phone"
@@ -648,7 +643,7 @@ export default function Login() {
           onClick={
             step === 'phone' ? handleSendOtp : step === 'otp' ? handleVerify : () => void handleLink()
           }
-          disabled={isLoading || (step === 'phone' && phone.length !== 10)}
+          disabled={isLoading || (step === 'phone' && !isAccountPhone(phone))}
           className="w-full h-12 text-base font-semibold bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70 mt-1"
           data-testid="button-sign-in"
         >

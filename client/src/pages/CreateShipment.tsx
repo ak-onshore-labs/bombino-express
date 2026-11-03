@@ -578,7 +578,11 @@ export default function CreateShipment() {
     if (!guestMode || !recognisedGuest) return;
 
     setGuestVerifiedPhone((current) => current ?? recognisedGuest.phone);
-    setSenderPhone((current) => current || recognisedGuest.phone);
+    // The sender phone is the Indian pickup contact. A guest from abroad
+    // ("+974…") types that one in themselves.
+    if (isIndianMobile(recognisedGuest.phone)) {
+      setSenderPhone((current) => current || recognisedGuest.phone);
+    }
     setSenderName((current) => current || recognisedGuest.full_name || '');
     setSenderEmail((current) => current || recognisedGuest.email || '');
   }, [guestMode, recognisedGuest]);
@@ -2253,7 +2257,7 @@ export default function CreateShipment() {
                 onVerifiedPhoneChange={(verified) => {
                   setGuestVerifiedPhone(verified);
                   clearFieldError('guestPhone');
-                  if (verified) {
+                  if (verified && isIndianMobile(verified)) {
                     setSenderPhone(verified);
                     clearFieldError('senderPhone');
                   }

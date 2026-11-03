@@ -26,6 +26,7 @@ import type { Express, Request, Response } from "express";
 import crypto from "crypto";
 import { applyDeliveryReceipt, setWhatsappOptOut, type WhatsappStatus } from "../whatsappDb.js";
 import { toWaMsisdn } from "../whatsapp.js";
+import { msisdnToAccountPhone } from "../../shared/contact.js";
 import { handleWhatsappBiaMessage, isWhatsappBiaEnabled } from "../whatsappBia.js";
 
 /**
@@ -222,7 +223,7 @@ export function registerWhatsappRoutes(app: Express): void {
         const from = typeof message.from === "string" ? message.from : null;
         const msisdn = toWaMsisdn(from);
         if (!msisdn) continue;
-        const local = msisdn.startsWith("91") ? msisdn.slice(2) : msisdn;
+        const local = msisdnToAccountPhone(msisdn) ?? msisdn;
 
         const written = await setWhatsappOptOut(local, intent === "stop");
         console.log("[whatsapp] inbound opt-out instruction", {

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { sendOtpBySms } from "./sms.js";
+import { sendOtpBySms, toSmsNumber } from "./sms.js";
 
 const OTP_URL = "https://control.msg91.com/api/v5/otp";
 const CODE = "246813";
@@ -134,3 +134,11 @@ function captureLogs(): { text: () => string; restore: () => void } {
     },
   };
 }
+
+test("toSmsNumber puts the right dial code in front", () => {
+  assert.equal(toSmsNumber("9876543210"), "919876543210");
+  assert.equal(toSmsNumber("+91 98765 43210"), "919876543210");
+  assert.equal(toSmsNumber("+97450123456"), "97450123456");
+  // Not a listed country: refused rather than sent somewhere unpaid-for.
+  assert.equal(toSmsNumber("+12125550100"), null);
+});

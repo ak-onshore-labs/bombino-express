@@ -13,6 +13,7 @@ import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 import { useGuestProfile } from '@/hooks/useGuestProfile';
 import { useSupportContacts } from '@/hooks/useSupportContacts';
 import { ApplicationStatusCard } from '@/components/ApplicationStatusCard';
+import { WhatsappAltCard } from '@/components/WhatsappAltCard';
 import HomeDesktop from '@/pages/HomeDesktop';
 import { ParcelsQuickAccess } from '@/components/ParcelsQuickAccess';
 
@@ -63,6 +64,10 @@ function HomeMobile() {
         {!isLoggedIn && guestProfile?.application && (
           <ApplicationStatusCard application={guestProfile.application} phone={guestProfile.phone} compact />
         )}
+
+        {/* A customer from abroad whose number has no WhatsApp: ask for an
+            Indian one, or their parcel updates reach nobody. */}
+        {(isLoggedIn || guestProfile) && <WhatsappAltCard onlyWhenNeeded />}
 
         {/* ZONE 1: one container for everything to do with a parcel — the
             track box, the booking shortcuts and My parcels (Sending |

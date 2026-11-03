@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { isIndianMobile, toIndianMobile } from '@shared/contact';
+import { formatAccountPhone, isAccountPhone } from '@shared/contact';
+import { AccountPhoneInput } from '@/components/AccountPhoneInput';
 import { Loader2, ShieldCheck, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 import { apiRequest } from '@/lib/queryClient';
@@ -118,8 +118,8 @@ export function GuestVerification({
   };
 
   const handleSendOtp = (): void => {
-    if (!isIndianMobile(phone.trim())) {
-      setError('Enter a valid 10-digit phone number');
+    if (!isAccountPhone(phone.trim())) {
+      setError('Enter a valid mobile number');
       phoneRef.current?.focus();
       return;
     }
@@ -230,23 +230,14 @@ export function GuestVerification({
           <div>
             <Label className="text-xs text-muted-foreground">Mobile number *</Label>
             <div className="mt-1 flex items-center gap-2">
-              <Input
+              <AccountPhoneInput
                 ref={phoneRef}
-                type="tel"
-                inputMode="numeric"
-                maxLength={10}
                 value={phone}
-                onChange={(e) => {
-                  setPhone(toIndianMobile(e.target.value));
+                onChange={(next) => {
+                  setPhone(next);
                   setError('');
                 }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleSendOtp();
-                  }
-                }}
-                placeholder="10-digit number"
+                onEnter={handleSendOtp}
                 // Same reason the OTP field locks: the request is already out,
                 // and a number edited underneath it would not be the one the
                 // code was sent to.
@@ -272,7 +263,7 @@ export function GuestVerification({
         <div className="space-y-3">
           <div>
             <Label className="text-xs text-muted-foreground">
-              Enter the code sent to {phone}
+              Enter the code sent to {formatAccountPhone(phone)}
             </Label>
             <div className="mt-2 flex justify-center">
               <InputOTP
@@ -383,7 +374,7 @@ export function GuestVerification({
           <AlertDialogHeader>
             <AlertDialogTitle>This number already has an account</AlertDialogTitle>
             <AlertDialogDescription>
-              {phone} is registered with Bombino. Sign in to book with it — your
+              {formatAccountPhone(phone)} is registered with Bombino. Sign in to book with it — your
               saved addresses and identity document are already there — or use a
               different number to carry on as a guest.
             </AlertDialogDescription>

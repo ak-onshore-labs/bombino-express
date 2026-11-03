@@ -34,6 +34,7 @@ import { destinationOf } from "./notificationRefs.js";
 import { getUserContactsByIds } from "./ordersDb.js";
 import { sendTemplate } from "./whatsapp.js";
 import { getWhatsappRecipient } from "./whatsappDb.js";
+import { whatsappTargetFor } from "./whatsappAlt.js";
 import { getAgent, listAgentsForPincode } from "./whatsappAgents.js";
 import { getCodeForOwner } from "./handoverCodes.js";
 import { isRazorpayConfigured } from "./razorpay.js";
@@ -110,10 +111,15 @@ export async function deliver(input: {
   }
 }
 
-/** The customer's own number, from their account. Never the address contact. */
+/**
+ * The customer's own number, from their account. Never the address contact.
+ *
+ * For a customer from abroad this is their verified Indian alternate when the
+ * sign-in number is not on WhatsApp (server/whatsappAlt.ts).
+ */
 async function customerPhone(userId: string): Promise<string | null> {
   const recipient = await getWhatsappRecipient(userId);
-  return recipient?.phone ?? null;
+  return whatsappTargetFor(recipient?.phone ?? null);
 }
 
 /**
@@ -130,7 +136,7 @@ async function customerPhone(userId: string): Promise<string | null> {
  */
 async function orderCustomerPhone(order: Order): Promise<string | null> {
   if (order.user_id) return customerPhone(order.user_id);
-  return order.guest_phone ?? null;
+  return whatsappTargetFor(order.guest_phone ?? null);
 }
 
 /**
@@ -533,7 +539,7 @@ export async function notifyAccountDecision(input: {
 }): Promise<void> {
   await deliver({
     message: accountDecisionMessage(input.decision, input.at),
-    to: input.phone,
+    to: await whatsappTargetFor(input.phone),
     userId: input.userId,
     orderId: null,
     scope: `application:${input.applicationId}`,

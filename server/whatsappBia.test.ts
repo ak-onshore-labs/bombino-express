@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { countMessage, historyFor, isDuplicate, WA_RATE_LIMIT_PER_HOUR, type WaConversation } from "./whatsappBiaStore.js";
-import { greetingPart, localIndianNumber } from "./whatsappBia.js";
+import { greetingPart, accountNumberOf } from "./whatsappBia.js";
 import { inboundMessageText } from "./routes/whatsapp.js";
 import { NOT_ME_ID } from "../shared/whatsappBiaFormat.js";
 
@@ -23,10 +23,11 @@ function conv(over: Partial<WaConversation> = {}): WaConversation {
 }
 
 test("only Indian mobiles can be an account here", () => {
-  assert.equal(localIndianNumber("919876543210"), "9876543210");
-  assert.equal(localIndianNumber("+91 98765 43210"), "9876543210");
-  assert.equal(localIndianNumber("12125550100"), null);
-  assert.equal(localIndianNumber("911234567890"), null);
+  assert.equal(accountNumberOf("919876543210"), "9876543210");
+  assert.equal(accountNumberOf("+91 98765 43210"), "9876543210");
+  assert.equal(accountNumberOf("12125550100"), null);
+  assert.equal(accountNumberOf("911234567890"), null);
+  assert.equal(accountNumberOf("97450123456"), "+97450123456");
 });
 
 test("a retried webhook is answered once", () => {

@@ -53,6 +53,7 @@ import {
   USE_ACCOUNT_ID,
   type WaPart,
 } from "../shared/whatsappBiaFormat.js";
+import { msisdnToAccountPhone } from "../shared/contact.js";
 
 const DEFAULT_APP_URL = "https://bombino.onshorelabs.co.in";
 const SUPPORT_PHONE = "+91 22 6640 0000";
@@ -71,15 +72,17 @@ export type WaIdentity =
   | { kind: "guest"; guestRef: string; phone: string }
   | { kind: "visitor" };
 
-/** "919876543210" → "9876543210". Numbers outside India have no account here. */
-export function localIndianNumber(waNumber: string): string | null {
-  const digits = waNumber.replace(/\D/g, "");
-  return /^91[6-9]\d{9}$/.test(digits) ? digits.slice(2) : null;
+/**
+ * "919876543210" → "9876543210", "97450123456" → "+97450123456": the number as
+ * `itd_users.phone` stores it. Countries we cannot sign in from have no account.
+ */
+export function accountNumberOf(waNumber: string): string | null {
+  return msisdnToAccountPhone(waNumber);
 }
 
 /** Whose number this is: a customer account, a guest's bookings, or nobody we know. */
 export async function identify(waNumber: string): Promise<WaIdentity> {
-  const local = localIndianNumber(waNumber);
+  const local = accountNumberOf(waNumber);
   if (!local || !supabase) return { kind: "visitor" };
 
   const { data, error } = await supabase

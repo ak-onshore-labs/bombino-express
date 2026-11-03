@@ -45,6 +45,7 @@ import {
   type ExtraField,
 } from '@shared/accountSpec';
 import { INDIA_HUBS } from '@shared/hubs';
+import { formatAccountPhone } from '@shared/contact';
 import type { CustomerApplicationView } from '@shared/applicationStatus';
 
 /**
@@ -516,11 +517,9 @@ function present(value: string | null | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-/** `+91 98765 43210` — the format the rest of the customer app already uses. */
+/** `+91 98765 43210`, or `+974 5012 3456` for a number from abroad. */
 export function formatGuestPhone(phone: string): string {
-  const digits = phone.replace(/\D/g, '').slice(-10);
-  if (digits.length !== 10) return phone;
-  return `+91 ${digits.slice(0, 5)} ${digits.slice(5)}`;
+  return formatAccountPhone(phone);
 }
 
 /** `4 Sep 2026`. Short, and unambiguous about the month. */

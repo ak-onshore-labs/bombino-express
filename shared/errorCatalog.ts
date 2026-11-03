@@ -527,6 +527,10 @@ export function identityFailureCode(failure: string): ErrorCode {
  * ERROR_CATALOG when a screen or BIA needs to explain it.
  */
 export const UNCATALOGUED_CODES = [
+  // Indian WhatsApp number for a customer from abroad: the card only renders
+  // for a signed-in customer whose number is from abroad, so neither shows.
+  "NOT_SIGNED_IN",
+  "NOT_INTERNATIONAL",
   "ACCOUNT_SESSION",
   "ACTION_NOT_AVAILABLE",
   "BAD_AWB",

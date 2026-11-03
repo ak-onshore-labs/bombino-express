@@ -14,6 +14,7 @@
  */
 
 import { supabase } from "./supabaseClient.js";
+import { msisdnToAccountPhone } from "../shared/contact.js";
 import { dbClient, logDbError, type DbError } from "./db/client.js";
 
 /** Postgres unique_violation — the concurrent-writer signal, not an error. */
@@ -318,8 +319,8 @@ export async function getWhatsappReachability(
     return "unknown";
   }
 
-  // `itd_users.phone` is the bare 10-digit number.
-  const local = msisdn.startsWith("91") ? msisdn.slice(2) : msisdn;
+  // `itd_users.phone` is the bare 10-digit number, or "+974…" abroad.
+  const local = msisdnToAccountPhone(msisdn) ?? msisdn;
   const { data: user, error: userError } = await client
     .from("itd_users")
     .select("metadata")

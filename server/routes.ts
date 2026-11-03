@@ -90,6 +90,7 @@ import { US_STATE_ERROR, US_ZIP_ERROR, isUsZip, usStateName } from "../shared/us
 import { explainDocketError } from "../shared/docketError.js";
 import { registerWhatsappRoutes } from "./routes/whatsapp.js";
 import { registerUserWhatsappRoutes } from "./routes/userWhatsapp.js";
+import { registerWhatsappAltRoutes } from "./routes/whatsappAlt.js";
 import { toWaMsisdn } from "./whatsapp.js";
 import { getWhatsappReachability } from "./whatsappDb.js";
 import { WA_TEMPLATE } from "./whatsappTemplates.js";
@@ -161,9 +162,11 @@ import {
   signupRefForReading,
 } from "./signupRef.js";
 import {
+  ACCOUNT_PHONE_MESSAGE,
   INDIAN_MOBILE_MESSAGE,
-  INDIAN_MOBILE_PATTERN,
   NANP_PHONE_MESSAGE,
+  isAccountPhone,
+  isInternationalPhone,
   isIndianMobile,
   isValidReceiverPhone,
   repairCutMobile,
@@ -317,6 +320,7 @@ export async function registerRoutes(
   // too — the secret in the path is what the provider was given.
   registerWhatsappRoutes(app);
   registerUserWhatsappRoutes(app);
+  registerWhatsappAltRoutes(app);
 
   // The agent digest and slot reminders, driven by an external scheduler.
   registerWhatsappScheduleRoutes(app);
@@ -442,7 +446,9 @@ export async function registerRoutes(
     // conflation that survives review unnoticed.
     "auth",
   ]);
-  const phoneSchema = z.string().trim().regex(INDIAN_MOBILE_PATTERN, INDIAN_MOBILE_MESSAGE);
+  // A customer's own number: Indian 10 digits, or "+974…" for the countries
+  // listed in shared/contact.ts. Staff and agent numbers stay Indian-only.
+  const phoneSchema = z.string().trim().refine(isAccountPhone, ACCOUNT_PHONE_MESSAGE);
 
   // POST /api/auth/otp/request
   app.post("/api/auth/otp/request", async (req: Request, res: Response) => {
@@ -3288,7 +3294,16 @@ export async function registerRoutes(
       body.origin_address.phone = repairCutMobile(body.origin_address.phone, account?.phone);
     }
 
-    const guestPhone = bookingAsGuest ? body.origin_address.phone.trim() : null;
+    // A guest is the number they verified. For an Indian guest that is the
+    // sender's phone, as it always was. A guest verified on a number from
+    // abroad ("+974…") still needs an Indian sender phone for the pickup and
+    // for ITD, so the two differ, and the verified number is who they are.
+    const sessionGuestPhone = req.session.signupPhone ?? null;
+    const guestPhone = bookingAsGuest
+      ? sessionGuestPhone && isInternationalPhone(sessionGuestPhone)
+        ? sessionGuestPhone
+        : body.origin_address.phone.trim()
+      : null;
 
     // The receiver's app number: what lets them sign in and watch this parcel
     // (shared/receiving.ts). Optional, Indian mobiles only, and stored as ten

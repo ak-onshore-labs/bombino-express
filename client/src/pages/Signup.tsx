@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { isIndianMobile, toIndianMobile } from '@shared/contact';
-import { User, Mail, Phone, Building2, Loader2, ShieldCheck, UserRound, MapPin, ArrowRight } from 'lucide-react';
+import { isAccountPhone } from '@shared/contact';
+import { AccountPhoneInput } from '@/components/AccountPhoneInput';
+import { User, Mail, Building2, Loader2, ShieldCheck, UserRound, MapPin, ArrowRight } from 'lucide-react';
 import { useLocation, Link } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -393,7 +394,7 @@ export default function Signup() {
 
   const validateDetails = (): boolean => {
     const nextErrors: Record<string, string> = {};
-    if (!isIndianMobile(phone.trim())) nextErrors.phone = 'Enter a valid 10-digit phone number';
+    if (!isAccountPhone(phone.trim())) nextErrors.phone = 'Enter a valid mobile number';
     if (!EMAIL_PATTERN.test(email.trim())) nextErrors.email = 'Enter a valid email';
 
     if (accountType === 'personal') {
@@ -477,7 +478,7 @@ export default function Signup() {
    */
   const handlePhoneVerificationExpired = (): void => {
     const search = new URLSearchParams({ reason: 'signup_otp' });
-    if (isIndianMobile(phone.trim())) search.set('phone', phone.trim());
+    if (isAccountPhone(phone.trim())) search.set('phone', phone.trim());
     if (redirect) search.set('redirect', redirect);
     setLocation(`/login?${search.toString()}`);
   };
@@ -1308,22 +1309,15 @@ function PhoneField({
   return (
     <div>
       <Label className={labelClass}>Phone number</Label>
-      <div className="relative mt-2">
-        <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-        <Input
-          type="tel"
-          inputMode="numeric"
+      <div className="mt-2">
+        <AccountPhoneInput
           value={value}
-          onChange={(e) => onChange(toIndianMobile(e.target.value))}
+          onChange={onChange}
           // Already verified upstream — editing it here would silently detach
           // the code from the number being saved.
           disabled={disabled}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && onEnter) onEnter();
-          }}
-          placeholder="10-digit mobile number"
-          className={inputClass}
-          autoComplete="tel"
+          onEnter={onEnter}
+          className={inputClass.replace(/pl-\d+/, '')}
           data-testid="input-phone"
         />
       </div>

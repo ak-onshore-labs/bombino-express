@@ -65,6 +65,7 @@ import {
   type CompanyCategory,
 } from "../shared/accountSpec.js";
 import { ACTION_FROM } from "../shared/applicationStatus.js";
+import { formatAccountPhone } from "../shared/contact.js";
 
 const ITD_LOGIN_TIMEOUT_MS = 10_000;
 
@@ -123,7 +124,7 @@ async function assertLinkable(
       return {
         status: 409,
         code: "PHONE_LINKED_ELSEWHERE",
-        message: `+91 ${phone} already belongs to another account (${profile?.full_name ?? "unknown"}).`,
+        message: `${formatAccountPhone(phone)} already belongs to another account (${profile?.full_name ?? "unknown"}).`,
       };
     }
   }
@@ -134,7 +135,7 @@ async function assertLinkable(
       return {
         status: 409,
         code: "ITD_LOGIN_LINKED_ELSEWHERE",
-        message: `That ITD login is already linked to +91 ${profile.phone}. Create a separate login in ITD for this customer.`,
+        message: `That ITD login is already linked to ${formatAccountPhone(profile.phone)}. Create a separate login in ITD for this customer.`,
       };
     }
   }

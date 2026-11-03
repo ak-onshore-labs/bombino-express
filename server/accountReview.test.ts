@@ -174,7 +174,7 @@ test("the team's new-application email: contact details and a link, nothing inje
     link: "https://app.example.com/ops/applications/abc",
   });
   assert.match(mail.subject, /^New account application: Sharma <b>Exports<\/b> \(Corporate\)$/);
-  assert.match(mail.text, /\+91 9876543210/);
+  assert.match(mail.text, /\+91 98765 43210/);
   assert.match(mail.text, /https:\/\/app\.example\.com\/ops\/applications\/abc/);
   assert.doesNotMatch(mail.html, /<b>Exports/, "the name is escaped in the html");
   assert.doesNotMatch(mail.html, /Call us on/, "no customer support footer on a team email");
@@ -221,7 +221,7 @@ test("the customer's received email: what happens next, guest booking meanwhile,
   assert.equal(first.subject, "We've received your Bombino account application");
   assert.match(first.text, /personal account/);
   assert.match(first.text, /email you again when your account is open/);
-  assert.match(first.text, /\+91 9000000002/);
+  assert.match(first.text, /\+91 90000 00002/);
   assert.doesNotMatch(first.html, /<i>x<\/i>/, "the name is escaped");
   assert.match(first.html, /Call us on/, "customer emails keep the support footer");
   const again = applicationReceivedEmail({ name: "Asha", phone: "9000000002", accountTypeLabel: "Personal", resent: true });
