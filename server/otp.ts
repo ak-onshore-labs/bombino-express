@@ -105,11 +105,27 @@ function lastTen(phone: string): string | null {
   return digits.length >= 10 ? digits.slice(-10) : null;
 }
 
+/**
+ * Test accounts from abroad, in their stored form (E.164). Matched exactly,
+ * never by last ten digits: "+12025550123" must not make the Indian
+ * "2025550123" (or anything else) a test number.
+ *
+ * +1 202-555-0123 is in the US 555-0100..0199 range reserved for fiction, so
+ * it can never be a real person's. Added 4 Nov 2026 to test sign-in from
+ * abroad and the Indian WhatsApp alternate: it reads as "not on WhatsApp"
+ * (server/whatsappAlt.ts), so the app always asks it for an Indian number.
+ */
+export const TEST_OTP_INTL_NUMBERS: ReadonlySet<string> = new Set([
+  "+12025550123", // Test Customer Abroad (US)
+]);
+
 export function isTestOtpNumber(phone: string, numbers: ReadonlySet<string> = TEST_OTP_NUMBERS): boolean {
-  // Test accounts are Indian. A foreign number's last ten digits must never
-  // happen to match one and get the public code.
+  // A foreign number is a test account only by exact match. Its last ten
+  // digits must never happen to match an Indian one and get the public code.
   const trimmed = phone.trim();
-  if (isInternationalPhone(trimmed) || (trimmed.startsWith("+") && !trimmed.startsWith("+91"))) return false;
+  if (isInternationalPhone(trimmed) || (trimmed.startsWith("+") && !trimmed.startsWith("+91"))) {
+    return TEST_OTP_INTL_NUMBERS.has(`+${trimmed.replace(/\D/g, "")}`);
+  }
   const ten = lastTen(phone);
   return ten !== null && numbers.has(ten);
 }

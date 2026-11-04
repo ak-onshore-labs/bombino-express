@@ -22,6 +22,7 @@ import { toWaMsisdn } from "./whatsapp.js";
 import { getWhatsappReachability } from "./whatsappDb.js";
 import { WA_TEMPLATE } from "./whatsappTemplates.js";
 import { isInternationalPhone } from "../shared/contact.js";
+import { isTestOtpNumber } from "./otp.js";
 
 const TABLE = "whatsapp_alt_numbers";
 const getClient = () => dbClient("whatsappAlt");
@@ -90,6 +91,10 @@ export type WhatsappReach = "on_whatsapp" | "not_on_whatsapp" | "unknown";
 
 /** Whether the sign-in number is on WhatsApp, as far as Meta's receipts say. */
 export async function whatsappReachOf(phone: string | null | undefined): Promise<WhatsappReach> {
+  // A test account from abroad is never sent anything, so Meta never sends a
+  // receipt. It counts as not on WhatsApp, so it always walks the
+  // Indian-alternate flow (otp.ts TEST_OTP_INTL_NUMBERS).
+  if (phone && isInternationalPhone(phone) && isTestOtpNumber(phone)) return "not_on_whatsapp";
   const msisdn = toWaMsisdn(phone);
   if (!msisdn) return "unknown";
   return getWhatsappReachability(msisdn, WA_TEMPLATE.loginOtp);

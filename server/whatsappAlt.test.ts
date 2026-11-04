@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { chooseWhatsappTarget } from "./whatsappAlt.js";
+import { chooseWhatsappTarget, whatsappReachOf } from "./whatsappAlt.js";
 import { isTestOtpNumber } from "./otp.js";
 import { toWaMsisdn } from "./whatsapp.js";
 
@@ -26,6 +26,18 @@ test("a number from abroad is never a test account", () => {
   // Same last ten digits as a listed test number, but from Qatar.
   assert.equal(isTestOtpNumber("9000000011"), true);
   assert.equal(isTestOtpNumber("+97490000000"), false);
+});
+
+test("the listed test number from abroad takes the public code, by exact match only", () => {
+  assert.equal(isTestOtpNumber("+12025550123"), true);
+  assert.equal(isTestOtpNumber("+1 202-555-0123"), true);
+  // Same last ten digits, but Indian or another country: not a test number.
+  assert.equal(isTestOtpNumber("2025550123"), false);
+  assert.equal(isTestOtpNumber("+12025550124"), false);
+});
+
+test("the test number from abroad reads as not on WhatsApp, so it is asked for an Indian one", async () => {
+  assert.equal(await whatsappReachOf("+12025550123"), "not_on_whatsapp");
 });
 
 test("WhatsApp takes any valid number with its own dial code", () => {

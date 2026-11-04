@@ -17,7 +17,7 @@
 
 import type { Request } from "express";
 
-import { TEST_OTP_NUMBERS } from "./otp.js";
+import { TEST_OTP_INTL_NUMBERS, TEST_OTP_NUMBERS } from "./otp.js";
 import { isTestOrderMetadata } from "../shared/testOrders.js";
 
 /** Real phones whose bookings are test orders. Exact numbers only. */
@@ -56,6 +56,11 @@ function lastTen(phone: string): string | null {
 /** Whether bookings by this phone are test orders, and whether staff on it see them. */
 export function isTestPhone(phone: string | null | undefined): boolean {
   if (!phone) return false;
+  // A number from abroad: exact match only, never by its last ten digits.
+  const trimmed = phone.trim();
+  if (trimmed.startsWith("+") && !trimmed.startsWith("+91")) {
+    return TEST_OTP_INTL_NUMBERS.has(`+${trimmed.replace(/\D/g, "")}`);
+  }
   const ten = lastTen(phone);
   return ten !== null && TEST_ORDER_PHONES.has(ten);
 }
