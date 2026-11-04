@@ -34,14 +34,14 @@ import { destinationOf } from "./notificationRefs.js";
 import { getUserContactsByIds } from "./ordersDb.js";
 import { sendTemplate } from "./whatsapp.js";
 import { getWhatsappRecipient } from "./whatsappDb.js";
-import { whatsappTargetFor } from "./whatsappAlt.js";
+import { receiverWhatsappTarget, whatsappTargetFor } from "./whatsappAlt.js";
 import { getAgent, listAgentsForPincode } from "./whatsappAgents.js";
 import { getCodeForOwner } from "./handoverCodes.js";
 import { isRazorpayConfigured } from "./razorpay.js";
 import { getSupportContacts } from "./settingsDb.js";
 import { isTestPhone } from "./testOrders.js";
 import { isTestOrderMetadata } from "../shared/testOrders.js";
-import { receiverAppPhoneOf } from "../shared/receiving.js";
+import { receiverAppPhoneOf, receiverWhatsappAltOf } from "../shared/receiving.js";
 import { msisdnToAccountPhone } from "../shared/contact.js";
 import {
   accountDecisionMessage,
@@ -417,9 +417,13 @@ async function notifyReceiverWhatsapp(order: Order): Promise<void> {
 
     const message = build(order);
     if (!message) return;
+    // The receiver phone, or a second number given for them at booking.
+    const to = await receiverWhatsappTarget(receiver, receiverWhatsappAltOf(order.consignee));
+    // A test order never reaches a real person, second number included.
+    if (!to || (isTestOrderMetadata(order.metadata) && !isTestPhone(to))) return;
     await deliver({
       message,
-      to: await whatsappTargetFor(receiver),
+      to,
       userId: null,
       orderId: order.id,
       scope: `${order.id}:receiver`,

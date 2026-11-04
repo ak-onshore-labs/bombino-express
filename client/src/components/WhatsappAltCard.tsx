@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState, type MutableRefObject } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, Check, Loader2, MessageCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -59,18 +59,40 @@ export async function checkNeedsWhatsappAlt(): Promise<WhatsappAltStatus | null>
   return null;
 }
 
+/** What a screen's own main button drives when the form puts its action there. */
+export interface WhatsappAltFormHandle {
+  /** Send the code (number stage) or check it (code stage). */
+  submit: () => void;
+}
+
+export interface WhatsappAltFormState {
+  stage: 'phone' | 'otp';
+  busy: boolean;
+  /** Whether `submit` has something to do right now. */
+  canSubmit: boolean;
+}
+
 /**
  * Add a second WhatsApp number: type it (any country), get a code on WhatsApp,
  * type it back. Saving it also chooses it for updates.
+ *
+ * With `handle`, the screen's own main button sends and checks the code, and
+ * the small button under the number is `secondary` (signup's "Skip for now").
  */
 export function WhatsappAltForm({
   ownPhone,
   onSaved,
   onCancel,
+  handle,
+  onStateChange,
+  secondary,
 }: {
   ownPhone: string;
   onSaved: () => void | Promise<void>;
   onCancel?: () => void;
+  handle?: MutableRefObject<WhatsappAltFormHandle | null>;
+  onStateChange?: (state: WhatsappAltFormState) => void;
+  secondary?: { label: string; onClick: () => void };
 }) {
   const [step, setStep] = useState<'phone' | 'otp'>('phone');
   const [altPhone, setAltPhone] = useState('');
@@ -115,6 +137,19 @@ export function WhatsappAltForm({
     }
   };
 
+  if (handle) {
+    handle.current = {
+      submit: () => {
+        if (step === 'phone') void sendCode();
+        else void confirm(code);
+      },
+    };
+  }
+  const canSubmit = step === 'phone' ? !!altPhone : code.length === 6;
+  useEffect(() => {
+    onStateChange?.({ stage: step, busy, canSubmit });
+  }, [step, busy, canSubmit, onStateChange]);
+
   return (
     <div className="space-y-2">
       {step === 'phone' ? (
@@ -132,15 +167,27 @@ export function WhatsappAltForm({
             data-testid="input-whatsapp-alt-phone"
           />
           <div className="flex gap-2">
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => void sendCode()}
-              disabled={busy || !altPhone}
-              data-testid="button-whatsapp-alt-send"
-            >
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Send code on WhatsApp'}
-            </Button>
+            {secondary ? (
+              <Button
+                type="button"
+                size="sm"
+                onClick={secondary.onClick}
+                disabled={busy}
+                data-testid="button-whatsapp-alt-skip"
+              >
+                {secondary.label}
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => void sendCode()}
+                disabled={busy || !altPhone}
+                data-testid="button-whatsapp-alt-send"
+              >
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Send code on WhatsApp'}
+              </Button>
+            )}
             {onCancel && (
               <Button type="button" size="sm" variant="ghost" onClick={onCancel} disabled={busy}>
                 Cancel
@@ -170,9 +217,16 @@ export function WhatsappAltForm({
               ))}
             </InputOTPGroup>
           </InputOTP>
-          <Button type="button" size="sm" variant="ghost" onClick={() => setStep('phone')} disabled={busy}>
-            Use a different number
-          </Button>
+          <div className="flex gap-2">
+            <Button type="button" size="sm" variant="ghost" onClick={() => setStep('phone')} disabled={busy}>
+              Use a different number
+            </Button>
+            {secondary && (
+              <Button type="button" size="sm" variant="ghost" onClick={secondary.onClick} disabled={busy}>
+                {secondary.label}
+              </Button>
+            )}
+          </div>
         </>
       )}
       {error && (
@@ -192,14 +246,21 @@ export function WhatsappAltForm({
 export function WhatsappAltPrompt({
   status,
   onDone,
-  showSkip = true,
+  handle,
+  onStateChange,
 }: {
   status: WhatsappAltStatus;
   /** Called once a number is saved or the customer skips. */
   onDone: () => void;
-  /** Off where the screen's own main button already skips (signup). */
-  showSkip?: boolean;
+  /**
+   * Given: the screen's main button sends and checks the code ("Send code on
+   * WhatsApp" / "Verify code"), and the small button is "Skip for now".
+   * Not given: the small button sends the code and a link skips.
+   */
+  handle?: MutableRefObject<WhatsappAltFormHandle | null>;
+  onStateChange?: (state: WhatsappAltFormState) => void;
 }) {
+  const showSkip = !handle;
   const queryClient = useQueryClient();
   return (
     <div className="space-y-4" data-testid="prompt-whatsapp-alt">
@@ -212,6 +273,9 @@ export function WhatsappAltPrompt({
       </div>
       <WhatsappAltForm
         ownPhone={status.phone}
+        handle={handle}
+        onStateChange={onStateChange}
+        secondary={handle ? { label: 'Skip for now', onClick: onDone } : undefined}
         onSaved={async () => {
           await queryClient.invalidateQueries({ queryKey: WHATSAPP_ALT_QUERY_KEY });
           onDone();

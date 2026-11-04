@@ -3289,6 +3289,18 @@ export async function registerRoutes(
     if (receiverAppPhone) body.consignee.app_phone = receiverAppPhone;
     else delete body.consignee.app_phone;
 
+    // A second WhatsApp number for the receiver, and whether their updates go
+    // to it (shared/receiving.ts receiverWhatsappAltOf). Same stored form;
+    // dropped when blank, invalid, or the receiver phone again.
+    const receiverAlt = normalizeReceiverAppPhone(body.consignee.whatsapp_alt_phone);
+    if (receiverAlt && receiverAlt !== receiverAppPhone) {
+      body.consignee.whatsapp_alt_phone = receiverAlt;
+      body.consignee.whatsapp_use_alt = body.consignee.whatsapp_use_alt !== false;
+    } else {
+      delete body.consignee.whatsapp_alt_phone;
+      delete body.consignee.whatsapp_use_alt;
+    }
+
     // Booked on a test number: a test order, kept apart from real ones and
     // given a test AWB instead of a real ITD docket (server/testOrders.ts).
     const isTestBooking = isTestPhone(bookingAsGuest ? guestPhone : accountPhone);

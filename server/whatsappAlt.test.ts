@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { chooseWhatsappTarget, whatsappReachOf } from "./whatsappAlt.js";
 import { isTestOtpNumber } from "./otp.js";
 import { toWaMsisdn } from "./whatsapp.js";
+import { receiverWhatsappAltOf } from "../shared/receiving.js";
 
 const QA = "+97450123456";
 const ALT = "9876543210";
@@ -59,4 +60,17 @@ test("WhatsApp takes any valid number with its own dial code", () => {
   assert.equal(toWaMsisdn("9876543210"), "919876543210");
   assert.equal(toWaMsisdn("+12125550100"), "12125550100");
   assert.equal(toWaMsisdn("+9745011"), null);
+});
+
+test("a receiver's second number from the booking, and which one gets updates", () => {
+  assert.deepEqual(receiverWhatsappAltOf({ whatsapp_alt_phone: "+971501234567" }), {
+    altPhone: "+971501234567",
+    useForUpdates: true,
+  });
+  assert.deepEqual(receiverWhatsappAltOf({ whatsapp_alt_phone: "9876543210", whatsapp_use_alt: false }), {
+    altPhone: "9876543210",
+    useForUpdates: false,
+  });
+  assert.equal(receiverWhatsappAltOf({ whatsapp_alt_phone: "12" }), null);
+  assert.equal(receiverWhatsappAltOf({}), null);
 });

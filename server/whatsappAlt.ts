@@ -212,3 +212,36 @@ export async function whatsappTargetFor(phone: string | null | undefined): Promi
     return own;
   }
 }
+
+/**
+ * Where a receiver's WhatsApp updates go (Aditya, 4 Nov 2026).
+ *
+ *   1. The receiver's own choice, when they have signed in and saved a second
+ *      number themselves: proved with a code, so it beats anything typed for
+ *      them.
+ *   2. Otherwise the second number the sender gave at booking, by the same
+ *      rule as a customer's: chosen → it; not chosen → the receiver phone,
+ *      unless that is known not to be on WhatsApp.
+ *   3. Otherwise the receiver phone.
+ *
+ * Never throws; on any failure it answers the receiver phone.
+ */
+export async function receiverWhatsappTarget(
+  receiver: string | null | undefined,
+  fromBooking: WhatsappAlt | null
+): Promise<string | null> {
+  const own = (receiver ?? "").trim() || null;
+  if (!own) return fromBooking?.altPhone ?? null;
+  try {
+    const saved = await getWhatsappAlt(own);
+    const alt = saved ?? (fromBooking && fromBooking.altPhone !== own ? fromBooking : null);
+    if (!alt) return own;
+    const reach = alt.useForUpdates ? "unknown" : await whatsappReachOf(own);
+    return chooseWhatsappTarget(own, alt, reach);
+  } catch (error) {
+    console.error("[whatsappAlt] receiver target lookup threw (using the receiver phone)", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return own;
+  }
+}

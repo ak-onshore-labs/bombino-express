@@ -665,6 +665,14 @@ export default function CreateShipment() {
    * (shared/receiving.ts).
    */
   const [receiverPhone, setReceiverPhone] = useState('');
+  /**
+   * An optional second WhatsApp number for the receiver, any country, and
+   * whether their updates go to it. Adding one picks it, as it does for a
+   * customer's own (server/whatsappAlt.ts receiverWhatsappTarget).
+   */
+  const [receiverAltOpen, setReceiverAltOpen] = useState(false);
+  const [receiverAltPhone, setReceiverAltPhone] = useState('');
+  const [receiverUseAlt, setReceiverUseAlt] = useState(true);
   const [receiverEmail, setReceiverEmail] = useState('');
   const [receiverCompany, setReceiverCompany] = useState('');
   const [receiverCity, setReceiverCity] = useState('');
@@ -1763,6 +1771,9 @@ export default function CreateShipment() {
       // The number without its dial code, as ITD takes it.
       const phoneDigits = receiverPhoneLocal.replace(/\D/g, '');
       if (phoneDigits.length < 6 || phoneDigits.length > 15) e.receiverPhone = true;
+      if (receiverAltPhone && (!isAccountPhone(receiverAltPhone) || receiverAltPhone === receiverPhone)) {
+        e.receiverAltPhone = true;
+      }
       if (!receiverAddress.trim()) e.receiverAddress = true;
       if (!receiverCity.trim()) e.receiverCity = true;
       if (!receiverState.trim()) e.receiverState = true;
@@ -2047,6 +2058,10 @@ export default function CreateShipment() {
         // Ours only, never sent to ITD: who may watch this parcel in the app.
         // The receiver phone with its country, when one can sign in with it.
         ...(isAccountPhone(receiverPhone) ? { app_phone: receiverPhone } : {}),
+        // A second WhatsApp number for the receiver, and which one gets updates.
+        ...(isAccountPhone(receiverAltPhone) && receiverAltPhone !== receiverPhone
+          ? { whatsapp_alt_phone: receiverAltPhone, whatsapp_use_alt: receiverUseAlt }
+          : {}),
       },
       items: payload as unknown as Record<string, unknown>,
       // Only a guest signs here. The server refuses a guest booking without
@@ -2884,6 +2899,109 @@ export default function CreateShipment() {
                     The receiver can sign in to the Bombino app with this number to track the parcel.
                     Regular updates are sent on WhatsApp.
                   </p>
+                )}
+
+                {/* A second WhatsApp number for the receiver: for a phone
+                    with no WhatsApp, or family who should get the updates. */}
+                {!receiverAltOpen && !receiverAltPhone ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReceiverAltOpen(true);
+                      setReceiverUseAlt(true);
+                    }}
+                    className="mt-2 text-xs font-semibold text-[#2F4468] underline underline-offset-2"
+                    data-testid="button-receiver-alt-add"
+                  >
+                    + Add another WhatsApp number (optional)
+                  </button>
+                ) : (
+                  <div className="mt-3 space-y-2" data-testid="section-receiver-alt">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs text-muted-foreground">Other WhatsApp number</Label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setReceiverAltPhone('');
+                          setReceiverAltOpen(false);
+                          clearFieldError('receiverAltPhone');
+                        }}
+                        className="text-xs font-semibold text-red-600 underline underline-offset-2"
+                        data-testid="button-receiver-alt-remove"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                    <AccountPhoneInput
+                      value={receiverAltPhone}
+                      onChange={(stored) => {
+                        setReceiverAltPhone(stored);
+                        clearFieldError('receiverAltPhone');
+                      }}
+                      placeholder="WhatsApp number"
+                      className={cn(
+                        'h-11 bg-muted/30 border-border',
+                        fieldErrors.receiverAltPhone && 'border-2 border-primary field-shake'
+                      )}
+                      aria-invalid={fieldErrors.receiverAltPhone || undefined}
+                      data-testid="input-receiver-alt-phone"
+                    />
+                    {fieldErrors.receiverAltPhone && (
+                      <p className="text-xs text-red-600">
+                        {receiverAltPhone && receiverAltPhone === receiverPhone
+                          ? 'This is the same as the phone above'
+                          : 'Enter a valid mobile number'}
+                      </p>
+                    )}
+                    {isAccountPhone(receiverAltPhone) && receiverAltPhone !== receiverPhone && (
+                      <div className="space-y-1.5" role="radiogroup" aria-label="Send WhatsApp updates to">
+                        <p className="text-[11px] font-semibold text-muted-foreground">
+                          Send the receiver’s WhatsApp updates to
+                        </p>
+                        {[
+                          {
+                            useAlt: false,
+                            label: receiverPhone ? formatAccountPhone(receiverPhone) : 'The phone above',
+                            sub: 'Receiver phone',
+                          },
+                          { useAlt: true, label: formatAccountPhone(receiverAltPhone), sub: 'Other WhatsApp number' },
+                        ].map((opt) => {
+                          const selected = receiverUseAlt === opt.useAlt;
+                          return (
+                            <button
+                              key={String(opt.useAlt)}
+                              type="button"
+                              role="radio"
+                              aria-checked={selected}
+                              onClick={() => setReceiverUseAlt(opt.useAlt)}
+                              className={cn(
+                                'flex w-full items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-xs transition-colors',
+                                selected ? 'border-[#2F4468] bg-white' : 'border-border bg-transparent'
+                              )}
+                              data-testid={opt.useAlt ? 'option-receiver-updates-alt' : 'option-receiver-updates-phone'}
+                            >
+                              <span
+                                className={cn(
+                                  'flex h-4 w-4 shrink-0 items-center justify-center rounded-full border',
+                                  selected ? 'border-[#2F4468] bg-[#2F4468] text-white' : 'border-muted-foreground/40'
+                                )}
+                                aria-hidden
+                              >
+                                {selected && <Check className="h-3 w-3" />}
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span className="block font-semibold tabular-nums text-foreground">{opt.label}</span>
+                                <span className="block text-[11px] text-muted-foreground">{opt.sub}</span>
+                              </span>
+                            </button>
+                          );
+                        })}
+                        <p className="text-[11px] text-muted-foreground">
+                          If the receiver phone isn’t on WhatsApp, updates go to the other number anyway.
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
               <div>

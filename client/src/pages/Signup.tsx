@@ -4,6 +4,8 @@ import { AccountPhoneInput } from '@/components/AccountPhoneInput';
 import {
   checkNeedsWhatsappAlt,
   WhatsappAltPrompt,
+  type WhatsappAltFormHandle,
+  type WhatsappAltFormState,
   type WhatsappAltStatus,
 } from '@/components/WhatsappAltCard';
 import { User, Mail, Building2, Loader2, ShieldCheck, UserRound, MapPin, ArrowRight } from 'lucide-react';
@@ -459,6 +461,13 @@ export default function Signup() {
   };
 
   const [whatsappAltStatus, setWhatsappAltStatus] = useState<WhatsappAltStatus | null>(null);
+  /** The WhatsApp step's form, driven by the main button below. */
+  const whatsappAltForm = useRef<WhatsappAltFormHandle | null>(null);
+  const [whatsappAltState, setWhatsappAltState] = useState<WhatsappAltFormState>({
+    stage: 'phone',
+    busy: false,
+    canSubmit: false,
+  });
 
   /**
    * The number is proved. If Meta says it is not on WhatsApp, ask for a second
@@ -670,7 +679,7 @@ export default function Signup() {
       : step === 'otp'
         ? () => void handleVerifyOtp()
         : step === 'whatsapp'
-          ? () => setStep('documents')
+          ? () => whatsappAltForm.current?.submit()
         : step === 'documents'
           ? () => handleSubmitDocuments()
           : () => void handleCreateAccount();
@@ -683,7 +692,9 @@ export default function Signup() {
       : step === 'otp'
         ? 'Verify & continue'
         : step === 'whatsapp'
-          ? 'Skip for now'
+          ? whatsappAltState.stage === 'otp'
+            ? 'Verify code'
+            : 'Send code on WhatsApp'
         : step === 'documents'
           ? 'Continue'
           : reviewEnabled
@@ -1207,7 +1218,8 @@ export default function Signup() {
             {step === 'whatsapp' && whatsappAltStatus && (
               <WhatsappAltPrompt
                 status={whatsappAltStatus}
-                showSkip={false}
+                handle={whatsappAltForm}
+                onStateChange={setWhatsappAltState}
                 onDone={() => setStep('documents')}
               />
             )}
@@ -1304,11 +1316,18 @@ export default function Signup() {
             {step !== 'account_type' && (
             <Button
               onClick={primaryAction}
-              disabled={isLoading}
+              disabled={
+                isLoading ||
+                (step === 'whatsapp' && (whatsappAltState.busy || !whatsappAltState.canSubmit))
+              }
               className="w-full h-12 text-base font-semibold bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70 mt-1"
               data-testid="button-create-account"
             >
-              {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : primaryLabel}
+              {isLoading || (step === 'whatsapp' && whatsappAltState.busy) ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                primaryLabel
+              )}
             </Button>
             )}
 

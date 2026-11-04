@@ -62,6 +62,22 @@ export function receiverAppPhoneOf(consignee: unknown): string | null {
 }
 
 /**
+ * A second WhatsApp number the sender gave for the receiver at booking, and
+ * whether the receiver's updates go to it. Not proved (the receiver isn't
+ * there to type a code back), exactly like the receiver phone itself.
+ * Null when there is none.
+ */
+export function receiverWhatsappAltOf(
+  consignee: unknown,
+): { altPhone: string; useForUpdates: boolean } | null {
+  if (!consignee || typeof consignee !== "object") return null;
+  const c = consignee as Record<string, unknown>;
+  const alt = normalizeReceiverAppPhone(c.whatsapp_alt_phone);
+  if (!alt) return null;
+  return { altPhone: alt, useForUpdates: c.whatsapp_use_alt !== false };
+}
+
+/**
  * What the booking form offers as the receiver's app number, from the receiver
  * phone already typed: only when that is Indian beyond doubt.
  */

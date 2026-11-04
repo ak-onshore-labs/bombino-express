@@ -4,6 +4,8 @@ import { AccountPhoneInput } from '@/components/AccountPhoneInput';
 import {
   checkNeedsWhatsappAlt,
   WhatsappAltPrompt,
+  type WhatsappAltFormHandle,
+  type WhatsappAltFormState,
   type WhatsappAltStatus,
 } from '@/components/WhatsappAltCard';
 import {
@@ -139,6 +141,13 @@ export default function Login() {
   const [whatsappAltStatus, setWhatsappAltStatus] = useState<WhatsappAltStatus | null>(null);
   /** Where sign-in goes once the WhatsApp step is done or skipped. */
   const afterWhatsapp = useRef<(() => void) | null>(null);
+  /** The WhatsApp step's form, driven by the main button, as on signup. */
+  const whatsappAltForm = useRef<WhatsappAltFormHandle | null>(null);
+  const [whatsappAltState, setWhatsappAltState] = useState<WhatsappAltFormState>({
+    stage: 'phone',
+    busy: false,
+    canSubmit: false,
+  });
   const emailRef = useRef<HTMLInputElement>(null);
 
   const params = new URLSearchParams(window.location.search);
@@ -499,6 +508,8 @@ export default function Login() {
       {step === 'whatsapp' && whatsappAltStatus && (
         <WhatsappAltPrompt
           status={whatsappAltStatus}
+          handle={whatsappAltForm}
+          onStateChange={setWhatsappAltState}
           onDone={() => {
             const next = afterWhatsapp.current;
             afterWhatsapp.current = null;
@@ -694,21 +705,33 @@ export default function Login() {
 
       {/* The guest step carries its own two actions, and the choice step is
           made of buttons. Neither wants a third one underneath. */}
-      {step !== 'choice' && step !== 'guest' && step !== 'whatsapp' && (
+      {step !== 'choice' && step !== 'guest' && (
         <Button
           onClick={
-            step === 'phone' ? handleSendOtp : step === 'otp' ? handleVerify : () => void handleLink()
+            step === 'phone'
+              ? handleSendOtp
+              : step === 'otp'
+                ? handleVerify
+                : step === 'whatsapp'
+                  ? () => whatsappAltForm.current?.submit()
+                  : () => void handleLink()
           }
-          disabled={isLoading || (step === 'phone' && !isAccountPhone(phone))}
+          disabled={
+            isLoading ||
+            (step === 'phone' && !isAccountPhone(phone)) ||
+            (step === 'whatsapp' && (whatsappAltState.busy || !whatsappAltState.canSubmit))
+          }
           className="w-full h-12 text-base font-semibold bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70 mt-1"
           data-testid="button-sign-in"
         >
-          {isLoading ? (
+          {isLoading || (step === 'whatsapp' && whatsappAltState.busy) ? (
             <Loader2 className="w-5 h-5 animate-spin" />
           ) : step === 'phone' ? (
             'Send OTP'
           ) : step === 'otp' ? (
             'Verify & Sign In'
+          ) : step === 'whatsapp' ? (
+            whatsappAltState.stage === 'otp' ? 'Verify code' : 'Send code on WhatsApp'
           ) : (
             'Link & Sign In'
           )}
