@@ -117,6 +117,18 @@ export const ERROR_CATALOG = {
     why: "WhatsApp didn't accept the message for this number. It may not be set up on WhatsApp yet.",
     fix: "Make sure WhatsApp is installed and registered on this number, then try again.",
   },
+  SAME_NUMBER: {
+    area: "auth",
+    title: "That's the number you signed in with",
+    why: "A second WhatsApp number has to be different from the one you sign in with.",
+    fix: "Enter another number that has WhatsApp, or skip this step.",
+  },
+  ALT_COUNTRY_NOT_SUPPORTED: {
+    area: "auth",
+    title: "Numbers from outside India can't be added yet",
+    why: "For now a second WhatsApp number has to be an Indian one.",
+    fix: "Enter an Indian number that has WhatsApp.",
+  },
   NO_PHONE: {
     area: "auth",
     title: "No mobile number on your account",
@@ -527,10 +539,9 @@ export function identityFailureCode(failure: string): ErrorCode {
  * ERROR_CATALOG when a screen or BIA needs to explain it.
  */
 export const UNCATALOGUED_CODES = [
-  // Indian WhatsApp number for a customer from abroad: the card only renders
-  // for a signed-in customer whose number is from abroad, so neither shows.
+  // Second WhatsApp number: the card and prompt only render for a session
+  // that already proved its number.
   "NOT_SIGNED_IN",
-  "NOT_INTERNATIONAL",
   "ACCOUNT_SESSION",
   "ACTION_NOT_AVAILABLE",
   "BAD_AWB",

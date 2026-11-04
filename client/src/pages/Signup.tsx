@@ -1,6 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { isAccountPhone } from '@shared/contact';
 import { AccountPhoneInput } from '@/components/AccountPhoneInput';
+import {
+  checkNeedsWhatsappAlt,
+  WhatsappAltPrompt,
+  type WhatsappAltStatus,
+} from '@/components/WhatsappAltCard';
 import { User, Mail, Building2, Loader2, ShieldCheck, UserRound, MapPin, ArrowRight } from 'lucide-react';
 import { useLocation, Link } from 'wouter';
 import { Button } from '@/components/ui/button';
@@ -88,7 +93,9 @@ const ACCOUNT_TYPES = ['personal', 'company'] as const satisfies readonly Accoun
  *
  * Nothing is asked until it is answered.
  */
-type Step = 'account_type' | 'details' | 'otp' | 'documents' | 'preview';
+// 'whatsapp' only appears when the verified number turns out not to be on
+// WhatsApp: the customer adds a second number for updates, or skips.
+type Step = 'account_type' | 'details' | 'otp' | 'whatsapp' | 'documents' | 'preview';
 
 const TOTAL_STEPS = 5;
 
@@ -440,7 +447,7 @@ export default function Signup() {
     if (!validateDetails()) return;
     // Already verified upstream at /login — go straight to the documents.
     if (preVerified) {
-      setStep('documents');
+      void continueAfterVerification();
       return;
     }
     void requestOtp();
@@ -449,6 +456,27 @@ export default function Signup() {
   const handleResendOtp = (): void => {
     if (cooldown > 0) return;
     void requestOtp();
+  };
+
+  const [whatsappAltStatus, setWhatsappAltStatus] = useState<WhatsappAltStatus | null>(null);
+
+  /**
+   * The number is proved. If Meta says it is not on WhatsApp, ask for a second
+   * number for updates before the documents; otherwise straight on.
+   */
+  const continueAfterVerification = async (): Promise<void> => {
+    setIsLoading(true);
+    try {
+      const status = await checkNeedsWhatsappAlt();
+      if (status) {
+        setWhatsappAltStatus(status);
+        setStep('whatsapp');
+        return;
+      }
+      setStep('documents');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleVerifyOtp = async (): Promise<void> => {
@@ -463,7 +491,7 @@ export default function Signup() {
       // an account here, before any document is uploaded, instead of at the
       // final "Create account" press.
       await apiRequest('POST', '/api/auth/otp/verify', { phone, purpose, code: otp, intent: 'signup' });
-      setStep('documents');
+      await continueAfterVerification();
     } catch (err) {
       if (parseApiErrorCode(err) === 'ACCOUNT_EXISTS') {
         // Not a typo to fix — a different route to take. The code was not
@@ -619,6 +647,7 @@ export default function Signup() {
     // on a step they never saw.
     ...(typePreselected ? {} : { details: 'account_type' as const }),
     otp: 'details',
+    whatsapp: 'details',
     documents: 'details',
     preview: 'documents',
   };
@@ -640,6 +669,8 @@ export default function Signup() {
       ? handleSubmitDetails
       : step === 'otp'
         ? () => void handleVerifyOtp()
+        : step === 'whatsapp'
+          ? () => setStep('documents')
         : step === 'documents'
           ? () => handleSubmitDocuments()
           : () => void handleCreateAccount();
@@ -651,6 +682,8 @@ export default function Signup() {
         : 'Send code'
       : step === 'otp'
         ? 'Verify & continue'
+        : step === 'whatsapp'
+          ? 'Skip for now'
         : step === 'documents'
           ? 'Continue'
           : reviewEnabled
@@ -662,7 +695,7 @@ export default function Signup() {
       ? 1
       : step === 'details'
         ? 2
-        : step === 'otp'
+        : step === 'otp' || step === 'whatsapp'
           ? 3
           : step === 'documents'
             ? 4
@@ -681,6 +714,8 @@ export default function Signup() {
         </span>
         .
       </>
+    ) : step === 'whatsapp' ? (
+      'Where should we send your parcel updates on WhatsApp?'
     ) : step === 'documents' ? (
       // Deliberately not "verify": of the numbers on this screen only the GST
       // one is checked with an authority. The rest are matched against the
@@ -1167,6 +1202,14 @@ export default function Signup() {
                   {cooldown > 0 ? `Resend OTP in ${cooldown}s` : 'Resend OTP'}
                 </button>
               </div>
+            )}
+
+            {step === 'whatsapp' && whatsappAltStatus && (
+              <WhatsappAltPrompt
+                status={whatsappAltStatus}
+                showSkip={false}
+                onDone={() => setStep('documents')}
+              />
             )}
 
             {step === 'documents' && (

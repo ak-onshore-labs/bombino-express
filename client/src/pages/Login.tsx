@@ -2,6 +2,11 @@ import { useState, useEffect, useRef } from 'react';
 import { isAccountPhone } from '@shared/contact';
 import { AccountPhoneInput } from '@/components/AccountPhoneInput';
 import {
+  checkNeedsWhatsappAlt,
+  WhatsappAltPrompt,
+  type WhatsappAltStatus,
+} from '@/components/WhatsappAltCard';
+import {
   Loader2,
   Mail,
   Lock,
@@ -55,7 +60,9 @@ const RESEND_COOLDOWN_SECONDS = 30;
  *               └ (number unknown) choice → link (existing ITD account)
  *                                         └ /signup (new customer)
  */
-type Step = 'phone' | 'otp' | 'guest' | 'choice' | 'link';
+// 'whatsapp': the verified number is not on WhatsApp; ask for a second number
+// for updates before going on (signed in, or to the guest screen).
+type Step = 'phone' | 'otp' | 'whatsapp' | 'guest' | 'choice' | 'link';
 
 type ContinueResponse =
   | { status: 'signed_in'; user: AuthUser }
@@ -79,6 +86,11 @@ const STEP_META: Record<Step, { title: string; subtitle: string; index: number }
     index: 1,
   },
   otp: { title: 'Verify your number', subtitle: '', index: 2 },
+  whatsapp: {
+    title: 'WhatsApp updates',
+    subtitle: 'Where should we send your parcel updates?',
+    index: 3,
+  },
   choice: { title: 'One more thing', subtitle: '', index: 3 },
   link: {
     title: 'Find your account',
@@ -124,6 +136,9 @@ export default function Login() {
   const [receiving, setReceiving] = useState(0);
 
   const phoneRef = useRef<HTMLInputElement>(null);
+  const [whatsappAltStatus, setWhatsappAltStatus] = useState<WhatsappAltStatus | null>(null);
+  /** Where sign-in goes once the WhatsApp step is done or skipped. */
+  const afterWhatsapp = useRef<(() => void) | null>(null);
   const emailRef = useRef<HTMLInputElement>(null);
 
   const params = new URLSearchParams(window.location.search);
@@ -219,6 +234,27 @@ export default function Login() {
     try {
       const res = await apiRequest('POST', '/api/auth/phone/continue', { phone, code });
       const data = (await res.json()) as ContinueResponse;
+      if (data.status === 'needs_account') {
+        // Signup asks about WhatsApp itself, once the number is theirs.
+        setStep('choice');
+        return;
+      }
+      // The number is proved. Not on WhatsApp: ask for a second number first.
+      const next =
+        data.status === 'signed_in'
+          ? () => finishSignIn(data.user)
+          : () => {
+              invalidateGuestProfile(queryClient);
+              setReceiving(data.receiving ?? 0);
+              setStep('guest');
+            };
+      const needsAlt = await checkNeedsWhatsappAlt();
+      if (needsAlt) {
+        afterWhatsapp.current = next;
+        setWhatsappAltStatus(needsAlt);
+        setStep('whatsapp');
+        return;
+      }
       if (data.status === 'signed_in') {
         finishSignIn(data.user);
         return;
@@ -291,6 +327,14 @@ export default function Login() {
   };
 
   const handleBack = (): void => {
+    // The number is already proved; Back here means "not now".
+    if (step === 'whatsapp') {
+      const next = afterWhatsapp.current;
+      afterWhatsapp.current = null;
+      if (next) next();
+      else setStep('guest');
+      return;
+    }
     const previous: Partial<Record<Step, Step>> = {
       otp: 'phone',
       guest: 'phone',
@@ -450,6 +494,18 @@ export default function Login() {
             {cooldown > 0 ? `Resend OTP in ${cooldown}s` : 'Resend OTP'}
           </button>
         </div>
+      )}
+
+      {step === 'whatsapp' && whatsappAltStatus && (
+        <WhatsappAltPrompt
+          status={whatsappAltStatus}
+          onDone={() => {
+            const next = afterWhatsapp.current;
+            afterWhatsapp.current = null;
+            if (next) next();
+            else setStep('guest');
+          }}
+        />
       )}
 
       {step === 'guest' && (
@@ -638,7 +694,7 @@ export default function Login() {
 
       {/* The guest step carries its own two actions, and the choice step is
           made of buttons. Neither wants a third one underneath. */}
-      {step !== 'choice' && step !== 'guest' && (
+      {step !== 'choice' && step !== 'guest' && step !== 'whatsapp' && (
         <Button
           onClick={
             step === 'phone' ? handleSendOtp : step === 'otp' ? handleVerify : () => void handleLink()

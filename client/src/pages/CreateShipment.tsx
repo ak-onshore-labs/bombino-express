@@ -12,6 +12,7 @@ import {
   type RateParams,
 } from '@/lib/itdRates';
 import {
+  formatAccountPhone,
   isAccountPhone,
   isIndianMobile,
   isValidReceiverPhone,
@@ -21,6 +22,7 @@ import {
   withoutTrunkZero,
 } from '@shared/contact';
 import { AccountPhoneInput } from '@/components/AccountPhoneInput';
+import { useWhatsappAltStatus } from '@/components/WhatsappAltCard';
 import {
   ArrowLeft,
   Check,
@@ -542,6 +544,8 @@ export default function CreateShipment() {
    * type things it can already see.
    */
   const { data: guestProfile } = useGuestProfile({ enabled: !isLoggedIn });
+  /** Where the sender's WhatsApp updates go, said once on Review & Pay. */
+  const { data: whatsappStatus } = useWhatsappAltStatus(isLoggedIn || !!guestProfile);
 
   /**
    * They asked to book as somebody else.
@@ -4402,6 +4406,22 @@ export default function CreateShipment() {
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {whatsappStatus && (
+              <p
+                className={cn(
+                  'mb-3 text-[11px] leading-relaxed',
+                  whatsappStatus.sends_to === 'none' ? 'text-amber-800' : 'text-muted-foreground'
+                )}
+                data-testid="text-review-whatsapp-target"
+              >
+                {whatsappStatus.sends_to === 'none'
+                  ? `${formatAccountPhone(whatsappStatus.phone)} isn’t on WhatsApp, so you won’t get WhatsApp updates. You can add a WhatsApp number from your profile.`
+                  : `Your WhatsApp updates go to ${formatAccountPhone(
+                      whatsappStatus.sends_to === 'alt' ? whatsappStatus.alt_phone ?? whatsappStatus.phone : whatsappStatus.phone
+                    )}.`}
+              </p>
+            )}
 
             <div className="bg-muted/30 rounded-xl border border-border p-4 space-y-2 text-sm mb-5">
               <div className="flex justify-between gap-3">

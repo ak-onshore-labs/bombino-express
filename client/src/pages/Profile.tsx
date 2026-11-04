@@ -1,6 +1,5 @@
 ﻿import { useEffect, useState } from 'react';
 import {
-  AlertCircle,
   ArrowLeft,
   AtSign,
   BadgeCheck,
@@ -13,8 +12,8 @@ import {
 } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { useRefreshUserProfile, useUserProfile } from '@/hooks/useUserProfile';
-import { isAccountPhone, isInternationalPhone } from '@shared/contact';
-import { WhatsappAltCard } from '@/components/WhatsappAltCard';
+import { isAccountPhone } from '@shared/contact';
+import { WHATSAPP_ALT_QUERY_KEY, WhatsappAltCard } from '@/components/WhatsappAltCard';
 import { AccountPhoneInput } from '@/components/AccountPhoneInput';
 import { formatGuestPhone } from '@/lib/shadowProfile';
 import { useAppStore } from '@/lib/store';
@@ -230,9 +229,6 @@ export default function Profile() {
     }
   };
 
-  // A number from abroad gets the Indian-alternate card instead (WhatsappAltCard).
-  const internationalPhone = hasLinkedPhone && isInternationalPhone(displayPhone);
-  const notOnWhatsapp = hasLinkedPhone && !internationalPhone && profile?.whatsapp === 'not_on_whatsapp';
 
   const openWhatsappDialog = () => {
     setWaOtp('');
@@ -264,6 +260,7 @@ export default function Profile() {
     try {
       await apiRequest('POST', '/api/user/whatsapp/verify/confirm', { code: waOtp });
       void refreshProfile();
+      void queryClient.invalidateQueries({ queryKey: WHATSAPP_ALT_QUERY_KEY });
       setWaOpen(false);
       toast({
         title: 'WhatsApp verified',
@@ -427,28 +424,9 @@ export default function Profile() {
                     ) : undefined
                   }
                 >
-                  {notOnWhatsapp && (
-                    <div
-                      className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5"
-                      data-testid="notice-not-on-whatsapp"
-                    >
-                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-hidden />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs leading-relaxed text-amber-900">
-                          This number isn’t on WhatsApp, so we can’t send you updates there.
-                        </p>
-                        <button
-                          type="button"
-                          onClick={openWhatsappDialog}
-                          className="mt-1 text-xs font-semibold text-amber-900 underline underline-offset-2"
-                          data-testid="button-verify-whatsapp"
-                        >
-                          Verify WhatsApp
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  {internationalPhone && <WhatsappAltCard />}
+                  {/* Every number: where WhatsApp updates go, a second number,
+                      and the "has WhatsApp now" re-check when Meta says it isn't. */}
+                  {hasLinkedPhone && <WhatsappAltCard onVerifyOwn={openWhatsappDialog} />}
                 </ProfileRow>
                 <ProfileRow
                   icon={AtSign}
