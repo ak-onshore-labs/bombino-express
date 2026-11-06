@@ -23,7 +23,6 @@ import { isTestOrderMetadata } from "../shared/testOrders.js";
 /** Real phones whose bookings are test orders. Exact numbers only. */
 const TEAM_TEST_PHONES: readonly string[] = [
   "7558372885", // Aditya, added 14 Oct 2026
-  "9833207558", // "CUSTOMER MOBILE APP", Bombino's shared ITD login, added 14 Oct 2026
 ];
 
 /**
