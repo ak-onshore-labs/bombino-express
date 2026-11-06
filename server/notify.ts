@@ -64,6 +64,8 @@ import {
   paymentReceivedMessage,
   pickupArea,
   pickupConfirmedMessage,
+  receiverAtHubMessage,
+  receiverCancelledMessage,
   repriceMessage,
   simpleStatusMessage,
   type WhatsappMessage,
@@ -373,15 +375,18 @@ async function buildCustomerMessage(order: Order): Promise<WhatsappMessage | nul
 /**
  * Which updates the receiver gets, and on which template.
  *
- * Only the approved templates whose words fit someone who did not book the
- * parcel: no name, no money, no "your booking". Booked, at the hub (talks
- * about weighing and the final amount) and cancelled (talks about refunds)
- * are the sender's, and wait for receiver templates of their own.
+ * Only templates whose words fit someone who did not book the parcel: no
+ * money, no "your booking". Picked up and dispatched share the sender's
+ * wording; at the hub and cancelled have receiver templates of their own,
+ * because the sender's talk about weighing and refunds. Booked waits for
+ * `bombino_receiver_parcel_coming`, not yet at Tata.
  */
 const RECEIVER_UPDATES: Partial<Record<OrderStatus, (order: Order) => WhatsappMessage | null>> = {
   picked_up: parcelPickedUpMessage,
+  received_at_hub: receiverAtHubMessage,
   dispatched: (order) =>
     order.awb_no ? dispatchedMessage({ orderNo: order.order_no, awb: order.awb_no }) : null,
+  cancelled: receiverCancelledMessage,
 };
 
 /** Two stored numbers in any of their shapes, compared as dial code + number. */

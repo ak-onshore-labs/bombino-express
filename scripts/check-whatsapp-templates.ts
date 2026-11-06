@@ -35,6 +35,8 @@ import {
   paymentReceivedMessage,
   pickupArea,
   pickupConfirmedMessage,
+  receiverAtHubMessage,
+  receiverCancelledMessage,
   pickupReassigningMessage,
   repriceMessage,
   staffAgentCancelledMessage,
@@ -102,6 +104,8 @@ const APPROVED_VARIABLES: Record<string, number> = {
   [WA_TEMPLATE.staffCancellationRequest]: 4,
   [WA_TEMPLATE.staffAwbFailed]: 3,
   [WA_TEMPLATE.staffRefundDue]: 4,
+  [WA_TEMPLATE.receiverAtHub]: 2,
+  [WA_TEMPLATE.receiverCancelled]: 2,
   [WA_TEMPLATE.cancellationDeclined]: NEW_TEMPLATES_LIVE ? 3 : 2,
 };
 
@@ -176,6 +180,11 @@ checkMessage("accountDecision/approved", accountDecisionMessage({ kind: "approve
 checkMessage("accountDecision/sent back", accountDecisionMessage({ kind: "sent_back" }, "x"));
 checkMessage("accountDecision/declined", accountDecisionMessage({ kind: "declined", reason: "GST number does not match" }, "x"));
 checkMessage("accountDecision/declined, no reason", accountDecisionMessage({ kind: "declined", reason: null }, "x"));
+
+console.log("\nReceiver templates");
+checkMessage("receiverAtHub/guest", receiverAtHubMessage({ ...order, guest_name: "Priya  Nair" }));
+checkMessage("receiverAtHub/account", receiverAtHubMessage({ ...order, items: { shipper_name: "Rahul Mehta" } }));
+checkMessage("receiverCancelled/no name", receiverCancelledMessage(order));
 
 console.log("\nAgent templates");
 checkMessage("agentNewJob", agentNewJobMessage({ order, area: pickupArea(address) }));

@@ -90,6 +90,11 @@ export const WA_TEMPLATE = {
   extraChargeDue: "bombino_extra_charge_due",
   pickupReassigning: "bombino_pickup_reassigning",
   accountDecision: "bombino_account_decision",
+  // Receiver, the person the parcel is going to (approved by 6 Nov 2026).
+  // `bombino_receiver_parcel_coming` (booked) is in the sheet but not at Tata
+  // yet, so the receiver still hears nothing at booking.
+  receiverAtHub: "bombino_receiver_at_hub",
+  receiverCancelled: "bombino_receiver_cancelled",
   // Staff — the ops console's people. Who gets which is `notifyStaff.ts`, from
   // docs/final-phase/staff-whatsapp-templates.xlsx (all approved 14 Oct 2026).
   staffNewApplication: "bombino_staff_new_application",
@@ -443,6 +448,36 @@ export function dispatchedMessage(input: {
   return {
     template: WA_TEMPLATE.dispatched,
     variables: [v(input.orderNo), v(input.awb), trackingUrl(input.awb)],
+  };
+}
+
+// ── Receiver touchpoints ──────────────────────────────────────────────────
+//
+// For the person the parcel is going to, who did not book it: no money, no
+// address, the sender by first name only, as on the receiver's own screen
+// (server/receivingDb.ts).
+
+/** The sender's first name from the booking: the guest's name, else the docket's shipper name. */
+function senderFirstName(order: Pick<Order, "guest_name" | "items">): string {
+  const items = (order.items && typeof order.items === "object" ? order.items : {}) as Record<string, unknown>;
+  const shipper = typeof items.shipper_name === "string" ? items.shipper_name : null;
+  const full = v(order.guest_name ?? shipper, "");
+  return full.split(" ")[0] || "the sender";
+}
+
+/** "Order {{1}}, a parcel coming to you from {{2}}, has reached the Bombino hub. …" */
+export function receiverAtHubMessage(order: Order): WhatsappMessage {
+  return {
+    template: WA_TEMPLATE.receiverAtHub,
+    variables: [v(order.order_no), senderFirstName(order)],
+  };
+}
+
+/** "Order {{1}}, a parcel that was coming to you from {{2}}, has been cancelled by the sender. …" */
+export function receiverCancelledMessage(order: Order): WhatsappMessage {
+  return {
+    template: WA_TEMPLATE.receiverCancelled,
+    variables: [v(order.order_no), senderFirstName(order)],
   };
 }
 
