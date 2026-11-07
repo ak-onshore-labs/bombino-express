@@ -57,6 +57,13 @@ export function RewardsTeaser({ className }: { className?: string }) {
         </div>
       )}
 
+      {data.pending.points > 0 && (
+        <p className="relative mt-3 text-xs text-white/70" data-testid="text-teaser-points-on-the-way">
+          <span className="font-semibold text-[#F7C35C]">+{formatPoints(data.pending.points)} pts</span> arrive in
+          your wallet after delivery
+        </p>
+      )}
+
       <div className="relative mt-3 flex items-center justify-end gap-0.5 text-xs font-semibold text-[#F7C35C]">
         View rewards
         <ChevronRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />

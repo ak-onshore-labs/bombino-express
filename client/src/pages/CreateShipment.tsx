@@ -1650,7 +1650,7 @@ export default function CreateShipment() {
                 {bookedPoints.earn > 0 && (
                   <p className={bookedPoints.used > 0 ? 'text-white/70' : ''}>
                     <span className="font-semibold text-[#F7C35C]">+{formatPoints(bookedPoints.earn)} points</span>{' '}
-                    once it is delivered
+                    arrive in your wallet after the order is delivered
                   </p>
                 )}
               </div>

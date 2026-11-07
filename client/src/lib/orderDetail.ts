@@ -79,6 +79,8 @@ export interface OrderDetailOrder {
   origin_address: OrderAddress | null;
   /** Carries `reward_points_used` when points came off this order. */
   metadata?: Record<string, unknown> | null;
+  /** Set when a guest booked it; such orders never earn points. */
+  guest_ref?: string | null;
 }
 
 /** One entry in the customer-facing lifecycle log. */

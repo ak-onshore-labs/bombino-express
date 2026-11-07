@@ -267,6 +267,10 @@ function PointsWallet({ data, className }: { data: RewardsSummary; className?: s
         <span className="mb-1.5 text-sm font-medium text-[#64748B]">pts</span>
       </div>
 
+      <p className="mt-1 text-[11px] text-[#64748B]" data-testid="text-points-arrive-note">
+        Points arrive in your wallet after the order is delivered.
+      </p>
+
       {pending.points > 0 && (
         <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-[#64748B]" data-testid="text-points-on-the-way">
           <Clock className="h-3.5 w-3.5 text-[#F2A123]" />
@@ -410,7 +414,7 @@ function HowItWorks({ fyLastDay, className }: { fyLastDay: string; className?: s
     {
       icon: Package,
       title: 'Ship',
-      body: `Every ₹${RUPEES_PER_EARNED_POINT} you're billed earns 1 point. GST isn't counted. Points land once your parcel is delivered.`,
+      body: `Every ₹${RUPEES_PER_EARNED_POINT} you're billed earns 1 point. GST isn't counted. They arrive in your wallet after the order is delivered.`,
     },
     {
       icon: Gift,

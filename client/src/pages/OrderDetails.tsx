@@ -87,11 +87,21 @@ import { TrackingTimeline } from '@/components/TrackingTimeline';
 import { getStatusLabel } from '@/lib/awbStatus';
 import { withoutDialCode } from '@shared/contact';
 import { todayInIst } from '@shared/istTime';
-import { RUPEES_PER_POINT, pointsUsedOf, toCollect } from '@shared/rewards';
+import {
+  RUPEES_PER_POINT,
+  bookedInRewardsEra,
+  deliveryOutcome,
+  gstPerOf,
+  pointsEarned,
+  pointsUsedOf,
+  toCollect,
+} from '@shared/rewards';
+import { formatPoints, useRewardsAccess } from '@/lib/rewards';
 import { ITD_COUNTRY_MAP } from '@/lib/itdCountryData';
 import {
   getDocketValue,
   mapEvents,
+  latestScanState,
   useAwbTracking,
   withKg,
 } from '@/hooks/useAwbTracking';
@@ -401,6 +411,7 @@ export default function OrderDetails() {
   // A guest can read this screen but not act on it: the regenerate and action
   // endpoints are account-only, and a guest's order has no stored labels.
   const { isLoggedIn } = useAppStore();
+  const rewardsOn = useRewardsAccess();
 
   // Polls every 20s while the order can still move, and stops at dispatched or
   // cancelled. This screen is where a customer waits out a pickup, so an agent
@@ -617,6 +628,26 @@ export default function OrderDetails() {
     !isCancelled &&
     !weighedHeavier;
   const amountLabel = formatInr(order.final_amount ?? order.quoted_amount);
+
+  // Reward points this order earns. They reach the wallet only once the parcel
+  // is delivered; the carrier's latest scan says whether that has happened.
+  const pointsToEarn =
+    rewardsOn && !order.guest_ref && !isCancelled && bookedInRewardsEra(order.created_at)
+      ? pointsEarned({
+          billedInclGst: order.final_amount ?? order.quoted_amount,
+          gstPer: gstPerOf(order.metadata),
+          pointsUsed,
+        })
+      : 0;
+  const carrierOutcome = deliveryOutcome(latestScanState(tracking));
+  const pointsNote =
+    pointsToEarn <= 0
+      ? null
+      : carrierOutcome === 'delivered'
+        ? `+${formatPoints(pointsToEarn)} points added to your wallet`
+        : carrierOutcome === 'never'
+          ? 'No points: the parcel was not delivered'
+          : `+${formatPoints(pointsToEarn)} points arrive in your wallet after the order is delivered`;
 
   const originLine = [origin?.city, origin?.state].filter(Boolean).join(', ');
   const destLine = [consignee?.city, consignee?.country_name].filter(Boolean).join(', ');
@@ -983,6 +1014,7 @@ export default function OrderDetails() {
               <Row label="To pay" value={toPayLabel} />
             </>
           )}
+          {pointsNote && <Row label="Reward points earned" value={pointsNote} />}
           {order.final_amount != null &&
             order.quoted_amount != null &&
             order.final_amount !== order.quoted_amount && (

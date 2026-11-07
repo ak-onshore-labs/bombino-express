@@ -141,15 +141,15 @@ export function PointsAtCheckout({ balance, payable, points, onPointsChange, cla
   );
 }
 
-/** The points this booking will earn once the parcel is delivered. */
+/** The points this booking will earn, and when they reach the wallet. */
 export function PointsEarnNote({ points, className }: { points: number; className?: string }) {
   if (points <= 0) return null;
   return (
     <div className={cn('flex items-start gap-1.5 text-xs text-[#64748B]', className)} data-testid="text-points-earn">
       <Sparkles className="mt-px h-3.5 w-3.5 shrink-0 text-[#F2A123]" />
       <p className="min-w-0 flex-1 leading-snug">
-        You'll earn <span className="font-semibold text-[#B76E00]">{formatPoints(points)} points</span> once this
-        parcel is delivered.
+        You'll earn <span className="font-semibold text-[#B76E00]">{formatPoints(points)} points</span>. They arrive in
+        your wallet after the order is delivered.
       </p>
       <Link href="/rewards" className="shrink-0 font-semibold text-[#2F4468] underline-offset-2 hover:underline">
         Rewards
