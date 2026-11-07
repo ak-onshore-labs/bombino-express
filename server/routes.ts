@@ -79,7 +79,9 @@ import { isTestPhone } from "./testOrders.js";
 import { registerAgentRoutes } from "./routes/agent.js";
 import { registerPaymentRoutes } from "./routes/payments.js";
 import { registerRewardsRoutes } from "./routes/rewards.js";
-import { rewardsOnTrackingState } from "./rewardsDb.js";
+import { balanceOf, redeemOnOrder, rewardsOnTrackingState } from "./rewardsDb.js";
+import { reconcilePaymentStatus } from "./paymentsDb.js";
+import { MIN_REDEEM_POINTS, maxRedeemable } from "../shared/rewards.js";
 import { registerOpsRewardsRoutes } from "./routes/opsRewards.js";
 import { registerGuestProfileRoutes } from "./routes/guestProfile.js";
 import { registerSupportRoutes } from "./routes/support.js";
@@ -3156,6 +3158,10 @@ export async function registerRoutes(
       // Absent on clients booking against the older shape — read as "no
       // packaging", which is what every order before this option was.
       packaging_required: z.boolean().optional(),
+      // Reward points to take off this booking (accounts only). Checked
+      // against the balance and the server's own price below; no cap, so up
+      // to the whole bill including GST.
+      points_to_redeem: z.number().int().min(0).max(10_000_000).optional(),
       origin_address: z.object({
         full_name: z.string().trim().min(1),
         company: z.string().optional().nullable(),
@@ -3512,6 +3518,36 @@ export async function registerRoutes(
           return getVerificationState(req.session.dbUserId!, shape.accountType, shape.category);
         })();
 
+    // Reward points on this booking. Accounts only, on a price the server
+    // checked with ITD (an unchecked quote can still move a lot at the hub).
+    // Asking for more than the balance or the bill takes what is possible.
+    let pointsToUse = 0;
+    const pointsAsked = body.points_to_redeem ?? 0;
+    if (pointsAsked > 0) {
+      if (bookingAsGuest) {
+        res.status(400).json({ message: "Reward points are for account holders. Book without points." });
+        return;
+      }
+      if (!itdQuote) {
+        res.status(409).json({
+          message: "We couldn't confirm this price online, so points can't be used on it. Book without points.",
+        });
+        return;
+      }
+      const balance = await balanceOf(req.session.dbUserId!);
+      if (balance == null) {
+        res.status(502).json({ message: "Couldn't check your reward points. Try again, or book without points." });
+        return;
+      }
+      pointsToUse = Math.min(pointsAsked, maxRedeemable(balance, quotedAmount));
+      if (pointsToUse <= 0) {
+        res.status(409).json({
+          message: `You need at least ${MIN_REDEEM_POINTS} points to use them. Book without points.`,
+        });
+        return;
+      }
+    }
+
     const order = await insertOrderAndReturnRow({
       user_id: req.session.dbUserId ?? null,
       guest_ref: guestRef,
@@ -3533,6 +3569,7 @@ export async function registerRoutes(
         ...(isTestBooking ? { test: true } : {}),
         kyc_verified: bookingKyc.verified,
         quote_verified: !!itdQuote,
+        ...(pointsToUse > 0 ? { reward_points_used: pointsToUse } : {}),
         // GST rate from ITD's rate row, so reward points can be earned on the
         // price before GST (shared/rewards.ts). Absent → 18% is assumed.
         ...(itdQuote?.gstPer != null ? { gst_per: itdQuote.gstPer } : {}),
@@ -3596,6 +3633,22 @@ export async function registerRoutes(
       }).catch((err) => console.error("[orders] guest profile upsert failed:", err));
     }
 
+    // Take the points off the balance, then let the payment flag see them:
+    // a booking covered in full by points is paid already.
+    let pointsUsed = 0;
+    if (pointsToUse > 0 && req.session.dbUserId) {
+      const redeemed = await redeemOnOrder({ userId: req.session.dbUserId, orderId: order.id, points: pointsToUse });
+      pointsUsed = redeemed ? pointsToUse : 0;
+      const reconciled = await reconcilePaymentStatus(order.id);
+      const withMeta = order as typeof order & { metadata?: Record<string, unknown> | null };
+      if (reconciled) {
+        order.payment_status = reconciled.payment_status;
+        withMeta.metadata = reconciled.metadata ?? null;
+      } else if (!redeemed && withMeta.metadata) {
+        withMeta.metadata = { ...withMeta.metadata, reward_points_used: 0 };
+      }
+    }
+
     void insertOrderEvent({
       order_id: order.id,
       status,
@@ -3656,6 +3709,8 @@ export async function registerRoutes(
           : docket,
       // `message` is null unless the customer has something to do (an ID
       // document to add); a refused or slow docket is ops' to fix, not theirs.
+      // Reward points actually taken off (0 when none, or when the write failed).
+      reward_points_used: pointsUsed,
     });
   });
 

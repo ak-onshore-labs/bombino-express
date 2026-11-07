@@ -108,3 +108,34 @@ test("points land on delivery; a parcel that ends any other way never earns", as
     assert.equal(deliveryOutcome(s), null, String(s));
   }
 });
+
+test("points can cover the whole bill, GST included (no cap)", async () => {
+  const { maxRedeemable } = await import("./rewards.js");
+  assert.equal(maxRedeemable(5000, 1180), 1180);
+  assert.equal(maxRedeemable(5000, 1180.6), 1180);
+  assert.equal(maxRedeemable(300, 1180), 300);
+  assert.equal(maxRedeemable(99, 1180), 0);
+  assert.equal(maxRedeemable(500, null), 0);
+});
+
+test("what is left to pay in money", async () => {
+  const { toCollect, pointsUsedOf } = await import("./rewards.js");
+  assert.equal(toCollect(1180, 300), 880);
+  assert.equal(toCollect(1180, 1180), 0);
+  assert.equal(toCollect(1180, 5000), 0);
+  assert.equal(toCollect(null, 10), null);
+  assert.equal(pointsUsedOf({ reward_points_used: 300 }), 300);
+  assert.equal(pointsUsedOf({ reward_points_used: "12" }), 12);
+  assert.equal(pointsUsedOf({}), 0);
+  assert.equal(pointsUsedOf(null), 0);
+});
+
+test("points go back on a cancel, and beyond the new price on a lighter reweigh", async () => {
+  const { pointsDueBack } = await import("./rewards.js");
+  assert.equal(pointsDueBack({ status: "cancelled", dueInclGst: 1180, pointsUsedGross: 300 }), 300);
+  assert.equal(pointsDueBack({ status: "weighed", dueInclGst: 1180, pointsUsedGross: 300 }), 0);
+  // Booked at 1180 all on points, hub weighs it at 900: 280 points back.
+  assert.equal(pointsDueBack({ status: "weighed", dueInclGst: 900, pointsUsedGross: 1180 }), 280);
+  assert.equal(pointsDueBack({ status: "weighed", dueInclGst: null, pointsUsedGross: 300 }), 0);
+  assert.equal(pointsDueBack({ status: "cancelled", dueInclGst: 0, pointsUsedGross: 0 }), 0);
+});

@@ -7,6 +7,7 @@ import { AGENT_SHEET_MOTION, ITEM_IN } from '@/lib/motion';
 import { PressableButton } from '@/components/motion/Pressable';
 import { money } from '@/components/agent/PickupCard';
 import { type AgentPickup } from '@/hooks/useAgentPickups';
+import { pointsUsedOf, toCollect } from '@shared/rewards';
 
 /**
  * Money handling, in a bottom sheet over the job it belongs to.
@@ -54,7 +55,8 @@ export function CollectPaymentSheet({
   receipt: { txnId: string | null; amount: number } | null;
 }) {
   const quiet = useReducedMotion();
-  const due = pickup.quoted_amount ?? 0;
+  // Reward points used at booking come off what the agent collects.
+  const due = toCollect(pickup.quoted_amount, pointsUsedOf(pickup.metadata)) ?? 0;
   const [mode, setMode] = useState<Mode | null>(null);
   const [amount, setAmount] = useState(String(due || ''));
   const [error, setError] = useState('');

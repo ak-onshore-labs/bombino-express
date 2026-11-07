@@ -18,6 +18,8 @@ import { supabase } from "./supabaseClient.js";
 import { dbClient, logDbError, type DbError } from "./db/client.js";
 import { toOrder, type OrderRow } from "./ordersDb.js";
 import { notifyStaffOfRefundDue } from "./notifyStaff.js";
+import { settlePointsOnOrder } from "./rewardsDb.js";
+import { RUPEES_PER_POINT } from "../shared/rewards.js";
 import type { Order } from "../shared/orderContract.js";
 
 const ORDER_COLUMNS =
@@ -222,7 +224,7 @@ export async function reconcilePaymentStatus(orderId: string): Promise<Order | n
 
   const { data: order, error: orderError } = await client
     .from("orders")
-    .select("status, payment_method, is_cod, payment_status, quoted_amount, final_amount")
+    .select("status, user_id, payment_method, is_cod, payment_status, quoted_amount, final_amount")
     .eq("id", orderId)
     .maybeSingle();
   if (orderError || !order) {
@@ -247,14 +249,27 @@ export async function reconcilePaymentStatus(orderId: string): Promise<Order | n
     if (p.status === "collected") held += (Number(p.amount) || 0) - refunded;
   }
 
+  const num = (v: unknown) => (v == null ? null : Number(v));
+  const due = num(order.final_amount) ?? num(order.quoted_amount);
+
+  // Reward points used on the order count as paid. Points that no longer
+  // belong (a cancel, a lighter reweigh) go back as points first — never as
+  // cash — so a cancelled order's refund is the money held, nothing more.
+  const pointsApplied = await settlePointsOnOrder({
+    id: orderId,
+    user_id: (order.user_id as string | null) ?? null,
+    status: order.status as string,
+    dueInclGst: due,
+  });
+  if (order.status !== "cancelled") held += pointsApplied * RUPEES_PER_POINT;
+
   if (refundRecorded && order.payment_status === "refund_due") return null;
 
-  const num = (v: unknown) => (v == null ? null : Number(v));
   const next = derivePaymentStatus({
     status: order.status as string,
     paymentMethod: order.payment_method as string,
     isCod: !!order.is_cod,
-    due: num(order.final_amount) ?? num(order.quoted_amount),
+    due,
     held,
     current: (order.payment_status as string | null) ?? null,
   });
@@ -281,8 +296,7 @@ export async function reconcilePaymentStatus(orderId: string): Promise<Order | n
   const updated = data ? toOrder(data as unknown as OrderRow) : null;
   // Newly owed back: accounts has to pay it, and nothing else would tell them.
   if (updated && next === "refund_due") {
-    const due = num(order.final_amount) ?? num(order.quoted_amount) ?? 0;
-    void notifyStaffOfRefundDue({ order: updated, amount: updated.status === "cancelled" ? held : held - due });
+    void notifyStaffOfRefundDue({ order: updated, amount: updated.status === "cancelled" ? held : held - (due ?? 0) });
   }
   return updated;
 }

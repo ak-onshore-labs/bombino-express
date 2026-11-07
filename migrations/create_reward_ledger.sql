@@ -73,12 +73,3 @@ ALTER TABLE public.reward_ledger ENABLE ROW LEVEL SECURITY;
 
 COMMENT ON TABLE public.reward_ledger IS
   'Reward points ledger, insert-only. Balance = sum(points); pending points are worked out from open orders. See docs/rewards/rewards-plan.md.';
-
--- ── payments.method ────────────────────────────────────────────────────────
--- Points used on an order will be recorded as a payment row (step 2), so the
--- amount due and the paid flag keep working unchanged. Widen the CHECK now.
-ALTER TABLE public.payments DROP CONSTRAINT IF EXISTS payments_method_check;
-ALTER TABLE public.payments
-  ADD CONSTRAINT payments_method_check CHECK (
-    method IN ('pay_now', 'pay_at_pickup', 'pay_at_dropoff', 'reward_points')
-  );

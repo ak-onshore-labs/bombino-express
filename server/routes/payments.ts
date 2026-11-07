@@ -63,11 +63,18 @@ import {
 import { isPaymentsTestModeEnabled } from "../paymentsTestMode.js";
 import { isQuoteVerified } from "../opsActions.js";
 import type { Order } from "../../shared/orderContract.js";
+import { pointsUsedOf, toCollect } from "../../shared/rewards.js";
 
-/** The amount we are currently asking for. Reprice at the hub can move it. */
+/**
+ * The amount we are currently asking for. Reprice at the hub can move it, and
+ * reward points used on the order come off it (no cap: they can cover it all,
+ * in which case the order is already paid and there is nothing to charge).
+ */
 function amountDue(order: Order): number | null {
   const due = order.final_amount ?? order.quoted_amount;
-  return typeof due === "number" && due > 0 ? due : null;
+  if (typeof due !== "number" || due <= 0) return null;
+  const rest = toCollect(due, pointsUsedOf(order.metadata));
+  return rest != null && rest > 0 ? rest : null;
 }
 
 /**

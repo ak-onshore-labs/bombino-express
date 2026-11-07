@@ -87,6 +87,7 @@ import { TrackingTimeline } from '@/components/TrackingTimeline';
 import { getStatusLabel } from '@/lib/awbStatus';
 import { withoutDialCode } from '@shared/contact';
 import { todayInIst } from '@shared/istTime';
+import { RUPEES_PER_POINT, pointsUsedOf, toCollect } from '@shared/rewards';
 import { ITD_COUNTRY_MAP } from '@/lib/itdCountryData';
 import {
   getDocketValue,
@@ -607,9 +608,12 @@ export default function OrderDetails() {
       : 0;
   const weighedHeavier = repriceDelta > 0;
   const weighedLighter = repriceDelta < 0;
+  // Reward points taken off at booking: the customer pays the rest in money.
+  const pointsUsed = pointsUsedOf(order.metadata);
+  const toPayLabel = formatInr(toCollect(order.final_amount ?? order.quoted_amount, pointsUsed));
   const payDue =
     order.payment_method === 'pay_now' &&
-    order.payment_status === 'pending' &&
+    (order.payment_status === 'pending' || (order.payment_status === 'partially_paid' && pointsUsed > 0)) &&
     !isCancelled &&
     !weighedHeavier;
   const amountLabel = formatInr(order.final_amount ?? order.quoted_amount);
@@ -767,7 +771,7 @@ export default function OrderDetails() {
           <Task
             id="pay"
             title="Payment due"
-            hint={`${amountLabel ?? 'Amount'} to pay online`}
+            hint={`${(pointsUsed > 0 ? toPayLabel : amountLabel) ?? 'Amount'} to pay online`}
             action={
               <Button
                 className="h-10 px-5 rounded-lg"
@@ -970,6 +974,15 @@ export default function OrderDetails() {
       <div className="grid gap-x-10 gap-y-7 md:grid-cols-2">
         <Group title="Payment">
           <Row label="Amount" value={amountLabel} />
+          {pointsUsed > 0 && (
+            <>
+              <Row
+                label="Reward points"
+                value={`− ${formatInr(pointsUsed * RUPEES_PER_POINT) ?? ''} (${pointsUsed} pts)`}
+              />
+              <Row label="To pay" value={toPayLabel} />
+            </>
+          )}
           {order.final_amount != null &&
             order.quoted_amount != null &&
             order.final_amount !== order.quoted_amount && (

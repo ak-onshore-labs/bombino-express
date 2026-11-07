@@ -77,6 +77,8 @@ export interface OrderDetailOrder {
   created_at: string;
   updated_at: string;
   origin_address: OrderAddress | null;
+  /** Carries `reward_points_used` when points came off this order. */
+  metadata?: Record<string, unknown> | null;
 }
 
 /** One entry in the customer-facing lifecycle log. */

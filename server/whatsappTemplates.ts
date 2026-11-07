@@ -24,6 +24,7 @@
 
 import { createHash } from "crypto";
 import type { Order, OrderStatus } from "../shared/orderContract.js";
+import { pointsUsedOf, toCollect } from "../shared/rewards.js";
 
 // ── Template names ────────────────────────────────────────────────────────
 //
@@ -567,7 +568,9 @@ export function agentMorningJobsMessage(input: {
  */
 export function collectLine(order: Order): string {
   const collects = order.payment_method === "pay_at_pickup" && order.payment_status !== "paid";
-  return collects ? `Collect ${money(order.quoted_amount)} at the door` : "Nothing to collect";
+  // Reward points used at booking come off what the agent asks for.
+  const amount = toCollect(order.quoted_amount, pointsUsedOf(order.metadata));
+  return collects && amount !== 0 ? `Collect ${money(amount)} at the door` : "Nothing to collect";
 }
 
 /**

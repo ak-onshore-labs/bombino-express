@@ -1,4 +1,4 @@
-import { Redirect } from 'wouter';
+import { Link, Redirect } from 'wouter';
 import { motion } from 'framer-motion';
 import { format, isValid, parseISO } from 'date-fns';
 import {
@@ -46,9 +46,8 @@ const CARD = 'rounded-lg border border-[#E2E8F0] bg-white p-5 shadow-[0_2px_12px
 /**
  * Bombino Rewards, phase 1: points plus one weight milestone.
  *
- * Figures come from GET /api/rewards; rules from @shared/rewards. Using points
- * at checkout is step 2 and not live yet, so the wallet says so rather than
- * offering a button that cannot work.
+ * Figures come from GET /api/rewards; rules from @shared/rewards. Points are
+ * spent at Review & Pay when booking (no cap: up to the whole bill).
  *
  * Mobile is one column in reading order: milestone, points, activity, how it
  * works. Desktop puts the milestone and activity on the left, the money on the
@@ -289,12 +288,23 @@ function PointsWallet({ data, className }: { data: RewardsSummary; className?: s
       )}
 
       {canRedeem ? (
-        <div className="mt-5 rounded-md bg-emerald-50 px-4 py-3 ring-1 ring-emerald-200">
-          <p className="text-sm font-semibold text-emerald-800">
-            Worth ₹{formatPoints(balance * RUPEES_PER_POINT)} off your bookings
+        <>
+          <p className="mt-2 text-xs text-[#64748B]">
+            Worth up to{' '}
+            <span className="font-semibold text-emerald-700">₹{formatPoints(balance * RUPEES_PER_POINT)}</span> off
+            your bookings.
           </p>
-          <p className="mt-0.5 text-xs text-emerald-700/80">Using points at Review &amp; Pay is coming soon.</p>
-        </div>
+          {/* Points are spent at the Review & Pay step of a booking. */}
+          <Link
+            href="/create"
+            className="mt-5 inline-flex h-12 w-full items-center justify-center gap-2 rounded-md bg-[#F2A123] text-sm font-bold text-[#1B2A44] shadow-[0_8px_24px_rgba(242,161,35,0.3)] transition-transform hover:bg-[#F7B03F] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#F2A123]/40"
+            data-testid="button-use-points"
+          >
+            <Gift className="h-4 w-4" />
+            Use on a booking
+          </Link>
+          <p className="mt-2 text-center text-[11px] text-[#64748B]">Choose how many at Review &amp; Pay.</p>
+        </>
       ) : (
         <div className="mt-5">
           <div className="mb-1.5 flex justify-between text-xs">
@@ -405,7 +415,7 @@ function HowItWorks({ fyLastDay, className }: { fyLastDay: string; className?: s
     {
       icon: Gift,
       title: 'Use',
-      body: `From ${MIN_REDEEM_POINTS} points, each point is ₹${RUPEES_PER_POINT} off a booking.`,
+      body: `From ${MIN_REDEEM_POINTS} points, each point is ₹${RUPEES_PER_POINT} off a booking, up to the whole bill.`,
     },
     {
       icon: Scale,

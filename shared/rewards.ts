@@ -121,6 +121,51 @@ export function pointsEarned(input: {
   return Math.floor(billed / RUPEES_PER_EARNED_POINT);
 }
 
+// ── Using points (step 2) ──────────────────────────────────────────────────
+//
+// No cap (Aditya, 7 Nov): points can cover the whole bill, GST included. GST
+// is still worked out on the full price; points only change what the
+// customer has to hand over.
+
+/** Most points a booking of `totalInclGst` can take from a `balance`. */
+export function maxRedeemable(balance: number, totalInclGst: number | null): number {
+  if (!canRedeem(balance) || totalInclGst == null || !Number.isFinite(totalInclGst) || totalInclGst <= 0) return 0;
+  return Math.max(0, Math.min(Math.floor(balance), Math.floor(totalInclGst / RUPEES_PER_POINT)));
+}
+
+/**
+ * Points still applied to an order, from `metadata.reward_points_used`
+ * (written at booking, lowered when points go back on a cancel or a lighter
+ * reweigh). The ledger is the record; this is the copy screens read.
+ */
+export function pointsUsedOf(metadata: unknown): number {
+  const raw =
+    metadata && typeof metadata === "object"
+      ? (metadata as Record<string, unknown>).reward_points_used
+      : undefined;
+  const n = typeof raw === "number" ? raw : Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+/** What the customer still has to pay in money: the price less points used. */
+export function toCollect(dueInclGst: number | null, pointsUsed: number): number | null {
+  if (dueInclGst == null || !Number.isFinite(dueInclGst)) return null;
+  return round2(Math.max(0, dueInclGst - Math.max(0, pointsUsed) * RUPEES_PER_POINT));
+}
+
+/**
+ * How many of the points used on an order should have gone back to the
+ * customer by now: all of them on a cancel; on a lighter reweigh, any points
+ * beyond the new price (points never turn into cash).
+ */
+export function pointsDueBack(input: { status: string; dueInclGst: number | null; pointsUsedGross: number }): number {
+  const used = Math.max(0, Math.floor(input.pointsUsedGross));
+  if (used === 0) return 0;
+  if (input.status === "cancelled") return used;
+  if (input.dueInclGst == null || !Number.isFinite(input.dueInclGst)) return 0;
+  return Math.max(0, used - Math.floor(input.dueInclGst / RUPEES_PER_POINT));
+}
+
 /** True when the balance is high enough to use any points. */
 export function canRedeem(balance: number): boolean {
   return balance >= MIN_REDEEM_POINTS;

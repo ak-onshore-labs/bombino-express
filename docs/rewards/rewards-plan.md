@@ -139,7 +139,24 @@ every 6 hours (production only, first run 2 min after boot) about dispatched
 account orders from the last 120 days with no earn/forfeit row, 150 per run.
 Test AWBs are never filed with ITD, so test orders land at dispatch.
 
-### Step 2: using points (C answered: no cap)
+### Step 2: using points (C answered: no cap) — BUILT 7 Nov
+
+Changed from the design above: points used are **not** a `payments` row (the
+Transactions totals and cash reports would count them as money). They live
+only in the ledger (`redeem` / `redeem_back`) plus a copy on the order,
+`metadata.reward_points_used`, which screens read. `reconcilePaymentStatus`
+adds the points still applied to cash held, and gives points back first
+(`settlePointsOnOrder`): all of them on a cancel, the part above the new price
+on a lighter reweigh. The migration no longer touches `payments.method`.
+
+Done: `points_to_redeem` on POST /api/orders (accounts, ITD-checked price,
+clamped to balance and bill); gateway charges the rest; a booking covered in
+full is paid at once; agent card, collect sheet, collect WhatsApp line, ops
+order page and customer order page all show the amount after points; "Use
+reward points" card at Review & Pay with To pay and the earn note.
+Not done: using points later from an order's Payment due (only at booking).
+
+Original list:
 1. `points_to_redeem` on booking and on the pay-now / Payment due endpoint.
 2. Server checks: account only, balance ≥ 100 and ≥ requested, cap (C),
    order not cancelled. Write the `reward_points` payment row + `redeem` ledger

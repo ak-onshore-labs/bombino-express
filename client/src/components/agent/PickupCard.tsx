@@ -14,6 +14,7 @@ import { PressableBox } from '@/components/motion/Pressable';
 import { todayInIst } from '@shared/istTime';
 import { bandForDate } from '@/lib/agentGrouping';
 import type { AgentPickup } from '@/hooks/useAgentPickups';
+import { pointsUsedOf, toCollect } from '@shared/rewards';
 
 /**
  * One job, readable at arm's length in direct sunlight.
@@ -209,7 +210,9 @@ export function notDueYetReason(pickup: AgentPickup): string | null {
 export function amountOwedAtDoor(pickup: AgentPickup): number | null {
   if (pickup.payment_method !== 'pay_at_pickup') return null;
   if (pickup.payment_status === 'paid') return null;
-  return pickup.quoted_amount ?? null;
+  // Reward points used at booking come off what the agent collects.
+  const rest = toCollect(pickup.quoted_amount ?? null, pointsUsedOf(pickup.metadata));
+  return rest && rest > 0 ? rest : null;
 }
 
 /**

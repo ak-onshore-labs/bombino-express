@@ -40,6 +40,7 @@ import { getOrderStatusLabel } from '@/lib/orderStatus';
 import { useCan } from '@/lib/opsAccess';
 import { cn } from '@/lib/utils';
 import { todayInIst } from '@shared/istTime';
+import { pointsUsedOf, toCollect } from '@shared/rewards';
 
 function Fact({
   label,
@@ -431,7 +432,9 @@ export default function OpsOrderDetail() {
         ? 'Check ITD portal first'
         : 'Needs ops';
   const consignee = consigneeLines(order.consignee);
-  const dueAmount = order.final_amount ?? order.quoted_amount ?? 0;
+  // Reward points used at booking count as paid: the hub collects the rest.
+  const pointsUsed = pointsUsedOf(order.metadata);
+  const dueAmount = toCollect(order.final_amount ?? order.quoted_amount ?? 0, pointsUsed) ?? 0;
   const dropoff = order.pickup_request === 2;
   const day = dayFor(order, todayInIst());
   const agentCancel = order.agent_cancellation ?? null;
@@ -663,6 +666,12 @@ export default function OpsOrderDetail() {
               </span>
             }
           />
+          {pointsUsed > 0 && (
+            <Fact
+              label="Reward points used"
+              value={`${pointsUsed} pts (${formatMoney(pointsUsed)} off) · cash due ${formatMoney(dueAmount)}`}
+            />
+          )}
           <Fact label="Quoted" value={formatMoney(order.quoted_amount)} />
           <Fact label="Final (after weighing)" value={formatMoney(order.final_amount)} />
           <Fact label="Actual weight" value={order.actual_weight != null ? `${order.actual_weight} kg` : 'Not weighed'} />

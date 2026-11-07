@@ -33,6 +33,7 @@ import {
   bookedInRewardsEra,
   deliveryOutcome,
   milestoneProgress,
+  pointsDueBack,
   pointsEarned,
   type RewardLedgerKind,
   type RewardsSummary,
@@ -112,26 +113,136 @@ function shippedKg(order: Pick<EarnOrderRow, "actual_weight" | "booked_weight">)
 }
 
 /**
- * Points used on an order (step 2 writes these as `reward_points` payment
- * rows). None exist yet; read now so earning is right the day they do.
+ * Points used on an order and points already given back, from the ledger:
+ * `redeem` rows (negative) and `redeem_back` rows (positive) for the order.
  */
-async function pointsUsedOn(orderId: string): Promise<number> {
+async function pointsMovementOn(orderId: string): Promise<{ used: number; returned: number } | null> {
   const client = getClient();
-  if (!client) return 0;
+  if (!client) return null;
   const { data, error } = await client
-    .from("payments")
-    .select("amount, status")
+    .from("reward_ledger")
+    .select("kind, points")
     .eq("order_id", orderId)
-    .eq("method", "reward_points");
+    .in("kind", ["redeem", "redeem_back"]);
   if (error) {
-    logDbError("rewardsDb", "pointsUsedOn", error);
-    return 0;
+    logError("pointsMovementOn", error);
+    return isMissingTable(error) ? { used: 0, returned: 0 } : null;
   }
-  let rupees = 0;
-  for (const row of data ?? []) {
-    if (row.status === "collected") rupees += Number(row.amount) || 0;
+  let used = 0;
+  let returned = 0;
+  for (const r of data ?? []) {
+    const n = Number(r.points) || 0;
+    if (r.kind === "redeem") used += -n;
+    else returned += n;
   }
-  return Math.round(rupees / RUPEES_PER_POINT);
+  return { used, returned };
+}
+
+/** Points still applied to an order (used less given back). */
+async function pointsUsedOn(orderId: string): Promise<number> {
+  const m = await pointsMovementOn(orderId);
+  return m ? Math.max(0, m.used - m.returned) : 0;
+}
+
+/** Spendable balance: the sum of every ledger row. 0 when unknown. */
+export async function balanceOf(userId: string): Promise<number | null> {
+  const client = getClient();
+  if (!client) return null;
+  const { data, error } = await client.from("reward_ledger").select("points").eq("user_id", userId);
+  if (error) {
+    logError("balanceOf", error);
+    return isMissingTable(error) ? 0 : null;
+  }
+  return (data ?? []).reduce((sum, r) => sum + (Number(r.points) || 0), 0);
+}
+
+async function setPointsUsedOnOrder(orderId: string, points: number): Promise<void> {
+  const client = getClient();
+  if (!client) return;
+  const { data, error } = await client.from("orders").select("metadata").eq("id", orderId).maybeSingle();
+  if (error || !data) {
+    if (error) logDbError("rewardsDb", "setPointsUsedOnOrder:read", error);
+    return;
+  }
+  const metadata = { ...((data.metadata as Record<string, unknown> | null) ?? {}), reward_points_used: points };
+  const { error: writeError } = await client
+    .from("orders")
+    .update({ metadata, updated_at: new Date().toISOString() })
+    .eq("id", orderId);
+  if (writeError) logDbError("rewardsDb", "setPointsUsedOnOrder:write", writeError);
+}
+
+/**
+ * Take `points` off the customer's balance for this order: one `redeem` row.
+ * The order already carries `metadata.reward_points_used` from the insert.
+ * On failure the order's copy is cleared, so the customer is asked for the
+ * full price rather than getting a discount nothing paid for.
+ *
+ * ACCEPTED RACE: two bookings in the same instant can both pass the balance
+ * check and take the balance below zero. supabase-js has no transaction; the
+ * window is a double tap across two tabs, and a negative balance is already a
+ * state the rules allow (new points fill it first).
+ */
+export async function redeemOnOrder(input: { userId: string; orderId: string; points: number }): Promise<boolean> {
+  const client = getClient();
+  if (!client || input.points <= 0) return false;
+  const { error } = await client.from("reward_ledger").insert({
+    user_id: input.userId,
+    order_id: input.orderId,
+    kind: "redeem",
+    points: -Math.floor(input.points),
+    weight_kg: 0,
+    fy: fyOf(),
+    metadata: { rupees: Math.floor(input.points) * RUPEES_PER_POINT },
+  });
+  if (error) {
+    logError("redeemOnOrder", error);
+    await setPointsUsedOnOrder(input.orderId, 0);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Give points back when they no longer belong on the order: all of them on a
+ * cancel, and any beyond the new price after a lighter reweigh (points never
+ * become cash). Writes one `redeem_back` row for whatever is still owed back
+ * and lowers the order's copy. Idempotent: it compares with what has already
+ * gone back.
+ *
+ * Returns the points still applied to the order, for the payment flag.
+ */
+export async function settlePointsOnOrder(order: {
+  id: string;
+  user_id: string | null;
+  status: string;
+  dueInclGst: number | null;
+}): Promise<number> {
+  const m = await pointsMovementOn(order.id);
+  if (!m || m.used === 0 || !order.user_id) return m ? Math.max(0, m.used - m.returned) : 0;
+
+  const owedBack = pointsDueBack({ status: order.status, dueInclGst: order.dueInclGst, pointsUsedGross: m.used });
+  const delta = owedBack - m.returned;
+  if (delta > 0) {
+    const client = getClient();
+    if (!client) return Math.max(0, m.used - m.returned);
+    const { error } = await client.from("reward_ledger").insert({
+      user_id: order.user_id,
+      order_id: order.id,
+      kind: "redeem_back",
+      points: delta,
+      weight_kg: 0,
+      fy: fyOf(),
+      note: order.status === "cancelled" ? "Order cancelled" : "Price went down at the hub",
+    });
+    if (error) {
+      logError("settlePointsOnOrder", error);
+      return Math.max(0, m.used - m.returned);
+    }
+    await setPointsUsedOnOrder(order.id, m.used - owedBack);
+    return Math.max(0, m.used - owedBack);
+  }
+  return Math.max(0, m.used - m.returned);
 }
 
 /** Whether this order already earned or forfeited: either closes it for good. */
@@ -265,6 +376,14 @@ export async function rewardsOnTrackingState(awb: string, state: string | null |
  */
 export async function rewardsOnTransition(order: Pick<Order, "id" | "status" | "awb_no">): Promise<void> {
   if (order.status === "dispatched" && isTestAwb(order.awb_no)) await landPoints(order.id, "TEST_DISPATCHED");
+  // Points used on a cancelled order go back. The payment reconcile does this
+  // too; both are idempotent, this one covers any cancel path that skips it.
+  if (order.status === "cancelled") {
+    const row = await readEarnOrder({ id: order.id });
+    if (row?.user_id) {
+      await settlePointsOnOrder({ id: row.id, user_id: row.user_id, status: row.status, dueInclGst: billedInclGst(row) });
+    }
+  }
 }
 
 /** Largest single manual adjustment, either way. A typo guard, not a policy. */
