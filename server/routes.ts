@@ -79,6 +79,7 @@ import { isTestPhone } from "./testOrders.js";
 import { registerAgentRoutes } from "./routes/agent.js";
 import { registerPaymentRoutes } from "./routes/payments.js";
 import { registerRewardsRoutes } from "./routes/rewards.js";
+import { rewardsOnTrackingState } from "./rewardsDb.js";
 import { registerOpsRewardsRoutes } from "./routes/opsRewards.js";
 import { registerGuestProfileRoutes } from "./routes/guestProfile.js";
 import { registerSupportRoutes } from "./routes/support.js";
@@ -2852,6 +2853,8 @@ export async function registerRoutes(
         const trackedAt = new Date().toISOString();
         void upsertTrackingEvents(trackingNo, events);
         void updateShipmentTrackingStatus(trackingNo, latestStatus, trackedAt);
+        // Delivered (or returned, lost…) lands or forfeits the order's reward points.
+        void rewardsOnTrackingState(trackingNo, latestStatus);
 
         // Anyone may track any AWB, but only its owner and ops see who sent it
         // and who it is for. Everyone else gets bombinoexp.com's fields

@@ -5,8 +5,10 @@
  *
  *   · Earn: ₹100 billed before GST = 1 point, per order, rounded down.
  *     "Billed" is the price before GST minus any points used on the order.
- *   · Points land when the order is paid and dispatched. Until then they are
- *     pending ("on the way") and cannot be used.
+ *   · Points land when the parcel is DELIVERED (changed 7 Nov; was paid and
+ *     dispatched). Until then they are pending ("on the way") and cannot be
+ *     used. A parcel that ends any other way (returned, lost, abandoned,
+ *     cancelled by the carrier) never earns.
  *   · Use: ₹1 per point, only once the balance is 100 or more.
  *   · Year = Indian financial year (Apr–Mar). Every unused point expires at
  *     midnight 31 Mar, whenever it was earned.
@@ -16,6 +18,20 @@
  */
 
 import { nowInIst } from "./istTime.js";
+
+/**
+ * Orders booked before this IST date never earn (open question E: no
+ * backfill). Points only start with rewards going live; change this one
+ * constant if Bombino wants earlier orders to count.
+ */
+export const EARN_FROM_BOOKING_DATE = "2026-11-07";
+
+/** Whether an order booked at `createdAt` is new enough to earn. */
+export function bookedInRewardsEra(createdAt: string | null | undefined): boolean {
+  if (!createdAt) return false;
+  const t = new Date(createdAt).getTime();
+  return Number.isFinite(t) && t >= new Date(`${EARN_FROM_BOOKING_DATE}T00:00:00+05:30`).getTime();
+}
 
 /** Rupees billed (before GST) per point earned. */
 export const RUPEES_PER_EARNED_POINT = 100;
@@ -132,9 +148,31 @@ export function milestoneProgress(shippedKg: number, targetKg: number = MILESTON
   };
 }
 
+/**
+ * What a carrier tracking state means for an order's points. ITD's
+ * `event_state` vocabulary (see client/src/lib/awbStatus.ts):
+ *
+ *   "delivered" → the points land.
+ *   "never"     → the parcel will not be delivered; it never earns.
+ *   null        → still on its way (or a failed attempt that will be retried).
+ */
+export type DeliveryOutcome = "delivered" | "never";
+
+const NEVER_DELIVERED = new Set(["RTO", "PART RTO", "CANCELLED", "ABANDONED", "LOST"]);
+
+export function deliveryOutcome(state: string | null | undefined): DeliveryOutcome | null {
+  const key = (state ?? "").trim().replace(/\s+/g, " ").toUpperCase();
+  if (!key) return null;
+  if (key === "DELIVERED") return "delivered";
+  if (NEVER_DELIVERED.has(key)) return "never";
+  return null;
+}
+
 /** Ledger row kinds. Pending points are not rows: they are worked out from open orders. */
 export const REWARD_LEDGER_KINDS = [
   "earn",
+  /** 0 points: the parcel ended without being delivered, so it never earns. */
+  "forfeit",
   "redeem",
   "redeem_back",
   "clawback",
@@ -153,7 +191,7 @@ export type RewardsSummary = {
   canRedeem: boolean;
   minRedeemPoints: number;
   rupeesPerPoint: number;
-  /** Points on the way: open orders that will earn once paid and dispatched. */
+  /** Points on the way: orders that will earn once delivered. */
   pending: { points: number; orders: { orderId: string; orderNo: string; points: number }[] };
   milestone: MilestoneProgress;
   history: {

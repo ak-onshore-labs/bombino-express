@@ -86,7 +86,9 @@ export const EXPIRY_WARNING_DAYS = 31;
 export function ledgerLabel(kind: RewardLedgerKind, note: string | null): string {
   switch (kind) {
     case 'earn':
-      return 'Earned on a shipment';
+      return 'Earned on a delivered shipment';
+    case 'forfeit':
+      return 'Not delivered: no points';
     case 'redeem':
       return 'Used on a booking';
     case 'redeem_back':

@@ -45,6 +45,8 @@ import {
 } from "../../shared/orderContract.js";
 import type { ParcelScanResult, ParcelTagEvent, ParcelTagParty, ParcelTagView } from "../../shared/parcelTag.js";
 import { itdClient } from "../itd.js";
+import { rewardsOnTrackingState } from "../rewardsDb.js";
+import { latestTrackingState } from "../rewardsDelivery.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -190,6 +192,8 @@ async function carrierTracking(
     const results = await itdClient.trackShipment(awb);
     const r = results?.[0];
     if (!r || r.errors) return null;
+    // A delivered (or returned) parcel lands or forfeits its reward points.
+    void rewardsOnTrackingState(awb, latestTrackingState((r.docket_events ?? []) as unknown[]));
     const events = (r.docket_events ?? [])
       .map((e) => ({
         at: e.event_at,

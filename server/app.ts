@@ -37,6 +37,7 @@ import { warnIfIdentityBypassEnabled } from "./cashfreeIdentity.js";
 import { isDocketAtBookingEnabled, warnIfDocketAtBookingEnabled } from "./docketAtBooking.js";
 import { startDocketRetryTimer } from "./docketFiling.js";
 import { isScheduleTimerEnabled, startScheduleTimer } from "./staffSchedule.js";
+import { startRewardsDeliveryTimer } from "./rewardsDelivery.js";
 import { warnIfMailerMissing } from "./mailer.js";
 import { assertFieldCryptoConfigured } from "./fieldCrypto.js";
 import { supabase } from "./supabaseClient.js";
@@ -382,6 +383,9 @@ export async function createApp(): Promise<{ app: Express; httpServer: Server }>
   // and daily summary. Production only, for the same reason: local servers
   // share the production database and real staff phone numbers.
   if (isScheduleTimerEnabled()) startScheduleTimer();
+  // Reward points land on delivery: ask ITD every six hours how dispatched
+  // account orders are doing. Production only, same reason.
+  if (isScheduleTimerEnabled()) startRewardsDeliveryTimer();
   warnIfMailerMissing();
 
   await registerRoutes(httpServer, app);

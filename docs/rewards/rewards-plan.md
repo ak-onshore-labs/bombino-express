@@ -11,7 +11,7 @@ and `client/src/{pages/Rewards.tsx, components/rewards/, lib/rewards*.ts}`.
 |---|---|
 | Who | Account holders only. Guest bookings never earn, even after the guest makes an account. |
 | Earn | ₹100 billed, before GST = 1 point. Billed = price before GST minus points used. `floor(billedExGst / 100)` per order. |
-| Points land | When the order is **paid and dispatched**. Until then they show as pending ("on the way"). Not spendable while pending. |
+| Points land | When the parcel is **delivered** (changed 7 Nov; was paid and dispatched). Until then they show as pending ("on the way"). Not spendable while pending. A parcel that ends undelivered (RTO, part RTO, lost, abandoned, carrier-cancelled) never earns: a 0-point `forfeit` row. Only orders booked from `EARN_FROM_BOOKING_DATE` (7 Nov 2026) earn. |
 | Use | ₹1 per point. Only once the balance is 100 or more. Taken off the price before GST; GST stays on the full price. |
 | To pay | `(base − points) + GST(base)` = `total − points`. |
 | Pickup / drop-off / COD | Points are taken at booking. The customer pays the rest at collection. |
@@ -131,7 +131,15 @@ Original list:
 6. `GET /api/rewards`: balance, pending, history, FY end date, `shippedKg`,
    `milestoneKg`, `milestoneReached`.
 
-### Step 2: using points (needs question C)
+### Delivery (7 Nov)
+Delivery comes from ITD tracking (no order status for it). `rewardsOnTrackingState`
+runs whenever tracking is read (`/api/track`, the parcel page) and lands on
+DELIVERED / forfeits on RTO-type states. `server/rewardsDelivery.ts` asks ITD
+every 6 hours (production only, first run 2 min after boot) about dispatched
+account orders from the last 120 days with no earn/forfeit row, 150 per run.
+Test AWBs are never filed with ITD, so test orders land at dispatch.
+
+### Step 2: using points (C answered: no cap)
 1. `points_to_redeem` on booking and on the pay-now / Payment due endpoint.
 2. Server checks: account only, balance ≥ 100 and ≥ requested, cap (C),
    order not cancelled. Write the `reward_points` payment row + `redeem` ledger
@@ -146,7 +154,7 @@ Original list:
 1. Cancel → `redeem_back` + drop pending (both idempotent).
 2. Refund after landing → `clawback` of the earned points (all of it, or
    proportional to a partial refund: decide).
-3. RTO → `clawback`, once question D gives the ITD event.
+3. ~~RTO → `clawback`~~ not needed: points land on delivery, RTO never earns.
 4. 31 Mar expiry job. Optional "points expire on 31 Mar" WhatsApp in March:
    needs a template row in the sheet (their team submits it).
 
@@ -190,9 +198,9 @@ Original list:
 |---|---|---|---|
 | A | Can ITD's docket take a discounted freight amount or a discount field? If not, ITD bills the full price and our ledger export is the only record. Same for the COD amount. | ITD / Bombino | "Discounted amount to ITD" |
 | B | Which invoice gets "discounted amount + full GST"? We make no freight tax invoice. Bombino's own billing system? | Bombino | Invoice half of answer 9 |
-| C | Can points cover the whole bill? Recommended: cap at the price before GST, so GST is always paid in cash. | Aditya / Bombino | Step 2 |
-| D | How is RTO recognised? No order status for it; needs ITD tracking event codes. | ITD | RTO clawback |
-| E | Do orders paid and dispatched earlier this FY earn points at launch, or only from launch? | Bombino | Step 1 (backfill) |
+| C | ~~Can points cover the whole bill?~~ **Answered 7 Nov: no cap**, points can cover the whole bill including GST. | Aditya | Step 2 |
+| D | ~~How is RTO recognised?~~ Moot since points land on delivery: an RTO parcel is never delivered, so it never earns. | — | — |
+| E | Do earlier orders earn at launch? **Default: no**, `EARN_FROM_BOOKING_DATE = 2026-11-07` in shared/rewards.ts. Change the constant to backfill. | Bombino | — |
 | F | Partial refund after landing: take back all earned points, or in proportion? | Aditya | Step 3 |
 | G | "Points expire 31 Mar" WhatsApp reminder: wanted? Needs a new template row. | Aditya | Optional |
 | H | Weight milestone: 700 kg? Counted per FY? Weight = hub (actual) weight, else booked? | Aditya / Bombino | Milestone numbers only (constant) |

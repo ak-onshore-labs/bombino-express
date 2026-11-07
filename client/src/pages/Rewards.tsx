@@ -8,6 +8,7 @@ import {
   Gift,
   Lock,
   MinusCircle,
+  PackageX,
   Package,
   RotateCcw,
   Scale,
@@ -272,7 +273,7 @@ function PointsWallet({ data, className }: { data: RewardsSummary; className?: s
           <Clock className="h-3.5 w-3.5 text-[#F2A123]" />
           <span>
             <span className="font-semibold text-[#B76E00]">+{formatPoints(pending.points)}</span> on the way, once{' '}
-            {pending.orders.length === 1 ? 'your order is' : `${pending.orders.length} orders are`} paid and dispatched
+            {pending.orders.length === 1 ? 'your parcel is' : `${pending.orders.length} parcels are`} delivered
           </span>
         </p>
       )}
@@ -325,6 +326,7 @@ function formatDay(iso: string): string {
 
 const KIND_ICON: Record<RewardLedgerKind, LucideIcon> = {
   earn: Package,
+  forfeit: PackageX,
   redeem: Gift,
   redeem_back: RotateCcw,
   clawback: MinusCircle,
@@ -343,7 +345,7 @@ function Activity({ data, className }: { data: RewardsSummary; className?: strin
         <p className="py-6 text-center text-sm text-[#64748B]">Your first shipment earns your first points.</p>
       ) : (
         <ul className="mt-2 divide-y divide-[#F1F5F9]">
-          {/* Not spendable yet: the order can still be reweighed or cancelled. */}
+          {/* Not spendable yet: they land when the parcel is delivered. */}
           {pending.map((row) => (
             <li key={`pending-${row.orderId}`} className="flex items-center gap-3 py-3" data-testid="row-points-pending">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-dashed border-[#F2A123]/60 text-[#B76E00]">
@@ -351,7 +353,7 @@ function Activity({ data, className }: { data: RewardsSummary; className?: strin
               </span>
               <div className="min-w-0 flex-1">
                 <p className={cn('truncate text-sm font-medium', NAVY)}>On the way</p>
-                <p className="text-xs text-[#64748B]">{row.orderNo} · once paid and dispatched</p>
+                <p className="text-xs text-[#64748B]">{row.orderNo} · once delivered</p>
               </div>
               <span className="text-sm font-bold tabular-nums text-[#B76E00]">+{formatPoints(row.points)}</span>
             </li>
@@ -398,7 +400,7 @@ function HowItWorks({ fyLastDay, className }: { fyLastDay: string; className?: s
     {
       icon: Package,
       title: 'Ship',
-      body: `Every ₹${RUPEES_PER_EARNED_POINT} you're billed earns 1 point. GST isn't counted. Points land once the order is paid and dispatched.`,
+      body: `Every ₹${RUPEES_PER_EARNED_POINT} you're billed earns 1 point. GST isn't counted. Points land once your parcel is delivered.`,
     },
     {
       icon: Gift,

@@ -95,3 +95,16 @@ test("the weight milestone is reached at 700 kg", () => {
   // A clawback can take the sum below zero for a moment; show zero.
   assert.equal(milestoneProgress(-5).shippedKg, 0);
 });
+
+test("points land on delivery; a parcel that ends any other way never earns", async () => {
+  const { deliveryOutcome } = await import("./rewards.js");
+  assert.equal(deliveryOutcome("DELIVERED"), "delivered");
+  assert.equal(deliveryOutcome("  delivered "), "delivered");
+  for (const s of ["RTO", "PART RTO", "part  rto", "CANCELLED", "ABANDONED", "LOST"]) {
+    assert.equal(deliveryOutcome(s), "never", s);
+  }
+  // Still moving, or a failed attempt that will be retried.
+  for (const s of ["INTRANSIT", "DRS", "UNDELIVERED", "UNDELIVERED/INTRANSIT-RTO", "HOLD", "", null, undefined]) {
+    assert.equal(deliveryOutcome(s), null, String(s));
+  }
+});

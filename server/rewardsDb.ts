@@ -3,10 +3,13 @@
  *
  * Rules are in shared/rewards.ts; the plan is docs/rewards/rewards-plan.md.
  *
- * Phase 1, step 1 is earning only:
- *   · `landPoints` writes the `earn` row when an account order is paid and
- *     dispatched. Called from the order fan-out (notify.ts), so every way an
- *     order reaches `dispatched` goes through it.
+ * Earning:
+ *   · `landPoints` writes the `earn` row when an account order's parcel is
+ *     DELIVERED (changed 7 Nov; was on dispatch). Delivery is learnt from ITD
+ *     tracking: whenever anyone reads it (`rewardsOnTrackingState`) and from
+ *     the six-hourly check in rewardsDelivery.ts. A parcel that ends any other
+ *     way gets a 0-point `forfeit` row instead.
+ *   · Test orders (TEST AWBs, never filed with ITD) land at dispatch.
  *   · Pending points are not stored. `rewardsSummaryFor` works them out from
  *     the customer's open orders, so a cancelled order simply stops showing
  *     them; nothing has to be reversed.
@@ -21,11 +24,14 @@
 import { dbClient, logDbError, type DbError } from "./db/client.js";
 import {
   MIN_REDEEM_POINTS,
+  EARN_FROM_BOOKING_DATE,
   RUPEES_PER_POINT,
   canRedeem,
   fyLastDay,
   fyOf,
   gstPerOf,
+  bookedInRewardsEra,
+  deliveryOutcome,
   milestoneProgress,
   pointsEarned,
   type RewardLedgerKind,
@@ -33,6 +39,7 @@ import {
 } from "../shared/rewards.js";
 import { isPaymentSatisfied, type Order } from "../shared/orderContract.js";
 import { getUserContactsByIds } from "./ordersDb.js";
+import { isTestAwb } from "../shared/testOrders.js";
 
 const UNIQUE_VIOLATION = "23505";
 
@@ -66,7 +73,7 @@ const num = (v: unknown): number | null => {
 
 /** The order columns earning needs. Read fresh: callers' Order shapes vary. */
 const EARN_COLUMNS =
-  "id, order_no, user_id, guest_ref, status, payment_method, payment_status, is_cod, booked_weight, actual_weight, quoted_amount, final_amount, metadata";
+  "id, order_no, user_id, guest_ref, status, payment_method, payment_status, is_cod, booked_weight, actual_weight, quoted_amount, final_amount, metadata, created_at";
 
 type EarnOrderRow = {
   id: string;
@@ -82,6 +89,7 @@ type EarnOrderRow = {
   quoted_amount: number | string | null;
   final_amount: number | string | null;
   metadata: Record<string, unknown> | null;
+  created_at: string;
 };
 
 /**
@@ -89,8 +97,8 @@ type EarnOrderRow = {
  * keeps its guest_ref after a later signup claims it, so the claim does not
  * make it eligible.
  */
-export function earnsRewards(order: Pick<EarnOrderRow, "user_id" | "guest_ref">): boolean {
-  return !!order.user_id && !order.guest_ref;
+export function earnsRewards(order: Pick<EarnOrderRow, "user_id" | "guest_ref" | "created_at">): boolean {
+  return !!order.user_id && !order.guest_ref && bookedInRewardsEra(order.created_at);
 }
 
 /** Amount the order costs with GST: the hub's price once weighed, else the quote. */
@@ -126,39 +134,61 @@ async function pointsUsedOn(orderId: string): Promise<number> {
   return Math.round(rupees / RUPEES_PER_POINT);
 }
 
+/** Whether this order already earned or forfeited: either closes it for good. */
+async function isClosedForRewards(orderId: string): Promise<boolean> {
+  const client = getClient();
+  if (!client) return true;
+  const { data, error } = await client
+    .from("reward_ledger")
+    .select("id")
+    .eq("order_id", orderId)
+    .in("kind", ["earn", "forfeit"])
+    .limit(1);
+  if (error) {
+    logError("isClosedForRewards", error);
+    return true; // unknown: write nothing rather than risk a double row
+  }
+  return (data ?? []).length > 0;
+}
+
+async function readEarnOrder(where: { id?: string; awb?: string }): Promise<EarnOrderRow | null> {
+  const client = getClient();
+  if (!client) return null;
+  let q = client.from("orders").select(EARN_COLUMNS);
+  q = where.id ? q.eq("id", where.id) : q.eq("awb_no", where.awb ?? "");
+  const { data, error } = await q.limit(1).maybeSingle();
+  if (error) {
+    logDbError("rewardsDb", "readEarnOrder", error);
+    return null;
+  }
+  return (data as unknown as EarnOrderRow | null) ?? null;
+}
+
 /**
- * Write the `earn` row for an order that is now paid and dispatched.
+ * Write the `earn` row for an order whose parcel has been DELIVERED.
  *
  * Idempotent: the unique index on (order_id, kind) makes a second call a
- * no-op, so it is safe to fire on every transition. An order that earns 0
- * points still gets a row, so its weight counts toward the milestone.
+ * no-op, so it is safe to fire every time tracking is read. An order that
+ * earns 0 points still gets a row, so its weight counts toward the milestone.
  *
- * Never throws; a failure here must not disturb the dispatch.
+ * Never throws; a failure here must not disturb tracking or a dispatch.
  */
-export async function landPoints(orderId: string): Promise<void> {
+export async function landPoints(orderId: string, deliveredState = "DELIVERED"): Promise<void> {
   try {
     const client = getClient();
     if (!client) return;
-
-    const { data, error } = await client
-      .from("orders")
-      .select(EARN_COLUMNS)
-      .eq("id", orderId)
-      .maybeSingle();
-    if (error || !data) {
-      if (error) logDbError("rewardsDb", "landPoints:order", error);
-      return;
-    }
-    const order = data as unknown as EarnOrderRow;
+    const order = await readEarnOrder({ id: orderId });
+    if (!order) return;
 
     if (!earnsRewards(order) || order.status !== "dispatched") return;
     // Settle already demands this; checked again so nothing lands unpaid.
     // COD counts as satisfied, as it does at settle (assumption, see plan).
     if (!isPaymentSatisfied(order as unknown as Order)) return;
+    if (await isClosedForRewards(order.id)) return;
 
     const billed = billedInclGst(order);
     if (billed == null) {
-      console.warn("[rewardsDb] dispatched order has no amount — no points landed", {
+      console.warn("[rewardsDb] delivered order has no amount — no points landed", {
         order_id: order.id,
       });
       return;
@@ -175,7 +205,7 @@ export async function landPoints(orderId: string): Promise<void> {
       points,
       weight_kg: shippedKg(order),
       fy: fyOf(),
-      metadata: { billed_incl_gst: billed, gst_per: gstPer, points_used: used },
+      metadata: { billed_incl_gst: billed, gst_per: gstPer, points_used: used, tracking_state: deliveredState },
     });
     if (insertError && insertError.code !== UNIQUE_VIOLATION) {
       logError("landPoints:insert", insertError);
@@ -186,11 +216,55 @@ export async function landPoints(orderId: string): Promise<void> {
 }
 
 /**
- * Run after any order transition. Lands points on dispatch; nothing else in
- * step 1 (cancel needs no row, because pending points are not stored).
+ * The parcel ended without being delivered (returned to origin, lost,
+ * abandoned, cancelled by the carrier): record a 0-point `forfeit` so the
+ * order stops showing as "on the way" and the delivery check stops asking.
  */
-export async function rewardsOnTransition(order: Pick<Order, "id" | "status">): Promise<void> {
-  if (order.status === "dispatched") await landPoints(order.id);
+export async function forfeitPoints(orderId: string, state: string): Promise<void> {
+  try {
+    const client = getClient();
+    if (!client) return;
+    const order = await readEarnOrder({ id: orderId });
+    if (!order || !earnsRewards(order) || order.status !== "dispatched") return;
+    if (await isClosedForRewards(order.id)) return;
+    const { error } = await client.from("reward_ledger").insert({
+      user_id: order.user_id,
+      order_id: order.id,
+      kind: "forfeit",
+      points: 0,
+      weight_kg: 0,
+      fy: fyOf(),
+      note: `Not delivered (${state})`,
+      metadata: { tracking_state: state },
+    });
+    if (error && error.code !== UNIQUE_VIOLATION) logError("forfeitPoints:insert", error);
+  } catch (err) {
+    console.error("[rewardsDb] forfeitPoints failed", { order_id: orderId, err });
+  }
+}
+
+/**
+ * Carrier tracking was just read for an AWB (a customer or ops opening
+ * tracking, the parcel page, or the delivery check). Lands or forfeits the
+ * order's points when the state is final. Fire-and-forget; never throws.
+ */
+export async function rewardsOnTrackingState(awb: string, state: string | null | undefined): Promise<void> {
+  const outcome = deliveryOutcome(state);
+  if (!outcome || !awb.trim()) return;
+  const order = await readEarnOrder({ awb: awb.trim() });
+  if (!order || !earnsRewards(order) || order.status !== "dispatched") return;
+  if (outcome === "delivered") await landPoints(order.id, String(state).trim().toUpperCase());
+  else await forfeitPoints(order.id, String(state).trim().toUpperCase());
+}
+
+/**
+ * Run after any order transition. Real parcels earn on delivery (tracking),
+ * not here. A TEST order's AWB is never filed with ITD, so it would never be
+ * "delivered": it lands at dispatch instead, so the team can try rewards end
+ * to end on test phones.
+ */
+export async function rewardsOnTransition(order: Pick<Order, "id" | "status" | "awb_no">): Promise<void> {
+  if (order.status === "dispatched" && isTestAwb(order.awb_no)) await landPoints(order.id, "TEST_DISPATCHED");
 }
 
 /** Largest single manual adjustment, either way. A typo guard, not a policy. */
@@ -293,8 +367,6 @@ type LedgerRow = {
   created_at: string;
 };
 
-/** Open orders: still on their way to paid and dispatched. */
-const CLOSED_STATUSES = ["dispatched", "cancelled"];
 
 /**
  * Everything the rewards screen shows, for one account.
@@ -323,10 +395,11 @@ export async function rewardsSummaryFor(
       .order("created_at", { ascending: false }),
     client
       .from("orders")
-      .select("id, order_no, user_id, guest_ref, status, quoted_amount, final_amount, metadata")
+      .select("id, order_no, user_id, guest_ref, status, quoted_amount, final_amount, metadata, created_at")
       .eq("user_id", userId)
       .is("guest_ref", null)
-      .not("status", "in", `(${CLOSED_STATUSES.join(",")})`),
+      .neq("status", "cancelled")
+      .gte("created_at", new Date(`${EARN_FROM_BOOKING_DATE}T00:00:00+05:30`).toISOString()),
   ]);
 
   let ledger: LedgerRow[] = [];
@@ -349,7 +422,13 @@ export async function rewardsSummaryFor(
     if (row.fy === fy) kgThisFy += Number(row.weight_kg) || 0;
   }
 
+  // On the way = not cancelled, and not yet earned or forfeited (delivered,
+  // or ended undelivered). Dispatched parcels stay here until delivery.
+  const closed = new Set(
+    ledger.filter((r) => r.kind === "earn" || r.kind === "forfeit").map((r) => r.order_id)
+  );
   const pendingOrders = ((openRes.data ?? []) as unknown as EarnOrderRow[])
+    .filter((o) => !closed.has(o.id))
     .map((o) => ({
       orderId: o.id,
       orderNo: o.order_no,

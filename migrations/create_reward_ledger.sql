@@ -1,6 +1,7 @@
 -- Reward points ledger (phase 1, points only). See docs/rewards/rewards-plan.md.
 --
--- One row per thing that moves a customer's points: earned on an order, used
+-- One row per thing that moves a customer's points: earned on an order once
+-- the parcel is delivered, used
 -- on an order, given back, taken back, expired at the end of the financial
 -- year, or adjusted by hand. Insert-only; nothing updates a row.
 --
@@ -26,8 +27,10 @@ CREATE TABLE IF NOT EXISTS public.reward_ledger (
   -- Null only for year-end expiry and manual adjustments.
   order_id uuid REFERENCES public.orders(id) ON DELETE CASCADE,
 
+  -- forfeit: 0 points, the parcel ended undelivered (RTO, lost…) and never
+  -- earns. Recorded so it stops showing as "on the way".
   kind text NOT NULL CHECK (
-    kind IN ('earn', 'redeem', 'redeem_back', 'clawback', 'expiry', 'adjust')
+    kind IN ('earn', 'forfeit', 'redeem', 'redeem_back', 'clawback', 'expiry', 'adjust')
   ),
 
   -- Signed: earn / redeem_back positive, redeem / clawback / expiry negative.
@@ -52,11 +55,11 @@ CREATE TABLE IF NOT EXISTS public.reward_ledger (
     CHECK (kind <> 'adjust' OR (note IS NOT NULL AND created_by IS NOT NULL))
 );
 
--- An order earns once and is taken back once, however many times the event
--- that triggers it fires (retries, two staff pressing the same button).
+-- An order earns (or forfeits) once and is taken back once, however many
+-- times the event that triggers it fires (tracking polled again, retries).
 CREATE UNIQUE INDEX IF NOT EXISTS reward_ledger_once_per_order
   ON public.reward_ledger (order_id, kind)
-  WHERE kind IN ('earn', 'clawback');
+  WHERE kind IN ('earn', 'forfeit', 'clawback');
 
 -- One expiry per customer per year.
 CREATE UNIQUE INDEX IF NOT EXISTS reward_ledger_expiry_once
