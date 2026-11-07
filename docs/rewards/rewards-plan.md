@@ -155,7 +155,17 @@ Original list:
 2. Manual adjust with a required reason (super admin).
 3. Monthly CSV export of the ledger for accounts (ITD won't know the discount).
 
-### Step 5: UI (port from the demo repo)
+### Step 5: UI (port from the demo repo) — BUILT 7 Nov (items 1, 3, 4, 5)
+
+Done: `/rewards` page (`client/src/pages/Rewards.tsx`): weight milestone hero
+("Unlock special rewards" + kg ring/meter, then "Rewards await you"), points
+wallet (meter to 100, "on the way", expiry warning from 1 Mar), activity,
+how it works. Home teaser (mobile + desktop), side menu and desktop sidebar
+link, all hidden from guests (`useRewardsAccess` in `client/src/lib/rewards.ts`).
+Data from `GET /api/rewards`. Item 2 (Review & Pay card) waits on step 2; the
+wallet says "Using points at Review & Pay is coming soon".
+
+Original list:
 1. Wallet page `/rewards`: balance, pending ("on the way"), history, FY expiry
    countdown from ~1 Mar. Under 100: meter to 100.
 2. Review & Pay and Payment due: "Use reward points" card, To pay, earn note.

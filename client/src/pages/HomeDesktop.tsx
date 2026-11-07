@@ -20,6 +20,7 @@ import { type DisplayRow } from '@/lib/shipmentRows';
 import { useOrderHistory } from '@/hooks/useCustomerOrders';
 import { useSupportContacts } from '@/hooks/useSupportContacts';
 import { ParcelsQuickAccess } from '@/components/ParcelsQuickAccess';
+import { RewardsTeaser } from '@/components/rewards/RewardsTeaser';
 
 
 // ─── Popular routes (static seed; ready to swap for an /api/popular-routes endpoint) ───
@@ -566,6 +567,7 @@ export default function HomeDesktop() {
         {/* RIGHT — sidebar */}
         <aside className="col-span-12 lg:col-span-4 space-y-5">
           {/* Needs your attention lives at the top of My parcels now. */}
+          <RewardsTeaser />
           <SupportWidget />
           {isLoggedIn ? (
             <KycHomeTip />

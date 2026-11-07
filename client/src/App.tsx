@@ -35,6 +35,7 @@ import ApplicationFix from "@/pages/ApplicationFix";
 import { useGuestProfile } from "@/hooks/useGuestProfile";
 import { useAppStore } from "@/lib/store";
 import Support from "@/pages/Support";
+import Rewards from "@/pages/Rewards";
 import Locations from "@/pages/Locations";
 import NotFound from "@/pages/not-found";
 
@@ -95,6 +96,8 @@ function CustomerRouter() {
           asked about, no new code, no contract to sign again. */}
       <Route path="/application/fix" component={ApplicationFix} />
       <Route path="/help" component={Support} />
+      {/* Reward points. Account holders only; the page sends anyone else home. */}
+      <Route path="/rewards" component={Rewards} />
       {/* Every drop-off counter. Reached from the booking form and the order
           screen with `?near=<state>`, which floats that state to the top. */}
       <Route path="/locations" component={Locations} />

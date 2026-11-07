@@ -10,7 +10,9 @@ import {
   Bell,
   LogOut,
   LogIn,
+  Gift,
 } from 'lucide-react';
+import { canSeeRewards } from '@/lib/rewards';
 import { Link, useLocation } from 'wouter';
 import bombinoLogo from '@/assets/bombino-logo.png';
 import { cn } from '@/lib/utils';
@@ -38,6 +40,7 @@ const SIGN_OUT_BUTTON =
   'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-red-400 hover:bg-red-500/[0.12] hover:text-red-300 transition-all duration-150 text-left';
 
 const ACCOUNT_NAV = [
+  { label: 'Rewards', icon: Gift, path: '/rewards', rewardsOnly: true as const },
   { label: 'My Profile', icon: User, path: '/profile', authRequired: true as const },
   { label: 'Ask BIA', icon: Bot, path: '/help' },
 ] as const;
@@ -124,9 +127,11 @@ export function DesktopSidebar() {
     return location === path || location.startsWith(path + '/');
   };
 
+  const rewardsOn = canSeeRewards(isLoggedIn, user?.role);
   const visibleAccountNav = ACCOUNT_NAV.filter(
     (item) => !('authRequired' in item && item.authRequired) || isLoggedIn || !!guestProfile
-  ).map((item) =>
+  )
+    .filter((item) => !('rewardsOnly' in item && item.rewardsOnly) || rewardsOn).map((item) =>
     // Same row, same label, different destination: /profile is the account
     // screen and turns a guest away, /guest-profile is theirs.
     item.path === '/profile' && !isLoggedIn && guestProfile

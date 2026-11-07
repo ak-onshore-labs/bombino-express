@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { X, User, LogOut, LogIn, Bot, Phone, ShieldCheck } from 'lucide-react';
+import { X, User, LogOut, LogIn, Bot, Phone, ShieldCheck, Gift } from 'lucide-react';
+import { canSeeRewards } from '@/lib/rewards';
 import { Link } from 'wouter';
 import { useAppStore } from '@/lib/store';
 import { useGuestProfile } from '@/hooks/useGuestProfile';
@@ -236,6 +237,21 @@ export function SideMenu({ isOpen, onClose }: SideMenuProps) {
                       </button>
                     )}
                   </>
+                )}
+
+                {/* Account holders only: guests never earn points. */}
+                {canSeeRewards(isLoggedIn, user?.role) && (
+                  <Link
+                    href="/rewards"
+                    onClick={onClose}
+                    className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted active:scale-[0.98] transition-all"
+                    data-testid="link-rewards"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center">
+                      <Gift className="w-5 h-5 text-amber-600" />
+                    </div>
+                    <span className="font-medium">Rewards</span>
+                  </Link>
                 )}
 
                 <div className="border-t border-border my-4" />
