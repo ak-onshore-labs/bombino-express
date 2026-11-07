@@ -32,6 +32,7 @@ import {
   type RewardsSummary,
 } from "../shared/rewards.js";
 import { isPaymentSatisfied, type Order } from "../shared/orderContract.js";
+import { getUserContactsByIds } from "./ordersDb.js";
 
 const UNIQUE_VIOLATION = "23505";
 
@@ -192,6 +193,94 @@ export async function rewardsOnTransition(order: Pick<Order, "id" | "status">): 
   if (order.status === "dispatched") await landPoints(order.id);
 }
 
+/** Largest single manual adjustment, either way. A typo guard, not a policy. */
+export const MAX_ADJUST_POINTS = 100_000;
+
+/**
+ * Add (positive) or take away (negative) points by hand. Super admin only —
+ * the route checks `rewards.adjust`. The reason is required and kept on the
+ * row with who made it; there is no edit or delete, a mistake is undone by
+ * another adjustment.
+ *
+ * Returns false when the write failed (including a missing table).
+ */
+export async function addAdjustment(input: {
+  userId: string;
+  points: number;
+  note: string;
+  staffUserId: string;
+}): Promise<boolean> {
+  const client = getClient();
+  if (!client) return false;
+  const { error } = await client.from("reward_ledger").insert({
+    user_id: input.userId,
+    order_id: null,
+    kind: "adjust",
+    points: input.points,
+    weight_kg: 0,
+    fy: fyOf(),
+    note: input.note,
+    created_by: input.staffUserId,
+  });
+  if (error) {
+    logError("addAdjustment", error);
+    return false;
+  }
+  return true;
+}
+
+/** One ledger row as the accounts export needs it. */
+export type LedgerExportRow = {
+  id: string;
+  created_at: string;
+  user_id: string;
+  order_id: string | null;
+  kind: RewardLedgerKind;
+  points: number;
+  weight_kg: number;
+  fy: string;
+  note: string | null;
+  created_by: string | null;
+  metadata: Record<string, unknown> | null;
+};
+
+/**
+ * Every ledger row in one IST calendar month (`YYYY-MM`), oldest first, for
+ * the monthly export to accounts. ITD never learns about points, so this is
+ * the only record of what they were worth.
+ *
+ * Null when the database cannot be reached; [] when the table is missing.
+ */
+export async function listLedgerForMonth(month: string): Promise<LedgerExportRow[] | null> {
+  const client = getClient();
+  if (!client) return null;
+
+  const [y, m] = month.split("-").map(Number);
+  const start = new Date(`${month}-01T00:00:00+05:30`).toISOString();
+  const nextMonth = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
+  const end = new Date(`${nextMonth}-01T00:00:00+05:30`).toISOString();
+
+  const rows: LedgerExportRow[] = [];
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await client
+      .from("reward_ledger")
+      .select("id, created_at, user_id, order_id, kind, points, weight_kg, fy, note, created_by, metadata")
+      .gte("created_at", start)
+      .lt("created_at", end)
+      .order("created_at", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) {
+      logError("listLedgerForMonth", error);
+      return isMissingTable(error) ? [] : null;
+    }
+    const page = (data ?? []) as LedgerExportRow[];
+    rows.push(...page.map((r) => ({ ...r, points: Number(r.points) || 0, weight_kg: Number(r.weight_kg) || 0 })));
+    if (page.length < PAGE) break;
+  }
+  return rows;
+}
+
 type LedgerRow = {
   id: string;
   order_id: string | null;
@@ -200,6 +289,7 @@ type LedgerRow = {
   weight_kg: number | string;
   fy: string;
   note: string | null;
+  created_by: string | null;
   created_at: string;
 };
 
@@ -211,8 +301,15 @@ const CLOSED_STATUSES = ["dispatched", "cancelled"];
  *
  * Returns null only when the database cannot be reached. A missing ledger
  * table reads as an empty ledger.
+ *
+ * `forStaff` adds who made each manual adjustment (ops console only; the
+ * customer never sees staff names).
  */
-export async function rewardsSummaryFor(userId: string, now: Date = new Date()): Promise<RewardsSummary | null> {
+export async function rewardsSummaryFor(
+  userId: string,
+  options: { now?: Date; forStaff?: boolean } = {}
+): Promise<RewardsSummary | null> {
+  const now = options.now ?? new Date();
   const client = getClient();
   if (!client) return null;
 
@@ -221,7 +318,7 @@ export async function rewardsSummaryFor(userId: string, now: Date = new Date()):
   const [ledgerRes, openRes] = await Promise.all([
     client
       .from("reward_ledger")
-      .select("id, order_id, kind, points, weight_kg, fy, note, created_at")
+      .select("id, order_id, kind, points, weight_kg, fy, note, created_by, created_at")
       .eq("user_id", userId)
       .order("created_at", { ascending: false }),
     client
@@ -271,6 +368,12 @@ export async function rewardsSummaryFor(userId: string, now: Date = new Date()):
     for (const o of data ?? []) orderNos.set(o.id as string, o.order_no as string);
   }
 
+  const staffNames = new Map<string, string>();
+  if (options.forStaff) {
+    const ids = ledger.map((r) => r.created_by).filter((id): id is string => !!id);
+    for (const [id, c] of await getUserContactsByIds(ids)) staffNames.set(id, c.full_name ?? "Staff");
+  }
+
   return {
     fy,
     fyLastDay: fyLastDay(fy),
@@ -291,6 +394,9 @@ export async function rewardsSummaryFor(userId: string, now: Date = new Date()):
       orderNo: r.order_id ? (orderNos.get(r.order_id) ?? null) : null,
       note: r.note,
       createdAt: r.created_at,
+      ...(options.forStaff
+        ? { createdByName: r.created_by ? (staffNames.get(r.created_by) ?? "Staff") : null }
+        : {}),
     })),
   };
 }

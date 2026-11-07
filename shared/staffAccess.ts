@@ -116,12 +116,14 @@ export type OpsPermission =
   | 'beats.view'
   | 'beats.manage'
   | 'pincodes.view'
+  /** Add or take away a customer's reward points by hand, with a reason. */
+  | 'rewards.adjust'
   | 'settings';
 
 const ALL: readonly OpsPermission[] = [
   'orders.view', 'orders.act', 'payments.view', 'customers.view', 'guests.view',
   'applications.review', 'kyc.view', 'users.view', 'users.manage', 'users.assign_roles',
-  'beats.view', 'beats.manage', 'pincodes.view', 'settings',
+  'beats.view', 'beats.manage', 'pincodes.view', 'rewards.adjust', 'settings',
 ];
 
 /** The sheet's "What it does" and "Access notes" columns. */
@@ -129,7 +131,10 @@ export const OPS_PERMISSIONS_BY_ROLE: Record<OpsRole, readonly OpsPermission[]> 
   super_admin: ALL,
   // "No Settings, no KYC document view." Creates agents; only a super admin
   // creates other staff and assigns roles.
-  admin: ALL.filter((p) => p !== 'settings' && p !== 'kyc.view' && p !== 'users.assign_roles'),
+  // Reward point adjustments are money in all but name: super admin only.
+  admin: ALL.filter(
+    (p) => p !== 'settings' && p !== 'kyc.view' && p !== 'users.assign_roles' && p !== 'rewards.adjust'
+  ),
   // "Only their city's orders and agents. Users and Beats are view only."
   // Their own city only: add and edit pickup agents, add and edit beats. The
   // city line is enforced on every write in server/routes/ops.ts.

@@ -74,3 +74,10 @@ test('admins and branch managers create agents, super admins any staff but anoth
 test('only a branch manager is held to one city', () => {
   for (const role of OPS_ROLES) assert.equal(isCityScoped(role), role === 'branch_manager', role);
 });
+
+test('only a super admin adjusts reward points by hand', () => {
+  for (const role of OPS_ROLES) {
+    assert.equal(can(role, 'rewards.adjust'), role === 'super_admin', role);
+  }
+  assert.equal(can('customer', 'rewards.adjust'), false);
+});

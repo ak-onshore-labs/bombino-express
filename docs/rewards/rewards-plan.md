@@ -150,7 +150,16 @@ Original list:
 4. 31 Mar expiry job. Optional "points expire on 31 Mar" WhatsApp in March:
    needs a template row in the sheet (their team submits it).
 
-### Step 4: ops tools
+### Step 4: ops tools — BUILT 7 Nov
+
+Done: "Reward points" section on the ops customer page
+(`OpsCustomerRewards`): balance, on the way, kg this FY, milestone, full
+history with who adjusted. Manual adjust (add / take away, reason ≥ 5 chars,
+max 100,000 per go) behind new permission `rewards.adjust`, super admin only.
+"Reward points ledger" monthly CSV on Transactions (`payments.view`, so
+accounts has it). Routes in `server/routes/opsRewards.ts`.
+
+Original list:
 1. Customer page: points balance + history.
 2. Manual adjust with a required reason (super admin).
 3. Monthly CSV export of the ledger for accounts (ITD won't know the discount).

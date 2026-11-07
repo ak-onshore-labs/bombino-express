@@ -79,6 +79,7 @@ import { isTestPhone } from "./testOrders.js";
 import { registerAgentRoutes } from "./routes/agent.js";
 import { registerPaymentRoutes } from "./routes/payments.js";
 import { registerRewardsRoutes } from "./routes/rewards.js";
+import { registerOpsRewardsRoutes } from "./routes/opsRewards.js";
 import { registerGuestProfileRoutes } from "./routes/guestProfile.js";
 import { registerSupportRoutes } from "./routes/support.js";
 import { seedSignupDocumentFromGuestKyc } from "./guestKycMirror.js";
@@ -317,6 +318,8 @@ export async function registerRoutes(
   registerGuestProfileRoutes(app);
   // Reward points: the signed-in account's balance, pending and milestone.
   registerRewardsRoutes(app);
+  // Reward points in the ops console: customer points, manual adjust, monthly ledger.
+  registerOpsRewardsRoutes(app);
 
   // WhatsApp delivery receipts, and the STOP word. Unauthenticated by design
   // too — the secret in the path is what the provider was given.

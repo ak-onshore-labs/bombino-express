@@ -15,6 +15,7 @@ import {
   type OpsPaymentRow,
 } from '@/hooks/useOpsOrders';
 import { downloadCsv } from '@/lib/csv';
+import { fetchOpsRewardsLedger, type OpsRewardsLedgerRow } from '@/hooks/useOpsRewards';
 import { formatInr, formatIst, paymentMethodLabel } from '@/lib/orderDetail';
 import { cn } from '@/lib/utils';
 
@@ -50,6 +51,99 @@ function paymentToCsvRow(row: OpsPaymentRow): (string | number)[] {
     row.txn_id ?? '',
     row.reference ?? '',
   ];
+}
+
+const POINTS_CSV_HEADERS = [
+  'date_ist',
+  'customer_name',
+  'customer_phone',
+  'kind',
+  'points',
+  'rupee_value',
+  'order_no',
+  'billed_incl_gst',
+  'gst_per',
+  'weight_kg',
+  'fy',
+  'note',
+  'adjusted_by',
+] as const;
+
+function pointsToCsvRow(row: OpsRewardsLedgerRow): (string | number | null)[] {
+  return [
+    formatIst(row.created_at),
+    row.customer_name,
+    row.customer_phone,
+    row.kind,
+    row.points,
+    row.rupee_value,
+    row.order_no,
+    row.billed_incl_gst,
+    row.gst_per,
+    row.weight_kg,
+    row.fy,
+    row.note,
+    row.adjusted_by,
+  ];
+}
+
+/**
+ * Reward points, one IST month at a time, for accounts. ITD bills the full
+ * price and never hears about points, so this sheet is the record of them.
+ */
+function PointsLedgerExport() {
+  const { toast } = useToast();
+  const [month, setMonth] = useState(() => nowInIst().date.slice(0, 7));
+  const [busy, setBusy] = useState(false);
+
+  const download = async (): Promise<void> => {
+    setBusy(true);
+    try {
+      const rows = await fetchOpsRewardsLedger(month);
+      if (rows.length === 0) {
+        toast({ title: 'No points activity', description: `Nothing in the points ledger for ${month}.` });
+        return;
+      }
+      downloadCsv(`bombino-reward-points-${month}.csv`, [...POINTS_CSV_HEADERS], rows.map(pointsToCsvRow));
+    } catch {
+      toast({
+        title: 'Export failed',
+        description: 'Could not download the points ledger. Try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-white px-3 py-2.5 mb-4"
+      data-testid="ops-points-ledger"
+    >
+      <p className="text-sm font-semibold text-foreground mr-auto">Reward points ledger</p>
+      <Input
+        type="month"
+        value={month}
+        max={nowInIst().date.slice(0, 7)}
+        onChange={(e) => setMonth(e.target.value)}
+        className="h-9 w-48"
+        aria-label="Month"
+        data-testid="ops-points-ledger-month"
+      />
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        onClick={() => void download()}
+        disabled={busy || !/^\d{4}-\d{2}$/.test(month)}
+        data-testid="ops-points-ledger-download"
+      >
+        {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+        Download month
+      </Button>
+    </div>
+  );
 }
 
 export default function OpsTransactions() {
@@ -137,6 +231,8 @@ export default function OpsTransactions() {
           Download
         </Button>
       </div>
+
+      <PointsLedgerExport />
 
       {isLoading && (
         <div className="flex justify-center py-16" data-testid="ops-ledger-loading">

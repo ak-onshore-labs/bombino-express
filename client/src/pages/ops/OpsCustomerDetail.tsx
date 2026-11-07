@@ -5,6 +5,7 @@ import { Link, useParams } from 'wouter';
 import { OpsDocumentPreviewOverlay, useOpsDocumentPreview } from '@/components/ops/OpsDocumentPreview';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { OpsOrderCard } from '@/components/ops/OpsOrderCard';
+import { OpsCustomerRewards } from '@/components/ops/OpsCustomerRewards';
 import { Button } from '@/components/ui/button';
 import {
   fetchOpsCustomerDocumentFile,
@@ -381,6 +382,8 @@ export default function OpsCustomerDetail() {
                 )}
                 <Fact label="Member since" value={formatIstDate(data.customer.created_at)} />
               </section>
+
+              <OpsCustomerRewards customerId={data.customer.id} />
 
               <section
                 className="rounded-md border border-border bg-white p-4 mb-6"

@@ -164,5 +164,7 @@ export type RewardsSummary = {
     orderNo: string | null;
     note: string | null;
     createdAt: string;
+    /** Ops console only: who made a manual adjustment. */
+    createdByName?: string | null;
   }[];
 };
