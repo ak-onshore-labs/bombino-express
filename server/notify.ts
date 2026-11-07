@@ -38,6 +38,7 @@ import { receiverWhatsappTarget, whatsappTargetFor } from "./whatsappAlt.js";
 import { getAgent, listAgentsForPincode } from "./whatsappAgents.js";
 import { getCodeForOwner } from "./handoverCodes.js";
 import { isRazorpayConfigured } from "./razorpay.js";
+import { rewardsOnTransition } from "./rewardsDb.js";
 import { getSupportContacts } from "./settingsDb.js";
 import { isTestPhone } from "./testOrders.js";
 import { isTestOrderMetadata } from "../shared/testOrders.js";
@@ -190,6 +191,8 @@ export async function notifyOrderTransition(notice: OrderTransitionNotice): Prom
     notifyCustomerWhatsapp(order, actorUserId),
     notifyReceiverWhatsapp(order),
     notifyAgentOfDisruption(order),
+    // Not a message, but it must follow every move: points land on dispatch.
+    rewardsOnTransition(order),
   ]);
 }
 

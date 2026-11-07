@@ -78,6 +78,7 @@ import { isCallersOrder } from "./staffScope.js";
 import { isTestPhone } from "./testOrders.js";
 import { registerAgentRoutes } from "./routes/agent.js";
 import { registerPaymentRoutes } from "./routes/payments.js";
+import { registerRewardsRoutes } from "./routes/rewards.js";
 import { registerGuestProfileRoutes } from "./routes/guestProfile.js";
 import { registerSupportRoutes } from "./routes/support.js";
 import { seedSignupDocumentFromGuestKyc } from "./guestKycMirror.js";
@@ -314,6 +315,8 @@ export async function registerRoutes(
   // is unauthenticated by design — its signature is its authentication.
   registerPaymentRoutes(app);
   registerGuestProfileRoutes(app);
+  // Reward points: the signed-in account's balance, pending and milestone.
+  registerRewardsRoutes(app);
 
   // WhatsApp delivery receipts, and the STOP word. Unauthenticated by design
   // too — the secret in the path is what the provider was given.
@@ -3524,6 +3527,9 @@ export async function registerRoutes(
         ...(isTestBooking ? { test: true } : {}),
         kyc_verified: bookingKyc.verified,
         quote_verified: !!itdQuote,
+        // GST rate from ITD's rate row, so reward points can be earned on the
+        // price before GST (shared/rewards.ts). Absent → 18% is assumed.
+        ...(itdQuote?.gstPer != null ? { gst_per: itdQuote.gstPer } : {}),
         ...(itdQuote && body.quoted_amount != null && itdQuote.total !== body.quoted_amount
           ? { client_quoted_amount: body.quoted_amount }
           : {}),

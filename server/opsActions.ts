@@ -126,8 +126,27 @@ const ratesCodeCache = new Map<string, { code: string; expiresAt: number }>();
  * repriced at its real weight. Both must ask the same question on the same
  * login, or a customer is quoted one number and charged by another rule.
  */
+/**
+ * GST rate (%) from an ITD rate row. ITD usually omits `gst_per` and sends the
+ * tax as amounts, so it is worked out the way the client's normalizeRateRow
+ * does: tax over what it was charged on. Null when the row says nothing.
+ */
+export function gstPerFromRateRow(row: Record<string, unknown>): number | null {
+  const n = (v: unknown): number => {
+    const x = Number(v);
+    return Number.isFinite(x) ? x : 0;
+  };
+  const given = n(row.gst_per);
+  if (given > 0) return given;
+  const gstTotal = n(row.cgst) + n(row.sgst) + n(row.igst);
+  const subTotal = n(row.sub_total);
+  const taxable = subTotal > 0 ? subTotal : n(row.total) - gstTotal;
+  if (gstTotal > 0 && taxable > 0) return Math.round((gstTotal / taxable) * 100);
+  return null;
+}
+
 export type ItdRateLookup =
-  | { status: "priced"; total: number; serviceCode: string }
+  | { status: "priced"; total: number; serviceCode: string; gstPer: number | null }
   /** ITD answered and offers no price for this service as booked ("Freight amount is 0" territory). */
   | { status: "unpriced" }
   /** The question could not be asked or answered: missing inputs, or ITD did not respond. */
@@ -144,9 +163,11 @@ type RateInput = {
 export async function itdRateAtWeight(
   input: RateInput,
   weightKg: number
-): Promise<{ total: number; serviceCode: string } | null> {
+): Promise<{ total: number; serviceCode: string; gstPer: number | null } | null> {
   const r = await itdRateLookup(input, weightKg);
-  return r.status === "priced" ? { total: r.total, serviceCode: r.serviceCode } : null;
+  return r.status === "priced"
+    ? { total: r.total, serviceCode: r.serviceCode, gstPer: r.gstPer }
+    : null;
 }
 
 /**
@@ -212,7 +233,12 @@ export async function itdRateLookup(input: RateInput, weightKg: number): Promise
       if (code !== apiServiceCode) continue;
       const total = Number(row.total);
       if (!Number.isFinite(total) || total <= 0) continue;
-      return { status: "priced", total: Math.round(total * 100) / 100, serviceCode: code };
+      return {
+        status: "priced",
+        total: Math.round(total * 100) / 100,
+        serviceCode: code,
+        gstPer: gstPerFromRateRow(row),
+      };
     }
     // ITD answered, and nothing it offered prices this service.
     return { status: "unpriced" };
