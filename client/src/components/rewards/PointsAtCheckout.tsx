@@ -16,6 +16,8 @@ interface PointsAtCheckoutProps {
   /** Points chosen. 0 means the switch is off. */
   points: number;
   onPointsChange: (points: number) => void;
+  /** Why points can't go on this booking (e.g. Cash on Delivery). Locks the switch. */
+  blockedReason?: string | null;
   className?: string;
 }
 
@@ -28,8 +30,8 @@ interface PointsAtCheckoutProps {
  * Under 100 points it says how far off they are instead of a bare disabled
  * switch.
  */
-export function PointsAtCheckout({ balance, payable, points, onPointsChange, className }: PointsAtCheckoutProps) {
-  const max = maxRedeemable(balance, payable);
+export function PointsAtCheckout({ balance, payable, points, onPointsChange, blockedReason, className }: PointsAtCheckoutProps) {
+  const max = blockedReason ? 0 : maxRedeemable(balance, payable);
   const on = points > 0;
   const shortOfMinimum = balance < MIN_REDEEM_POINTS;
   const clamp = (n: number): number => Math.min(Math.max(Math.round(n), 1), max);
@@ -63,7 +65,13 @@ export function PointsAtCheckout({ balance, payable, points, onPointsChange, cla
         />
       </div>
 
-      {shortOfMinimum && (
+      {blockedReason && (
+        <p className="mt-3 text-xs text-[#64748B]" data-testid="text-points-blocked">
+          {blockedReason}
+        </p>
+      )}
+
+      {!blockedReason && shortOfMinimum && (
         <div className="mt-3">
           <div className="h-1.5 overflow-hidden rounded-sm bg-[#F3F4F6]">
             <div

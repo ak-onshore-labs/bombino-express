@@ -744,6 +744,13 @@ export default function CreateShipment() {
   const rewardsQuery = useRewards({ enabled: rewardsOn });
   const pointsBalance = rewardsQuery.data?.balance ?? 0;
   const [pointsToUse, setPointsToUse] = useState(0);
+  // Cash on Delivery is collected at the destination, and nothing sent to ITD
+  // carries a discount, so the receiver would be asked for the full price.
+  // The server refuses points on COD too.
+  const pointsBlockedReason = paymentMethod === 'cod' ? "Reward points can't be used with Cash on Delivery." : null;
+  useEffect(() => {
+    if (pointsBlockedReason) setPointsToUse(0);
+  }, [pointsBlockedReason]);
   const [bookedPoints, setBookedPoints] = useState<{ used: number; earn: number } | null>(null);
   const quoteTotal = selectedService?.total ?? 0;
   const pointsOff = pointsToUse * RUPEES_PER_POINT;
@@ -2150,7 +2157,7 @@ export default function CreateShipment() {
     createMutation.mutate({
       ...pendingOrderRef.current,
       payment_method: paymentMethod as OrderCreatePayload['payment_method'],
-      ...(pointsToUse > 0 && !guestMode ? { points_to_redeem: pointsToUse } : {}),
+      ...(pointsToUse > 0 && !guestMode && !pointsBlockedReason ? { points_to_redeem: pointsToUse } : {}),
     });
   };
 
@@ -4678,6 +4685,7 @@ export default function CreateShipment() {
                   payable={quoteTotal}
                   points={pointsToUse}
                   onPointsChange={setPointsToUse}
+                  blockedReason={pointsBlockedReason}
                 />
                 <PointsEarnNote points={pointsToEarn} className="px-1" />
               </div>

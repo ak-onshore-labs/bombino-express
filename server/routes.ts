@@ -3528,6 +3528,14 @@ export async function registerRoutes(
         res.status(400).json({ message: "Reward points are for account holders. Book without points." });
         return;
       }
+      // COD is collected at the destination and nothing filed with ITD carries
+      // a discount, so the receiver would be charged the full price.
+      if (body.payment_method === "cod") {
+        res.status(400).json({
+          message: "Reward points can't be used with Cash on Delivery. Pick another way to pay, or book without points.",
+        });
+        return;
+      }
       if (!itdQuote) {
         res.status(409).json({
           message: "We couldn't confirm this price online, so points can't be used on it. Book without points.",
