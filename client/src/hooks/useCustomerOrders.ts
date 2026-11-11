@@ -120,6 +120,8 @@ export interface CancellationRow {
   pickup_date: string | null;
   quoted_amount: number | null;
   final_amount: number | null;
+  /** Reward points still applied (0 once the cancel has given them back). */
+  points_used?: number;
   payment_method: string;
   payment_status: string;
   created_at: string;

@@ -54,6 +54,11 @@ export type OpsBoardOrder = {
   agent_cancellation?: OpsAgentCancellation | null;
   /** Booked on a test number: a test AWB, never filed with ITD. */
   is_test?: boolean;
+  /**
+   * Reward points still applied (board rows only; the order page reads
+   * `metadata.reward_points_used`). Money owed = price − points.
+   */
+  points_used?: number;
 };
 
 export type OpsAgentCancellation = {

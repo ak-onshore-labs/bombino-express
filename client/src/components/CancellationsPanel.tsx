@@ -35,6 +35,7 @@ import { format, parseISO, isValid } from 'date-fns';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { formatInr } from '@/lib/orderDetail';
+import { toCollect } from '@shared/rewards';
 import { useCancellations, type CancellationRow } from '@/hooks/useCustomerOrders';
 import { useSupportContacts } from '@/hooks/useSupportContacts';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
@@ -140,7 +141,7 @@ function Progress({ row }: { row: CancellationRow }) {
 
 function CancellationCard({ row }: { row: CancellationRow }) {
   const { state, reason, requestedAt, decidedAt, decisionNote } = row.cancellation;
-  const amount = formatInr(row.final_amount ?? row.quoted_amount);
+  const amount = formatInr(toCollect(row.final_amount ?? row.quoted_amount, row.points_used ?? 0));
 
   return (
     <Link

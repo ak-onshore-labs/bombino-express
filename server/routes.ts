@@ -81,7 +81,7 @@ import { registerPaymentRoutes } from "./routes/payments.js";
 import { registerRewardsRoutes } from "./routes/rewards.js";
 import { balanceOf, redeemOnOrder, rewardsOnTrackingState } from "./rewardsDb.js";
 import { reconcilePaymentStatus } from "./paymentsDb.js";
-import { MIN_REDEEM_POINTS, maxRedeemable } from "../shared/rewards.js";
+import { MIN_REDEEM_POINTS, maxRedeemable, pointsUsedOf } from "../shared/rewards.js";
 import { registerOpsRewardsRoutes } from "./routes/opsRewards.js";
 import { registerGuestProfileRoutes } from "./routes/guestProfile.js";
 import { registerSupportRoutes } from "./routes/support.js";
@@ -4409,6 +4409,8 @@ export async function registerRoutes(
         pickup_date: order.pickup_date,
         quoted_amount: order.quoted_amount,
         final_amount: order.final_amount,
+        // Points still applied; a cancel gives them all back, so 0 once cancelled.
+        points_used: pointsUsedOf(order.metadata),
         payment_method: order.payment_method,
         payment_status: order.payment_status,
         created_at: order.created_at,

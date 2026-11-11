@@ -12,6 +12,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { todayInIst } from '@shared/istTime';
+import { toCollect } from '@shared/rewards';
 import { OpsSenderCell } from '@/components/ops/OpsSenderCell';
 import { TestBadge } from '@/components/ops/TestBadge';
 import { getOrderStatusLabel } from '@/lib/orderStatus';
@@ -95,7 +96,8 @@ export function dayFor(order: OpsBoardOrder, today: string): Day | null {
 
 /** Money: what the agent must collect, what is still owed, or settled. */
 function moneyFor(order: OpsBoardOrder): { label: string; text: string; owed: boolean } | null {
-  const amount = formatInr(order.final_amount) ?? formatInr(order.quoted_amount);
+  // Reward points used at booking are not money: show what is owed in cash.
+  const amount = formatInr(toCollect(order.final_amount ?? order.quoted_amount, order.points_used ?? 0));
   const cod = order.is_cod || order.payment_method === 'cod';
   if (cod && order.payment_status !== 'paid') {
     return { label: 'Collect cash (COD)', text: amount ?? '—', owed: true };

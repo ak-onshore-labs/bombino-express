@@ -40,6 +40,7 @@ import {
   type PickupCard,
 } from "../shared/biaCards.js";
 import { dropoffBranchesFor } from "../shared/branches.js";
+import { RUPEES_PER_POINT, pointsUsedOf, toCollect } from "../shared/rewards.js";
 import { earliestPickupDate, todayInIst } from "../shared/istTime.js";
 import {
   cancellationState,
@@ -391,6 +392,16 @@ function moneyLines(order: OrderWithAddress): string[] {
     lines.push(
       `Final amount after weighing: ${formatInr(final)}${
         changed ? " (different from the estimate; our team contacts the customer about the difference)" : ""
+      }`
+    );
+  }
+  // Reward points used at booking come off the price; the money owed is less.
+  const pointsUsed = pointsUsedOf(order.metadata);
+  if (pointsUsed > 0) {
+    const due = toCollect(final ?? quoted, pointsUsed);
+    lines.push(
+      `Reward points used: ${pointsUsed} (${formatInr(pointsUsed * RUPEES_PER_POINT)} off)${
+        due !== null ? `. Price after points: ${formatInr(due)}` : ""
       }`
     );
   }

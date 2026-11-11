@@ -11,6 +11,7 @@ import {
   paymentStatusLabel,
 } from '@/lib/orderDetail';
 import { getOrderStatusLabel, getOrderStatusTone } from '@/lib/orderStatus';
+import { toCollect } from '@shared/rewards';
 import { OPS_PHASES, phaseIdForStatus } from '@/lib/opsPhases';
 
 const PHASE_LABEL: Record<string, string> = Object.fromEntries(
@@ -70,7 +71,8 @@ export function OpsBoardTable({
         <tbody>
           {orders.map((order) => {
             const href = `/ops/orders/${order.id}`;
-            const amount = formatInr(order.final_amount) ?? formatInr(order.quoted_amount);
+            // Cash owed: reward points used at booking come off the price.
+            const amount = formatInr(toCollect(order.final_amount ?? order.quoted_amount, order.points_used ?? 0));
             const isDropoff = order.pickup_request === 2;
             const cod = order.is_cod || order.payment_method === 'cod';
             return (

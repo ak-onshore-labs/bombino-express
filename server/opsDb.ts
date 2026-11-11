@@ -25,6 +25,7 @@ import {
 } from "../shared/opsBoardQuery.js";
 import { nowInIst, startOfIstDayIso } from "../shared/istTime.js";
 import { isTestAwb, isTestOrderMetadata } from "../shared/testOrders.js";
+import { pointsUsedOf } from "../shared/rewards.js";
 import { getUserContactsByIds, toOrder, type OrderRow } from "./ordersDb.js";
 import { reconcilePaymentStatus } from "./paymentsDb.js";
 
@@ -107,6 +108,8 @@ export type OpsBoardOrder = {
   agent_cancellation: OpsAgentCancellation | null;
   /** Booked on a test number (shared/testOrders.ts). */
   is_test: boolean;
+  /** Reward points still applied to this order (`metadata.reward_points_used`). */
+  points_used: number;
 };
 
 export type OpsOrderDetail = {
@@ -286,6 +289,7 @@ function mapBoardRow(row: Record<string, unknown>): OpsBoardOrder {
     docket_retry: docketErrorRetry(row.metadata),
     agent_cancellation: agentCancellationFor(row, true),
     is_test: isTestOrderMetadata(row.metadata),
+    points_used: pointsUsedOf(row.metadata),
   };
 }
 

@@ -1,6 +1,7 @@
 import type { ShipmentHistoryItem } from '@/lib/shipmentApiTypes';
 import type { GuestOrderSummary } from '@/lib/shadowProfile';
 import type { ReceivingParcel } from '@shared/receiving';
+import { pointsUsedOf, toCollect } from '@shared/rewards';
 import {
   getStatusLabel,
   getStatusColor,
@@ -30,6 +31,8 @@ export interface OrderApiRow {
   pickup_date?: string | null;
   payment_method?: string | null;
   payment_status?: string | null;
+  /** Carries `reward_points_used` when points came off this order. */
+  metadata?: unknown;
 }
 
 /**
@@ -149,7 +152,8 @@ export function orderToRow(order: OrderApiRow): DisplayRow {
     // nothing to do with what the customer pays Bombino — that is a rupee
     // freight charge from the ITD rate call. Passing it here rendered
     // ₹1,705.10 as "QAR 1,705".
-    amountStr: formatShipmentAmount(order.final_amount ?? order.quoted_amount, 'INR'),
+    // What the customer pays in money: reward points used come off the price.
+    amountStr: formatShipmentAmount(toCollect(order.final_amount ?? order.quoted_amount, pointsUsedOf(order.metadata)), 'INR'),
     // Customer vocabulary, not the internal one. This list is a customer
     // surface, so `weighed`/`settled`/`ready_for_docket` must all read
     // "Arrived at Bombino hub" — same phrase the detail screen shows.
@@ -165,7 +169,7 @@ export function orderToRow(order: OrderApiRow): DisplayRow {
       pickupDate: order.pickup_date ?? null,
       paymentMethod: order.payment_method ?? null,
       paymentStatus: order.payment_status ?? null,
-      amountDue: order.final_amount ?? order.quoted_amount ?? null,
+      amountDue: toCollect(order.final_amount ?? order.quoted_amount, pointsUsedOf(order.metadata)),
     },
   };
 }
