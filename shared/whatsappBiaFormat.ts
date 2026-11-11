@@ -79,6 +79,8 @@ export function linkFor(button: BiaButton): WaLink | null {
       return { label: "Continue signup", path: signupPathFor(button.arg as AccountChoice | "company") };
     case "TAP_ACCOUNT_DOCUMENTS":
       return { label: "My documents", path: "/profile#documents" };
+    case "TAP_REWARDS":
+      return { label: "My rewards", path: "/rewards" };
   }
 }
 

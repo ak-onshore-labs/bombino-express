@@ -42,6 +42,9 @@ test("questions land on the right section", () => {
   assert.equal(top("how do I turn off BIA reminders"), "Reminders from BIA");
   assert.equal(top("I didn't get the OTP"), "Signing in");
   assert.equal(top("where is the nearest counter to drop off"), "Drop-off counters");
+  assert.equal(top("Where is the loyalty points section in the app?"), "Reward points");
+  assert.equal(top("how do I redeem my reward points"), "Reward points");
+  assert.equal(top("when do my points expire"), "Reward points");
   assert.deepEqual(matchAppGuide(guide, "xyzzy plugh"), []);
 });
 

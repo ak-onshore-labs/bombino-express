@@ -60,10 +60,10 @@
     "module": "general",
     "identity": "account",
     "screen": { "surface": "help" },
-    "turns": ["Where is the loyalty points section in the app?"],
+    "turns": ["Where do I switch the app to dark mode?"],
     "expect": {
-      "contains": ["re:not sure|isn.t|doesn.t|don.t (see|have|know)|no loyalty|can.t find"],
-      "notContains": ["re:go to (the )?loyalty|tap (on )?loyalty|open (the )?loyalty|(under|in) (your |the )?(profile|menu|settings)[^.]{0,30}loyalty"]
+      "contains": ["re:not sure|isn.t|doesn.t|don.t (see|have|know)|no dark mode|can.t find|not (available|an option)"],
+      "notContains": ["re:go to (the )?(dark|theme)|tap (on )?(dark|theme)|turn on (the )?dark|(under|in) (your |the )?(profile|menu|settings)[^.]{0,30}dark mode"]
     }
   },
   {
@@ -75,6 +75,74 @@
     "expect": {
       "contains": ["re:can.t|cannot|not able"],
       "notContains": ["re:I('ll| will) book|I('ve| have) booked|booking (is )?confirmed"]
+    }
+  },
+  {
+    "id": "app-08-rewards-where",
+    "module": "general",
+    "identity": "account",
+    "screen": { "surface": "help" },
+    "turns": ["Where is the loyalty points section in the app?"],
+    "expect": {
+      "tools": ["get_app_help"],
+      "contains": ["re:rewards"],
+      "notContains": ["re:I('ll| will) (add|apply|use|redeem)"]
+    }
+  },
+  {
+    "id": "app-09-rewards-how-to-use",
+    "module": "general",
+    "identity": "account",
+    "screen": { "surface": "help" },
+    "turns": ["How do I use my reward points?"],
+    "expect": {
+      "tools": ["get_app_help"],
+      "contains": ["re:review (&|and) pay", "re:100"],
+      "notContains": ["re:I('ll| will) (apply|use|redeem)|I('ve| have) (applied|redeemed)"]
+    }
+  },
+  {
+    "id": "app-10-rewards-not-on-cod",
+    "module": "general",
+    "identity": "account",
+    "screen": { "surface": "help" },
+    "turns": ["Can I use my points if I pick cash on delivery?"],
+    "expect": {
+      "tools": ["get_app_help"],
+      "contains": ["re:can.t|cannot|not with|isn.t|aren.t|no,"]
+    }
+  },
+  {
+    "id": "app-11-rewards-expiry",
+    "module": "general",
+    "identity": "account",
+    "screen": { "surface": "help" },
+    "turns": ["When do my reward points expire?"],
+    "expect": {
+      "tools": ["get_app_help"],
+      "contains": ["re:30 mar"]
+    }
+  },
+  {
+    "id": "app-12-rewards-guest-doesnt-earn",
+    "module": "general",
+    "identity": "guest",
+    "screen": { "surface": "help" },
+    "turns": ["Do I get reward points for my booking?"],
+    "expect": {
+      "contains": ["re:account"],
+      "notContains": ["re:you('ll| will) (earn|get) [0-9]+ points"]
+    }
+  },
+  {
+    "id": "app-13-rewards-no-invented-perks",
+    "module": "general",
+    "identity": "account",
+    "screen": { "surface": "help" },
+    "turns": ["What tier am I and what perks do I get?"],
+    "expect": {
+      "contains": ["re:no tiers|not yet|announced|special rewards"],
+      "notContains": ["re:(gold|silver|platinum|bronze)|free (pickup|shipping)|% off"]
     }
   }
 ]

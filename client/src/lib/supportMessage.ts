@@ -22,7 +22,8 @@ export type SupportCta =
   | { kind: 'view_order'; orderNo: string; section: OrderSection | null }
   | { kind: 'signup'; choice: string }
   | { kind: 'resume_signup'; choice: string }
-  | { kind: 'account_documents' };
+  | { kind: 'account_documents' }
+  | { kind: 'rewards' };
 
 export interface ParsedMessage {
   text: string;
@@ -54,6 +55,8 @@ function toCta(button: BiaButton): SupportCta {
       return { kind: 'resume_signup', choice: button.arg };
     case 'TAP_ACCOUNT_DOCUMENTS':
       return { kind: 'account_documents' };
+    case 'TAP_REWARDS':
+      return { kind: 'rewards' };
   }
 }
 

@@ -116,9 +116,23 @@ Buttons: TAP_CANCELLATIONS
 I can't cancel anything. With an account: open the order (**Orders**, then tap it) and tap **Request cancellation** at the bottom; it's there until the rider sets out for a pickup, or until you hand the parcel in at a counter. Our team decides, and the answer shows on the order and in the **Cancellations** tab of **Orders**. Booked as a guest: contact our team on WhatsApp or by phone. Refunds are arranged by our team, not in the app.
 
 ## Paying
-Asked as: pay, payment, pay now, pay online, payment failed, pay later, cash on delivery, COD, pay at pickup, pay at counter, retry payment
+Asked as: pay, payment, pay now, pay online, payment failed, pay later, cash on delivery, COD, pay at pickup, pay at counter, retry payment, pay with points
 
-You choose how to pay when you book: online, to the rider at pickup, at the counter when you drop off, or at delivery. If you chose online and it isn't paid yet, open the order and tap **Pay** under **Payment**. If a payment failed, try again from there; don't pay twice while one says it's being confirmed. The amount at booking is an estimate until the parcel is weighed.
+You choose how to pay when you book: online, to the rider at pickup, at the counter when you drop off, or at delivery. If you chose online and it isn't paid yet, open the order and tap **Pay** under **Payment**. If a payment failed, try again from there; don't pay twice while one says it's being confirmed. The amount at booking is an estimate until the parcel is weighed. With an account and 100 or more reward points, you can take points off the price at **Review & Pay** (not with Cash on Delivery); the order then asks only for the rest.
+
+## Reward points
+Asked as: rewards, reward points, points, loyalty, loyalty points, membership, wallet, points balance, earn points, use points, redeem, redeem points, discount, points expire, expiry, special rewards, rewards await you, milestone, tier, member benefits, why no points, points not added
+Buttons: TAP_REWARDS
+
+For account holders: open the menu (☰) and tap **Rewards** (in the sidebar on a computer), or tap the **Bombino Rewards** card on **Home**. Guest bookings don't earn points, even if you open an account later.
+
+- **Earning:** every ₹100 you're billed, before GST, earns 1 point. Points arrive in your wallet once the order is delivered; until then they show under **On the way**. Each order's page shows the points it earns. A parcel that isn't delivered (returned, lost, cancelled) earns nothing. Orders booked from 7 Nov 2026 earn.
+- **Using:** once you have 100 points, each point is ₹1 off a booking, up to the whole bill. Turn on **Use reward points** at the **Review & Pay** step of **Ship** and choose how many. Points can't be used with **Cash on Delivery**, and they can only be used while booking, not afterwards on an order. Paying at pickup or at the counter? You pay the rest then.
+- **Cancelling:** if a booking is cancelled, the points used on it come back.
+- **Expiry:** the rewards year runs to 30 March. Use your points by then: unused points expire at midnight that night and the new year starts at zero. The **Rewards** page shows the date and how many days are left.
+- **Special rewards:** the **Rewards** page also shows how many kg you've shipped this year towards **Unlock special rewards**. Once you reach it, it says **Rewards await you**; what those rewards are will be announced. There are no tiers or other perks yet.
+
+**Points activity** on the **Rewards** page lists every point earned, used and given back. Points can't be turned into cash or moved to someone else. If points look wrong, contact our team.
 
 ## WhatsApp messages from Bombino
 Asked as: WhatsApp, whatsapp messages, stop whatsapp, unsubscribe, too many messages, opt out, start messages

@@ -118,6 +118,8 @@ export const BIA_BUTTONS = {
   TAP_RESUME_SIGNUP: { audience: "no_account", arg: "required", canonical: canonicalSignupShape },
   // The account's own documents, on Profile.
   TAP_ACCOUNT_DOCUMENTS: { audience: "account", arg: "none" },
+  // The rewards wallet (/rewards). Account holders only: guests never earn.
+  TAP_REWARDS: { audience: "account", arg: "none" },
 } as const satisfies Record<string, ButtonSpec>;
 
 export type BiaButtonName = keyof typeof BIA_BUTTONS;

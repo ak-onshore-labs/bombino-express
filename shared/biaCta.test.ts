@@ -10,7 +10,7 @@ import {
 } from "./biaCta.js";
 
 test("plain buttons parse as themselves", () => {
-  for (const name of ["TAP_CREATE_SHIPMENT", "TAP_CONTACT_US", "TAP_MY_ORDERS", "TAP_CANCELLATIONS", "TAP_GUEST_PROFILE"]) {
+  for (const name of ["TAP_CREATE_SHIPMENT", "TAP_CONTACT_US", "TAP_MY_ORDERS", "TAP_CANCELLATIONS", "TAP_GUEST_PROFILE", "TAP_REWARDS"]) {
     assert.deepEqual(parseBiaButton(name), { name, arg: "" });
   }
 });
@@ -46,6 +46,8 @@ test("who may see what", () => {
   assert.equal(biaButtonAllowedFor("TAP_CONTACT_US", null), true);
   assert.equal(biaButtonAllowedFor("TAP_CANCELLATIONS", "account"), true);
   assert.equal(biaButtonAllowedFor("TAP_CANCELLATIONS", "guest"), false);
+  assert.equal(biaButtonAllowedFor("TAP_REWARDS", "account"), true);
+  assert.equal(biaButtonAllowedFor("TAP_REWARDS", "guest"), false);
   assert.equal(biaButtonAllowedFor("TAP_GUEST_PROFILE", "guest"), true);
   assert.equal(biaButtonAllowedFor("TAP_VIEW_ORDER", "guest"), false);
   assert.equal(biaButtonAllowedFor("TAP_VIEW_ORDER", null), false);

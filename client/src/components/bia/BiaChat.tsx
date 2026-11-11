@@ -19,6 +19,7 @@ import {
   FileText,
   KeyRound,
   CreditCard,
+  Gift,
 } from "lucide-react";
 import { accountChoiceLabel, isAccountChoice, signupPathFor, type AccountChoice } from "@shared/accountMatch";
 import type { OrderSection } from "@shared/biaCta";
@@ -953,6 +954,19 @@ function CtaButtons({
                   >
                     <FileText className="w-3.5 h-3.5" aria-hidden />
                     My documents
+                  </button>
+                );
+              case "rewards":
+                return (
+                  <button
+                    key="rewards"
+                    type="button"
+                    className={PILL}
+                    onClick={() => onNavigate("/rewards")}
+                    data-testid="button-bia-rewards"
+                  >
+                    <Gift className="w-3.5 h-3.5" aria-hidden />
+                    My rewards
                   </button>
                 );
               default:
