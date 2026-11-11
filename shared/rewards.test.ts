@@ -16,19 +16,21 @@ import {
 
 const utc = (iso: string): Date => new Date(iso);
 
-test("the financial year turns at 00:00 IST on 1 April, not at UTC midnight", () => {
-  // 23:59 IST on 31 Mar 2027 is 18:29 UTC — still FY 2026-27.
-  assert.equal(fyOf(utc("2027-03-31T18:29:00Z")), "2026-27");
-  // 00:00 IST on 1 Apr 2027 is 18:30 UTC on 31 Mar.
-  assert.equal(fyOf(utc("2027-03-31T18:30:00Z")), "2027-28");
+test("the rewards year turns at 00:00 IST on 31 March, not at UTC midnight", () => {
+  // 23:59 IST on 30 Mar 2027 is 18:29 UTC — still 2026-27.
+  assert.equal(fyOf(utc("2027-03-30T18:29:00Z")), "2026-27");
+  // 00:00 IST on 31 Mar 2027 is 18:30 UTC on 30 Mar: 31 Mar is next year.
+  assert.equal(fyOf(utc("2027-03-30T18:30:00Z")), "2027-28");
+  assert.equal(fyOf(utc("2027-03-31T12:00:00Z")), "2027-28");
+  assert.equal(fyOf(utc("2027-04-01T00:00:00Z")), "2027-28");
   assert.equal(fyOf(utc("2026-11-07T10:00:00Z")), "2026-27");
   assert.equal(fyOf(utc("2027-01-15T10:00:00Z")), "2026-27");
   assert.equal(fyOf(utc("2099-06-01T00:00:00Z")), "2099-00");
 });
 
-test("an FY's points last through 31 March and expire at midnight IST", () => {
-  assert.equal(fyLastDay("2026-27"), "2027-03-31");
-  assert.equal(fyExpiresAtIso("2026-27"), "2027-03-31T18:30:00.000Z");
+test("a year's points last through 30 March and expire as 31 March begins (IST)", () => {
+  assert.equal(fyLastDay("2026-27"), "2027-03-30");
+  assert.equal(fyExpiresAtIso("2026-27"), "2027-03-30T18:30:00.000Z");
   assert.throws(() => fyLastDay("2026"));
 });
 

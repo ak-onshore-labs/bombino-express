@@ -144,11 +144,18 @@ async function pointsUsedOn(orderId: string): Promise<number> {
   return m ? Math.max(0, m.used - m.returned) : 0;
 }
 
-/** Spendable balance: the sum of every ledger row. 0 when unknown. */
+/**
+ * Spendable balance: the sum of this year's ledger rows (`fyOf`). Rows from
+ * an earlier year no longer count, which is the 31 Mar expiry.
+ */
 export async function balanceOf(userId: string): Promise<number | null> {
   const client = getClient();
   if (!client) return null;
-  const { data, error } = await client.from("reward_ledger").select("points").eq("user_id", userId);
+  const { data, error } = await client
+    .from("reward_ledger")
+    .select("points")
+    .eq("user_id", userId)
+    .eq("fy", fyOf());
   if (error) {
     logError("balanceOf", error);
     return isMissingTable(error) ? 0 : null;
@@ -536,9 +543,12 @@ export async function rewardsSummaryFor(
 
   let balance = 0;
   let kgThisFy = 0;
+  // Only this year's rows count: earlier years expired as 31 Mar began. The
+  // history below still lists every row.
   for (const row of ledger) {
+    if (row.fy !== fy) continue;
     balance += Number(row.points) || 0;
-    if (row.fy === fy) kgThisFy += Number(row.weight_kg) || 0;
+    kgThisFy += Number(row.weight_kg) || 0;
   }
 
   // On the way = not cancelled, and not yet earned or forfeited (delivered,

@@ -10,8 +10,8 @@
  *     used. A parcel that ends any other way (returned, lost, abandoned,
  *     cancelled by the carrier) never earns.
  *   · Use: ₹1 per point, only once the balance is 100 or more.
- *   · Year = Indian financial year (Apr–Mar). Every unused point expires at
- *     midnight 31 Mar, whenever it was earned.
+ *   · Year runs 31 Mar to 30 Mar (fyOf). Every unused point expires at
+ *     midnight as 31 Mar begins, whenever it was earned.
  *   · One weight milestone per FY. No ₹ milestone, no tier ladder.
  *
  * Constants live here rather than in env vars, on purpose.
@@ -50,14 +50,19 @@ export const DEFAULT_GST_PER = 18;
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 /**
- * Financial year of an instant, in India: "2026-27" runs from 00:00 IST
- * 1 Apr 2026 to 23:59:59 IST 31 Mar 2027.
+ * Rewards year of an instant, in India. Points expire at midnight as 31 March
+ * begins (Aditya, 10 Nov), so 31 March already counts in the next year:
+ * "2026-27" runs from 00:00 IST 31 Mar 2026 to 23:59:59 IST 30 Mar 2027.
+ *
+ * Expiry needs no job: every ledger row carries the year it was written in,
+ * and the balance only sums this year's rows. Last year's points (and a
+ * negative balance) simply stop counting when the year turns.
  */
 export function fyOf(at: Date = new Date()): string {
   const { date } = nowInIst(at);
   const year = Number(date.slice(0, 4));
-  const month = Number(date.slice(5, 7));
-  const start = month >= 4 ? year : year - 1;
+  const monthDay = date.slice(5, 10);
+  const start = monthDay >= "03-31" ? year : year - 1;
   return `${start}-${String((start + 1) % 100).padStart(2, "0")}`;
 }
 
@@ -70,14 +75,14 @@ function fyStartYear(fy: string): number {
   return start;
 }
 
-/** Last day of an FY, `YYYY-MM-DD` (31 Mar). Points expire at the end of it. */
+/** Last day points of this year can be used, `YYYY-MM-DD` (30 Mar). */
 export function fyLastDay(fy: string): string {
-  return `${fyStartYear(fy) + 1}-03-31`;
+  return `${fyStartYear(fy) + 1}-03-30`;
 }
 
-/** The instant points of this FY expire: 00:00 IST 1 Apr after it. */
+/** The instant points of this year expire: 00:00 IST on 31 Mar. */
 export function fyExpiresAtIso(fy: string): string {
-  return new Date(`${fyStartYear(fy) + 1}-04-01T00:00:00+05:30`).toISOString();
+  return new Date(`${fyStartYear(fy) + 1}-03-31T00:00:00+05:30`).toISOString();
 }
 
 /** A GST-inclusive amount with the GST taken out. */

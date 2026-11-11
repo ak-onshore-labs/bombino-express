@@ -287,7 +287,7 @@ function PointsWallet({ data, className }: { data: RewardsSummary; className?: s
           data-testid="text-points-expiring"
         >
           <CalendarClock className="h-4 w-4 shrink-0" />
-          Your points expire on {formatDayLong(data.fyLastDay)} — {daysLeft} {daysLeft === 1 ? 'day' : 'days'} left.
+          Use your points by {formatDayLong(data.fyLastDay)} — {daysLeft} {daysLeft === 1 ? 'day' : 'days'} left.
         </p>
       )}
 
@@ -445,8 +445,8 @@ function HowItWorks({ fyLastDay, className }: { fyLastDay: string; className?: s
         ))}
       </ol>
       <p className="mt-4 text-[11px] leading-relaxed text-[#64748B]">
-        For account holders who book directly with Bombino. The year runs April to March; unused points expire on{' '}
-        {formatDayLong(fyLastDay)}.
+        For account holders who book directly with Bombino. Use your points by{' '}
+        {formatDayLong(fyLastDay)}; unused points expire at midnight that night and the new year starts at zero.
       </p>
     </section>
   );

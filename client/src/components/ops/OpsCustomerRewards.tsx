@@ -39,7 +39,7 @@ export function OpsCustomerRewards({ customerId }: { customerId: string }) {
         <h2 className="text-base font-extrabold text-foreground">Reward points</h2>
         {data && (
           <p className="text-xs text-muted-foreground">
-            {fyLabel(data.fy)} · expire {formatDayLong(data.fyLastDay)}
+            {fyLabel(data.fy)} · use by {formatDayLong(data.fyLastDay)}
           </p>
         )}
       </div>

@@ -68,7 +68,7 @@ export function daysLeftInFy(fy: string, now: Date = new Date()): number {
   return Math.max(0, Math.ceil((end - now.getTime()) / 86_400_000));
 }
 
-/** "31 Mar 2027" from "2027-03-31". */
+/** "30 Mar 2027" from "2027-03-30". */
 export function formatDayLong(isoDate: string): string {
   const [y, m, d] = isoDate.split('-').map(Number);
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
