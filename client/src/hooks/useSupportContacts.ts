@@ -4,6 +4,11 @@
  * Raw fetch — not apiRequest — so a blip here cannot trip the 401→logout
  * path. Numbers are public (guest Home pills), and a missing/failed response
  * falls back to the literals that used to be hardcoded.
+ *
+ * `/api/settings` is shared with useAppUpdate via SETTINGS_PUBLIC_KEY. Both
+ * hooks must cache the same raw PublicSettings shape — a mapped contacts
+ * object here used to collide with UpdateGate's fetch and crash Home after
+ * splash (formatOfficeLabel on undefined).
  */
 
 import { useQuery } from '@tanstack/react-query';
@@ -14,6 +19,14 @@ export const OPS_SETTINGS_KEY = ['/api/ops/settings'] as const;
 export const SUPPORT_OFFICE_PHONE_FALLBACK = '2266400000';
 export const SUPPORT_WHATSAPP_FALLBACK = '917045999553';
 
+/** Raw GET /api/settings body. Shared cache shape for all SETTINGS_PUBLIC_KEY readers. */
+export type PublicSettings = {
+  support_office_phone?: unknown;
+  support_whatsapp?: unknown;
+  app_update_ios?: unknown;
+  app_update_android?: unknown;
+};
+
 export type SupportContacts = {
   officePhone: string;
   whatsapp: string;
@@ -22,6 +35,14 @@ export type SupportContacts = {
   officeLabel: string;
   whatsappLabel: string;
 };
+
+export async function fetchPublicSettings(): Promise<PublicSettings> {
+  const res = await fetch('/api/settings');
+  if (!res.ok) {
+    throw new Error(`${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as PublicSettings;
+}
 
 function digits(value: unknown, fallback: string): string {
   return typeof value === 'string' && /^\d{10,15}$/.test(value) ? value : fallback;
@@ -72,24 +93,14 @@ const FALLBACK = deriveSupportContacts(
 export function useSupportContacts(): SupportContacts {
   const query = useQuery({
     queryKey: SETTINGS_PUBLIC_KEY,
-    queryFn: async (): Promise<{ officePhone: string; whatsapp: string }> => {
-      const res = await fetch('/api/settings');
-      if (!res.ok) {
-        throw new Error(`${res.status}: ${res.statusText}`);
-      }
-      const data = (await res.json()) as {
-        support_office_phone?: unknown;
-        support_whatsapp?: unknown;
-      };
-      return {
-        officePhone: digits(data.support_office_phone, SUPPORT_OFFICE_PHONE_FALLBACK),
-        whatsapp: digits(data.support_whatsapp, SUPPORT_WHATSAPP_FALLBACK),
-      };
-    },
-    staleTime: 30 * 60 * 1000,
+    queryFn: fetchPublicSettings,
+    staleTime: 5 * 60 * 1000,
     retry: false,
   });
 
   if (!query.data) return FALLBACK;
-  return deriveSupportContacts(query.data.officePhone, query.data.whatsapp);
+  return deriveSupportContacts(
+    digits(query.data.support_office_phone, SUPPORT_OFFICE_PHONE_FALLBACK),
+    digits(query.data.support_whatsapp, SUPPORT_WHATSAPP_FALLBACK),
+  );
 }

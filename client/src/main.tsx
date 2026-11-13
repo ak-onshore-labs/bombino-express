@@ -1,5 +1,6 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { AppErrorBoundary } from "./components/AppErrorBoundary";
 import { installSessionInterceptor } from "./lib/session";
 import { installKeyboardInset } from "./lib/keyboardInset";
 import { installFocusReveal } from "./lib/focusReveal";
@@ -27,4 +28,8 @@ installStatusBarStyle();
 // (lib/backButton.ts). No-op outside the Android Capacitor shell.
 installBackButton();
 
-createRoot(document.getElementById("root")!).render(<App />);
+createRoot(document.getElementById("root")!).render(
+  <AppErrorBoundary>
+    <App />
+  </AppErrorBoundary>,
+);

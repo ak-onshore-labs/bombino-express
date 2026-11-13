@@ -1,11 +1,18 @@
 /**
  * Whether this native shell should show a soft or force update prompt.
  * Always none on the web, on fetch failure, or when the setting is off/null.
+ *
+ * Shares SETTINGS_PUBLIC_KEY + fetchPublicSettings with useSupportContacts so
+ * the TanStack cache always holds the raw API shape.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { SETTINGS_PUBLIC_KEY } from '@/hooks/useSupportContacts';
+import {
+  SETTINGS_PUBLIC_KEY,
+  fetchPublicSettings,
+  type PublicSettings,
+} from '@/hooks/useSupportContacts';
 import { nativePlatform, shellVersion } from '@/lib/platform';
 
 export type AppUpdateSetting = {
@@ -18,13 +25,6 @@ export type AppUpdateSetting = {
 export type AppUpdateDecision =
   | { kind: 'none' }
   | { kind: 'soft' | 'force'; setting: AppUpdateSetting };
-
-type PublicSettings = {
-  support_office_phone?: unknown;
-  support_whatsapp?: unknown;
-  app_update_ios?: AppUpdateSetting | null;
-  app_update_android?: AppUpdateSetting | null;
-};
 
 function parseSetting(value: unknown): AppUpdateSetting | null {
   if (!value || typeof value !== 'object') return null;
@@ -62,11 +62,7 @@ export function useAppUpdate(): AppUpdateDecision {
 
   const query = useQuery({
     queryKey: SETTINGS_PUBLIC_KEY,
-    queryFn: async (): Promise<PublicSettings> => {
-      const res = await fetch('/api/settings');
-      if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
-      return (await res.json()) as PublicSettings;
-    },
+    queryFn: fetchPublicSettings,
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
