@@ -35,6 +35,9 @@ SheetOverlay.displayName = SheetPrimitive.Overlay.displayName
  * spacing next to those edges comes from --sheet-pt / --sheet-pb / --sheet-px
  * so a caller changes it with `[--sheet-pb:2rem]`, not `pb-8`: a `p-*`, `px-*`
  * or `pb-*` class would replace the padding and drop the inset with it.
+ *
+ * A bottom sheet is never taller than what is visible above the keyboard
+ * (--visible, lib/keyboardInset.ts) and scrolls inside itself.
  */
 const sheetVariants = cva(
   "fixed z-50 gap-4 bg-background p-6 shadow-lg transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500 data-[state=open]:animate-in data-[state=closed]:animate-out",
@@ -43,7 +46,7 @@ const sheetVariants = cva(
       side: {
         top: "inset-x-0 top-0 border-b pt-[calc(var(--sheet-pt,1.5rem)+var(--sat))] pl-[calc(var(--sheet-px,1.5rem)+var(--sal))] pr-[calc(var(--sheet-px,1.5rem)+var(--sar))] data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top",
         bottom:
-          "inset-x-0 bottom-0 border-t pb-[calc(var(--sheet-pb,1rem)+var(--sab))] pl-[calc(var(--sheet-px,1.5rem)+var(--sal))] pr-[calc(var(--sheet-px,1.5rem)+var(--sar))] data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom",
+          "inset-x-0 bottom-0 border-t max-h-[calc(var(--visible,100dvh)-var(--sat))] overflow-y-auto pb-[calc(var(--sheet-pb,1rem)+var(--sab))] pl-[calc(var(--sheet-px,1.5rem)+var(--sal))] pr-[calc(var(--sheet-px,1.5rem)+var(--sar))] data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom",
         left: "inset-y-0 left-0 h-full w-3/4 border-r pt-[calc(var(--sheet-pt,1.5rem)+var(--sat))] pb-[calc(var(--sheet-pb,1.5rem)+var(--sab))] pl-[calc(var(--sheet-px,1.5rem)+var(--sal))] data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left sm:max-w-sm",
         right:
           "inset-y-0 right-0 h-full w-3/4 border-l pt-[calc(var(--sheet-pt,1.5rem)+var(--sat))] pb-[calc(var(--sheet-pb,1.5rem)+var(--sab))] pr-[calc(var(--sheet-px,1.5rem)+var(--sar))] data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:max-w-sm",

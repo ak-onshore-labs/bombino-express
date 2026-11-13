@@ -47,6 +47,7 @@ export function TopBar({
         className,
       )}
       data-testid={testId}
+      data-top-bar
     >
       <div className="relative flex items-center justify-between h-14 px-4 max-w-md mx-auto">
         {/* Empty spans keep the logo optically centred when a slot is unused,

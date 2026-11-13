@@ -61,6 +61,7 @@ export function AgentNav() {
     <nav
       className="fixed bottom-0 left-0 right-0 z-50 bg-[#1B2A41] safe-bottom safe-x"
       data-testid="agent-nav"
+      data-bottom-nav
     >
       <div className="flex items-stretch h-[70px] max-w-md mx-auto">
         {items.map(({ icon: Icon, label, path, badge }) => {

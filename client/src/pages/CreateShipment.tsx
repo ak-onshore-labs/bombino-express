@@ -457,7 +457,7 @@ function StepActions({
   useRaisedSupportFab();
 
   return (
-    <div className="sticky bottom-nav-stack z-30 -mx-4 mt-2 border-t border-border bg-background/95 px-4 py-3 backdrop-blur-sm md:-mx-6 md:px-6">
+    <div data-bottom-bar className="sticky bottom-nav-stack z-30 -mx-4 mt-2 border-t border-border bg-background/95 px-4 py-3 backdrop-blur-sm md:-mx-6 md:px-6">
       {/* Above the buttons, not below them: an error a customer has to scroll
           past the action to read is an error they will not read. Announced,
           because the failure is usually a field somewhere off-screen. */}
@@ -1013,6 +1013,22 @@ export default function CreateShipment() {
     window.history.replaceState({ ...window.history.state, bombinoStep: 1 }, '');
   }, []);
 
+  // Every step opens at its top. The sender step is long and Continue sits at
+  // its bottom, so carrying that offset over lands the receiver step below its
+  // destination country, which has to be chosen first. The browser's own
+  // restoration would put it back on a back press, so it is off while here.
+  useEffect(() => {
+    const previous = window.history.scrollRestoration;
+    window.history.scrollRestoration = 'manual';
+    return () => {
+      window.history.scrollRestoration = previous;
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }, [currentStep]);
+
   useEffect(() => {
     const onPopState = (event: PopStateEvent) => {
       // Booked. Back means "leave", not "edit the order I just placed" — the
@@ -1310,7 +1326,7 @@ export default function CreateShipment() {
   if (!isLoggedIn && !guestMode) {
     return (
       <div className="min-h-[100dvh] bg-background pb-nav safe-x" data-testid="screen-create-login-required">
-        <header className="sticky top-0 z-50 bg-white border-b border-[#E2E8F0] safe-top md:hidden">
+        <header data-top-bar className="sticky top-0 z-50 bg-white border-b border-[#E2E8F0] safe-top md:hidden">
           <div className="flex items-center h-14 px-4 max-w-md mx-auto">
             <button
               onClick={() => setLocation('/home')}
@@ -2163,7 +2179,7 @@ export default function CreateShipment() {
 
   return (
     <div className="min-h-[100dvh] bg-background pb-nav safe-x" data-testid="screen-create">
-      <header className="sticky top-0 z-50 bg-white border-b border-[#E2E8F0] safe-top md:hidden">
+      <header data-top-bar className="sticky top-0 z-50 bg-white border-b border-[#E2E8F0] safe-top md:hidden">
         <div className="flex items-center h-14 px-4 w-full max-w-6xl mx-auto md:px-6">
           <button
             onClick={handleBack}
@@ -4575,11 +4591,11 @@ export default function CreateShipment() {
 
       {showConfirmModal && (
         <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 px-0 sm:px-4"
+          className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/50 px-0 sm:px-4"
           onClick={() => !createMutation.isPending && setShowConfirmModal(false)}
         >
           <div
-            className="bg-white rounded-t-2xl sm:rounded-2xl p-5 pb-[calc(1.25rem+var(--sab))] sm:pb-5 max-w-sm w-full shadow-xl max-h-[90vh] overflow-y-auto"
+            className="bg-white rounded-t-2xl sm:rounded-2xl pt-5 pl-[calc(1.25rem+var(--sal))] pr-[calc(1.25rem+var(--sar))] pb-[calc(1.25rem+var(--sab))] sm:p-5 w-full sm:max-w-sm shadow-xl max-h-[90dvh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
             data-testid="modal-confirm-booking"
           >

@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import { installSessionInterceptor } from "./lib/session";
 import { installKeyboardInset } from "./lib/keyboardInset";
+import { installFocusReveal } from "./lib/focusReveal";
 import { installStatusBarStyle } from "./lib/statusBar";
 import "./index.css";
 
@@ -13,38 +14,12 @@ installSessionInterceptor();
 // --vh, --kb, --vv-top and --visible: where the keyboard is (lib/keyboardInset.ts).
 installKeyboardInset();
 
+// A focused field is scrolled clear of the header and the bar above the
+// keyboard once the keyboard has opened (lib/focusReveal.ts).
+installFocusReveal();
+
 // Dark status bar icons unless a dark screen asks otherwise (lib/statusBar.ts),
 // so the default does not depend on how the shell was configured.
 installStatusBarStyle();
-
-let focusScrollTimeout: ReturnType<typeof setTimeout> | null = null;
-
-document.addEventListener("focusin", (e) => {
-  const target = e.target;
-  if (!(target instanceof HTMLElement)) return;
-
-  const tag = target.tagName;
-  const isInput =
-    tag === "INPUT" ||
-    tag === "TEXTAREA" ||
-    target.isContentEditable;
-
-  if (!isInput) return;
-  // Surfaces pinned to the keyboard (BIA) already keep their input in view;
-  // scrolling them as well is what made the chat jump up and down.
-  if (target.closest("[data-keyboard-pinned]")) return;
-
-  if (focusScrollTimeout !== null) {
-    clearTimeout(focusScrollTimeout);
-  }
-
-  focusScrollTimeout = setTimeout(() => {
-    focusScrollTimeout = null;
-    target.scrollIntoView({
-      behavior: "smooth",
-      block: "center",
-    });
-  }, 400);
-});
 
 createRoot(document.getElementById("root")!).render(<App />);

@@ -6,7 +6,7 @@ export default function Privacy() {
 
   return (
     <div className="min-h-[100dvh] bg-background safe-bottom safe-x">
-      <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm border-b border-border px-4 pb-3 pt-[calc(0.75rem+var(--sat))] flex items-center gap-3">
+      <div data-top-bar className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm border-b border-border px-4 pb-3 pt-[calc(0.75rem+var(--sat))] flex items-center gap-3">
         <button
           onClick={() => setLocation('/login')}
           className="p-1 rounded-lg hover:bg-gray-100 transition-colors"

@@ -553,8 +553,8 @@ export function BiaChat({
                   isSheet ? "min-h-[24vh]" : "min-h-[40vh]"
                 )}
               >
-                <div className={isSheet ? "w-[120px] h-[120px] mb-2" : "w-[200px] h-[200px] mb-2"}>
-                  <BiaOrb />
+                <div className="mb-2">
+                  <BiaOrb size={isSheet ? 120 : 200} />
                 </div>
                 <h2 className="text-xl font-semibold text-white mb-1">
                   Ask BIA

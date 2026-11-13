@@ -110,7 +110,7 @@ export default function Profile() {
   if (!isLoggedIn) {
     return (
       <div className="min-h-[100dvh] bg-background pb-nav safe-x" data-testid="screen-profile-login-required">
-        <header className="sticky top-0 z-50 bg-white border-b border-border safe-top md:hidden">
+        <header data-top-bar className="sticky top-0 z-50 bg-white border-b border-border safe-top md:hidden">
           <div className="flex items-center h-14 px-4 max-w-md mx-auto">
             <button
               onClick={() => setLocation('/home')}
@@ -308,7 +308,7 @@ export default function Profile() {
 
   return (
     <div className="min-h-[100dvh] bg-background pb-nav safe-x" data-testid="screen-profile">
-      <header className="sticky top-0 z-50 bg-white border-b border-border safe-top md:hidden">
+      <header data-top-bar className="sticky top-0 z-50 bg-white border-b border-border safe-top md:hidden">
         <div className="flex items-center h-14 px-4 max-w-md mx-auto">
           <button
             onClick={() => window.history.back()}

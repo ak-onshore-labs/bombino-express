@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 
-export function BiaOrb() {
+/** `size` is the orb's box in CSS px; the canvas is drawn at exactly that size. */
+export function BiaOrb({ size = 200 }: { size?: number }) {
   const mountRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -17,9 +18,10 @@ export function BiaOrb() {
       antialias: true,
       alpha: true,
     });
-    renderer.setSize(200, 200);
     renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(size, size);
     renderer.setClearColor(0x000000, 0);
+    renderer.domElement.style.display = "block";
     mount.appendChild(renderer.domElement);
 
     const geometry = new THREE.IcosahedronGeometry(1.2, 32);
@@ -200,7 +202,7 @@ export function BiaOrb() {
         mount.removeChild(renderer.domElement);
       }
     };
-  }, []);
+  }, [size]);
 
-  return <div ref={mountRef} className="w-[200px] h-[200px]" />;
+  return <div ref={mountRef} className="shrink-0 overflow-hidden" style={{ width: size, height: size }} />;
 }

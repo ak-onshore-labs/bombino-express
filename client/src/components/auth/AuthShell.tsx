@@ -56,7 +56,7 @@ export function AuthShell({
 
   return (
     <div className="min-h-[100dvh] bg-background safe-bottom safe-x" data-testid={testId}>
-      <header className="sticky top-0 z-50 bg-white border-b border-border safe-top">
+      <header data-top-bar className="sticky top-0 z-50 bg-white border-b border-border safe-top">
         <div className="flex items-center h-14 px-4 max-w-md mx-auto w-full">
           <button
             onClick={onBack}

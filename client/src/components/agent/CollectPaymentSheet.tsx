@@ -90,7 +90,7 @@ export function CollectPaymentSheet({
       <SheetContent
         side="bottom"
         className={cn(
-          'agent-surface rounded-none border-t-0 bg-white pt-5 [--sheet-px:1.25rem] [--sheet-pb:26px] max-h-[92dvh] overflow-y-auto',
+          'agent-surface rounded-none border-t-0 bg-white pt-5 [--sheet-px:1.25rem] [--sheet-pb:26px] max-h-[min(92dvh,calc(var(--visible,100dvh)-var(--sat)))] overflow-y-auto',
           'shadow-[0_-12px_40px_rgba(15,22,32,0.28)]',
           // Faster than the shared primitive's desktop-drawer timing. Overridden
           // here rather than in `components/ui/sheet.tsx`, so the customer app's

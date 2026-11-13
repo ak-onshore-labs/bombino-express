@@ -66,6 +66,53 @@
   --doc-radius: 6px;
 }
 
+/* On-screen keyboard open (lib/keyboardInset.ts). The bottom navs and the
+   support button go, so a form's own action bar sits straight on the keyboard;
+   the home indicator is under the keyboard, so its inset goes too. */
+html[data-keyboard="open"] {
+  --sab: 0px;
+  --nav-stack: 0px;
+  --agent-nav-stack: 0px;
+}
+
+html[data-keyboard="open"] [data-bottom-nav],
+html[data-keyboard="open"] .fab-wrapper {
+  display: none !important;
+}
+
+/* Razorpay Checkout (lib/razorpay.ts adds html.rzp-open while it is open).
+   Its full-screen container would draw under the status bar and hide its back
+   button, so it is inset by the system bars, over a band in the checkout's
+   theme colour at the top and a white one at the bottom. Its inline styles
+   need !important. The insets are 0 in a browser, so nothing moves there. */
+html.rzp-open .razorpay-container {
+  top: var(--sat) !important;
+  height: calc(100% - var(--sat) - var(--sab)) !important;
+}
+
+html.rzp-open::before,
+html.rzp-open::after {
+  content: "";
+  position: fixed;
+  left: 0;
+  right: 0;
+  /* Above the page, one below the checkout container. */
+  z-index: 2147483646;
+  pointer-events: none;
+}
+
+html.rzp-open::before {
+  top: 0;
+  height: var(--sat);
+  background: #14567c;
+}
+
+html.rzp-open::after {
+  bottom: 0;
+  height: var(--sab);
+  background: #fff;
+}
+
 @theme inline {
   --color-background: oklch(from rgb(var(--background)) l c h);
   --color-foreground: oklch(from var(--foreground) l c h);

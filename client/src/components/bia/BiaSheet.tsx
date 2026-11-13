@@ -33,7 +33,7 @@ export function BiaSheet(): React.JSX.Element | null {
         side={isMobile ? 'bottom' : 'right'}
         className={
           isMobile
-            ? 'rounded-t-2xl border-white/10 bg-[#080808] pt-0 pb-0 [--sheet-px:0px] overflow-hidden [&>button:first-child]:hidden'
+            ? 'rounded-t-2xl border-white/10 bg-[#080808] pt-0 pb-0 [--sheet-px:0px] max-h-none overflow-hidden [&>button:first-child]:hidden'
             : 'w-full sm:max-w-[440px] border-white/10 bg-[#080808] pl-0 pb-0 [--sheet-pt:0px] [--sheet-px:0px] overflow-hidden [&>button:first-child]:hidden'
         }
         // Sits on top of the keyboard rather than under it: lifted by the

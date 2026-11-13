@@ -76,6 +76,7 @@ function AgentTopBar() {
     <header
       className="sticky top-0 z-40 bg-white border-b border-[#E2E8F0]! safe-top safe-x"
       data-testid="agent-topbar"
+      data-top-bar
     >
       {/* Three columns, the outer two equal, so the logo sits on the screen's
           centre line rather than wherever `justify-between` leaves it. The date
@@ -239,7 +240,7 @@ export function AgentJobSheet({
       className="agent-surface h-[100dvh] flex flex-col bg-white"
       data-testid="agent-job-sheet"
     >
-      <header className="flex-none bg-[#1B2A41] safe-top safe-x">
+      <header data-top-bar className="flex-none bg-[#1B2A41] safe-top safe-x">
         <div className="flex items-center gap-3.5 h-[58px] px-5 max-w-md mx-auto">
           <Link href={backHref} className="-ml-1 p-1" data-testid="link-back">
             <ChevronLeft className="w-[23px] h-[23px] text-white" strokeWidth={1.5} />
@@ -295,6 +296,7 @@ export function AgentJobSheet({
             paddingRight: 'calc(1.25rem + var(--sar))',
           }}
           data-testid="agent-action-bar"
+          data-bottom-bar
         >
           <div className="max-w-md mx-auto flex flex-col gap-2.5">{actionBar}</div>
         </motion.div>

@@ -81,7 +81,7 @@ export function OpsShell({
       <div className="flex h-screen overflow-hidden" data-testid="ops-shell">
         <OpsDesktopSidebar />
         <main className="flex-1 flex flex-col overflow-y-auto bg-[#F8F9FA] pr-[var(--sar)]">
-          <div className="sticky top-0 z-10 h-[var(--sat)] shrink-0 bg-white" aria-hidden />
+          <div data-top-bar className="sticky top-0 z-10 h-[var(--sat)] shrink-0 bg-white" aria-hidden />
           <div
             className={cn(
               'mx-auto w-full px-6 md:px-8 pt-6 pb-[calc(1.5rem+var(--sab))]',

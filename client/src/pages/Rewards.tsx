@@ -61,7 +61,7 @@ export default function Rewards() {
 
   return (
     <div className="min-h-[100dvh] bg-background pb-[calc(2.5rem+var(--sab))] safe-x" data-testid="screen-rewards">
-      <header className="sticky top-0 z-40 border-b border-[#E2E8F0] bg-white/95 shadow-[0_1px_3px_oklch(17%_0.048_248_/_0.06)] backdrop-blur-sm safe-top md:hidden">
+      <header data-top-bar className="sticky top-0 z-40 border-b border-[#E2E8F0] bg-white/95 shadow-[0_1px_3px_oklch(17%_0.048_248_/_0.06)] backdrop-blur-sm safe-top md:hidden">
         <div className="mx-auto flex h-14 max-w-md items-center px-4">
           <button
             onClick={() => window.history.back()}

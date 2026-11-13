@@ -140,6 +140,7 @@ export function TabBar({
         className,
       )}
       data-testid={testId}
+      data-bottom-nav
     >
       <div className="flex items-center justify-around h-16 max-w-md mx-auto">
         {items.map(({ icon, label, path, badge, onPress, active, highlight }) => {

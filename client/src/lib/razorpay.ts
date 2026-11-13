@@ -19,6 +19,8 @@
 
 import { apiRequest } from './queryClient';
 import { isTestModeSkipOn } from './paymentsTestMode';
+import { isEdgeToEdgeShell } from './platform';
+import { acquireLightIcons, releaseLightIcons } from './statusBar';
 
 const CHECKOUT_SRC = 'https://checkout.razorpay.com/v1/checkout.js';
 
@@ -40,6 +42,8 @@ type RazorpayOptions = {
   notes?: Record<string, string>;
   theme?: { color?: string };
   modal?: { ondismiss?: () => void };
+  /** Offer UPI apps (GPay, PhonePe, Paytm) from inside a WebView. */
+  webview_intent?: boolean;
 };
 
 type RazorpayInstance = {
@@ -174,68 +178,99 @@ export async function payForOrder(orderId: string): Promise<PaymentOutcome> {
     // Checkout can fire both a handler and a dismiss for one session
     // (dismiss follows the redirect back). First outcome wins.
     let settled = false;
+    let chromeOn = false;
+    // Checkout covers the whole screen; in the edge-to-edge shell its frame is
+    // inset below the status bar (html.rzp-open in index.css), over a band in
+    // the theme colour, so the status bar wants light icons meanwhile.
+    const chromeOff = (): void => {
+      if (!chromeOn) return;
+      chromeOn = false;
+      document.documentElement.classList.remove('rzp-open');
+      releaseLightIcons();
+    };
     const settle = (outcome: PaymentOutcome): void => {
       if (settled) return;
       settled = true;
+      chromeOff();
       resolve(outcome);
     };
 
-    const checkout = new window.Razorpay!({
-      key: gateway.key_id,
-      amount: gateway.amount,
-      currency: gateway.currency,
-      name: 'Bombino Express',
-      description: `Order ${gateway.order_no}`,
-      order_id: gateway.razorpay_order_id,
-      prefill: {
-        name: gateway.prefill?.name || undefined,
-        contact: gateway.prefill?.contact || undefined,
-      },
-      notes: { order_no: gateway.order_no },
-      theme: { color: '#14567C' },
-      modal: {
-        ondismiss: () => settle({ status: 'dismissed' }),
-      },
-      handler: (response) => {
-        void (async () => {
-          try {
-            const res = await apiRequest('POST', '/api/payments/razorpay/verify', {
-              order_id: orderId,
-              razorpay_order_id: response.razorpay_order_id,
-              razorpay_payment_id: response.razorpay_payment_id,
-              razorpay_signature: response.razorpay_signature,
-            });
+    try {
+      openCheckout(gateway, orderId, settle, () => {
+        chromeOn = true;
+        document.documentElement.classList.add('rzp-open');
+        acquireLightIcons();
+      });
+    } catch (err) {
+      settle({ status: 'failed', message: cleanMessage(err, 'Could not open the payment window.') });
+    }
+  });
+}
 
-            const body = (await res.json()) as VerifyResponse;
+/** Build and open the checkout modal. Every outcome goes through `settle`. */
+function openCheckout(
+  gateway: GatewayOrderResponse,
+  orderId: string,
+  settle: (outcome: PaymentOutcome) => void,
+  beforeOpen: () => void,
+): void {
+  const checkout = new window.Razorpay!({
+    key: gateway.key_id,
+    amount: gateway.amount,
+    currency: gateway.currency,
+    name: 'Bombino Express',
+    description: `Order ${gateway.order_no}`,
+    order_id: gateway.razorpay_order_id,
+    prefill: {
+      name: gateway.prefill?.name || undefined,
+      contact: gateway.prefill?.contact || undefined,
+    },
+    notes: { order_no: gateway.order_no },
+    theme: { color: '#14567C' },
+    ...(isEdgeToEdgeShell() ? { webview_intent: true } : {}),
+    modal: {
+      ondismiss: () => settle({ status: 'dismissed' }),
+    },
+    handler: (response) => {
+      void (async () => {
+        try {
+          const res = await apiRequest('POST', '/api/payments/razorpay/verify', {
+            order_id: orderId,
+            razorpay_order_id: response.razorpay_order_id,
+            razorpay_payment_id: response.razorpay_payment_id,
+            razorpay_signature: response.razorpay_signature,
+          });
 
-            // 202 — the server took the payment but could not confirm it
-            // synchronously. The webhook will finish the job.
-            if (res.status === 202 || !body.paid) {
-              settle({
-                status: 'pending',
-                message: 'Payment received — confirming it now.',
-              });
-              return;
-            }
+          const body = (await res.json()) as VerifyResponse;
 
-            settle({ status: 'paid', amount: body.amount, reference: body.reference });
-          } catch (err) {
-            // The charge may still be real: verification failing is not the
-            // same as payment failing, and only the webhook knows which.
+          // 202 — the server took the payment but could not confirm it
+          // synchronously. The webhook will finish the job.
+          if (res.status === 202 || !body.paid) {
             settle({
               status: 'pending',
-              message: cleanMessage(err, 'We could not confirm the payment yet.'),
+              message: 'Payment received — confirming it now.',
             });
+            return;
           }
-        })();
-      },
-    });
 
-    checkout.on('payment.failed', (payload) => {
-      const description = (payload as { error?: { description?: string } })?.error?.description;
-      settle({ status: 'failed', message: description ?? 'That payment did not go through.' });
-    });
-
-    checkout.open();
+          settle({ status: 'paid', amount: body.amount, reference: body.reference });
+        } catch (err) {
+          // The charge may still be real: verification failing is not the
+          // same as payment failing, and only the webhook knows which.
+          settle({
+            status: 'pending',
+            message: cleanMessage(err, 'We could not confirm the payment yet.'),
+          });
+        }
+      })();
+    },
   });
+
+  checkout.on('payment.failed', (payload) => {
+    const description = (payload as { error?: { description?: string } })?.error?.description;
+    settle({ status: 'failed', message: description ?? 'That payment did not go through.' });
+  });
+
+  beforeOpen();
+  checkout.open();
 }
