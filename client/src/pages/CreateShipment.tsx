@@ -105,19 +105,7 @@ import {
   getDestinationCurrency,
   formatCountryDisplay,
 } from '@/lib/itdCountryData';
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '@/components/ui/command';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
+import { CountryCombobox } from '@/components/CountryCombobox';
 import { Calendar } from '@/components/ui/calendar';
 import { AskBiaTopButton } from '@/components/bia/AskBiaTopButton';
 
@@ -265,65 +253,8 @@ const steps = [
   { id: 4, title: 'Invoice', icon: FileText },
 ];
 
-interface CountryComboboxProps {
-  value: string;
-  onValueChange: (code: string) => void;
-  /** Error styling from the step's field validation. */
-  className?: string;
-}
-
-function CountryCombobox({ value, onValueChange, className }: CountryComboboxProps) {
-  const [open, setOpen] = useState(false);
-  const country = ITD_COUNTRY_MAP[value];
-  // No default: the customer picks where the parcel is going. Pre-selecting
-  // the US booked non-US parcels to the US whenever nobody noticed the field.
-  const displayName = country ? formatCountryDisplay(country.name) : value || null;
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          role="combobox"
-          aria-expanded={open}
-          data-testid="select-destination-country"
-          className={cn(
-            'w-full h-11 justify-between font-normal text-sm bg-muted/30 border-border rounded-xl px-3',
-            className
-          )}
-        >
-          <span className={cn('truncate text-left', !displayName && 'text-muted-foreground')}>
-            {displayName ?? 'Select destination country'}
-          </span>
-          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="p-0 w-[var(--radix-popover-trigger-width)]" align="start">
-        <Command>
-          <CommandInput placeholder="Search country…" className="h-11" />
-          <CommandList>
-            <CommandEmpty>No country found.</CommandEmpty>
-            <CommandGroup>
-              {ITD_COUNTRY_LIST.filter((c) => c.code !== 'IN').map((c) => (
-                <CommandItem
-                  key={c.code}
-                  value={`${c.name} ${c.code}`}
-                  onSelect={() => {
-                    onValueChange(c.code);
-                    setOpen(false);
-                  }}
-                >
-                  {formatCountryDisplay(c.name)}
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
-  );
-}
+/** Destinations for the receiver-step country picker (India is origin-only). */
+const DESTINATION_COUNTRIES = ITD_COUNTRY_LIST.filter((c) => c.code !== 'IN');
 
 function getDispatchType(serviceCode: string): string | undefined {
   const code = serviceCode.toLowerCase();
@@ -2889,6 +2820,10 @@ export default function CreateShipment() {
               <Label className="text-xs text-muted-foreground">Destination Country</Label>
               <CountryCombobox
                 value={destinationCountry}
+                countries={DESTINATION_COUNTRIES}
+                title="Destination country"
+                placeholder="Select destination country"
+                data-testid="select-destination-country"
                 className={fieldBorderClass('destinationCountry')}
                 onValueChange={(code) => {
                   setDestinationCountry(code);

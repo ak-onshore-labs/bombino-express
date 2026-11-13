@@ -56,6 +56,7 @@ store release; a store release only changes that second line.
 
 | Total | Build | Date | Target | Commit | Notes |
 |---|---|---|---|---|---|
+| 101 | V1 (Build 101.261114.3) | 14 Nov 2026 | Web (app domain, auto-deploy on push) | b9fb89a | Mobile searchable pickers (destination/rates country, phone dial-code) open as full-height bottom sheets below md; desktop Popover unchanged. No migration. |
 | 100 | V1 (Build 100.261114.2) | 14 Nov 2026 | Web (app domain, auto-deploy on push) | 8e80ddf | Fix Android blank screen: shared /api/settings cache shape for update prompt + support contacts; root error boundary with Reload. No migration. |
 | 99 | V1 (Build 99.261114.1) | 14 Nov 2026 | Web (app domain, auto-deploy on push) | 59e04a0 | Android hardware/gesture back: close top overlay, blur keyboard, history.back, or exitApp. No migration. |
 | 98 | V1 (Build 98.261113.4) | 13 Nov 2026 | Web (app domain, auto-deploy on push) | f3555a0 | Account deletion (Apple 5.1.1(v)), App Store reviewer login, update prompt for old app shells (shipped off). No migration. |

@@ -20,10 +20,9 @@ import { Header } from '@/components/Header';
 import { BottomNav } from '@/components/BottomNav';
 import { SideMenu } from '@/components/SideMenu';
 import { Button } from '@/components/ui/button';
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { CountryCombobox } from '@/components/CountryCombobox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 import { COUNTRY_LIST, COUNTRY_MAP, isBookableCorridor } from '@/lib/countryData';
 import { lbToKg, kgToLb } from '@/lib/units';
@@ -48,55 +47,6 @@ const ratesResultsShellStyle = {
   '--color-background-secondary': 'rgb(247 247 249)',
   '--color-border-tertiary': 'rgba(55, 65, 81, 0.12)',
 } as CSSProperties;
-
-interface CountryComboboxProps {
-  value: string;
-  onValueChange: (code: string) => void;
-}
-
-function CountryCombobox({ value, onValueChange }: CountryComboboxProps) {
-  const [open, setOpen] = useState(false);
-  const displayName = formatCountryDisplay(COUNTRY_MAP[value] ?? value);
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          role="combobox"
-          aria-expanded={open}
-          className="w-full h-11 justify-between font-normal text-sm bg-muted/30 border-border rounded-xl px-3 md:h-auto md:text-base md:font-medium"
-        >
-          <span className="truncate text-left">{displayName}</span>
-          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="p-0 w-[var(--radix-popover-trigger-width)]" align="start">
-        <Command>
-          <CommandInput placeholder="Search country…" className="h-11" />
-          <CommandList>
-            <CommandEmpty>No country found.</CommandEmpty>
-            <CommandGroup>
-              {COUNTRY_LIST.map((c) => (
-                <CommandItem
-                  key={c.code}
-                  value={`${c.name} ${c.code}`}
-                  onSelect={() => {
-                    onValueChange(c.code);
-                    setOpen(false);
-                  }}
-                >
-                  {formatCountryDisplay(c.name)}
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
-  );
-}
 
 export default function Rates() {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -561,14 +511,26 @@ export default function Rates() {
           <div className="flex items-end gap-2 md:gap-0 md:items-stretch md:bg-white md:rounded-2xl md:border md:border-[#E2E8F0] md:shadow-card md:p-1 md:mb-3">
             <div className="flex-1 min-w-0 md:flex-1 md:p-3">
               <Label className="text-[10px] text-muted-foreground mb-1 block md:text-[10px] md:font-bold md:text-muted-foreground md:uppercase md:tracking-[0.14em]">From</Label>
-              <CountryCombobox value={selectedOrigin} onValueChange={handleOriginChange} />
+              <CountryCombobox
+                value={selectedOrigin}
+                countries={COUNTRY_LIST}
+                title="Origin country"
+                triggerClassName="md:h-auto md:text-base md:font-medium"
+                onValueChange={handleOriginChange}
+              />
             </div>
             <div className="flex shrink-0 pb-[10px] text-muted-foreground md:flex md:items-center md:px-3 md:pb-0 md:text-[#F2A123]" aria-hidden>
               <ArrowRight className="w-5 h-5" />
             </div>
             <div className="flex-1 min-w-0 md:flex-1 md:p-3">
               <Label className="text-[10px] text-muted-foreground mb-1 block md:text-[10px] md:font-bold md:text-muted-foreground md:uppercase md:tracking-[0.14em]">To</Label>
-              <CountryCombobox value={selectedDestination} onValueChange={handleDestinationChange} />
+              <CountryCombobox
+                value={selectedDestination}
+                countries={COUNTRY_LIST}
+                title="Destination country"
+                triggerClassName="md:h-auto md:text-base md:font-medium"
+                onValueChange={handleDestinationChange}
+              />
             </div>
           </div>
 

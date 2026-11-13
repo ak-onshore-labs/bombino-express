@@ -1,14 +1,7 @@
 import { forwardRef, useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '@/components/ui/command';
+import { CommandItem } from '@/components/ui/command';
+import { SearchableCombobox } from '@/components/SearchableCombobox';
 import { cn } from '@/lib/utils';
 import { supportsFlagEmoji } from '@/lib/flagEmoji';
 import {
@@ -161,8 +154,18 @@ export const AccountPhoneInput = forwardRef<HTMLInputElement, AccountPhoneInputP
           className,
         )}
       >
-        <Popover open={open} onOpenChange={setOpen}>
-          <PopoverTrigger asChild>
+        <SearchableCombobox
+          open={open}
+          onOpenChange={setOpen}
+          title="Country"
+          searchPlaceholder="Search country or code"
+          emptyText="No country found."
+          popoverContentClassName="w-[min(20rem,calc(100vw-2rem))]"
+          popoverSideOffset={6}
+          listClassName="max-h-72"
+          inputClassName="border-0"
+          inputStyle={NO_FOCUS_GLOW}
+          trigger={
             <button
               type="button"
               disabled={disabled}
@@ -175,17 +178,10 @@ export const AccountPhoneInput = forwardRef<HTMLInputElement, AccountPhoneInputP
               {/* Locked (already verified, or a request in flight): no arrow, nothing to open. */}
               {!disabled && <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />}
             </button>
-          </PopoverTrigger>
-          <PopoverContent align="start" sideOffset={6} className="w-[min(20rem,calc(100vw-2rem))] p-0">
-            <Command>
-              <CommandInput placeholder="Search country or code" className="border-0" style={NO_FOCUS_GLOW} />
-              <CommandList className="max-h-72">
-                <CommandEmpty>No country found.</CommandEmpty>
-                <CommandGroup>{items}</CommandGroup>
-              </CommandList>
-            </Command>
-          </PopoverContent>
-        </Popover>
+          }
+        >
+          {items}
+        </SearchableCombobox>
 
         <span className="my-3 w-px shrink-0 bg-[#D7DDE5]" aria-hidden />
 
