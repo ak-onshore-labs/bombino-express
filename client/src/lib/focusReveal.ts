@@ -3,26 +3,35 @@
  *
  * The visible window is what lies between the bottom of the screen's top bar
  * (`[data-top-bar]`) and the top of the highest bar sitting on the keyboard
- * (`[data-bottom-bar]`, e.g. the booking step's Back / Continue). If the field
- * is not fully inside it, with a 16px margin, its scroller is moved by exactly
- * the difference, instantly: a smooth scroll races the keyboard animation and
- * `html { scroll-behavior: smooth }` would otherwise apply.
+ * (`[data-bottom-bar]`, e.g. the booking step's Back / Continue), or the
+ * keyboard itself. If the field is not fully inside it, with a 16px margin,
+ * its scroller is moved by exactly the difference, instantly: a smooth scroll
+ * races the keyboard animation and `html { scroll-behavior: smooth }` would
+ * otherwise apply.
  *
- * It waits for the keyboard to finish opening (the `bombino:keyboard` event or
- * the viewport resizing, then a quiet spell), because measuring while the web
- * view is still shrinking gives the wrong answer. Surfaces pinned to the
+ * When the keyboard settles depends on where the app runs. The iOS shell
+ * (`resize: 'native'`) shrinks the web view only after the keyboard has
+ * finished animating, well after `keyboardDidShow`. So while a field is
+ * focused the reveal re-runs on every keyboard event, every window and
+ * visual viewport resize, and on timers after focus. Each run measures fresh
+ * and does nothing when the field is already clear. Surfaces pinned to the
  * keyboard (`[data-keyboard-pinned]`, BIA) keep their own input in view.
  */
 
-import { KEYBOARD_EVENT, isKeyboardOpen, isTextEntry, type KeyboardChange } from "./keyboardInset";
+import {
+  KEYBOARD_EVENT,
+  isTextEntry,
+  keyboardCoverPx,
+  type KeyboardChange,
+} from "./keyboardInset";
 
 const MARGIN = 16;
-/** No viewport change for this long means the keyboard has settled. */
-const QUIET_MS = 150;
-/** Reveal anyway if neither the keyboard event nor a resize arrives. */
-const FALLBACK_MS = 600;
+/** Re-reveal this long after focus, in case no event marks the keyboard settling. */
+const FALLBACK_MS = [100, 300, 600];
 
-let cancelPending: (() => void) | null = null;
+let active: HTMLElement | null = null;
+let timers: ReturnType<typeof setTimeout>[] = [];
+let frame = 0;
 
 function isShown(el: Element): boolean {
   if (el.getClientRects().length === 0) return false;
@@ -32,8 +41,10 @@ function isShown(el: Element): boolean {
 
 function viewportBounds(): { top: number; bottom: number } {
   const vv = window.visualViewport;
-  if (!vv) return { top: 0, bottom: window.innerHeight };
-  return { top: vv.offsetTop, bottom: vv.offsetTop + vv.height };
+  const top = vv?.offsetTop ?? 0;
+  const vvBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+  // Before the shell's web view shrinks, the keyboard covers its bottom.
+  return { top, bottom: Math.min(vvBottom, window.innerHeight - keyboardCoverPx()) };
 }
 
 /** The window between the top bar and the bars on the keyboard, in client px. */
@@ -85,61 +96,55 @@ function scrollableAncestor(el: HTMLElement): HTMLElement | null {
   return null;
 }
 
+/** Scroll without animation, whatever `scroll-behavior` the page sets. */
+function scrollInstantly(scroller: Element, delta: number): void {
+  const html = document.documentElement;
+  const previous = html.style.scrollBehavior;
+  html.style.scrollBehavior = "auto";
+  scroller.scrollTo({ top: scroller.scrollTop + delta, behavior: "instant" });
+  html.style.scrollBehavior = previous;
+}
+
 function reveal(target: HTMLElement): void {
   if (!target.isConnected || document.activeElement !== target) return;
 
   const delta = overflowOf(target);
   if (Math.abs(delta) < 1) return;
 
+  const page = document.scrollingElement ?? document.documentElement;
   const scroller = scrollableAncestor(target);
   if (scroller) {
-    scroller.scrollBy({ top: delta, behavior: "instant" });
+    scrollInstantly(scroller, delta);
     // A scroller already at its end leaves the rest to the page.
     const rest = overflowOf(target);
-    if (Math.abs(rest) >= 1) window.scrollBy({ top: rest, behavior: "instant" });
+    if (Math.abs(rest) >= 1) scrollInstantly(page, rest);
     return;
   }
-  window.scrollBy({ top: delta, behavior: "instant" });
+  scrollInstantly(page, delta);
 }
 
-function schedule(target: HTMLElement): void {
-  cancelPending?.();
+/** Reveal the active field two frames from now, once layout has caught up. */
+function request(): void {
+  if (!active) return;
+  cancelAnimationFrame(frame);
+  frame = requestAnimationFrame(() => {
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      if (active) reveal(active);
+    });
+  });
+}
 
-  let quietTimer: ReturnType<typeof setTimeout> | null = null;
-  const fallbackTimer = setTimeout(() => finish(), FALLBACK_MS);
+function clearTimers(): void {
+  timers.forEach(clearTimeout);
+  timers = [];
+}
 
-  const finish = (): void => {
-    cleanup();
-    requestAnimationFrame(() => reveal(target));
-  };
-
-  const arm = (): void => {
-    if (quietTimer !== null) clearTimeout(quietTimer);
-    quietTimer = setTimeout(finish, QUIET_MS);
-  };
-
-  const onKeyboard = (event: Event): void => {
-    if ((event as CustomEvent<KeyboardChange>).detail.open) arm();
-  };
-
-  const vv = window.visualViewport;
-  window.addEventListener(KEYBOARD_EVENT, onKeyboard);
-  window.addEventListener("resize", arm);
-  vv?.addEventListener("resize", arm);
-
-  const cleanup = (): void => {
-    clearTimeout(fallbackTimer);
-    if (quietTimer !== null) clearTimeout(quietTimer);
-    window.removeEventListener(KEYBOARD_EVENT, onKeyboard);
-    window.removeEventListener("resize", arm);
-    vv?.removeEventListener("resize", arm);
-    if (cancelPending === cleanup) cancelPending = null;
-  };
-  cancelPending = cleanup;
-
-  // Moving between fields with the keyboard already up: nothing more is
-  // coming unless the keyboard changes shape, so only the quiet spell is waited.
-  if (isKeyboardOpen()) arm();
+function release(): void {
+  active = null;
+  clearTimers();
+  cancelAnimationFrame(frame);
+  frame = 0;
 }
 
 /** Called once at startup, after installKeyboardInset. */
@@ -148,9 +153,27 @@ export function installFocusReveal(): void {
     const target = event.target;
     if (!(target instanceof HTMLElement) || !isTextEntry(target)) return;
     if (target.closest("[data-keyboard-pinned]")) {
-      cancelPending?.();
+      release();
       return;
     }
-    schedule(target);
+    active = target;
+    clearTimers();
+    timers = FALLBACK_MS.map((ms) => setTimeout(request, ms));
+    request();
   });
+
+  document.addEventListener("focusout", () => {
+    // After the task: the next field's focusin lands first.
+    setTimeout(() => {
+      if (active && document.activeElement !== active) release();
+    }, 0);
+  });
+
+  window.addEventListener(KEYBOARD_EVENT, (event) => {
+    if ((event as CustomEvent<KeyboardChange>).detail.open) request();
+  });
+  window.addEventListener("keyboardWillShow", request);
+  window.addEventListener("keyboardDidShow", request);
+  window.addEventListener("resize", request);
+  window.visualViewport?.addEventListener("resize", request);
 }

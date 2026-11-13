@@ -32,13 +32,15 @@
  *
  * Whether the keyboard is open at all is a separate flag, because a shell that
  * resizes the web view (iOS app, `resize: 'native'`) leaves `--kb` at 0: the
- * layout viewport simply ends at the keyboard. The flag also counts a focused
- * text field in a window that has lost more than 120px of height. It is
- * published as `html[data-keyboard="open"]` (CSS hides the bottom navs on it)
- * and as a `bombino:keyboard` window event carrying `{ open, height }`.
+ * layout viewport simply ends at the keyboard. In the app shell the flag comes
+ * only from the plugin's show and hide events. In a browser it counts `--kb`,
+ * or a focused text field in a window that has lost more than 120px of height.
+ * It is published as `html[data-keyboard="open"]` (CSS hides the bottom navs
+ * on it) and as a `bombino:keyboard` window event carrying `{ open, height }`.
  */
 
 import { useEffect, useState } from "react";
+import { isCapacitorNative } from "./platform";
 
 /** Keyboard height from Capacitor's plugin, and the window height when it opened. */
 let nativeKb = 0;
@@ -55,6 +57,10 @@ export interface KeyboardChange {
 const RESIZE_THRESHOLD = 120;
 
 let keyboardOpen = false;
+/** Running in the Capacitor app shell, where the plugin's events are the truth. */
+let inShell = false;
+/** The last `--kb`, in px. */
+let coverPx = 0;
 /** The tallest window seen with no text field focused. */
 let baselineHeight = 0;
 /**
@@ -93,6 +99,7 @@ function update(): void {
   const shrunkBy = heightBeforeKeyboard > 0 ? Math.max(0, heightBeforeKeyboard - innerHeight) : 0;
   const fromNative = nativeKb > 0 ? Math.max(0, nativeKb - shrunkBy - top) : 0;
   const kb = Math.round(Math.max(fromViewport, fromApi, fromNative));
+  coverPx = kb;
 
   root.setProperty("--vh", `${vvHeight}px`);
   root.setProperty("--kb", `${kb}px`);
@@ -102,8 +109,9 @@ function update(): void {
   const focused = isTextEntry(document.activeElement);
   if (!focused) baselineHeight = Math.max(baselineHeight, innerHeight);
   const drop = baselineHeight > 0 ? Math.max(0, baselineHeight - innerHeight) : 0;
-  const open =
-    nativeKb > 0 || (!closedUntilFocus && (kb > 0 || (focused && drop > RESIZE_THRESHOLD)));
+  const open = inShell
+    ? nativeKb > 0
+    : !closedUntilFocus && (kb > 0 || (focused && drop > RESIZE_THRESHOLD));
   setKeyboardOpen(open, kb || Math.round(nativeKb) || Math.round(drop));
 }
 
@@ -121,6 +129,11 @@ function setKeyboardOpen(open: boolean, height: number): void {
 /** Is the on-screen keyboard open right now? */
 export function isKeyboardOpen(): boolean {
   return keyboardOpen;
+}
+
+/** How much of the layout viewport the keyboard covers right now (`--kb`). */
+export function keyboardCoverPx(): number {
+  return coverPx;
 }
 
 /** Re-measure every frame until SETTLE_MS after the last call. */
@@ -163,6 +176,7 @@ export function isTextEntry(target: EventTarget | null): boolean {
 
 /** Called once at startup. */
 export function installKeyboardInset(): void {
+  inShell = isCapacitorNative();
   window.visualViewport?.addEventListener("resize", update);
   window.visualViewport?.addEventListener("scroll", update);
   window.addEventListener("resize", update);
@@ -180,6 +194,9 @@ export function installKeyboardInset(): void {
   });
   document.addEventListener("focusout", (event) => {
     if (!isTextEntry(event.target)) return;
+    settle();
+    // In the shell only the plugin's hide event closes the flag.
+    if (inShell) return;
     // After the task, not a microtask: the next field's focusin has to land
     // first, or moving between fields would close and reopen the flag.
     setTimeout(() => {
@@ -187,12 +204,15 @@ export function installKeyboardInset(): void {
       closedUntilFocus = true;
       setKeyboardOpen(false, 0);
     }, 0);
-    settle();
   });
 
   // Capacitor's Keyboard plugin (iOS app): window events carrying the height.
   const onShow = (event: Event): void => {
-    const height = Number((event as Event & { keyboardHeight?: unknown }).keyboardHeight);
+    const ev = event as Event & {
+      keyboardHeight?: unknown;
+      detail?: { keyboardHeight?: unknown } | null;
+    };
+    const height = Number(ev.keyboardHeight ?? ev.detail?.keyboardHeight);
     if (!Number.isFinite(height) || height <= 0) return;
     if (nativeKb === 0) heightBeforeKeyboard = window.innerHeight;
     nativeKb = height;
