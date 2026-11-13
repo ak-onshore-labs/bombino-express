@@ -1,103 +1,66 @@
-# Bombino Express — CLAUDE.md
+# CLAUDE.md
 
-## Project Overview
-India-to-USA shipping logistics platform (Phase 1). Features: shipment tracking, rate calculator, booking flow, user auth, and push notifications.
-Phase 1 (MVP) — frontend integrated with available backend API with reference to api-spec.md.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Tech Stack
-| Layer | Technologies |
-|---|---|
-| Frontend | React 19, TypeScript 5.6, Vite 7, TailwindCSS 4 |
-| UI | shadcn/ui (New York style), Radix UI, Lucide React, Framer Motion |
-| Routing | Wouter 3.3 |
-| State | Zustand 5 (localStorage persistence) + TanStack React Query 5 |
-| Forms | React Hook Form + Zod validation |
-| Backend | Express 4.21, Node 20 |
-| Database | PostgreSQL via Drizzle ORM 0.39 |
-| Auth | Passport.js + express-session (scaffolded, not wired) |
-| Build | Vite (client), esbuild (server), tsx (dev runner) |
+## What this is
 
-## Project Structure
-```
-/client/src/
-  pages/          # 14 route-level components (Splash, Home, Rates, CreateShipment, etc.)
-  components/     # Custom: Header, BottomNav, ShipmentCard, StatusBadge, TrackingTimeline, SideMenu
-  components/ui/  # 57+ shadcn/ui primitives
-  lib/            # mockData.ts, store.ts (Zustand), queryClient.ts, utils.ts
-  hooks/          # use-mobile.tsx, use-toast.ts
-/server/
-  index.ts        # Express entry point, port 5000
-  routes.ts       # API route registration stub (all routes prefixed /api)
-  storage.ts      # IStorage interface + MemStorage (in-memory, DB not wired)
-  vite.ts         # Vite dev middleware
-/shared/
-  schema.ts       # Drizzle schema (users table) + Zod insert schemas
-/docs/
-  api-spec.md     # Empty placeholder
-  Bombino Express Proposal.pdf
-/attached_assets/ # Brand images and proposal text
-```
+Bombino Express: India→USA door-to-door courier. One codebase serves **three separate products**, chosen by URL prefix and user role:
 
-## Setup & Installation
+- **Customer app** (`/`, `/home`, `/create`, `/orders`, …): book, pay, and track. Signed-in accounts and phone-verified guests.
+- **Agent app** (`/agent/*`, `client/src/routes.agent.tsx`): pickup riders on low-end Android in sunlight. It renders outside `AppLayout`, shows no toasts, and uses no GSAP/Framer Motion.
+- **Ops console** (`/ops/*`, `client/src/routes.ops.tsx`): hub/office staff running orders through their lifecycle.
+
+Read `PRODUCT.md` (audiences, agent-surface principles) and `DESIGN.md` (navy "Admiralty Dark" + "Dispatch Amber" palette, Poppins) before UI work. The surfaces deliberately do not share a visual personality.
+
+## Commands
+
 ```bash
-npm install
-# Requires DATABASE_URL env var for PostgreSQL:
-export DATABASE_URL="postgresql://user:pass@host/db"
-npm run db:push   # Push schema to database
-npm run dev       # Start server (port 5000, serves client via Vite middleware)
+npm run dev          # Express + Vite middleware on :5000 (tsx watch)
+npm run check        # tsc (strict, noEmit) over client, server, shared, tests
+npm test             # unit tests: node:test via tsx, *.test.ts in server/ shared/ client/src/
+npx tsx --test server/sms.test.ts            # run a single test file
+npx tsx --test --test-name-pattern="<regex>" server/sms.test.ts   # filter tests by name
+npm run test:e2e     # tests/e2e/*.e2e.ts — boots a real server on :5001 against the SHARED Supabase DB
+npm run lint         # eslint (all rules are warnings; exits 0)
+npm run format       # prettier
+npm run build        # script/build.ts: vite → dist/public, esbuild server → dist/index.cjs
+npx tsx scripts/apply-migration.ts migrations/<file>.sql   # apply one SQL migration in a transaction
 ```
 
-## Development Commands
-```bash
-npm run dev        # Express + Vite dev server on :5000
-npm run dev:client # Vite only on :5000 (client-only)
-npm run build      # Production build (client → dist/public, server → dist/index.cjs)
-npm run start      # Run production build
-npm run check      # TypeScript type check (tsc --noEmit)
-npm run db:push    # Sync Drizzle schema to database
-```
-No test framework configured yet.
+The deploy build (`nixpacks.toml`, Railway) runs `check`, then `test`, then `build`, so a type error or failing unit test blocks the deploy. The e2e suite is not run there because it writes to the shared database.
 
-## Architecture & Patterns
+## Architecture
 
-**Monorepo layout**: `/client` (React), `/server` (Express), `/shared` (Drizzle schema + types shared across both).
+### Server (`server/`)
+- `app.ts` builds the Express app (sessions in Postgres via `connect-pg-simple`, boot-time env assertions and warnings). It has two hosts: `index.ts` (long-lived process, used for dev/Railway) and `api/index.ts` (Vercel serverless function, see `vercel.json`). Anything both hosts need goes in `app.ts`, not `index.ts`.
+- `routes.ts` (~4.7k lines) plus `routes/*.ts` (agent, ops, payments, support/BIA, whatsapp, …) register every `/api` endpoint.
+- **Data access is Supabase JS with the service-role key**, not Drizzle. The `*Db.ts` modules (`ordersDb`, `opsDb`, `agentDb`, `kycDb`, …) call `dbClient()` from `server/db/client.ts`, which returns null rather than throwing when the database is unconfigured. `shared/schema.ts` (Drizzle) covers only a few tables. Treat `migrations/*.sql` as the schema source of truth.
+- Server-side relative imports use `.js` extensions (ESM).
+- **Order state machine**: `server/orderLifecycle.ts` holds one row per legal `status × action × role`. `availableActions()` drives which buttons the UI shows, and the action endpoint checks the same guards. To add a transition, add a row there; never put lifecycle logic in a route or component. The guards are advisory only: anything that can be raced (e.g. an agent claiming a pickup) must also put its precondition in the SQL `WHERE` of the update.
+- Status vocabulary is frozen (see `shared/orderContract.ts` and `docs/final-phase/markdowns/final-phase-modules.md`):
+  `pickup_requested → agent_accepted → out_for_pickup → picked_up → received_at_hub`, or `awaiting_dropoff → received_at_hub`; then `weighed → settled → ready_for_docket → dispatched` (plus `cancelled`).
+- **Why the docket is deferred**: an ITD docket/AWB cannot be amended once filed, and there is **no ITD sandbox** (`server/itd.ts` always hits production). So a booking creates an internal `BOM-xxxxxx` order (route `/order/:orderNo`), and a real AWB (`/shipment/:awb`) is issued only after hub weighing and settlement. `ITD_DOCKET_AT_BOOKING` changes this for ITD-linked accounts.
+- Access control lives in `server/routeGuards.ts` (`requireUser`, `requireRole`, `opsGate`). The client's `lib/surface.ts` and `SurfaceGuard` only route people to their own surface and are not security.
+- Integrations: ITD (dockets/rates/tracking), Razorpay (pay-now + webhook), Tata Omni WhatsApp (pre-approved templates only, see `docs/whatsapp-templates.md`), MSG91 (login OTP), Cashfree VRS (GSTIN lookup, document OCR), OpenAI (BIA support assistant, GST-certificate vision fallback), SMTP mail. Unset credentials are mostly a supported state that degrades gracefully. `.env.example` documents each variable.
+- Identity document fields are AES-256-GCM encrypted (`server/fieldCrypto.ts`, `ENCRYPTION_KEY`). The server refuses to boot without that key.
 
-**State**: Zustand store (`lib/store.ts`) persists `hasSeenOnboarding`, `isLoggedIn`, `user` to `localStorage` as `bombino-storage`. Shipments and notifications are in-memory (reset on refresh).
+### Shared (`shared/`)
+Pure logic used by both sides and unit-tested: the order contract and roles, error catalog, Aadhaar/GSTIN validation, BIA modules/cards/chips, IST time helpers, corridor and booking terms.
 
-**Data layer**: All data currently comes from `lib/mockData.ts` (8,200+ lines). Server `storage.ts` defines `IStorage` interface — swap `MemStorage` for a DB-backed class when implementing routes.
+### Client (`client/src/`)
+- Wouter routing: `App.tsx` (customer), `routes.agent.tsx`, `routes.ops.tsx`. Login lands each role on its surface via `landingPathForRole`.
+- Server state uses TanStack Query (`lib/queryClient.ts`). `apiRequest`/`readJson` throw `Error("<status>: <body>")`, and callers rely on that shape (`lib/apiError.ts`). Feature hooks live in `hooks/` (`useOps*`, `useAgentPickups`, …).
+- Zustand (`lib/store.ts`) persists only `hasSeenOnboarding`, `isLoggedIn`, and `user` to localStorage (`bombino-storage`).
+- BIA (the in-app support assistant) is `components/bia/` plus `lib/askBia.ts` on the client, `server/support*.ts` and `routes/bia.ts` on the server, and content in `content/bia/`. Which modules are on is controlled by `BIA_MODULES` (see `shared/biaModules.ts` and `docs/bia-3/PROGRESS.md`). `npm run bia:eval` runs its eval.
+- Path aliases: `@/` → `client/src/`, `@shared/` → `shared/`, `@assets/` → `attached_assets/`. shadcn/ui primitives in `components/ui/` are vendored, and lint ignores them.
 
-**API pattern**: All server routes go in `server/routes.ts`, prefixed `/api`. Client uses React Query + custom fetch wrapper from `queryClient.ts` which handles 401s and includes credentials.
+## Database & environment rules
 
-**Build**: Server bundles to CommonJS (`dist/index.cjs`). Client builds to `dist/public`. In dev, Express serves the Vite middleware directly.
+- There is **one shared Supabase project** for dev, staging, production-like runs, and e2e. Migrations must be additive only (no renames, drops, or type changes). Commit every statement as a file in `migrations/`, and respect the per-table DDL ownership in `final-phase-modules.md` §4. Do not use `npm run db:push` for schema changes.
+- Several env flags are honoured **in production builds** and print a boxed warning at boot: `OTP_FIXED_CODE`, `PAYMENTS_TEST_MODE`, `OCR_BYPASS`, `IDENTITY_BYPASS`, `ITD_DOCKET_AT_BOOKING`. `WA_DRY_RUN` defaults on in development.
+- Test phone numbers and roles are listed in `docs/test-accounts.md`. The e2e harness (`tests/e2e/harness.ts`) forces WhatsApp dry-run, no docket at booking, and the payments test mode.
 
-## API Reference
-- No routes implemented yet. See `server/routes.ts`.
-- API spec placeholder: `docs/api-spec.md`
-- All endpoints should be prefixed `/api`
-
-## Coding Conventions
-- **TypeScript strict mode** — no `any`, explicit return types on exports
-- **Path aliases**: `@/` → `client/src/`, `@shared/` → `shared/`, `@assets/` → `attached_assets/`
-- **Components**: PascalCase files, named exports, co-located with their page
-- **Styling**: Tailwind utility classes; `cn()` from `lib/utils.ts` for conditional classes
-- **Primary color**: `#C62828` (crimson red); font: Plus Jakarta Sans
-- **shadcn/ui**: New York style; add components via `npx shadcn@latest add <component>`
-- **Forms**: React Hook Form + Zod schemas derived from Drizzle tables via `drizzle-zod`
-- **Mobile-first**: All pages designed for mobile; `useIsMobile()` hook at 768px breakpoint
-
-## Key Files
-| File | Purpose |
-|---|---|
-| `client/src/App.tsx` | Route definitions (14 routes) |
-| `client/src/lib/mockData.ts` | All mock data + interfaces (Shipment, TrackingEvent, etc.) |
-| `client/src/lib/store.ts` | Zustand global state |
-| `server/index.ts` | Express server setup |
-| `server/routes.ts` | **Where to add API routes** |
-| `server/storage.ts` | Storage interface — implement DB here |
-| `shared/schema.ts` | Drizzle schema + Zod types |
-| `vite.config.ts` | Vite + path aliases config |
-| `components.json` | shadcn/ui configuration |
-
-## Project Docs
-- Business proposal: `docs/Bombino Express Proposal.pdf`
-- API spec : `docs/api-spec.md`
+## Docs worth knowing
+- `docs/final-phase/markdowns/`: module plan, roles-and-flows, schema state, deploy runbook, go-live checklist, and ops-console task list.
+- `docs/api-spec.md` holds **ITD's vendor API notes**, not this app's API.
+- `docs/account-review.md` (`ACCOUNT_REVIEW` flow), `docs/kyc-retention.md`, `docs/deploy-vercel.md`, and `docs/whatsapp-*.md`.
