@@ -26,9 +26,42 @@ type SettingDef = {
   schema: ZodType;
 };
 
+const storeUrl = z
+  .string()
+  .url()
+  .refine(
+    (value) => {
+      try {
+        const u = new URL(value);
+        if (u.protocol !== "https:") return false;
+        const host = u.hostname.toLowerCase();
+        return (
+          host === "apps.apple.com" ||
+          host.endsWith(".apps.apple.com") ||
+          host === "play.google.com" ||
+          host.endsWith(".play.google.com")
+        );
+      } catch {
+        return false;
+      }
+    },
+    { message: "Use an https apps.apple.com or play.google.com link" }
+  );
+
+export const appUpdateSchema = z.object({
+  mode: z.enum(["off", "soft", "force"]),
+  min_shell: z.number().int().min(0),
+  store_url: storeUrl,
+  message: z.string().max(200).optional(),
+});
+
+export type AppUpdateSetting = z.infer<typeof appUpdateSchema>;
+
 export const SETTINGS = {
   support_whatsapp: { visibility: "public" as const, schema: digitString },
   support_office_phone: { visibility: "public" as const, schema: digitString },
+  app_update_ios: { visibility: "public" as const, schema: appUpdateSchema },
+  app_update_android: { visibility: "public" as const, schema: appUpdateSchema },
   guest_booking: { visibility: "ops" as const, schema: z.boolean() },
   cashfree_id_check: {
     visibility: "ops" as const,
@@ -170,15 +203,26 @@ function asDigitString(value: unknown, fallback: string): string {
   return typeof value === "string" && /^\d{10,15}$/.test(value) ? value : fallback;
 }
 
+function asAppUpdate(value: unknown): AppUpdateSetting | null {
+  const parsed = appUpdateSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
 /** Public bag — only registry keys with visibility public, plus compiled fallback. */
 export async function listPublicSettings(): Promise<{
   support_office_phone: string;
   support_whatsapp: string;
+  app_update_ios: AppUpdateSetting | null;
+  app_update_android: AppUpdateSetting | null;
 }> {
   const contacts = await getSupportContacts();
+  const updateRows = await loadRows(["app_update_ios", "app_update_android"]);
+  const byKey = new Map(updateRows.map((row) => [row.key, row.value]));
   return {
     support_office_phone: contacts.officePhone,
     support_whatsapp: contacts.whatsapp,
+    app_update_ios: asAppUpdate(byKey.get("app_update_ios")),
+    app_update_android: asAppUpdate(byKey.get("app_update_android")),
   };
 }
 

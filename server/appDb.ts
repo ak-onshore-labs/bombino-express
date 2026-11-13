@@ -657,9 +657,36 @@ export async function listCustomersForOps(
   }
 
   const raw = Array.isArray(data) ? data : [];
-  return raw
+  const mapped = raw
     .map((row) => mapOpsCustomerRow(row as Parameters<typeof mapOpsCustomerRow>[0]))
     .filter((row) => row.id !== "");
+
+  // Self-deleted accounts stay in itd_users (orders cascade from them) but
+  // must not appear in the Customers directory. The RPC does not return
+  // metadata, so we filter on a follow-up read of deleted_at.
+  if (mapped.length === 0) return mapped;
+  const ids = mapped.map((row) => row.id);
+  const { data: deletedRows, error: deletedError } = await client
+    .from("itd_users")
+    .select("id, metadata")
+    .in("id", ids);
+  if (deletedError) {
+    logSupabaseError("listCustomersForOps/deleted", deletedError);
+    return mapped;
+  }
+  const deletedIds = new Set(
+    (deletedRows ?? [])
+      .filter((row) => {
+        const meta = row.metadata;
+        return (
+          !!meta &&
+          typeof meta === "object" &&
+          typeof (meta as Record<string, unknown>).deleted_at === "string"
+        );
+      })
+      .map((row) => String(row.id))
+  );
+  return mapped.filter((row) => !deletedIds.has(row.id));
 }
 
 /** One customer by id. Null when missing or not role=customer. */

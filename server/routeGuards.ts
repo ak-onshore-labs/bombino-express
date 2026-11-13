@@ -11,7 +11,58 @@ import type { Express, NextFunction, Request, RequestHandler, Response } from "e
 import { findItdUserIdByCustomerId, getIsActiveById, getStaffAccessById } from "./appDb.js";
 import { can, isCityScoped, isOpsRole, type OpsPermission } from "../shared/staffAccess.js";
 import { hubCityForId } from "../shared/hubs.js";
+import { isUserDeleted } from "./deletedAccount.js";
 import { canMarkTestOrders, isTestPhone } from "./testOrders.js";
+
+/**
+ * If this session belongs to a self-deleted customer, destroy it and 401.
+ * Fail-open: lookup errors leave the request alone. Only a confirmed
+ * deleted_at marker signs anyone out. Does not look at is_active.
+ */
+async function rejectIfDeletedAccount(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  const userId = req.session.dbUserId;
+  if (!userId || !req.session.user) {
+    next();
+    return;
+  }
+  // Staff and agents are never self-deleted through this path.
+  const role = req.session.user.role;
+  if (role && role !== "customer") {
+    next();
+    return;
+  }
+
+  let deleted = false;
+  try {
+    deleted = await isUserDeleted(userId);
+  } catch (err) {
+    console.warn(
+      "[routeGuards] deleted-account check failed (fail-open):",
+      err instanceof Error ? err.message : String(err)
+    );
+    next();
+    return;
+  }
+
+  if (!deleted) {
+    next();
+    return;
+  }
+
+  req.session.destroy((err) => {
+    if (err) {
+      console.error("[routeGuards] session destroy after deletion failed:", err);
+    }
+    res.status(401).json({
+      message: "This account has been deleted.",
+      code: "ACCOUNT_DELETED",
+    });
+  });
+}
 
 /**
  * An async handler whose rejection reaches the error middleware.
@@ -68,7 +119,7 @@ export function requireUser(req: Request, res: Response, next: NextFunction): vo
     res.status(401).json({ message: "Not authenticated" });
     return;
   }
-  next();
+  void rejectIfDeletedAccount(req, res, next);
 }
 
 /**
@@ -88,6 +139,10 @@ export function requireUser(req: Request, res: Response, next: NextFunction): vo
 export function requireUserOrGuest(req: Request, res: Response, next: NextFunction): void {
   if (!req.session.user && !req.session.guestRef) {
     res.status(401).json({ message: "Not authenticated" });
+    return;
+  }
+  if (req.session.user) {
+    void rejectIfDeletedAccount(req, res, next);
     return;
   }
   next();

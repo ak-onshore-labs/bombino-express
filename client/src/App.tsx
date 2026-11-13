@@ -8,6 +8,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from '@/components/AppLayout';
 import { BiaSheet } from '@/components/bia/BiaSheet';
 import { SurfaceGuard } from '@/components/SurfaceGuard';
+import { UpdateGate } from '@/components/UpdateGate';
 import { AgentRoutes } from './routes.agent';
 import { OpsRoutes } from './routes.ops';
 import { isParcelTagPath, surfaceForPath } from '@/lib/surface';
@@ -31,6 +32,7 @@ import Privacy from "@/pages/Privacy";
 import Profile from "@/pages/Profile";
 import GuestProfileDashboard from "@/pages/GuestProfileDashboard";
 import GuestAccountSetup from "@/pages/GuestAccountSetup";
+import DeleteAccount from "@/pages/DeleteAccount";
 import ApplicationFix from "@/pages/ApplicationFix";
 import { useGuestProfile } from "@/hooks/useGuestProfile";
 import { useAppStore } from "@/lib/store";
@@ -88,6 +90,8 @@ function CustomerRouter() {
           KYC matrix, username, unlink, sign-out — and none of it applies to a
           number that has no account behind it yet. */}
       <Route path="/guest-profile" component={GuestProfileDashboard} />
+      {/* Apple 5.1.1(v): account holders and guests delete from here. */}
+      <Route path="/account/delete" component={DeleteAccount} />
       {/* The form itself. Kept off the profile screen so that screen can stay a
           summary: a dozen fields answered one row at a time is right for
           correcting one and wrong for finishing the set. */}
@@ -204,7 +208,9 @@ function App() {
         <SurfaceToaster />
         <SessionWatch />
         <SurfaceGuard>
-          <Surfaces />
+          <UpdateGate>
+            <Surfaces />
+          </UpdateGate>
         </SurfaceGuard>
       </TooltipProvider>
     </QueryClientProvider>

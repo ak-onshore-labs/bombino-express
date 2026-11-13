@@ -229,7 +229,7 @@ export default function OpsSettings() {
       {/* S2: guest_booking, cashfree_id_check, labels_at_booking, payments_test_mode
           drop here — same GET /api/ops/settings and PATCH /api/ops/settings. */}
       <section
-        className="rounded-md border border-border bg-white p-4"
+        className="rounded-md border border-border bg-white p-4 mb-6"
         data-testid="ops-settings-switches"
       >
         <h2 className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground mb-1">
@@ -241,7 +241,216 @@ export default function OpsSettings() {
         </p>
       </section>
 
+      <AppUpdateEditor
+        title="iOS app update"
+        settingKey="app_update_ios"
+        row={list.data?.find((row) => row.key === 'app_update_ios')}
+        disabled={list.isLoading || list.isError}
+        onSaved={() => {
+          void queryClient.invalidateQueries({ queryKey: SETTINGS_PUBLIC_KEY });
+          void queryClient.invalidateQueries({ queryKey: OPS_SETTINGS_KEY });
+        }}
+      />
+
+      <AppUpdateEditor
+        title="Android app update"
+        settingKey="app_update_android"
+        row={list.data?.find((row) => row.key === 'app_update_android')}
+        disabled={list.isLoading || list.isError}
+        onSaved={() => {
+          void queryClient.invalidateQueries({ queryKey: SETTINGS_PUBLIC_KEY });
+          void queryClient.invalidateQueries({ queryKey: OPS_SETTINGS_KEY });
+        }}
+      />
+
       <BuildVersion className="mt-6 text-[11px]" />
     </OpsShell>
+  );
+}
+
+type AppUpdateValue = {
+  mode: 'off' | 'soft' | 'force';
+  min_shell: number;
+  store_url: string;
+  message?: string;
+};
+
+function asAppUpdate(value: unknown): AppUpdateValue {
+  if (!value || typeof value !== 'object') {
+    return { mode: 'off', min_shell: 2, store_url: '', message: '' };
+  }
+  const v = value as Record<string, unknown>;
+  return {
+    mode: v.mode === 'soft' || v.mode === 'force' || v.mode === 'off' ? v.mode : 'off',
+    min_shell: typeof v.min_shell === 'number' && Number.isFinite(v.min_shell) ? v.min_shell : 2,
+    store_url: typeof v.store_url === 'string' ? v.store_url : '',
+    message: typeof v.message === 'string' ? v.message : '',
+  };
+}
+
+function AppUpdateEditor({
+  title,
+  settingKey,
+  row,
+  disabled,
+  onSaved,
+}: {
+  title: string;
+  settingKey: 'app_update_ios' | 'app_update_android';
+  row: OpsSettingRow | undefined;
+  disabled: boolean;
+  onSaved: () => void;
+}) {
+  const initial = asAppUpdate(row?.value);
+  const [mode, setMode] = useState<AppUpdateValue['mode']>(initial.mode);
+  const [minShell, setMinShell] = useState(String(initial.min_shell));
+  const [storeUrl, setStoreUrl] = useState(initial.store_url);
+  const [message, setMessage] = useState(initial.message ?? '');
+  const [error, setError] = useState('');
+  const [note, setNote] = useState('');
+
+  useEffect(() => {
+    const next = asAppUpdate(row?.value);
+    setMode(next.mode);
+    setMinShell(String(next.min_shell));
+    setStoreUrl(next.store_url);
+    setMessage(next.message ?? '');
+    setError('');
+    setNote('');
+  }, [row?.value]);
+
+  const save = useMutation({
+    mutationFn: async (value: AppUpdateValue) => {
+      const res = await apiRequest('PATCH', '/api/ops/settings', {
+        key: settingKey,
+        value,
+      });
+      return res.json();
+    },
+    onSuccess: () => onSaved(),
+  });
+
+  const onSave = async (): Promise<void> => {
+    setError('');
+    setNote('');
+    const min = Number(minShell);
+    if (!Number.isInteger(min) || min < 0) {
+      setError('Minimum shell version must be a whole number (0 or more).');
+      return;
+    }
+    if (mode !== 'off' && !storeUrl.trim()) {
+      setError('Store link is required when mode is soft or force.');
+      return;
+    }
+    const value: AppUpdateValue = {
+      mode,
+      min_shell: min,
+      store_url: storeUrl.trim() || 'https://apps.apple.com',
+      ...(message.trim() ? { message: message.trim() } : {}),
+    };
+    // When mode is off, still need a valid URL for the Zod schema.
+    if (mode === 'off' && !storeUrl.trim()) {
+      value.store_url =
+        settingKey === 'app_update_ios'
+          ? 'https://apps.apple.com'
+          : 'https://play.google.com/store';
+    }
+    try {
+      await save.mutateAsync(value);
+      setNote('Saved.');
+    } catch (err) {
+      setError(parseApiErrorMessage(err, 'Could not save setting'));
+    }
+  };
+
+  return (
+    <section
+      className="rounded-md border border-border bg-white p-4 mb-6"
+      data-testid={`ops-settings-${settingKey}`}
+    >
+      <h2 className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground mb-1">
+        {title}
+      </h2>
+      <p className="text-[11px] text-muted-foreground mb-4">
+        Ships off. Soft shows a dismissible banner; force blocks the app until they update.
+        Minimum shell is the BombinoShell/N marker (store builds report 0).
+      </p>
+
+      <div className="mb-4">
+        <Label className="text-sm font-medium">Mode</Label>
+        <select
+          className={`${inputClass} w-full`}
+          value={mode}
+          disabled={disabled || save.isPending}
+          onChange={(e) => setMode(e.target.value as AppUpdateValue['mode'])}
+          data-testid={`select-${settingKey}-mode`}
+        >
+          <option value="off">Off</option>
+          <option value="soft">Soft banner</option>
+          <option value="force">Force update</option>
+        </select>
+      </div>
+
+      <div className="mb-4">
+        <Label className="text-sm font-medium">Minimum shell version</Label>
+        <Input
+          value={minShell}
+          onChange={(e) => setMinShell(e.target.value.replace(/\D/g, '').slice(0, 4))}
+          inputMode="numeric"
+          className={inputClass}
+          disabled={disabled || save.isPending}
+          data-testid={`input-${settingKey}-min-shell`}
+        />
+      </div>
+
+      <div className="mb-4">
+        <Label className="text-sm font-medium">Store link (https)</Label>
+        <Input
+          value={storeUrl}
+          onChange={(e) => setStoreUrl(e.target.value)}
+          className={inputClass}
+          placeholder={
+            settingKey === 'app_update_ios'
+              ? 'https://apps.apple.com/app/…'
+              : 'https://play.google.com/store/apps/…'
+          }
+          disabled={disabled || save.isPending}
+          data-testid={`input-${settingKey}-store-url`}
+        />
+      </div>
+
+      <div className="mb-4">
+        <Label className="text-sm font-medium">Message (optional)</Label>
+        <Input
+          value={message}
+          onChange={(e) => setMessage(e.target.value.slice(0, 200))}
+          className={inputClass}
+          disabled={disabled || save.isPending}
+          data-testid={`input-${settingKey}-message`}
+        />
+      </div>
+
+      {lastChangedLine(row) && (
+        <p className="text-[11px] text-muted-foreground mb-3">{lastChangedLine(row)}</p>
+      )}
+      {error && (
+        <p className="text-sm font-semibold text-red-600 mb-3" data-testid={`error-${settingKey}`}>
+          {error}
+        </p>
+      )}
+      {note && (
+        <p className="text-sm font-semibold text-emerald-700 mb-3">{note}</p>
+      )}
+
+      <Button
+        type="button"
+        onClick={() => void onSave()}
+        disabled={disabled || save.isPending}
+        className="w-full h-12 rounded-md bg-primary text-white font-bold"
+        data-testid={`button-save-${settingKey}`}
+      >
+        {save.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save'}
+      </Button>
+    </section>
   );
 }

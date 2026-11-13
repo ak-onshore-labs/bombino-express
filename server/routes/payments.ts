@@ -61,9 +61,26 @@ import {
   verifyWebhookSignature,
 } from "../razorpay.js";
 import { isPaymentsTestModeEnabled } from "../paymentsTestMode.js";
+import { isTestPhone } from "../testOrders.js";
 import { isQuoteVerified } from "../opsActions.js";
 import type { Order } from "../../shared/orderContract.js";
 import { pointsUsedOf, toCollect } from "../../shared/rewards.js";
+
+/**
+ * Global PAYMENTS_TEST_MODE, or this caller is a test / reviewer phone.
+ * Lets the App Store reviewer finish a test payment after the global switch
+ * is turned off for everyone else.
+ */
+async function testModeFor(req: Request): Promise<boolean> {
+  if (isPaymentsTestModeEnabled()) return true;
+  const guestPhone = req.session.guestPhone;
+  if (guestPhone && isTestPhone(guestPhone)) return true;
+  const userId = req.session.dbUserId;
+  if (!userId) return false;
+  const contacts = await getUserContactsByIds([userId]);
+  const phone = contacts.get(userId)?.phone ?? null;
+  return isTestPhone(phone);
+}
 
 /**
  * The amount we are currently asking for. Reprice at the hub can move it, and
@@ -157,10 +174,10 @@ export function registerPaymentRoutes(app: Express): void {
   // booked without an account. `requireUser` here 401'd every guest, and the
   // client's session interceptor read that 401 as an expired session and signed
   // them out mid-payment.
-  routes.get("/api/payments/config", requireUserOrGuest, (_req: Request, res: Response) => {
+  routes.get("/api/payments/config", requireUserOrGuest, async (req: Request, res: Response) => {
     res.json({
       gateway_configured: isRazorpayConfigured(),
-      test_mode: isPaymentsTestModeEnabled(),
+      test_mode: await testModeFor(req),
     });
   });
 
@@ -179,7 +196,7 @@ export function registerPaymentRoutes(app: Express): void {
     ensureDbUser,
     async (req: Request, res: Response) => {
       // 404, not 403: an endpoint that is off should not confirm it exists.
-      if (!isPaymentsTestModeEnabled()) {
+      if (!(await testModeFor(req))) {
         res.status(404).json({ message: "Not found", code: "TEST_MODE_DISABLED" });
         return;
       }

@@ -1,6 +1,7 @@
 import type { Express, NextFunction, Request, Response } from "express";
 import {
   countUnreadNotifications,
+  findItdUserIdByCustomerId,
   findItdUserIdByPhone,
   findItdAccountByPhone,
   userOwnsShipmentAwb,
@@ -104,6 +105,8 @@ import { boxLabelEligible, registerParcelRoutes } from "./routes/parcel.js";
 import { listPublicSettings } from "./settingsDb.js";
 import { registerBiaRoutes } from "./routes/bia.js";
 import { registerAccountApplicationRoutes } from "./routes/accountApplications.js";
+import { registerAccountDeletionRoutes } from "./routes/accountDeletion.js";
+import { isUserDeleted } from "./deletedAccount.js";
 import { registerReceivingRoutes } from "./routes/receiving.js";
 import { countReceivingParcels } from "./receivingDb.js";
 import { normalizeReceiverAppPhone } from "../shared/receiving.js";
@@ -191,6 +194,7 @@ import {
   deliverOtp,
   OTP_TTL_MINUTES,
   OTP_MAX_REQUESTS_PER_HOUR,
+  isReviewPhone,
   isTestOtpNumber,
 } from "./otp.js";
 import type { OtpPurpose } from "./otpDb.js";
@@ -341,6 +345,8 @@ export async function registerRoutes(
   registerBiaRoutes(app);
   // Account review: the customer's application status and the ops queue.
   registerAccountApplicationRoutes(app);
+  // In-app account deletion (customers and guests). Apple 5.1.1(v).
+  registerAccountDeletionRoutes(app);
   // Parcels coming TO the signed-in number: the receiver's read-only view.
   registerReceivingRoutes(app);
   // Guest box labels (QR), the public parcel page behind the QR, and the
@@ -370,6 +376,17 @@ export async function registerRoutes(
 
     try {
       const { token, user } = await itdClient.loginUser(email, password);
+
+      // A self-deleted Bombino row must not be revived by an ITD password login.
+      const existing = await findItdUserIdByCustomerId(user.id);
+      if (existing?.id && (await isUserDeleted(existing.id))) {
+        res.status(403).json({
+          message: "This account has been deleted.",
+          code: "ACCOUNT_DELETED",
+        });
+        return;
+      }
+
       req.session.itdToken = token;
       req.session.user = user;
       // Non-blocking DB sync — never affects login response
@@ -433,10 +450,30 @@ export async function registerRoutes(
   });
 
   // GET /api/auth/me — return session user
-  app.get("/api/auth/me", (req: Request, res: Response) => {
+  app.get("/api/auth/me", async (req: Request, res: Response) => {
     if (!req.session.user) {
       res.status(401).json({ message: "Not authenticated" });
       return;
+    }
+    const userId = req.session.dbUserId;
+    const role = req.session.user.role;
+    if (userId && (!role || role === "customer")) {
+      try {
+        if (await isUserDeleted(userId)) {
+          req.session.destroy(() => {
+            res.status(401).json({
+              message: "This account has been deleted.",
+              code: "ACCOUNT_DELETED",
+            });
+          });
+          return;
+        }
+      } catch (err) {
+        console.warn(
+          "[auth/me] deleted-account check failed (fail-open):",
+          err instanceof Error ? err.message : String(err)
+        );
+      }
     }
     res.json(req.session.user);
   });
@@ -469,9 +506,12 @@ export async function registerRoutes(
     }
     const { phone, purpose } = parsed.data;
 
-    // Test accounts skip the hourly cap: nothing is sent to them, so there is
-    // no SMS cost to protect, and testers sign in to them many times an hour.
-    const recentCount = isTestOtpNumber(phone) ? 0 : await countRecentRequests(phone, 60);
+    // Test and reviewer accounts skip the hourly cap: nothing is sent to them,
+    // so there is no SMS cost to protect, and testers sign in many times an hour.
+    const recentCount =
+      isTestOtpNumber(phone) || isReviewPhone(phone)
+        ? 0
+        : await countRecentRequests(phone, 60);
     if (recentCount !== null && recentCount >= OTP_MAX_REQUESTS_PER_HOUR) {
       res.status(429).json({ message: "Too many OTP requests. Please try again later.", code: "OTP_RATE_LIMITED" });
       return;
@@ -2210,6 +2250,16 @@ export async function registerRoutes(
       const failure = itdLinkFailure(raw);
       console.warn(`[link/itd] ITD login failed (${failure.code}): ${raw}`);
       res.status(failure.status).json({ message: failure.message, code: failure.code });
+      return;
+    }
+
+    // A self-deleted Bombino row must not be reattached via ITD credentials.
+    const existingByItd = await findItdUserIdByCustomerId(itdUser.id);
+    if (existingByItd?.id && (await isUserDeleted(existingByItd.id))) {
+      res.status(403).json({
+        message: "This account has been deleted.",
+        code: "ACCOUNT_DELETED",
+      });
       return;
     }
 

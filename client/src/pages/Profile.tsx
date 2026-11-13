@@ -455,6 +455,17 @@ export default function Profile() {
               <ProfileSupportSection waHref={waHref} telHref={telHref} officeLabel={officeLabel} />
             </div>
 
+            <div className="flex justify-center pt-1">
+              <button
+                type="button"
+                onClick={() => setLocation('/account/delete')}
+                className="text-xs text-muted-foreground underline-offset-2 hover:underline hover:text-red-600"
+                data-testid="link-delete-account"
+              >
+                Delete account
+              </button>
+            </div>
+
             <ProfileFooter
               signOutLabel="Sign out"
               onSignOut={() => setSignOutOpen(true)}

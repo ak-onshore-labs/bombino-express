@@ -186,6 +186,12 @@ export const ERROR_CATALOG = {
     fix: "Please contact ops.",
     button: "TAP_CONTACT_US",
   },
+  ACCOUNT_DELETED: {
+    area: "auth",
+    title: "This account has been deleted",
+    why: "The account was deleted in the app, so it can no longer be used.",
+    fix: "Sign up again with the same number to open a new account.",
+  },
 
   // ── Identity numbers (the step before documents) ─────────────────────────
   AADHAAR_INVALID: {
@@ -588,6 +594,9 @@ export const UNCATALOGUED_CODES = [
   "PICKUP_ALREADY_CLAIMED",
   "REASON_REQUIRED",
   "RETRY_REPRICE",
+  "DB_UNAVAILABLE",
+  "DELETION_BLOCKED",
+  "DELETION_FAILED",
   "TEST_MODE_DISABLED",
   "UNKNOWN_ACTION",
 ] as const;

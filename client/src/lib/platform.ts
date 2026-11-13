@@ -48,6 +48,15 @@ export function isIosApp(): boolean {
   return cap?.isNativePlatform?.() === true && cap.getPlatform?.() === 'ios';
 }
 
+/** 'ios' | 'android' inside a Capacitor shell, otherwise null (web / unknown). */
+export function nativePlatform(): 'ios' | 'android' | null {
+  const cap = getCapacitor();
+  if (cap?.isNativePlatform?.() !== true) return null;
+  const platform = cap.getPlatform?.();
+  if (platform === 'ios' || platform === 'android') return platform;
+  return null;
+}
+
 export function getCapacitorShare(): CapacitorPlugin | null {
   return getCapacitor()?.Plugins?.Share ?? null;
 }

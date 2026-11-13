@@ -56,6 +56,8 @@ store release; a store release only changes that second line.
 
 | Total | Build | Date | Target | Commit | Notes |
 |---|---|---|---|---|---|
+| 98 | V1 (Build 98.261113.4) | 13 Nov 2026 | Web (app domain, auto-deploy on push) | f3555a0 | Account deletion (Apple 5.1.1(v)), App Store reviewer login, update prompt for old app shells (shipped off). No migration. |
+| 97 | V1 (Build 97.261113.3) | 13 Nov 2026 | Web (app domain, auto-deploy on push) | 9307819 | App keyboard: reveal the focused field after the iOS web view shrinks for the keyboard. No migration. |
 | 96 | V1 (Build 96.261113.2) | 13 Nov 2026 | Web (app domain, auto-deploy on push) | 13456a5 | App keyboard: one keyboard-open flag that hides the bottom navs and support button, focused field scrolled clear of the top bar and the bar on the keyboard (did not work in the iOS shell, fixed in 97); bottom sheets capped above the keyboard; Create Shipment steps open at the top; Review & Pay full-width sheet on phones; Razorpay webview_intent and status-bar inset in the edge-to-edge shell; BIA orb no longer covers the sheet title. No migration. |
 | 95 | V1 (Build 95.261113.1) | 13 Nov 2026 | Web (app domain, auto-deploy on push) | 7cd518e | App edge-to-edge: one set of safe-area inset tokens (--sat/--sab/--sal/--sar) for every screen, sheet and overlay; ui/sheet adds each side's insets; BombinoShell/2 gets dark status bar icons by default and light ones over dark screens; iOS scanner camera on; PDF, CSV and ops document downloads go through the native share sheet. No migration. |
 | 94 | V1 (Build 94.261111.2) | 11 Nov 2026 | Web (app domain, auto-deploy on push) | ca01a28 | BIA knows reward points and links to the wallet. No migration. Logged late, on 13 Nov. |

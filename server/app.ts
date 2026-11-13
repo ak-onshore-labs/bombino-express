@@ -31,7 +31,7 @@ import { installProcessGuards } from "./processGuards.js";
 import { registerRoutes } from "./routes.js";
 import { assertDatabaseUrl, getPgPoolConfig } from "./pgPoolConfig.js";
 import { warnIfPaymentsTestModeEnabled } from "./paymentsTestMode.js";
-import { warnIfFixedOtpEnabled } from "./otp.js";
+import { warnIfFixedOtpEnabled, warnIfReviewOtpEnabled } from "./otp.js";
 import { warnIfOcrBypassEnabled } from "./cashfreeOcr.js";
 import { warnIfIdentityBypassEnabled } from "./cashfreeIdentity.js";
 import { isDocketAtBookingEnabled, warnIfDocketAtBookingEnabled } from "./docketAtBooking.js";
@@ -374,6 +374,7 @@ export async function createApp(): Promise<{ app: Express; httpServer: Server }>
   warnIfOcrBypassEnabled();
   warnIfIdentityBypassEnabled();
   warnIfFixedOtpEnabled();
+  warnIfReviewOtpEnabled();
   warnIfDocketAtBookingEnabled();
   // Retry dockets that failed in a way that clears by itself (a dead ITD login,
   // a document since added). Only where real dockets are filed at all: there

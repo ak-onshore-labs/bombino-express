@@ -4,6 +4,7 @@ import { AskBiaTopButton } from '@/components/bia/AskBiaTopButton';
 import { useAppStore } from '@/lib/store';
 import { TopBar } from '@/components/TopBar';
 import { GuestProfileBanner } from '@/components/GuestProfileBanner';
+import { UpdateBanner } from '@/components/UpdateBanner';
 import { useUnreadNotificationCount } from '@/hooks/useCustomerOrders';
 import { useGuestProfile } from '@/hooks/useGuestProfile';
 
@@ -37,6 +38,7 @@ export function Header({ onMenuClick }: HeaderProps) {
       // guard. Desktop gets its copy from AppLayout.
       below={
         <div className="md:hidden">
+          <UpdateBanner />
           {/* Below the sticky bar, inside its `below` slot: above the header it
               would push the bar down the page, inside it it would pin a strip
               of the viewport on every screen. Renders nothing for an account

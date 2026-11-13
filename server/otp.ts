@@ -21,7 +21,7 @@ export const OTP_MAX_REQUESTS_PER_HOUR =
 export const OTP_VERIFICATION_WINDOW_MINUTES = 10;
 
 /**
- * TEMPORARY — the fixed login code, for testing.
+ * TEMPORARY — the fixed login code, for local testing only.
  *
  *   OTP_FIXED_CODE=121212
  *
@@ -30,24 +30,14 @@ export const OTP_VERIFICATION_WINDOW_MINUTES = 10;
  * locks out after OTP_MAX_ATTEMPTS wrong guesses, and still gets sent by SMS.
  * Only the randomness is gone.
  *
- * WHY THIS RATHER THAN `OTP_DEV_BYPASS`: that flag accepts *any* code and skips
- * the comparison entirely, so nothing about verification is exercised while it
- * is on. This one leaves the whole check in place and makes only the value
- * predictable — a strictly smaller hole, and it lets a tester who is not on the
- * WhatsApp account log in without one.
- *
- * Deliberately NOT gated on NODE_ENV, for the same reason PAYMENTS_TEST_MODE is
- * not: the client tests on a deployed staging build where NODE_ENV is
- * production. The trade is that the variable itself is the only thing standing
- * between this and real accounts, so it announces itself at boot.
- *
- * **ANYONE WHO KNOWS A PHONE NUMBER CAN LOG IN AS ITS OWNER WHILE THIS IS SET.
- * It must never be set on an environment holding real customers.**
+ * Development only. In production builds this always returns null — use
+ * REVIEW_OTP_PHONE + REVIEW_OTP_CODE for a single App Store reviewer number.
  *
  * Ignored unless it is exactly OTP_LENGTH digits — a typo'd value must not
  * silently become the code for every account.
  */
 export function fixedOtpCode(): string | null {
+  if (process.env.NODE_ENV === "production") return null;
   const raw = process.env.OTP_FIXED_CODE?.trim();
   if (!raw) return null;
   if (raw.length !== OTP_LENGTH || !/^[0-9]+$/.test(raw)) {
@@ -57,6 +47,43 @@ export function fixedOtpCode(): string | null {
     return null;
   }
   return raw;
+}
+
+/**
+ * App Store reviewer login: one configured phone accepts one configured code.
+ *
+ *   REVIEW_OTP_PHONE=98xxxxxxxx
+ *   REVIEW_OTP_CODE=………
+ *
+ * Both must be set. The code must be OTP_LENGTH digits. Nothing is sent to the
+ * number. Checked before every other fixed-code path.
+ */
+export function reviewOtp(): { phone: string; code: string } | null {
+  const phone = process.env.REVIEW_OTP_PHONE?.trim() ?? "";
+  const code = process.env.REVIEW_OTP_CODE?.trim() ?? "";
+  if (!phone || !code) return null;
+  if (code.length !== OTP_LENGTH || !/^[0-9]+$/.test(code)) {
+    console.error(
+      `[otp] REVIEW_OTP_CODE is not ${OTP_LENGTH} digits — ignoring reviewer login.`
+    );
+    return null;
+  }
+  return { phone, code };
+}
+
+export function isReviewPhone(phone: string): boolean {
+  const review = reviewOtp();
+  if (!review) return false;
+  // Same matching rules as isTestOtpNumber: exact E.164 abroad, last ten digits in India.
+  const trimmed = phone.trim();
+  if (isInternationalPhone(trimmed) || (trimmed.startsWith("+") && !trimmed.startsWith("+91"))) {
+    const want = `+${review.phone.replace(/\D/g, "")}`;
+    const got = `+${trimmed.replace(/\D/g, "")}`;
+    return want === got;
+  }
+  const ten = lastTen(phone);
+  const reviewTen = lastTen(review.phone);
+  return ten !== null && reviewTen !== null && ten === reviewTen;
 }
 
 /**
@@ -130,31 +157,48 @@ export function isTestOtpNumber(phone: string, numbers: ReadonlySet<string> = TE
   return ten !== null && numbers.has(ten);
 }
 
-/** Called once at boot. Silent when neither flag is set. */
+/** Called once at boot. Silent when the flag is off or production. */
 export function warnIfFixedOtpEnabled(): void {
   const code = fixedOtpCode();
   if (!code) return;
-
-  const where =
-    process.env.NODE_ENV === "production" ? "a PRODUCTION build" : "development";
 
   console.warn(
     [
       "",
       "  ############################################################",
       `  ##  OTP_FIXED_CODE=${code}`,
-      "  ##  Every login code is this one. Anyone who knows a phone",
-      "  ##  number can log in as its owner.",
-      `  ##  Running in ${where}.`,
-      "  ##  Unset this before this environment has real customers.",
+      "  ##  Every login code is this one (development only).",
+      "  ##  Anyone who knows a phone number can log in as its owner.",
       "  ############################################################",
       "",
     ].join("\n")
   );
 }
 
-/** A new login code. Pass the phone so a listed test account gets 121212. */
+/** Called once at boot. Prints the phone, never the code. */
+export function warnIfReviewOtpEnabled(): void {
+  const review = reviewOtp();
+  if (!review) return;
+
+  console.warn(
+    [
+      "",
+      "  ############################################################",
+      `  ##  REVIEW_OTP_PHONE=${review.phone}`,
+      "  ##  That one number accepts the configured reviewer code.",
+      "  ##  Nothing is sent to it by SMS or WhatsApp.",
+      "  ############################################################",
+      "",
+    ].join("\n")
+  );
+}
+
+/** A new login code. Pass the phone so a listed test / reviewer account gets its fixed value. */
 export function generateOtp(phone?: string): string {
+  if (phone) {
+    const review = reviewOtp();
+    if (review && isReviewPhone(phone)) return review.code;
+  }
   const fixed = fixedOtpCode();
   if (fixed) return fixed;
   if (phone && isTestOtpNumber(phone)) return TEST_OTP_CODE;
@@ -213,8 +257,8 @@ export async function deliverOtp(
     console.log(`[otp] OTP for ${phone}: ${code}`);
   }
 
-  // A test account: the code is known, and the number cannot receive it.
-  if (isTestOtpNumber(phone)) return true;
+  // A test or reviewer account: the code is known, and nothing is sent.
+  if (isTestOtpNumber(phone) || isReviewPhone(phone)) return true;
 
   const fixed = fixedOtpCode() !== null;
   const message = loginOtpMessage(code);

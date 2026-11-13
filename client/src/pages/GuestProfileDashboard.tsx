@@ -255,6 +255,17 @@ export default function GuestProfileDashboard(): React.JSX.Element {
 
         <ProfileSupportSection waHref={waHref} telHref={telHref} officeLabel={officeLabel} />
 
+        <div className="flex justify-center pt-1">
+          <button
+            type="button"
+            onClick={() => setLocation('/account/delete')}
+            className="text-xs text-muted-foreground underline-offset-2 hover:underline hover:text-red-600"
+            data-testid="link-guest-delete-account"
+          >
+            Delete account
+          </button>
+        </div>
+
         {/* Last, and quiet. Nothing here is destroyed by it — the copy in the
             dialog says so — but it is the only way to stop this device being
             somebody, so it must be findable rather than hidden. */}

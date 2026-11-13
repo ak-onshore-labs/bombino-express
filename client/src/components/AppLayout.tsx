@@ -4,6 +4,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { DesktopSidebar } from './DesktopSidebar';
 import { DesktopTopBar } from './DesktopTopBar';
 import { GuestProfileBanner } from './GuestProfileBanner';
+import { UpdateBanner } from './UpdateBanner';
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const isMobile = useIsMobile();
@@ -31,6 +32,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <DesktopTopBar />
         {/* Under the top bar, not above the whole shell — a full-width strip
             above the sidebar pushed the entire app down the page. */}
+        <UpdateBanner />
         <GuestProfileBanner />
         {isFullscreenPage ? (
           children
