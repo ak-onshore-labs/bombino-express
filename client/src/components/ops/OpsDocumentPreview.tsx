@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Download, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { parseApiErrorMessage } from '@/lib/apiError';
+import { useBackClose } from '@/lib/backButton';
 import { opsDocumentFilename } from '@/lib/opsDocumentFile';
 import { isEdgeToEdgeShell } from '@/lib/platform';
 import { shareFileViaCapacitor } from '@/lib/nativeShare';
@@ -48,6 +49,7 @@ export function OpsDocumentPreviewOverlay({
   preview: OpsPreviewState;
   onClose: () => void;
 }) {
+  useBackClose(true, onClose, 50);
   const isPdf = preview.mime === 'application/pdf' || preview.title.toLowerCase().endsWith('.pdf');
   const isImage = preview.mime.startsWith('image/');
 

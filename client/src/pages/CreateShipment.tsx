@@ -68,6 +68,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAppStore } from '@/lib/store';
+import { useBackClose } from '@/lib/backButton';
 import { earliestPickupDate, todayInIst } from '@shared/istTime';
 import {
   formatCutoffHour,
@@ -1189,6 +1190,17 @@ export default function CreateShipment() {
       setPaymentError(msg);
     },
   });
+
+  // Android back closes these hand-built booking overlays (they ignore Escape).
+  useBackClose(showProductTypeInfo, () => setShowProductTypeInfo(false));
+  useBackClose(showServiceModal, () => setShowServiceModal(false));
+  useBackClose(
+    showConfirmModal,
+    () => {
+      if (!createMutation.isPending) setShowConfirmModal(false);
+    },
+    60,
+  );
 
   const rateMutation = useMutation({
     mutationFn: (params: RateParams) =>

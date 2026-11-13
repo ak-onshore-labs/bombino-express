@@ -120,6 +120,8 @@ const AlertDialogCancel = React.forwardRef<
       className
     )}
     {...props}
+    // Android back clicks this instead of Escape (AlertDialog ignores Escape).
+    data-back-cancel=""
   />
 ))
 AlertDialogCancel.displayName = AlertDialogPrimitive.Cancel.displayName

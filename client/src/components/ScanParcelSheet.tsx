@@ -23,6 +23,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'wouter';
 import { decodeImageFile, startCamera, type CameraControls } from '@/lib/barcodeScanner';
 import { Camera, Flashlight, Loader2, ScanLine, X } from 'lucide-react';
+import { useBackClose } from '@/lib/backButton';
 import { cn } from '@/lib/utils';
 import { isEdgeToEdgeShell, isIosApp } from '@/lib/platform';
 import { useKeyboardOverlay } from '@/lib/keyboardInset';
@@ -90,6 +91,7 @@ export function ScanParcelSheet({
   title?: string;
 }) {
   const [, setLocation] = useLocation();
+  useBackClose(true, onClose, 120);
   const videoRef = useRef<HTMLVideoElement>(null);
   const scannerRef = useRef<CameraControls | null>(null);
   const handlingRef = useRef(false);

@@ -3,6 +3,7 @@ import { useLocation } from 'wouter';
 import bombinoLogo from '@/assets/bombino-logo.png';
 import { useAppUpdate } from '@/hooks/useAppUpdate';
 import { UpdateStrip } from '@/components/UpdateBanner';
+import { useBackClose } from '@/lib/backButton';
 import { surfaceForPath } from '@/lib/surface';
 
 /**
@@ -12,6 +13,8 @@ import { surfaceForPath } from '@/lib/surface';
 export function UpdateGate({ children }: { children: ReactNode }) {
   const [location] = useLocation();
   const decision = useAppUpdate();
+  // Absorb Android back so we never navigate under a mandatory update.
+  useBackClose(decision.kind === 'force', () => {}, 100);
 
   if (decision.kind === 'force') {
     return (

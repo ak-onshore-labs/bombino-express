@@ -1,6 +1,7 @@
 import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Loader2, X } from 'lucide-react';
+import { useBackClose } from '@/lib/backButton';
 import { CONTRACT_TITLE } from '@shared/contract';
 
 /**
@@ -56,6 +57,7 @@ export function ContractPreview({
 }: ContractPreviewProps): React.JSX.Element {
   const [base64, setBase64] = useState<string | null>(null);
   const [error, setError] = useState('');
+  useBackClose(true, onClose);
 
   useEffect(() => {
     let cancelled = false;

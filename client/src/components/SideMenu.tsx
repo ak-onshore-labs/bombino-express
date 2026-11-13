@@ -3,6 +3,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { X, User, LogOut, LogIn, Bot, Phone, ShieldCheck, Gift } from 'lucide-react';
 import { canSeeRewards } from '@/lib/rewards';
 import { Link } from 'wouter';
+import { useBackClose } from '@/lib/backButton';
 import { useAppStore } from '@/lib/store';
 import { useGuestProfile } from '@/hooks/useGuestProfile';
 import { formatGuestPhone } from '@/lib/shadowProfile';
@@ -24,6 +25,7 @@ const SIGN_OUT_ROW =
 const SIGN_OUT_ICON_BOX = 'w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center';
 
 export function SideMenu({ isOpen, onClose }: SideMenuProps) {
+  useBackClose(isOpen, onClose, 50);
   const { isLoggedIn, user } = useAppStore();
   /**
    * A guest is not a stranger.

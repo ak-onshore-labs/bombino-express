@@ -16,6 +16,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Download, Loader2, Printer, Share2, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useBackClose } from '@/lib/backButton';
 import { base64ToPdfFile, canSharePdfFile, downloadPdfBlob, printPdfBase64 } from '@/lib/pdfUtils';
 import { isAndroid, isEdgeToEdgeShell } from '@/lib/platform';
 import { shareViaCapacitor } from '@/lib/nativeShare';
@@ -35,6 +36,7 @@ function PdfViewer({
   onClose: () => void;
 }) {
   const { toast } = useToast();
+  useBackClose(true, onClose, 100);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const file = useMemo(() => base64ToPdfFile(base64, fileName), [base64, fileName]);
   // Same-origin blob URL: the one way every desktop browser both renders the

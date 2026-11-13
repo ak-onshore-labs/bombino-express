@@ -8,6 +8,7 @@ import { SideMenu } from '@/components/SideMenu';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useBackClose } from '@/lib/backButton';
 import { useAppStore } from '@/lib/store';
 import { useGuestProfile } from '@/hooks/useGuestProfile';
 import { cn } from '@/lib/utils';
@@ -451,6 +452,10 @@ export default function Orders() {
   const [trackingInput, setTrackingInput] = useState('');
   const [csvOverlayData, setCsvOverlayData] = useState<string | null>(null);
   const [csvOverlayBlob, setCsvOverlayBlob] = useState<Blob | null>(null);
+  useBackClose(!!csvOverlayData, () => {
+    setCsvOverlayData(null);
+    setCsvOverlayBlob(null);
+  }, 100);
 
   // Polls while anything here can still move (see useCustomerOrders). A parcel
   // that reaches the hub while this screen is open now says so on its own.

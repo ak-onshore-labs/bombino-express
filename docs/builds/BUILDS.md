@@ -56,6 +56,7 @@ store release; a store release only changes that second line.
 
 | Total | Build | Date | Target | Commit | Notes |
 |---|---|---|---|---|---|
+| 99 | V1 (Build 99.261114.1) | 14 Nov 2026 | Web (app domain, auto-deploy on push) | 59e04a0 | Android hardware/gesture back: close top overlay, blur keyboard, history.back, or exitApp. No migration. |
 | 98 | V1 (Build 98.261113.4) | 13 Nov 2026 | Web (app domain, auto-deploy on push) | f3555a0 | Account deletion (Apple 5.1.1(v)), App Store reviewer login, update prompt for old app shells (shipped off). No migration. |
 | 97 | V1 (Build 97.261113.3) | 13 Nov 2026 | Web (app domain, auto-deploy on push) | 9307819 | App keyboard: reveal the focused field after the iOS web view shrinks for the keyboard. No migration. |
 | 96 | V1 (Build 96.261113.2) | 13 Nov 2026 | Web (app domain, auto-deploy on push) | 13456a5 | App keyboard: one keyboard-open flag that hides the bottom navs and support button, focused field scrolled clear of the top bar and the bar on the keyboard (did not work in the iOS shell, fixed in 97); bottom sheets capped above the keyboard; Create Shipment steps open at the top; Review & Pay full-width sheet on phones; Razorpay webview_intent and status-bar inset in the edge-to-edge shell; BIA orb no longer covers the sheet title. No migration. |

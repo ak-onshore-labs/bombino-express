@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react';
+import { useBackClose } from '@/lib/backButton';
 import { cn } from '@/lib/utils';
 import { X, Check } from 'lucide-react';
 
@@ -113,6 +114,7 @@ export function DimensionPresetSheet({
   onSelectPreset,
   dimUnit,
 }: DimensionPresetSheetProps) {
+  useBackClose(open, onClose, 50);
   if (!open) return null;
 
   return (
