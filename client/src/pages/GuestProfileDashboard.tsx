@@ -285,7 +285,7 @@ function GuestShell({
   onBack: () => void;
 }): React.JSX.Element {
   return (
-    <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-guest-profile">
+    <div className="min-h-[100dvh] bg-background pb-nav safe-x" data-testid="screen-guest-profile">
       <header className="safe-top sticky top-0 z-50 border-b border-border bg-white md:hidden">
         <div className="mx-auto flex h-14 max-w-md items-center px-4">
           <button

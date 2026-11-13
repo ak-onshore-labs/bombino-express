@@ -21,7 +21,7 @@ function getSafeAreaInsetBottomPx(): number {
   const probe = document.createElement("div");
   probe.setAttribute(
     "style",
-    "position:fixed;bottom:0;left:0;width:0;height:env(safe-area-inset-bottom,0px);visibility:hidden;pointer-events:none"
+    "position:fixed;bottom:0;left:0;width:0;height:var(--sab);visibility:hidden;pointer-events:none"
   );
   document.documentElement.appendChild(probe);
   const h = probe.offsetHeight;
@@ -183,7 +183,7 @@ export function SupportFab() {
         // Lifted by whichever screen owns the bottom band — see
         // hooks/useRaisedSupportFab.ts. Sitting on top of the one action the
         // customer came to press is a tap they lose to the wrong target.
-        bottom: "var(--fab-bottom, calc(4rem + env(safe-area-inset-bottom, 0px) + 1rem))",
+        bottom: "var(--fab-bottom, calc(4rem + var(--sab) + 1rem))",
         touchAction: "none",
       };
 

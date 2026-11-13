@@ -30,17 +30,23 @@ const SheetOverlay = React.forwardRef<
 ))
 SheetOverlay.displayName = SheetPrimitive.Overlay.displayName
 
+/*
+ * Each side adds the safe-area insets of the screen edges it touches. The
+ * spacing next to those edges comes from --sheet-pt / --sheet-pb / --sheet-px
+ * so a caller changes it with `[--sheet-pb:2rem]`, not `pb-8`: a `p-*`, `px-*`
+ * or `pb-*` class would replace the padding and drop the inset with it.
+ */
 const sheetVariants = cva(
   "fixed z-50 gap-4 bg-background p-6 shadow-lg transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500 data-[state=open]:animate-in data-[state=closed]:animate-out",
   {
     variants: {
       side: {
-        top: "inset-x-0 top-0 border-b data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top",
+        top: "inset-x-0 top-0 border-b pt-[calc(var(--sheet-pt,1.5rem)+var(--sat))] pl-[calc(var(--sheet-px,1.5rem)+var(--sal))] pr-[calc(var(--sheet-px,1.5rem)+var(--sar))] data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top",
         bottom:
-          "inset-x-0 bottom-0 border-t data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom",
-        left: "inset-y-0 left-0 h-full w-3/4 border-r data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left sm:max-w-sm",
+          "inset-x-0 bottom-0 border-t pb-[calc(var(--sheet-pb,1rem)+var(--sab))] pl-[calc(var(--sheet-px,1.5rem)+var(--sal))] pr-[calc(var(--sheet-px,1.5rem)+var(--sar))] data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom",
+        left: "inset-y-0 left-0 h-full w-3/4 border-r pt-[calc(var(--sheet-pt,1.5rem)+var(--sat))] pb-[calc(var(--sheet-pb,1.5rem)+var(--sab))] pl-[calc(var(--sheet-px,1.5rem)+var(--sal))] data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left sm:max-w-sm",
         right:
-          "inset-y-0 right-0 h-full w-3/4 border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:max-w-sm",
+          "inset-y-0 right-0 h-full w-3/4 border-l pt-[calc(var(--sheet-pt,1.5rem)+var(--sat))] pb-[calc(var(--sheet-pb,1.5rem)+var(--sab))] pr-[calc(var(--sheet-px,1.5rem)+var(--sar))] data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:max-w-sm",
       },
     },
     defaultVariants: {
@@ -64,7 +70,13 @@ const SheetContent = React.forwardRef<
       className={cn(sheetVariants({ side }), className)}
       {...props}
     >
-      <SheetPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary">
+      <SheetPrimitive.Close
+        className={cn(
+          "absolute rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary",
+          side === "bottom" ? "top-4" : "top-[calc(1rem+var(--sat))]",
+          side === "left" ? "right-4" : "right-[calc(1rem+var(--sar))]"
+        )}
+      >
         <X className="h-4 w-4" />
         <span className="sr-only">Close</span>
       </SheetPrimitive.Close>

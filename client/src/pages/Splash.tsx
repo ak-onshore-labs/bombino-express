@@ -35,7 +35,7 @@ export default function Splash() {
       </div>
       <div
         className="absolute flex flex-col items-center animate-fade-in"
-        style={{ animationDelay: '400ms', bottom: 'calc(3rem + env(safe-area-inset-bottom, 0px))' }}
+        style={{ animationDelay: '400ms', bottom: 'calc(3rem + var(--sab))' }}
       >
         <div className="flex gap-1">
           <span className="w-2 h-2 rounded-full bg-primary animate-pulse" style={{ animationDelay: '0ms' }} />

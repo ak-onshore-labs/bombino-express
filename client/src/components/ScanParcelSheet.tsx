@@ -24,21 +24,20 @@ import { useLocation } from 'wouter';
 import { decodeImageFile, startCamera, type CameraControls } from '@/lib/barcodeScanner';
 import { Camera, Flashlight, Loader2, ScanLine, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { isIosApp } from '@/lib/platform';
+import { isEdgeToEdgeShell, isIosApp } from '@/lib/platform';
 import { useKeyboardOverlay } from '@/lib/keyboardInset';
+import { useDarkStatusBarArea } from '@/hooks/useDarkStatusBarArea';
 import type { ParcelScanResult } from '@shared/parcelTag';
 
 /**
- * The iOS app shell does not yet declare camera permission
+ * iOS shells before the edge-to-edge one do not declare camera permission
  * (NSCameraUsageDescription), so iOS terminates the app the moment a page
- * opens the camera, and its web view exposes no live camera either. Until the
- * shell ships with it, the iOS app offers typing only. Safari and Android are
- * unaffected. Flip to true once the shell has the permission.
+ * opens the camera, and their web view exposes no live camera either. Those
+ * shells offer typing only. The edge-to-edge shell ships the permission.
+ * Safari and Android are unaffected.
  */
-const IOS_APP_HAS_CAMERA_PERMISSION = false;
-
 function cameraUsable(): boolean {
-  return !isIosApp() || IOS_APP_HAS_CAMERA_PERMISSION;
+  return !isIosApp() || isEdgeToEdgeShell();
 }
 
 type Surface = 'agent' | 'ops';
@@ -123,6 +122,8 @@ export function ScanParcelSheet({
   const camera = cameraUsable();
   // Keep the number field above the on-screen keyboard (lib/keyboardInset.ts).
   useKeyboardOverlay();
+  // Mounted only while open; the camera area under the status bar is dark.
+  useDarkStatusBarArea();
 
   const handle = async (raw: string): Promise<void> => {
     const q = raw.trim();
@@ -206,7 +207,7 @@ export function ScanParcelSheet({
 
   return (
     <div
-      className="fixed inset-x-0 z-[120] bg-[#0B1620] text-white flex flex-col safe-top"
+      className="fixed inset-x-0 z-[120] bg-[#0B1620] text-white flex flex-col safe-top safe-x"
       // Pinned to the area above the keyboard, so typing never hides the field.
       style={{ top: 'var(--vv-top, 0px)', height: 'var(--visible, 100dvh)' }}
       role="dialog"
@@ -255,7 +256,7 @@ export function ScanParcelSheet({
         )}
       </div>
 
-      <div className={cn('bg-white text-foreground px-4 pt-4 pb-6 safe-bottom', camera ? 'shrink-0' : 'flex-1 overflow-y-auto')}>
+      <div className={cn('bg-white text-foreground px-4 pt-4 pb-sheet', camera ? 'shrink-0' : 'flex-1 overflow-y-auto')}>
         {problem && (
           <div
             className="mb-3 rounded-lg px-3.5 py-3 text-sm leading-snug bg-red-50 text-red-900"

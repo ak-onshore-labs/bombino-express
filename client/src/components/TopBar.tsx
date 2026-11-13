@@ -43,7 +43,7 @@ export function TopBar({
     <>
       <header
       className={cn(
-        'sticky top-0 z-50 bg-white/95 backdrop-blur-sm safe-top border-b border-[rgba(198,40,40,0.08)] shadow-[0_1px_8px_rgba(0,0,0,0.06)]',
+        'sticky top-0 z-50 bg-white/95 backdrop-blur-sm safe-top safe-x border-b border-[rgba(198,40,40,0.08)] shadow-[0_1px_8px_rgba(0,0,0,0.06)]',
         className,
       )}
       data-testid={testId}

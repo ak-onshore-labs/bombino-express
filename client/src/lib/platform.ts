@@ -12,6 +12,7 @@ interface CapacitorGlobal {
   Plugins?: {
     Share?: CapacitorPlugin;
     Filesystem?: CapacitorPlugin;
+    StatusBar?: CapacitorPlugin;
     [name: string]: CapacitorPlugin | undefined;
   };
 }
@@ -23,6 +24,22 @@ function getCapacitor(): CapacitorGlobal | null {
 
 export function isCapacitorNative(): boolean {
   return getCapacitor()?.isNativePlatform?.() === true;
+}
+
+/** The shell's `BombinoShell/<n>` user-agent marker, or 0 when absent. */
+export function shellVersion(): number {
+  if (typeof navigator === 'undefined') return 0;
+  const match = /BombinoShell\/(\d+)/.exec(navigator.userAgent);
+  return match ? Number(match[1]) : 0;
+}
+
+/**
+ * The shell draws the web view under the status bar and home indicator and
+ * lets the page choose the status bar icon style. The live store shells send
+ * no marker, so this is false for them and for every browser.
+ */
+export function isEdgeToEdgeShell(): boolean {
+  return isCapacitorNative() && shellVersion() >= 2;
 }
 
 /** Running inside the iOS app shell (not iOS Safari). */
@@ -37,4 +54,8 @@ export function getCapacitorShare(): CapacitorPlugin | null {
 
 export function getCapacitorFilesystem(): CapacitorPlugin | null {
   return getCapacitor()?.Plugins?.Filesystem ?? null;
+}
+
+export function getCapacitorStatusBar(): CapacitorPlugin | null {
+  return getCapacitor()?.Plugins?.StatusBar ?? null;
 }

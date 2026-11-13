@@ -334,7 +334,7 @@ export function OpsBoardFilterBar({
             <Sheet open={open} onOpenChange={setOpen}>
               <SheetContent
                 side="bottom"
-                className="rounded-t-lg max-h-[85vh] overflow-y-auto"
+                className="rounded-t-lg max-h-[85vh] overflow-y-auto [--sheet-pb:1.5rem]"
               >
                 <SheetHeader className="text-left mb-4">
                   <SheetTitle>Filters</SheetTitle>

@@ -53,7 +53,7 @@ export function OpsNav() {
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
         <SheetContent
           side="bottom"
-          className={cn('rounded-t-lg max-h-[85vh] overflow-y-auto', AGENT_SHEET_MOTION)}
+          className={cn('rounded-t-lg max-h-[85vh] overflow-y-auto [--sheet-pb:1.5rem]', AGENT_SHEET_MOTION)}
         >
           <SheetHeader className="text-left mb-4">
             <SheetTitle>More</SheetTitle>

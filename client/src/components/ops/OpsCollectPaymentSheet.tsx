@@ -73,7 +73,7 @@ export function OpsCollectPaymentSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
-        className="rounded-t-[20px] border-t-0 px-5 pb-8 pt-3 max-h-[92dvh] overflow-y-auto"
+        className="rounded-t-[20px] border-t-0 pt-3 [--sheet-px:1.25rem] [--sheet-pb:2rem] max-h-[92dvh] overflow-y-auto"
         data-testid="sheet-ops-collect"
       >
         <div className="mx-auto w-10 h-1 rounded-full bg-border mb-5" aria-hidden />

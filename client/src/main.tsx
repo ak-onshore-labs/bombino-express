@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import { installSessionInterceptor } from "./lib/session";
 import { installKeyboardInset } from "./lib/keyboardInset";
+import { installStatusBarStyle } from "./lib/statusBar";
 import "./index.css";
 
 // Before anything renders or fetches: a 401 on our API means the session is
@@ -11,6 +12,10 @@ installSessionInterceptor();
 
 // --vh, --kb, --vv-top and --visible: where the keyboard is (lib/keyboardInset.ts).
 installKeyboardInset();
+
+// Dark status bar icons unless a dark screen asks otherwise (lib/statusBar.ts),
+// so the default does not depend on how the shell was configured.
+installStatusBarStyle();
 
 let focusScrollTimeout: ReturnType<typeof setTimeout> | null = null;
 

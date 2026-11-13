@@ -17,7 +17,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Download, Loader2, Printer, Share2, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { base64ToPdfFile, canSharePdfFile, downloadPdfBlob, printPdfBase64 } from '@/lib/pdfUtils';
-import { isAndroid } from '@/lib/platform';
+import { isAndroid, isEdgeToEdgeShell } from '@/lib/platform';
 import { shareViaCapacitor } from '@/lib/nativeShare';
 import { cn } from '@/lib/utils';
 
@@ -58,7 +58,7 @@ function PdfViewer({
 
   const share = async (): Promise<void> => {
     try {
-      if (isAndroid()) {
+      if (isAndroid() || isEdgeToEdgeShell()) {
         const ok = await shareViaCapacitor(base64, fileName, title);
         if (ok) return;
       }
@@ -92,7 +92,7 @@ function PdfViewer({
 
   return (
     <div
-      className="fixed inset-0 z-[100] bg-[#F3F4F6] flex flex-col"
+      className="fixed inset-0 z-[100] bg-[#F3F4F6] flex flex-col safe-x safe-bottom"
       role="dialog"
       aria-modal="true"
       aria-label={title}

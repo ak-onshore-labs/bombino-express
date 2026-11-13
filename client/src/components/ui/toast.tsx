@@ -17,7 +17,7 @@ const ToastViewport = React.forwardRef<
       // Offset below the 56px sticky app header on mobile. At top-0 a toast
       // landed squarely on the header and swallowed the back button — the one
       // control a customer needs when a toast is telling them something failed.
-      "fixed top-[calc(3.5rem+env(safe-area-inset-top,0px))] z-[100] flex max-h-screen w-full flex-col-reverse p-4 sm:bottom-0 sm:right-0 sm:top-auto sm:flex-col md:max-w-[420px]",
+      "fixed top-[calc(3.5rem+var(--sat))] z-[100] flex max-h-screen w-full flex-col-reverse p-4 sm:bottom-[var(--sab)] sm:right-[var(--sar)] sm:top-auto sm:flex-col md:max-w-[420px]",
       className
     )}
     {...props}

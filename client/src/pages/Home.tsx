@@ -51,7 +51,7 @@ function HomeMobile() {
       <Header onMenuClick={() => setMenuOpen(true)} />
       <SideMenu isOpen={menuOpen} onClose={() => setMenuOpen(false)} />
 
-      <main className="px-4 pt-5 pb-24 max-w-md mx-auto space-y-7 md:max-w-none md:px-0 md:py-0">
+      <main className="pl-[calc(1rem+var(--sal))] pr-[calc(1rem+var(--sar))] pt-5 pb-24 max-w-md mx-auto space-y-7 md:max-w-none md:px-0 md:py-0">
         {isLoggedIn && (
           <div className="mb-6">
             <p className="text-muted-foreground text-sm">

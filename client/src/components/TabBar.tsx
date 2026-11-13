@@ -136,7 +136,7 @@ export function TabBar({
   return (
     <nav
       className={cn(
-        'fixed bottom-0 left-0 right-0 z-50 bg-primary shadow-[0_-4px_12px_rgba(0,0,0,0.12)] safe-bottom',
+        'fixed bottom-0 left-0 right-0 z-50 bg-primary shadow-[0_-4px_12px_rgba(0,0,0,0.12)] safe-bottom safe-x',
         className,
       )}
       data-testid={testId}

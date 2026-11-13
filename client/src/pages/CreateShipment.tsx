@@ -1309,7 +1309,7 @@ export default function CreateShipment() {
   // guest is the quieter one beside it, not hidden behind it.
   if (!isLoggedIn && !guestMode) {
     return (
-      <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-create-login-required">
+      <div className="min-h-[100dvh] bg-background pb-nav safe-x" data-testid="screen-create-login-required">
         <header className="sticky top-0 z-50 bg-white border-b border-[#E2E8F0] safe-top md:hidden">
           <div className="flex items-center h-14 px-4 max-w-md mx-auto">
             <button
@@ -1478,7 +1478,7 @@ export default function CreateShipment() {
     };
 
     return (
-      <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-create-success">
+      <div className="min-h-[100dvh] bg-background pb-nav safe-x" data-testid="screen-create-success">
         <main className="px-4 py-12 max-w-md mx-auto text-center">
           <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-5 animate-scale-in">
             <Check className="w-10 h-10 text-[#14567C]" strokeWidth={2.5} />
@@ -2162,7 +2162,7 @@ export default function CreateShipment() {
   };
 
   return (
-    <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-create">
+    <div className="min-h-[100dvh] bg-background pb-nav safe-x" data-testid="screen-create">
       <header className="sticky top-0 z-50 bg-white border-b border-[#E2E8F0] safe-top md:hidden">
         <div className="flex items-center h-14 px-4 w-full max-w-6xl mx-auto md:px-6">
           <button
@@ -4335,7 +4335,7 @@ export default function CreateShipment() {
           role="presentation"
         >
           <div
-            className="w-full max-w-lg bg-white rounded-t-2xl max-h-[85vh] flex flex-col shadow-xl"
+            className="w-full max-w-lg bg-white rounded-t-2xl max-h-[85vh] flex flex-col shadow-xl safe-x"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -4554,7 +4554,7 @@ export default function CreateShipment() {
               </p>
             </div>
 
-            <div className="p-4 border-t border-border shrink-0">
+            <div className="p-4 pb-sheet border-t border-border shrink-0">
               <Button
                 onClick={() => {
                   if (!pendingService) return;
@@ -4579,7 +4579,7 @@ export default function CreateShipment() {
           onClick={() => !createMutation.isPending && setShowConfirmModal(false)}
         >
           <div
-            className="bg-white rounded-t-2xl sm:rounded-2xl p-5 max-w-sm w-full shadow-xl max-h-[90vh] overflow-y-auto"
+            className="bg-white rounded-t-2xl sm:rounded-2xl p-5 pb-[calc(1.25rem+var(--sab))] sm:pb-5 max-w-sm w-full shadow-xl max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
             data-testid="modal-confirm-booking"
           >

@@ -80,10 +80,11 @@ export function OpsShell({
     return (
       <div className="flex h-screen overflow-hidden" data-testid="ops-shell">
         <OpsDesktopSidebar />
-        <main className="flex-1 flex flex-col overflow-y-auto bg-[#F8F9FA]">
+        <main className="flex-1 flex flex-col overflow-y-auto bg-[#F8F9FA] pr-[var(--sar)]">
+          <div className="sticky top-0 z-10 h-[var(--sat)] shrink-0 bg-white" aria-hidden />
           <div
             className={cn(
-              'mx-auto w-full px-6 md:px-8 py-6',
+              'mx-auto w-full px-6 md:px-8 pt-6 pb-[calc(1.5rem+var(--sab))]',
               wide ? 'max-w-6xl' : 'max-w-3xl'
             )}
           >
@@ -127,7 +128,7 @@ export function OpsShell({
         transition={quiet ? REDUCED : { ...PAGE_IN, opacity: { duration: 0.16, ease: 'easeOut' } }}
         style={{ transformOrigin: '50% 30%' }}
         className={cn(
-          'mx-auto px-4 py-4',
+          'mx-auto pl-[calc(1rem+var(--sal))] pr-[calc(1rem+var(--sar))] py-4',
           wide ? 'max-w-6xl' : 'max-w-md'
         )}
       >

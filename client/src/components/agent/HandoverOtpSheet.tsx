@@ -123,8 +123,8 @@ export function HandoverOtpSheet({
       <SheetContent
         side="top"
         className={cn(
-          'agent-surface rounded-none border-b-2 border-[#1B2A41] p-0 [&>button]:hidden',
-          'overflow-y-auto pt-[env(safe-area-inset-top)]',
+          'agent-surface rounded-none border-b-2 border-[#1B2A41] pb-0 [--sheet-pt:0px] [--sheet-px:0px] [&>button]:hidden',
+          'overflow-y-auto',
           // The shared primitive's 500ms open is a desktop drawer's timing. An
           // agent opens this one standing at a door with a code being read out
           // to them; it has to be there when they look down.

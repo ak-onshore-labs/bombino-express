@@ -30,10 +30,19 @@
   --input: 243 244 246;            /* Surface Tinted #F3F4F6 */
   --ring: 47 68 104;               /* Trade Wind #2F4468 */
   --radius: 0.75rem;
+
+  /* Safe-area insets: the only place env(safe-area-inset-*) is read. The
+     Capacitor shell injects --safe-area-inset-* on Android WebViews whose
+     env() reports 0; everywhere else env() answers. Use these, never env(). */
+  --sat: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --sab: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  --sal: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+  --sar: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+
   /* BottomNav: h-16 row + safe-area inset (see .pb-nav, ShipmentDetails strip offset). */
-  --nav-stack: calc(4rem + env(safe-area-inset-bottom, 0px));
+  --nav-stack: calc(4rem + var(--sab));
   /* AgentNav is its own bar at 70px, not the 64px customer one (see .pb-agent-nav). */
-  --agent-nav-stack: calc(70px + env(safe-area-inset-bottom, 0px));
+  --agent-nav-stack: calc(70px + var(--sab));
 
   /* Placeholder ink.
    *
@@ -166,11 +175,30 @@ textarea::placeholder {
 }
 
 .safe-top {
-  padding-top: env(safe-area-inset-top, 0px);
+  padding-top: var(--sat);
 }
 
 .safe-bottom {
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-bottom: var(--sab);
+}
+
+.safe-left {
+  padding-left: var(--sal);
+}
+
+.safe-right {
+  padding-right: var(--sar);
+}
+
+.safe-x {
+  padding-left: var(--sal);
+  padding-right: var(--sar);
+}
+
+/* Bottom-anchored sheets not built on ui/sheet: 1rem breathing room above
+   the home indicator. */
+.pb-sheet {
+  padding-bottom: calc(1rem + var(--sab));
 }
 
 .h-viewport {
@@ -179,6 +207,13 @@ textarea::placeholder {
 
 .pb-nav {
   padding-bottom: var(--nav-stack);
+}
+
+/* The bottom nav is hidden from md up; only the home indicator remains. */
+@media (min-width: 768px) {
+  .pb-nav {
+    padding-bottom: var(--sab);
+  }
 }
 
 /* Scroll clearance above the agent bar. */
@@ -997,6 +1032,10 @@ input[type="date"] {
 @media (min-width: 768px) {
   .app-content-desktop {
     padding-bottom: 0;
+  }
+  /* The sidebar already sits over the left inset. */
+  .app-content-desktop .safe-x {
+    padding-left: 0;
   }
 }
 

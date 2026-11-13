@@ -122,7 +122,7 @@ export function DimensionPresetSheet({
       role="presentation"
     >
       <div
-        className="w-full max-w-lg bg-white rounded-t-2xl max-h-[80vh] overflow-y-auto shadow-xl"
+        className="w-full max-w-lg bg-white rounded-t-2xl max-h-[80vh] overflow-y-auto shadow-xl pb-sheet safe-x"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -201,7 +201,7 @@ export function DimensionPresetSheet({
             Enter custom dimensions manually
           </button>
         </div>
-        <div className="h-6" />
+        <div className="h-2" />
       </div>
     </div>
   );

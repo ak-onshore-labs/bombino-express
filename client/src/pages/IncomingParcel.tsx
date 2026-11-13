@@ -56,7 +56,7 @@ export default function IncomingParcel() {
       <Header onMenuClick={() => setMenuOpen(true)} />
       <SideMenu isOpen={menuOpen} onClose={() => setMenuOpen(false)} />
 
-      <main className="max-w-2xl mx-auto px-4 md:px-0 py-5 md:py-6 space-y-5">
+      <main className="max-w-2xl mx-auto pl-[calc(1rem+var(--sal))] pr-[calc(1rem+var(--sar))] md:px-0 py-5 md:py-6 space-y-5">
         <button
           type="button"
           onClick={goBack}

@@ -18,7 +18,7 @@ import { useEffect } from 'react';
  * threaded through three components that do not care.
  */
 const FAB_BOTTOM = '--fab-bottom';
-const RAISED = 'calc(4rem + env(safe-area-inset-bottom, 0px) + 5.5rem)';
+const RAISED = 'calc(4rem + var(--sab) + 5.5rem)';
 
 export function useRaisedSupportFab(active = true): void {
   useEffect(() => {

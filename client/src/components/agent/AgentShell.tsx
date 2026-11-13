@@ -6,6 +6,7 @@ import { Link, useLocation } from 'wouter';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { POP } from '@/lib/motion';
+import { useDarkStatusBarArea } from '@/hooks/useDarkStatusBarArea';
 import bombinoLogo from '@/assets/bombino-logo.png';
 import { DAY_NAMES_SHORT, dayOfWeekForDate, todayInIst } from '@shared/istTime';
 
@@ -73,7 +74,7 @@ function AgentTopBar() {
 
   return (
     <header
-      className="sticky top-0 z-40 bg-white border-b border-[#E2E8F0]! safe-top"
+      className="sticky top-0 z-40 bg-white border-b border-[#E2E8F0]! safe-top safe-x"
       data-testid="agent-topbar"
     >
       {/* Three columns, the outer two equal, so the logo sits on the screen's
@@ -158,7 +159,7 @@ export function AgentShell({
     >
       <AgentTopBar />
 
-      <main className="max-w-md mx-auto px-5 pt-5 pb-6">
+      <main className="max-w-md mx-auto pl-[calc(1.25rem+var(--sal))] pr-[calc(1.25rem+var(--sar))] pt-5 pb-6">
         <div className="flex flex-col" style={{ gap }}>
           {(title || meta || sub) && (
             <div>
@@ -230,13 +231,15 @@ export function AgentJobSheet({
   children: React.ReactNode;
 }) {
   const quiet = useReducedMotion();
+  // The navy header sits under the status bar.
+  useDarkStatusBarArea();
 
   return (
     <div
       className="agent-surface h-[100dvh] flex flex-col bg-white"
       data-testid="agent-job-sheet"
     >
-      <header className="flex-none bg-[#1B2A41] safe-top">
+      <header className="flex-none bg-[#1B2A41] safe-top safe-x">
         <div className="flex items-center gap-3.5 h-[58px] px-5 max-w-md mx-auto">
           <Link href={backHref} className="-ml-1 p-1" data-testid="link-back">
             <ChevronLeft className="w-[23px] h-[23px] text-white" strokeWidth={1.5} />
@@ -271,7 +274,7 @@ export function AgentJobSheet({
         </div>
       </header>
 
-      <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
+      <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar safe-x">
         <div className="max-w-md mx-auto">{children}</div>
       </div>
 
@@ -285,8 +288,12 @@ export function AgentJobSheet({
         <motion.div
           layout={quiet ? false : 'position'}
           transition={POP}
-          className={cn('flex-none bg-white border-t border-[#D8DFE7]!', 'px-5 pt-3.5')}
-          style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
+          className={cn('flex-none bg-white border-t border-[#D8DFE7]!', 'pt-3.5')}
+          style={{
+            paddingBottom: 'calc(1rem + var(--sab))',
+            paddingLeft: 'calc(1.25rem + var(--sal))',
+            paddingRight: 'calc(1.25rem + var(--sar))',
+          }}
           data-testid="agent-action-bar"
         >
           <div className="max-w-md mx-auto flex flex-col gap-2.5">{actionBar}</div>

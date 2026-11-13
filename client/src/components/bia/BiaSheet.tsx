@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useDarkStatusBarArea } from '@/hooks/useDarkStatusBarArea';
 import { useBiaStore } from '@/lib/biaStore';
 import { navigateInApp } from '@/lib/biaNavigate';
 import { BiaChat } from './BiaChat';
@@ -19,6 +20,8 @@ export function BiaSheet(): React.JSX.Element | null {
 
   // /help is BIA already; a sheet over it would be the same chat twice.
   const onHelp = location === '/help';
+  // Dark sheet (and dimmed screen behind it) under the status bar while open.
+  useDarkStatusBarArea(open && !onHelp);
   useEffect(() => {
     if (onHelp && open) closeBia();
   }, [onHelp, open, closeBia]);
@@ -30,8 +33,8 @@ export function BiaSheet(): React.JSX.Element | null {
         side={isMobile ? 'bottom' : 'right'}
         className={
           isMobile
-            ? 'rounded-t-2xl border-white/10 bg-[#080808] p-0 overflow-hidden [&>button:first-child]:hidden'
-            : 'w-full sm:max-w-[440px] border-white/10 bg-[#080808] p-0 overflow-hidden [&>button:first-child]:hidden'
+            ? 'rounded-t-2xl border-white/10 bg-[#080808] pt-0 pb-0 [--sheet-px:0px] overflow-hidden [&>button:first-child]:hidden'
+            : 'w-full sm:max-w-[440px] border-white/10 bg-[#080808] pl-0 pb-0 [--sheet-pt:0px] [--sheet-px:0px] overflow-hidden [&>button:first-child]:hidden'
         }
         // Sits on top of the keyboard rather than under it: lifted by the
         // keyboard's height (--kb) and never taller than the space left

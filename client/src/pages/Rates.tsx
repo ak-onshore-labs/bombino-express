@@ -277,12 +277,12 @@ export default function Rates() {
 
     return (
       <div
-        className="min-h-[100dvh] pb-nav bg-[#F8F9FA]"
+        className="min-h-[100dvh] pb-nav bg-[#F8F9FA] safe-x"
         data-testid="screen-rates-results"
       >
         {/* Centered content wrapper — constrains width on desktop, transparent on mobile */}
         <div className="max-w-2xl mx-auto w-full px-4 md:px-6 md:py-6">
-          <header className="pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 md:pt-0 md:pb-5">
+          <header className="pt-[max(0.75rem,var(--sat))] pb-3 md:pt-0 md:pb-5">
             <div className="flex items-center gap-2 md:mb-4">
               <button
                 type="button"
@@ -547,7 +547,7 @@ export default function Rates() {
       <Header onMenuClick={() => setMenuOpen(true)} />
       <SideMenu isOpen={menuOpen} onClose={() => setMenuOpen(false)} />
 
-      <main className="px-4 py-5 max-w-md mx-auto md:max-w-3xl md:px-0 md:py-2">
+      <main className="pl-[calc(1rem+var(--sal))] pr-[calc(1rem+var(--sar))] py-5 max-w-md mx-auto md:max-w-3xl md:px-0 md:py-2">
         <div className="hidden md:flex md:items-center md:gap-2 md:mb-2">
           <span className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#F2A123]">Calculator</span>
           <span className="h-px flex-1 bg-gradient-to-r from-[#F2A123]/30 to-transparent" aria-hidden />

@@ -122,7 +122,7 @@ export function ContractPreview({
           compressed by the viewer below, which wants every pixel it can get —
           on a short viewport the bar collapses and the close button goes with
           it, leaving no way out of the overlay. */}
-      <div className="shrink-0 flex items-center justify-between gap-3 bg-card px-4 py-3 border-b border-border">
+      <div className="shrink-0 flex items-center justify-between gap-3 bg-card pl-[calc(1rem+var(--sal))] pr-[calc(1rem+var(--sar))] pb-3 pt-[calc(0.75rem+var(--sat))] border-b border-border">
         <div className="min-w-0">
           <p className="text-sm font-semibold truncate">{CONTRACT_TITLE}</p>
           <p className="text-[11px] text-muted-foreground truncate">
@@ -157,7 +157,7 @@ export function ContractPreview({
       {/* A second way out, at the end of the document where someone who has
           just finished reading four pages already is. Same shrink-0 reasoning
           as the bar above. */}
-      <div className="shrink-0 bg-card px-4 py-3 border-t border-border">
+      <div className="shrink-0 bg-card pl-[calc(1rem+var(--sal))] pr-[calc(1rem+var(--sar))] pt-3 pb-[calc(0.75rem+var(--sab))] border-t border-border">
         <button
           type="button"
           onClick={onClose}

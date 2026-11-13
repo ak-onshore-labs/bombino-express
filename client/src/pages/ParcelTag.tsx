@@ -51,7 +51,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   // camera. Only the first has somewhere to go back to.
   const canGoBack = typeof window !== 'undefined' && window.history.length > 1;
   return (
-    <div className="min-h-[100dvh] bg-background" data-testid="screen-parcel-tag">
+    <div className="min-h-[100dvh] bg-background safe-x" data-testid="screen-parcel-tag">
       <header className="border-b border-[#E2E8F0] bg-white safe-top">
         <div className="max-w-2xl mx-auto px-4 md:px-6 h-14 flex items-center justify-between">
           {canGoBack ? (

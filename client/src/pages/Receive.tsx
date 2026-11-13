@@ -42,7 +42,7 @@ export default function Receive() {
       <Header onMenuClick={() => setMenuOpen(true)} />
       <SideMenu isOpen={menuOpen} onClose={() => setMenuOpen(false)} />
 
-      <main className="px-4 py-5 max-w-md mx-auto md:max-w-5xl md:px-6 md:py-6">
+      <main className="pl-[calc(1rem+var(--sal))] pr-[calc(1rem+var(--sar))] py-5 max-w-md mx-auto md:max-w-5xl md:px-6 md:py-6">
         <div className="mb-5 md:mb-6">
           <h1 className="text-lg font-semibold text-foreground mb-1 md:text-2xl md:font-bold md:text-[lab(34.0831_-9.57756_-27.7093)]">Track & Receive</h1>
           <p className="text-sm text-muted-foreground">Track your incoming shipments</p>

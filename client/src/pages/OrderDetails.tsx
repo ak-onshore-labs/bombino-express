@@ -193,8 +193,8 @@ function useCopy(): [string | null, (value: string) => void] {
 
 function PageShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-order">
-      <main className="max-w-2xl mx-auto px-4 md:px-6 pt-3 pb-12 md:pt-6 md:pb-16">
+    <div className="min-h-[100dvh] bg-background pb-nav safe-x" data-testid="screen-order">
+      <main className="max-w-2xl mx-auto px-4 md:px-6 pt-[calc(0.75rem+var(--sat))] pb-12 md:pt-6 md:pb-16">
         {children}
       </main>
       <BottomNav />

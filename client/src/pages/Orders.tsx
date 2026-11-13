@@ -573,7 +573,7 @@ export default function Orders() {
       <Header onMenuClick={() => setMenuOpen(true)} />
       <SideMenu isOpen={menuOpen} onClose={() => setMenuOpen(false)} />
 
-      <main className="max-w-5xl mx-auto px-4 md:px-0 py-5 md:py-6 space-y-6">
+      <main className="max-w-5xl mx-auto pl-[calc(1rem+var(--sal))] pr-[calc(1rem+var(--sar))] md:px-0 py-5 md:py-6 space-y-6">
 
         {/* Compact track bar */}
         <TrackBar

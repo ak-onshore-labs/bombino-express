@@ -37,6 +37,7 @@ import { useAppStore } from "@/lib/store";
 import { useGuestProfile } from "@/hooks/useGuestProfile";
 import { useSupportContacts } from "@/hooks/useSupportContacts";
 import { useKeyboardOverlay } from "@/lib/keyboardInset";
+import { useDarkStatusBarArea } from "@/hooks/useDarkStatusBarArea";
 
 /**
  * One turn. `cards` ride along on BIA's replies for this conversation only;
@@ -146,6 +147,8 @@ export function BiaChat({
   onNavigate,
 }: BiaChatProps): React.JSX.Element {
   const isSheet = variant === "sheet";
+  // The /help page is dark under the status bar; BiaSheet handles its own.
+  useDarkStatusBarArea(!isSheet);
   const isLoggedIn = useAppStore((s) => s.isLoggedIn);
   const logout = useAppStore((s) => s.logout);
   const { data: guestProfile, isFetched: guestChecked } = useGuestProfile({ enabled: !isLoggedIn });
@@ -445,7 +448,7 @@ export function BiaChat({
     <div
       className={cn(
         "isolate flex flex-col overflow-hidden",
-        isSheet ? "relative h-full" : "fixed inset-x-0 safe-top"
+        isSheet ? "relative h-full" : "fixed inset-x-0 safe-top safe-x"
       )}
       // The page fills exactly what is visible above the keyboard, so the
       // input (the last row) always sits on top of it and the chat does not
@@ -457,7 +460,7 @@ export function BiaChat({
               top: "var(--vv-top, 0px)",
               height: "var(--visible, 100dvh)",
               // Home-indicator space only while the keyboard is down.
-              paddingBottom: "max(0px, calc(env(safe-area-inset-bottom, 0px) - var(--kb, 0px)))",
+              paddingBottom: "max(0px, calc(var(--sab) - var(--kb, 0px)))",
             }
       }
       data-keyboard-pinned
@@ -745,7 +748,12 @@ export function BiaChat({
       )}
 
       {/* Floating input dock + disclaimer */}
-      <div className="flex-shrink-0 px-4 pb-4 pt-3 max-w-md mx-auto w-full">
+      <div
+        className="flex-shrink-0 px-4 pb-4 pt-3 max-w-md mx-auto w-full"
+        // The page pads the home indicator on its root; the sheet does it
+        // here, and only while the keyboard is down.
+        style={isSheet ? { paddingBottom: "calc(1rem + max(0px, var(--sab) - var(--kb, 0px)))" } : undefined}
+      >
         {sendReady && (
           <p className="mb-1.5 px-1 text-[11px] font-medium text-[#FBAD1F]" role="status" data-testid="bia-send-hint">
             Your question is ready. Change it if you like, then tap send.

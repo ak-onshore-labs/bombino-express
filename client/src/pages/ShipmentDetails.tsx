@@ -49,8 +49,8 @@ function formatNiceDate(value: string): string {
 // ─── Reusable shell pieces ──────────────────────────────────────────────────
 function PageShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-shipment">
-      <main className="max-w-3xl mx-auto px-5 md:px-0 pt-4 pb-10 md:pt-6 md:pb-14">
+    <div className="min-h-[100dvh] bg-background pb-nav safe-x" data-testid="screen-shipment">
+      <main className="max-w-3xl mx-auto px-5 md:px-0 pt-[calc(1rem+var(--sat))] pb-10 md:pt-6 md:pb-14">
         {children}
       </main>
       <BottomNav />

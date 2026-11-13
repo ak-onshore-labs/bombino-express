@@ -140,9 +140,11 @@ export function DesktopSidebar() {
   );
 
   return (
-    <div className="hidden md:flex relative flex-col w-60 h-screen sticky top-0 bg-gradient-to-b from-[lab(34.0831_-9.57756_-27.7093)] to-[#0c1a25] border-r border-white/[0.07] overflow-hidden">
+    <div className="hidden md:flex relative flex-col w-[calc(15rem+var(--sal))] h-screen sticky top-0 pt-[var(--sat)] pb-[var(--sab)] pl-[var(--sal)] bg-gradient-to-b from-[lab(34.0831_-9.57756_-27.7093)] to-[#0c1a25] border-r border-white/[0.07] overflow-hidden">
+      {/* White under the status bar, so its dark icons stay readable here too. */}
+      <div className="absolute inset-x-0 top-0 h-[var(--sat)] bg-white" aria-hidden />
       <div
-        className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-[#F2A123]/[0.05] to-transparent pointer-events-none"
+        className="absolute inset-x-0 top-[var(--sat)] h-28 bg-gradient-to-b from-[#F2A123]/[0.05] to-transparent pointer-events-none"
         aria-hidden
       />
       <div className="h-16 flex items-center justify-between px-5 border-b border-white/[0.07]">
