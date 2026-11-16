@@ -26,6 +26,12 @@
  *    keyboard's height. It only counts when the web view did not already
  *    shrink by that much, so a resizing shell is not lifted twice.
  *
+ * The Android app shell from BombinoShell/2 on pads its web view by the
+ * keyboard's height, so the page already ends at the keyboard. There neither
+ * the VirtualKeyboard API nor the plugin's height is counted, or the keyboard
+ * would be taken off twice and every sheet pinned to it would shrink to a
+ * sliver (see `shellResizes`).
+ *
  * iOS also reports the viewport change late, or part-way through the
  * keyboard's animation. So for a short while after any input gains or loses
  * focus the values are re-measured every frame, not only on events.
@@ -40,7 +46,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { isCapacitorNative } from "./platform";
+import { isCapacitorNative, nativePlatform, shellVersion } from "./platform";
 
 /** Keyboard height from Capacitor's plugin, and the window height when it opened. */
 let nativeKb = 0;
@@ -59,6 +65,13 @@ const RESIZE_THRESHOLD = 120;
 let keyboardOpen = false;
 /** Running in the Capacitor app shell, where the plugin's events are the truth. */
 let inShell = false;
+/**
+ * The Android app shell (BombinoShell/2 and later) pads the web view by the
+ * keyboard's height, so the page ends at the keyboard on its own. Here `--kb`
+ * stays 0, as with the resizing iOS shell. The older store build sends no
+ * marker and does not resize, so it keeps reading the plugin's height.
+ */
+let shellResizes = false;
 /** The last `--kb`, in px. */
 let coverPx = 0;
 /** The tallest window seen with no text field focused. */
@@ -94,10 +107,13 @@ function update(): void {
 
   const fromViewport = vv ? Math.max(0, innerHeight - vvHeight - top) : 0;
   const vk = virtualKeyboard();
-  const fromApi = vk?.overlaysContent ? Math.max(0, vk.boundingRect.height) : 0;
+  // The Android shell resizes the web view itself, so the keyboard covers
+  // none of the page. Its plugin height and the VirtualKeyboard rectangle
+  // would both count the keyboard a second time on top of that.
+  const fromApi = !shellResizes && vk?.overlaysContent ? Math.max(0, vk.boundingRect.height) : 0;
   // The plugin's height, less whatever the web view already gave up for it.
   const shrunkBy = heightBeforeKeyboard > 0 ? Math.max(0, heightBeforeKeyboard - innerHeight) : 0;
-  const fromNative = nativeKb > 0 ? Math.max(0, nativeKb - shrunkBy - top) : 0;
+  const fromNative = !shellResizes && nativeKb > 0 ? Math.max(0, nativeKb - shrunkBy - top) : 0;
   const kb = Math.round(Math.max(fromViewport, fromApi, fromNative));
   coverPx = kb;
 
@@ -177,6 +193,7 @@ export function isTextEntry(target: EventTarget | null): boolean {
 /** Called once at startup. */
 export function installKeyboardInset(): void {
   inShell = isCapacitorNative();
+  shellResizes = nativePlatform() === "android" && shellVersion() >= 2;
   window.visualViewport?.addEventListener("resize", update);
   window.visualViewport?.addEventListener("scroll", update);
   window.addEventListener("resize", update);
@@ -258,7 +275,8 @@ let overlayUsers = 0;
 export function useKeyboardOverlay(): void {
   useEffect(() => {
     const vk = virtualKeyboard();
-    if (!vk) return;
+    // The resizing Android shell already keeps the page above the keyboard.
+    if (!vk || shellResizes) return;
     overlayUsers += 1;
     vk.overlaysContent = true;
     update();
