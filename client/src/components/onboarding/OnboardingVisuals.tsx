@@ -134,8 +134,110 @@ export function ShipVisual(): ReactElement {
   );
 }
 
+/* A four-point sparkle centred on (x, y), arm length 10 * s. */
+function sparklePath(x: number, y: number, s: number): string {
+  const a = 10 * s;
+  const b = 2 * s;
+  return `M${x} ${y - a} Q${x + b} ${y - b} ${x + a} ${y} Q${x + b} ${y + b} ${x} ${y + a} Q${x - b} ${y + b} ${x - a} ${y} Q${x - b} ${y - b} ${x} ${y - a} Z`;
+}
+
+/* BIA drawn as an AI agent: the navy-and-amber orb the chat uses, glowing,
+   with a turning sparkle at its heart, "listening" ripples and a BIA tag.
+   It should read as "a smart helper", not as one more chat bubble. */
+function BiaAgent({ cx, cy, delay }: { cx: number; cy: number; delay: number }): ReactElement {
+  const r = 21;
+  return (
+    <motion.g
+      initial={{ scale: 0, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      transition={{ delay, type: 'spring', stiffness: 320, damping: 15 }}
+    >
+      <defs>
+        <radialGradient id="onb-bia-orb" cx="35%" cy="30%" r="75%">
+          <stop offset="0%" stopColor="#6FB3DA" />
+          <stop offset="45%" stopColor={NAVY} />
+          <stop offset="100%" stopColor="#0A2A40" />
+        </radialGradient>
+        <filter id="onb-bia-glow" x="-60%" y="-60%" width="220%" height="220%">
+          <feGaussianBlur stdDeviation="5" />
+        </filter>
+      </defs>
+
+      {/* Listening ripples */}
+      {[0, 1].map((i) => (
+        <motion.circle
+          key={i}
+          cx={cx}
+          cy={cy}
+          r={r + 2}
+          fill="none"
+          stroke={AMBER}
+          strokeWidth={2}
+          initial={{ scale: 1, opacity: 0 }}
+          animate={{ scale: [1, 1.7], opacity: [0.55, 0] }}
+          transition={{ delay: delay + 0.4 + i * 0.9, duration: 1.8, repeat: Infinity, ease: 'easeOut' }}
+        />
+      ))}
+
+      {/* Glow behind the orb, breathing */}
+      <motion.circle
+        cx={cx}
+        cy={cy}
+        r={r + 3}
+        fill={AMBER}
+        filter="url(#onb-bia-glow)"
+        animate={{ opacity: [0.35, 0.65, 0.35] }}
+        transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
+      />
+
+      {/* Orb */}
+      <circle cx={cx} cy={cy} r={r} fill="url(#onb-bia-orb)" stroke={AMBER} strokeOpacity={0.85} strokeWidth={2} />
+      <ellipse cx={cx - 7} cy={cy - 8} rx={7} ry={4} fill="#fff" opacity={0.3} transform={`rotate(-30 ${cx - 7} ${cy - 8})`} />
+
+      {/* Sparkle at its heart, slowly turning */}
+      <motion.path
+        d={sparklePath(cx, cy, 1)}
+        fill="#fff"
+        animate={{ rotate: 360 }}
+        transition={{ duration: 8, repeat: Infinity, ease: 'linear' }}
+      />
+      <path d={sparklePath(cx + 8, cy - 7, 0.38)} fill={AMBER_LIGHT} />
+
+      {/* Little sparkles around it */}
+      {[
+        { x: cx + 30, y: cy - 24, s: 0.55, d: 0 },
+        { x: cx - 28, y: cy - 20, s: 0.42, d: 0.5 },
+      ].map((sp) => (
+        <motion.path
+          key={sp.x}
+          d={sparklePath(sp.x, sp.y, sp.s)}
+          fill={AMBER}
+          animate={{ scale: [0.6, 1.15, 0.6], opacity: [0.5, 1, 0.5] }}
+          transition={{ delay: delay + sp.d, duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+        />
+      ))}
+
+      {/* Name tag */}
+      <rect x={cx - 23} y={cy + r + 8} width={46} height={18} rx={9} fill={NAVY} />
+      <path d={sparklePath(cx - 12, cy + r + 17, 0.42)} fill={AMBER_LIGHT} />
+      <text
+        x={cx + 4}
+        y={cy + r + 21}
+        textAnchor="middle"
+        fontSize={10.5}
+        fontWeight={700}
+        letterSpacing={0.6}
+        fill="#fff"
+        fontFamily="Poppins, system-ui, sans-serif"
+      >
+        BIA
+      </text>
+    </motion.g>
+  );
+}
+
 /* 02 · Track — a pin dropping on the parcel's road, a WhatsApp message
-   received, and BIA ready to help. */
+   received, and BIA, the AI assistant, ready to help. */
 export function TrackVisual(): ReactElement {
   return (
     <Canvas>
@@ -193,26 +295,7 @@ export function TrackVisual(): ReactElement {
         <path d="M212 64 l2 2 l13 -14" fill="none" stroke="#fff" strokeWidth={3.5} strokeLinecap="round" strokeLinejoin="round" />
       </motion.g>
 
-      {/* BIA: someone ready to answer (typing dots) */}
-      <motion.g
-        initial={{ scale: 0, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ delay: 0.9, type: 'spring', stiffness: 380, damping: 16 }}
-      >
-        <rect x={30} y={66} width={64} height={38} rx={16} fill="#fff" stroke="#E2E8F0" strokeWidth={1.5} />
-        <path d="M80 102 L92 112 L74 104 Z" fill="#fff" />
-        {[48, 62, 76].map((cx, i) => (
-          <motion.circle
-            key={cx}
-            cx={cx}
-            cy={85}
-            r={4.5}
-            fill={NAVY}
-            animate={{ opacity: [0.3, 1, 0.3] }}
-            transition={{ delay: 1.1 + i * 0.18, duration: 1.1, repeat: Infinity, ease: 'easeInOut' }}
-          />
-        ))}
-      </motion.g>
+      <BiaAgent cx={60} cy={70} delay={0.9} />
     </Canvas>
   );
 }

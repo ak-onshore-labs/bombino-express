@@ -29,7 +29,7 @@ const slides: Slide[] = [
   {
     id: 'track',
     title: 'Always know where it is',
-    body: 'Updates on WhatsApp, and BIA to help any time.',
+    body: 'Updates on WhatsApp, and BIA, our AI assistant, to help any time.',
     Visual: TrackVisual,
   },
   {
