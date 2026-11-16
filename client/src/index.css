@@ -413,6 +413,22 @@ textarea::placeholder {
   animation: pulse-glow 2s infinite;
 }
 
+/* Splash: the amber rule fills over the time the splash holds (duration is
+   set inline from SPLASH_MS). scaleX, not width, so it stays on the
+   compositor. With reduced motion it simply shows full. */
+@keyframes splash-progress {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+.splash-progress {
+  animation: splash-progress 1800ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .splash-progress { animation: none; }
+}
+
 /* Support FAB: floating idle (translateY 0 → -3px → 0) */
 @keyframes fab-float {
   0%,
