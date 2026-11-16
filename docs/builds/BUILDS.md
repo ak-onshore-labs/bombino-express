@@ -56,6 +56,7 @@ store release; a store release only changes that second line.
 
 | Total | Build | Date | Target | Commit | Notes |
 |---|---|---|---|---|---|
+| 103 | V1 (Build 103.261116.2) | 16 Nov 2026 | Web (app domain, auto-deploy on push) | f996271 | New splash (white, tagline, amber progress bar over the 1.8 s hold) and 3-screen onboarding with friendly flat drawings: Send parcels anywhere (parcel + plane to globe), Always know where it is (map pin, WhatsApp double tick, BIA as a glowing AI orb), Earn as you ship (gift box with coins). Short heading + one line each, slide transitions follow the swipe, reduced motion keeps fades. "I have an account" goes to /login. Users who already saw onboarding do not see it again. No migration. |
 | 102 | V1 (Build 102.261116.1) | 16 Nov 2026 | Web (app domain, auto-deploy on push) | 293a703 | Android app (BombinoShell/2): keyboard no longer counted twice — country pickers, BIA sheet and /help, agent handover-code sheet sit right on the keyboard. iOS/web unchanged. No migration. |
 | 101 | V1 (Build 101.261114.3) | 14 Nov 2026 | Web (app domain, auto-deploy on push) | b9fb89a | Mobile searchable pickers (destination/rates country, phone dial-code) open as full-height bottom sheets below md; desktop Popover unchanged. No migration. |
 | 100 | V1 (Build 100.261114.2) | 14 Nov 2026 | Web (app domain, auto-deploy on push) | 8e80ddf | Fix Android blank screen: shared /api/settings cache shape for update prompt + support contacts; root error boundary with Reload. No migration. |
