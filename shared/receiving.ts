@@ -100,6 +100,11 @@ export interface ReceivingParcel {
   service: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * ITD's latest scan for the AWB, on the list (server/carrierStatus.ts).
+   * Once ITD has the parcel, its state is what the receiver reads.
+   */
+  carrier_status?: { state: string; at: string } | null;
 }
 
 /** One step of an incoming parcel's history: what happened and when. */

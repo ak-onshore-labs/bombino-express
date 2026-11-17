@@ -85,6 +85,8 @@ import { ShipmentDocuments, useShipmentDocuments } from '@/components/ShipmentDo
 import { PdfDocButton, fetchPdfBase64 } from '@/components/PdfDocButton';
 import { TrackingTimeline } from '@/components/TrackingTimeline';
 import { getStatusLabel } from '@/lib/awbStatus';
+import { carrierHasParcel } from '@/lib/orderStatus';
+import { isTestAwb } from '@shared/testOrders';
 import { withoutDialCode } from '@shared/contact';
 import { todayInIst } from '@shared/istTime';
 import {
@@ -418,15 +420,25 @@ export default function OrderDetails() {
   // accepting the job has to land here without a reload.
   const { data, isLoading, isFetching, error } = useCustomerOrderDetail(orderNo);
 
-  // Carrier scans, once the parcel has left us. Not asked for before then:
-  // ITD has nothing to say about a parcel still in the customer's house, and
-  // every call is a round trip to them.
+  // Carrier scans, whenever the order has a real AWB. Not only once we mark it
+  // dispatched: ITD moves the parcel whether or not ops pressed that button,
+  // and an order left at "received at hub" was delivered while this screen
+  // still said "Arrived at Bombino hub" (BOM-100347). A test AWB was never
+  // filed with ITD, so there is nothing to ask.
   const trackedAwb =
-    data?.order.awb_no && data.order.status === 'dispatched' ? data.order.awb_no : '';
+    data?.order.awb_no && data.order.status !== 'cancelled' && !isTestAwb(data.order.awb_no)
+      ? data.order.awb_no
+      : '';
   const { data: tracking } = useAwbTracking(trackedAwb, { enabled: !!trackedAwb });
+  // ITD has scanned the parcel past the booking entry: it has left us, so it
+  // reads as shipped whatever our own status says.
+  const carrierMoved = carrierHasParcel(latestScanState(tracking));
 
   const stillWithUs =
-    !!data && data.order.status !== 'dispatched' && data.order.status !== 'cancelled';
+    !!data &&
+    data.order.status !== 'dispatched' &&
+    data.order.status !== 'cancelled' &&
+    !carrierMoved;
   const hasLabels = useHasLabels(data?.order.awb_no ?? null, isLoggedIn && stillWithUs);
 
   /**
@@ -596,7 +608,8 @@ export default function OrderDetails() {
   const origin = order.origin_address;
   const isPickup = order.pickup_request === 1;
   const isCancelled = order.status === 'cancelled';
-  const isDispatched = order.status === 'dispatched';
+  // Shipped: we marked it dispatched, or ITD already has it.
+  const isDispatched = order.status === 'dispatched' || (!isCancelled && carrierMoved);
   // Still in the customer's hands: before an agent collects it or it is handed
   // in at a counter. Labels, the code and "where to take it" only matter here.
   const beforeCollection =
@@ -683,7 +696,7 @@ export default function OrderDetails() {
   );
   const delivered = lastScanLabel === 'Delivered';
 
-  const progress = progressFor(order.status, isPickup, delivered);
+  const progress = progressFor(isDispatched ? 'dispatched' : order.status, isPickup, delivered);
   // Once shipped, the carrier's word is fresher than ours.
   const headline = isDispatched && carrierStatus ? carrierStatus : customerStatus;
 
@@ -957,7 +970,9 @@ export default function OrderDetails() {
   );
 
   // ─── Updates ─────────────────────────────────────────────────────────────
-  const hasCarrier = carrierEvents.length > 0;
+  // Before it ships, a docketed-at-booking AWB has only ITD's "information
+  // received" entry: our own log says more until the parcel moves.
+  const hasCarrier = isDispatched && carrierEvents.length > 0;
   const updates = (
     <Section title="Updates">
       {hasCarrier ? (

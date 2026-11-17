@@ -45,7 +45,9 @@ import {
   listGuestOrders,
   updateGuestContactOnOrders,
   upsertGuestProfile,
+  type GuestOrderSummary,
 } from "../guestProfileDb.js";
+import { withCarrierStatus, type CarrierStatus } from "../carrierStatus.js";
 
 /** The guest this session is, or null. */
 function guestFrom(req: Request): { ref: string; phone: string } | null {
@@ -103,7 +105,8 @@ type GuestProfileResponse = {
     unverified: string[];
   };
   kyc: { status: "verified" | "in_review"; summary: string } | null;
-  orders: Awaited<ReturnType<typeof listGuestOrders>>;
+  /** With ITD's latest scan, so the list can show where the parcel really is. */
+  orders: (GuestOrderSummary & { carrier_status: CarrierStatus | null })[];
   /**
    * The account application on this number, open or the last decided one
    * (account review, server/accountApplications.ts). Null when there is none.
@@ -119,7 +122,7 @@ async function buildProfile(guest: { ref: string; phone: string }): Promise<Gues
   const [profile, kyc, orders, staged, application] = await Promise.all([
     getGuestProfile(guest.ref),
     getGuestKycSummary(guest.ref),
-    listGuestOrders(guest.ref),
+    listGuestOrders(guest.ref).then(withCarrierStatus),
     listDocumentsBySignupRef(guest.ref),
     getLatestApplicationByPhone(guest.phone),
   ]);
