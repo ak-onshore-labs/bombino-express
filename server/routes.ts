@@ -81,7 +81,7 @@ import { registerAgentRoutes } from "./routes/agent.js";
 import { registerPaymentRoutes } from "./routes/payments.js";
 import { registerRewardsRoutes } from "./routes/rewards.js";
 import { balanceOf, redeemOnOrder, rewardsOnTrackingState } from "./rewardsDb.js";
-import { withCarrierStatus } from "./carrierStatus.js";
+import { latestScan, syncOrderWithCarrier, withCarrierStatus } from "./carrierStatus.js";
 import { reconcilePaymentStatus } from "./paymentsDb.js";
 import { MIN_REDEEM_POINTS, maxRedeemable, pointsUsedOf } from "../shared/rewards.js";
 import { registerOpsRewardsRoutes } from "./routes/opsRewards.js";
@@ -2906,8 +2906,12 @@ export async function registerRoutes(
         const trackedAt = new Date().toISOString();
         void upsertTrackingEvents(trackingNo, events);
         void updateShipmentTrackingStatus(trackingNo, latestStatus, trackedAt);
-        // Delivered (or returned, lost…) lands or forfeits the order's reward points.
-        void rewardsOnTrackingState(trackingNo, latestStatus);
+        // ITD has the parcel but our order is not dispatched yet: catch up first,
+        // so the reward points below can land on a dispatched order.
+        void syncOrderWithCarrier(trackingNo, latestScan(events)).then(() =>
+          // Delivered (or returned, lost…) lands or forfeits the order's reward points.
+          rewardsOnTrackingState(trackingNo, latestStatus)
+        );
 
         // Anyone may track any AWB, but only its owner and ops see who sent it
         // and who it is for. Everyone else gets bombinoexp.com's fields

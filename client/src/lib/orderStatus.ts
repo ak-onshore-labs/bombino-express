@@ -1,4 +1,5 @@
 import { customerStatusForStatus, isTerminalOrderStatus } from '@shared/orderContract';
+import { carrierHasParcel, type CarrierStatus } from '@shared/carrierState';
 import {
   getStatusColor,
   getStatusLabel,
@@ -52,22 +53,16 @@ export function getOrderStatusTone(status: string): AwbStatusTone {
 /** Re-exported so customer screens have one import for status questions. */
 export { isTerminalOrderStatus };
 
-/** ITD's latest scan for the order's AWB, as `/api/orders` and the guest profile send it. */
-export interface CarrierStatus {
-  state: string;
-  at: string;
-}
+/** ITD's latest scan for the order's AWB, as the order lists send it. */
+export type { CarrierStatus };
+export { carrierHasParcel };
 
 /**
- * ITD has the parcel: it has scanned it past the booking entry.
- *
- * `ENTRY` ("shipment information received") is ITD acknowledging the docket,
- * which for a login customer happens at booking, long before the parcel moves.
- * Anything after it means the parcel is in ITD's hands.
+ * ITD's state as ops reads it beside our own status ("ITD: Delivered"), or
+ * null before ITD has the parcel.
  */
-export function carrierHasParcel(state: string | null | undefined): boolean {
-  const key = (state ?? '').trim().replace(/\s+/g, ' ').toUpperCase();
-  return key !== '' && key !== 'ENTRY';
+export function carrierLabel(carrier: CarrierStatus | null | undefined): string | null {
+  return carrier && carrierHasParcel(carrier.state) ? getStatusLabel(carrier.state) : null;
 }
 
 /**

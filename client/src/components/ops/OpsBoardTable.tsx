@@ -10,7 +10,7 @@ import {
   paymentMethodLabel,
   paymentStatusLabel,
 } from '@/lib/orderDetail';
-import { getOrderStatusLabel, getOrderStatusTone } from '@/lib/orderStatus';
+import { carrierLabel, getOrderStatusLabel, getOrderStatusTone } from '@/lib/orderStatus';
 import { toCollect } from '@shared/rewards';
 import { OPS_PHASES, phaseIdForStatus } from '@/lib/opsPhases';
 
@@ -103,6 +103,11 @@ export function OpsBoardTable({
                   />
                   {showStage && (
                     <p className="text-xs text-muted-foreground mt-1">{stageLabel(order.status)}</p>
+                  )}
+                  {carrierLabel(order.carrier_status) && (
+                    <p className="text-xs font-semibold text-muted-foreground mt-1">
+                      ITD: {carrierLabel(order.carrier_status)}
+                    </p>
                   )}
                 </td>
                 <td>

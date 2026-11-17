@@ -36,7 +36,7 @@ import {
   type OpsOrderDetail as OpsOrderDetailData,
   type OpsOrderEvent,
 } from '@/hooks/useOpsOrders';
-import { getOrderStatusLabel } from '@/lib/orderStatus';
+import { carrierLabel, getOrderStatusLabel } from '@/lib/orderStatus';
 import { useCan } from '@/lib/opsAccess';
 import { cn } from '@/lib/utils';
 import { todayInIst } from '@shared/istTime';
@@ -497,6 +497,11 @@ export default function OpsOrderDetail() {
         <p className="mt-1.5 text-xl font-extrabold leading-tight text-foreground">
           {getOrderStatusLabel(order.status)}
         </p>
+        {carrierLabel(data.carrier_status) && (
+          <p className="mt-0.5 text-sm font-semibold text-muted-foreground" data-testid="ops-order-itd">
+            ITD tracking: {carrierLabel(data.carrier_status)}
+          </p>
+        )}
         <JourneyBar status={order.status} orderNo={order.order_no} />
         <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
           {day && (

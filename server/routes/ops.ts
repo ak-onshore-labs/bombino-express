@@ -104,6 +104,7 @@ import { isTestPhone, seesTestOrders, withoutHiddenTestRows } from "../testOrder
 import { assignableRoles, can, STAFF_ROLES } from "../../shared/staffAccess.js";
 import { INDIAN_MOBILE_MESSAGE, INDIAN_MOBILE_PATTERN } from "../../shared/contact.js";
 import { sendDocumentFile, wantsDownload } from "../documentResponse.js";
+import { carrierStatusesFor, syncOrderWithCarrier, withCarrierStatus } from "../carrierStatus.js";
 import { loadAgentsWithCities, pickAgentsForCity, pickupCity } from "../assignableAgents.js";
 import {
   AuditLogUnavailableError,
@@ -464,7 +465,11 @@ export function registerOpsRoutes(app: Express): void {
         return;
       }
 
-      res.json({ orders });
+      // ITD's latest scan per AWB; orders ITD already has come back
+      // dispatched (server/carrierStatus.ts). A ?status= filter asked for one
+      // status, so rows that just moved out of it are dropped.
+      const synced = await withCarrierStatus(orders);
+      res.json({ orders: status ? synced.filter((o) => o.status === status) : synced });
     }
   );
 
@@ -569,10 +574,18 @@ export function registerOpsRoutes(app: Express): void {
     "/api/ops/orders/:id",
     ...opsGateFor("orders.view"),
     async (req: Request, res: Response) => {
-      const order = await getOrderByIdForOps(req.params.id);
+      let order = await getOrderByIdForOps(req.params.id);
       if (!order || !(await isCallersOrder(req, order))) {
         res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
         return;
+      }
+
+      // ITD's word on the parcel. If ITD already has it and we never marked
+      // it dispatched, catch up now and show the order as it now stands.
+      const awb = order.status !== "cancelled" ? order.awb_no?.trim() ?? "" : "";
+      const carrierStatus = awb ? (await carrierStatusesFor([awb])).get(awb) ?? null : null;
+      if (awb && (await syncOrderWithCarrier(awb, carrierStatus))) {
+        order = (await getOrderByIdForOps(req.params.id)) ?? order;
       }
 
       const events = await listOrderEventsForOps(order.id);
@@ -606,6 +619,7 @@ export function registerOpsRoutes(app: Express): void {
         handover,
         owner_has_itd_login: ownerHasItdLogin,
         can_mark_test: req.staff?.marksTest === true,
+        carrier_status: carrierStatus,
       });
     }
   );
