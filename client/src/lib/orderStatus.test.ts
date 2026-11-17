@@ -40,3 +40,38 @@ test('a status nobody knows degrades rather than throwing', () => {
   assert.equal(getOrderStatusLabel('invented_by_itd'), 'invented_by_itd');
   assert.equal(getOrderStatusTone('invented_by_itd'), 'gray');
 });
+
+test('ITD wins once it has the parcel (BOM-100347: delivered, ours still at hub)', async () => {
+  const { customerOrderStatus } = await import('./orderStatus.js');
+  const view = customerOrderStatus('received_at_hub', { state: 'delivered', at: '2026-11-15T17:53:43Z' });
+  assert.equal(view.label, 'Delivered');
+  assert.equal(view.tone, 'green');
+  assert.equal(view.shipped, true);
+  assert.equal(view.final, true);
+});
+
+test('ITD booking entry alone does not move the order', async () => {
+  const { customerOrderStatus } = await import('./orderStatus.js');
+  const view = customerOrderStatus('awaiting_dropoff', { state: 'entry', at: '2026-11-13T01:41:41Z' });
+  assert.equal(view.label, getCustomerStatusLabel('awaiting_dropoff'));
+  assert.equal(view.shipped, false);
+  assert.equal(view.final, false);
+});
+
+test('no ITD scan yet: our own status', async () => {
+  const { customerOrderStatus } = await import('./orderStatus.js');
+  assert.equal(customerOrderStatus('picked_up', null).label, getCustomerStatusLabel('picked_up'));
+  assert.equal(customerOrderStatus('dispatched', undefined).shipped, true);
+});
+
+test('a cancelled order stays cancelled whatever ITD says', async () => {
+  const { customerOrderStatus } = await import('./orderStatus.js');
+  const view = customerOrderStatus('cancelled', { state: 'INTRANSIT', at: '' });
+  assert.equal(view.label, getCustomerStatusLabel('cancelled'));
+  assert.equal(view.shipped, false);
+});
+
+test('dispatched orders show ITD progress instead of a fixed "In transit"', async () => {
+  const { customerOrderStatus } = await import('./orderStatus.js');
+  assert.equal(customerOrderStatus('dispatched', { state: 'DRS', at: '' }).label, 'Out for Delivery');
+});

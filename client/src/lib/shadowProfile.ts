@@ -44,6 +44,7 @@ import {
   type CompanyCategory,
   type ExtraField,
 } from '@shared/accountSpec';
+import type { CarrierStatus } from '@/lib/orderStatus';
 import { INDIA_HUBS } from '@shared/hubs';
 import { formatAccountPhone } from '@shared/contact';
 import type { CustomerApplicationView } from '@shared/applicationStatus';
@@ -123,6 +124,8 @@ export interface GuestOrderSummary {
   quoted_amount: number | null;
   final_amount: number | null;
   updated_at: string;
+  /** ITD's latest scan for the AWB (server/carrierStatus.ts). Null before ITD has one. */
+  carrier_status?: CarrierStatus | null;
 }
 
 /** The server's answer for the guest this session is. */

@@ -9,9 +9,9 @@ import {
   type AwbStatusTone,
 } from '@/lib/awbStatus';
 import {
-  getCustomerStatusLabel,
-  getOrderStatusTone,
+  customerOrderStatus,
   isTerminalOrderStatus,
+  type CarrierStatus,
 } from '@/lib/orderStatus';
 
 /** Row shape from GET /api/orders (server/ordersDb.ts OrderRow) */
@@ -33,6 +33,8 @@ export interface OrderApiRow {
   payment_status?: string | null;
   /** Carries `reward_points_used` when points came off this order. */
   metadata?: unknown;
+  /** ITD's latest scan for the AWB (server/carrierStatus.ts). Null before ITD has one. */
+  carrier_status?: CarrierStatus | null;
 }
 
 /**
@@ -138,6 +140,7 @@ export function shipmentToRow(item: ShipmentHistoryItem): DisplayRow {
 }
 
 export function orderToRow(order: OrderApiRow): DisplayRow {
+  const view = customerOrderStatus(order.status, order.carrier_status);
   return {
     key: `order-${order.id}`,
     displayId: order.order_no,
@@ -156,15 +159,18 @@ export function orderToRow(order: OrderApiRow): DisplayRow {
     amountStr: formatShipmentAmount(toCollect(order.final_amount ?? order.quoted_amount, pointsUsedOf(order.metadata)), 'INR'),
     // Customer vocabulary, not the internal one. This list is a customer
     // surface, so `weighed`/`settled`/`ready_for_docket` must all read
-    // "Arrived at Bombino hub" — same phrase the detail screen shows.
-    statusLabel: getCustomerStatusLabel(order.status),
-    statusTone: getOrderStatusTone(order.status),
+    // "Arrived at Bombino hub" — same phrase the detail screen shows. Once
+    // ITD has the parcel, ITD's state instead (see customerOrderStatus).
+    statusLabel: view.label,
+    statusTone: view.tone,
     createdAt: order.created_at,
     updatedAt: order.updated_at ?? order.created_at,
-    isLive: !isTerminalOrderStatus(order.status),
+    isLive: !isTerminalOrderStatus(order.status) && !view.final,
     awb: order.awb_no,
     order: {
-      status: order.status,
+      // Shipped as far as Home's to-dos go once ITD has it: no pickup or
+      // drop-off left to chase, whatever our own row still says.
+      status: view.shipped ? 'dispatched' : order.status,
       pickupRequest: order.pickup_request ?? null,
       pickupDate: order.pickup_date ?? null,
       paymentMethod: order.payment_method ?? null,
@@ -182,6 +188,7 @@ export function orderToRow(order: OrderApiRow): DisplayRow {
  * card, same status vocabulary, same amount rule (INR, final over quoted).
  */
 export function guestOrderToRow(order: GuestOrderSummary): DisplayRow {
+  const view = customerOrderStatus(order.status, order.carrier_status);
   return {
     key: `guest-order-${order.order_id}`,
     displayId: order.order_no,
@@ -192,11 +199,11 @@ export function guestOrderToRow(order: GuestOrderSummary): DisplayRow {
     service: order.service?.trim() || '',
     bookingDate: order.created_at,
     amountStr: formatShipmentAmount(order.final_amount ?? order.quoted_amount ?? null, 'INR'),
-    statusLabel: getCustomerStatusLabel(order.status),
-    statusTone: getOrderStatusTone(order.status),
+    statusLabel: view.label,
+    statusTone: view.tone,
     createdAt: order.created_at,
     updatedAt: order.updated_at ?? order.created_at,
-    isLive: !isTerminalOrderStatus(order.status),
+    isLive: !isTerminalOrderStatus(order.status) && !view.final,
     awb: order.awb_no,
     guestStatus: order.status,
   };
@@ -208,6 +215,7 @@ export function guestOrderToRow(order: GuestOrderSummary): DisplayRow {
  * receiver is not who pays.
  */
 export function receivingToRow(parcel: ReceivingParcel): DisplayRow {
+  const view = customerOrderStatus(parcel.status, parcel.carrier_status);
   return {
     key: `incoming-${parcel.order_no}`,
     displayId: parcel.order_no,
@@ -218,11 +226,13 @@ export function receivingToRow(parcel: ReceivingParcel): DisplayRow {
     service: parcel.service ?? '',
     bookingDate: parcel.created_at,
     amountStr: null,
-    statusLabel: parcel.customer_status || getCustomerStatusLabel(parcel.status),
-    statusTone: getOrderStatusTone(parcel.status),
+    // ITD's word once it has the parcel; until then the same customer phrase
+    // the server sends as `customer_status`.
+    statusLabel: view.label,
+    statusTone: view.tone,
     createdAt: parcel.created_at,
     updatedAt: parcel.updated_at,
-    isLive: !isTerminalOrderStatus(parcel.status),
+    isLive: !isTerminalOrderStatus(parcel.status) && !view.final,
     awb: parcel.awb_no,
     incoming: true,
     destination: [parcel.receiver_city, parcel.receiver_country].filter(Boolean).join(', '),

@@ -11,8 +11,8 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { useReceivingDetail } from '@/hooks/useReceiving';
-import { mapEvents, useAwbTracking } from '@/hooks/useAwbTracking';
-import { getOrderStatusTone } from '@/lib/orderStatus';
+import { latestScanState, mapEvents, useAwbTracking } from '@/hooks/useAwbTracking';
+import { customerOrderStatus } from '@/lib/orderStatus';
 import { isTestAwb } from '@shared/testOrders';
 
 function formatWhen(value: string): string {
@@ -42,6 +42,12 @@ export default function IncomingParcel() {
   const tracking = useAwbTracking(awb, { enabled: realAwb });
   const scans =
     tracking.data && !tracking.data.fromCache ? mapEvents(tracking.data.results?.[0]?.docket_events ?? []) : [];
+  // ITD's word once it has the parcel, whatever our own status still says.
+  const carrierState = latestScanState(tracking.data);
+  const view = parcel
+    ? customerOrderStatus(parcel.status, carrierState ? { state: carrierState, at: '' } : null)
+    : null;
+  const statusText = view?.label ?? parcel?.customer_status ?? '';
 
   const goBack = () => setLocation('/orders?view=receiving');
 
@@ -99,8 +105,8 @@ export default function IncomingParcel() {
                   </h1>
                 </div>
                 <StatusBadge
-                  status={parcel.customer_status}
-                  tone={getOrderStatusTone(parcel.status)}
+                  status={statusText}
+                  tone={view?.tone ?? 'gray'}
                   className="shrink-0 mt-1"
                 />
               </div>
@@ -161,7 +167,7 @@ export default function IncomingParcel() {
                 {tracking.isLoading ? (
                   <Skeleton className="h-24 w-full" />
                 ) : scans.length > 0 ? (
-                  <TrackingTimeline events={scans} currentStatus={parcel.customer_status} />
+                  <TrackingTimeline events={scans} currentStatus={statusText} />
                 ) : (
                   <p className="text-sm text-muted-foreground">
                     No carrier scans yet. They appear here once the parcel is on its way.

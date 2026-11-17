@@ -81,6 +81,7 @@ import { registerAgentRoutes } from "./routes/agent.js";
 import { registerPaymentRoutes } from "./routes/payments.js";
 import { registerRewardsRoutes } from "./routes/rewards.js";
 import { balanceOf, redeemOnOrder, rewardsOnTrackingState } from "./rewardsDb.js";
+import { withCarrierStatus } from "./carrierStatus.js";
 import { reconcilePaymentStatus } from "./paymentsDb.js";
 import { MIN_REDEEM_POINTS, maxRedeemable, pointsUsedOf } from "../shared/rewards.js";
 import { registerOpsRewardsRoutes } from "./routes/opsRewards.js";
@@ -4282,7 +4283,9 @@ export async function registerRoutes(
       return;
     }
 
-    res.json({ orders });
+    // ITD's latest scan per AWB: our status stops at whatever ops last
+    // pressed, ITD's follows the parcel (server/carrierStatus.ts).
+    res.json({ orders: await withCarrierStatus(orders) });
   });
 
   // ── POST /api/orders/:id/handover-code — issue a fresh code ─────────────

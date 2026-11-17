@@ -4,7 +4,7 @@ import { Link } from 'wouter';
 import { cn } from '@/lib/utils';
 import { StatusBadge } from '@/components/StatusBadge';
 import { formatInr } from '@/lib/orderDetail';
-import { getCustomerStatusLabel, getOrderStatusTone } from '@/lib/orderStatus';
+import { customerOrderStatus } from '@/lib/orderStatus';
 import { useToast } from '@/hooks/use-toast';
 import {
   ORDER_PAYMENT_META,
@@ -125,6 +125,7 @@ function GuestOrderCard({
   const payment = ORDER_PAYMENT_META[order.payment_status];
   const owed = order.payment_status !== 'paid' && order.payment_status !== 'refund_due';
   const amount = formatInr(order.final_amount ?? order.quoted_amount);
+  const status = customerOrderStatus(order.status, order.carrier_status);
   const place = [placeName(order.city), placeName(order.country)].filter(Boolean).join(', ')
     || placeName(order.destination);
 
@@ -165,8 +166,8 @@ function GuestOrderCard({
               <Copy className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
             </span>
             <StatusBadge
-              status={getCustomerStatusLabel(order.status)}
-              tone={getOrderStatusTone(order.status)}
+              status={status.label}
+              tone={status.tone}
               className="shrink-0"
             />
           </div>

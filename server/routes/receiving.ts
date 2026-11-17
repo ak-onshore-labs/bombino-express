@@ -16,6 +16,7 @@ import { OWNER_PROFILES, ownerFrom } from "../sessionOwner.js";
 import { getUserContactsByIds } from "../ordersDb.js";
 import { isIndianMobile, isInternationalPhone, toIndianMobile } from "../../shared/contact.js";
 import { findReceivingParcel, listReceivingParcels, type ReceivingViewer } from "../receivingDb.js";
+import { withCarrierStatus } from "../carrierStatus.js";
 
 /**
  * The number this session proved, and its account if it has one. An account's
@@ -53,7 +54,7 @@ export function registerReceivingRoutes(app: Express): void {
       res.status(502).json({ message: "Could not load your incoming parcels. Please try again." });
       return;
     }
-    res.json({ parcels });
+    res.json({ parcels: await withCarrierStatus(parcels) });
   });
 
   routes.get("/api/receiving/:orderNo", async (req: Request, res: Response) => {
