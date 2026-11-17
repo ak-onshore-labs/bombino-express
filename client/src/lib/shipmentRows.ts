@@ -11,6 +11,7 @@ import {
 import {
   customerOrderStatus,
   isTerminalOrderStatus,
+  orderStillMoving,
   type CarrierStatus,
 } from '@/lib/orderStatus';
 
@@ -77,6 +78,12 @@ export interface DisplayRow {
    * a guard.
    */
   isLive: boolean;
+  /**
+   * Still worth polling: `isLive`, or an order ITD is still carrying (in
+   * transit, out for delivery). Kept apart from `isLive` because that one
+   * also decides which feed's row wins and what counts as "active".
+   */
+  stillMoving?: boolean;
   /**
    * The AWB, when this parcel has one.
    *
@@ -166,6 +173,7 @@ export function orderToRow(order: OrderApiRow): DisplayRow {
     createdAt: order.created_at,
     updatedAt: order.updated_at ?? order.created_at,
     isLive: !isTerminalOrderStatus(order.status) && !view.final,
+    stillMoving: orderStillMoving(order.status, order.carrier_status),
     awb: order.awb_no,
     order: {
       // Shipped as far as Home's to-dos go once ITD has it: no pickup or
@@ -204,6 +212,7 @@ export function guestOrderToRow(order: GuestOrderSummary): DisplayRow {
     createdAt: order.created_at,
     updatedAt: order.updated_at ?? order.created_at,
     isLive: !isTerminalOrderStatus(order.status) && !view.final,
+    stillMoving: orderStillMoving(order.status, order.carrier_status),
     awb: order.awb_no,
     guestStatus: order.status,
   };
@@ -233,6 +242,7 @@ export function receivingToRow(parcel: ReceivingParcel): DisplayRow {
     createdAt: parcel.created_at,
     updatedAt: parcel.updated_at,
     isLive: !isTerminalOrderStatus(parcel.status) && !view.final,
+    stillMoving: orderStillMoving(parcel.status, parcel.carrier_status),
     awb: parcel.awb_no,
     incoming: true,
     destination: [parcel.receiver_city, parcel.receiver_country].filter(Boolean).join(', '),

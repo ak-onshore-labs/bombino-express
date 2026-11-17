@@ -6,6 +6,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { isTerminalOrderStatus } from '@shared/orderContract';
+import { orderStillMoving } from '@/lib/orderStatus';
 import type { ReceivingDetail, ReceivingParcel } from '@shared/receiving';
 
 const LIST_POLL_MS = 45_000;
@@ -50,7 +51,8 @@ export function useReceiving(enabled = true) {
     refetchInterval: (query) => {
       const rows = query.state.data;
       if (!rows || rows.length === 0) return LIST_POLL_MS;
-      return rows.some((p) => !isTerminalOrderStatus(p.status)) ? LIST_POLL_MS : false;
+      // Keeps going after dispatch while ITD is still carrying the parcel.
+      return rows.some((p) => orderStillMoving(p.status, p.carrier_status)) ? LIST_POLL_MS : false;
     },
   });
 }

@@ -93,3 +93,14 @@ export function customerOrderStatus(
     final: isTerminalOrderStatus(status),
   };
 }
+
+/**
+ * Can this order's line on a list still change? True before dispatch, and
+ * after it until ITD gives its last word, so a list keeps polling an in-transit
+ * parcel the way the tracking screen does. Cancelled orders are done.
+ */
+export function orderStillMoving(status: string, carrier: CarrierStatus | null | undefined): boolean {
+  if (status === 'cancelled') return false;
+  if (carrier && carrierHasParcel(carrier.state)) return !isAwbStatusFinal(carrier.state);
+  return true;
+}

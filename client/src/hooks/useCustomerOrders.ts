@@ -76,7 +76,7 @@ export function useOrderHistory(enabled = true) {
       const rows = query.state.data;
       if (!rows) return LIST_POLL_MS;
       if (rows.length === 0) return LIST_POLL_MS;
-      return rows.some((row) => row.isLive) ? LIST_POLL_MS : false;
+      return rows.some((row) => row.isLive || row.stillMoving) ? LIST_POLL_MS : false;
     },
   });
 }

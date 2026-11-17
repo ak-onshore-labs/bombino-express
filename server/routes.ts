@@ -81,7 +81,7 @@ import { registerAgentRoutes } from "./routes/agent.js";
 import { registerPaymentRoutes } from "./routes/payments.js";
 import { registerRewardsRoutes } from "./routes/rewards.js";
 import { balanceOf, redeemOnOrder, rewardsOnTrackingState } from "./rewardsDb.js";
-import { latestScan, syncOrderWithCarrier, withCarrierStatus } from "./carrierStatus.js";
+import { carrierStatusesFor, latestScan, syncOrderWithCarrier, withCarrierStatus } from "./carrierStatus.js";
 import { reconcilePaymentStatus } from "./paymentsDb.js";
 import { MIN_REDEEM_POINTS, maxRedeemable, pointsUsedOf } from "../shared/rewards.js";
 import { registerOpsRewardsRoutes } from "./routes/opsRewards.js";
@@ -2552,8 +2552,17 @@ export async function registerRoutes(
       if (!req.session.dbUserId) {
         return res.json([]);
       }
-      const rows = await listShipmentsByUserId(req.session.dbUserId);
-      return res.json(rows ?? []);
+      const rows = (await listShipmentsByUserId(req.session.dbUserId)) ?? [];
+      // `current_status` only moves when someone tracks the AWB. Lay ITD's
+      // latest scan over it, refreshed like the order list, so this list
+      // keeps pace with the tracking screen (server/carrierStatus.ts).
+      const carrier = await carrierStatusesFor(rows.map((r) => r.awb_number as string | null));
+      return res.json(
+        rows.map((r) => {
+          const latest = carrier.get(String(r.awb_number ?? "").trim());
+          return latest ? { ...r, current_status: latest.state } : r;
+        })
+      );
     }
   );
 
