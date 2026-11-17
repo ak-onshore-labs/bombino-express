@@ -5,6 +5,7 @@ import {
   getCustomerStatusLabel,
   getOrderStatusLabel,
   getOrderStatusTone,
+  orderStillMoving,
 } from './orderStatus.js';
 import { ORDER_STATUSES } from '@shared/orderContract';
 
@@ -74,4 +75,15 @@ test('a cancelled order stays cancelled whatever ITD says', async () => {
 test('dispatched orders show ITD progress instead of a fixed "In transit"', async () => {
   const { customerOrderStatus } = await import('./orderStatus.js');
   assert.equal(customerOrderStatus('dispatched', { state: 'DRS', at: '' }).label, 'Out for Delivery');
+});
+
+test('an order keeps moving until ITD gives its last word', () => {
+  const at = '2026-11-17T10:00:00Z';
+  assert.equal(orderStillMoving('received_at_hub', null), true);
+  assert.equal(orderStillMoving('dispatched', null), true);
+  assert.equal(orderStillMoving('dispatched', { state: 'INTRANSIT', at }), true);
+  assert.equal(orderStillMoving('dispatched', { state: 'DELIVERED', at }), false);
+  assert.equal(orderStillMoving('received_at_hub', { state: 'DELIVERED', at }), false);
+  assert.equal(orderStillMoving('cancelled', null), false);
+  assert.equal(orderStillMoving('cancelled', { state: 'INTRANSIT', at }), false);
 });

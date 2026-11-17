@@ -30,7 +30,7 @@ import { carrierHasParcel, type CarrierStatus } from "../shared/carrierState.js"
 import type { Order, OrderStatus } from "../shared/orderContract.js";
 import { dbClient, logDbError } from "./db/client.js";
 import { itdClient } from "./itd.js";
-import { upsertTrackingEvents } from "./appDb.js";
+import { updateShipmentTrackingStatus, upsertTrackingEvents } from "./appDb.js";
 import { rewardsOnTrackingState } from "./rewardsDb.js";
 import { transitionOrderStatus } from "./agentDb.js";
 import { insertOrderEvent } from "./ordersDb.js";
@@ -38,12 +38,16 @@ import { notifyOrderTransition } from "./notify.js";
 
 export type { CarrierStatus };
 
-/** Ask ITD again once our last answer for an AWB is this old. */
-const REFRESH_AFTER_MS = 15 * 60 * 1000;
+/**
+ * Ask ITD again once our last answer for an AWB is this old. Same cadence as
+ * the tracking screen's own poll (useAwbTracking, 2 min), so the order lists
+ * are never further behind ITD than tracking is.
+ */
+const REFRESH_AFTER_MS = 2 * 60 * 1000;
 /** How long a list request waits for fresh ITD answers before replying. */
 const WAIT_BUDGET_MS = 2500;
 /** Most ITD calls one list request may start. The rest wait for the next read. */
-const MAX_REFRESH_PER_CALL = 8;
+const MAX_REFRESH_PER_CALL = 15;
 /** AWBs per cache query, so one customer's events stay under PostgREST's row cap. */
 const CACHE_CHUNK = 20;
 
@@ -124,6 +128,9 @@ function askItd(awb: string): Promise<CarrierStatus | null> {
       const events = (results?.[0]?.docket_events ?? []) as unknown[];
       void upsertTrackingEvents(awb, events);
       const latest = latestScan(events);
+      // The shipments list reads `shipments.current_status`; keep it in step
+      // the way a tracking-screen read does.
+      if (latest) void updateShipmentTrackingStatus(awb, latest.state, new Date().toISOString());
       // Same as any other tracking read: a final state lands or forfeits points.
       void rewardsOnTrackingState(awb, latest?.state ?? null);
       return latest;
