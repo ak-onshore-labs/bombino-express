@@ -38,6 +38,7 @@ import { isDocketAtBookingEnabled, warnIfDocketAtBookingEnabled } from "./docket
 import { startDocketRetryTimer } from "./docketFiling.js";
 import { isScheduleTimerEnabled, startScheduleTimer } from "./staffSchedule.js";
 import { startRewardsDeliveryTimer } from "./rewardsDelivery.js";
+import { startCarrierSyncTimer } from "./carrierStatus.js";
 import { warnIfMailerMissing } from "./mailer.js";
 import { assertFieldCryptoConfigured } from "./fieldCrypto.js";
 import { supabase } from "./supabaseClient.js";
@@ -387,6 +388,9 @@ export async function createApp(): Promise<{ app: Express; httpServer: Server }>
   // Reward points land on delivery: ask ITD every six hours how dispatched
   // account orders are doing. Production only, same reason.
   if (isScheduleTimerEnabled()) startRewardsDeliveryTimer();
+  // Orders ITD already has (scanned past booking) move to dispatched by
+  // themselves, every 30 minutes, for the ones no screen is looking at.
+  if (isScheduleTimerEnabled()) startCarrierSyncTimer();
   warnIfMailerMissing();
 
   await registerRoutes(httpServer, app);

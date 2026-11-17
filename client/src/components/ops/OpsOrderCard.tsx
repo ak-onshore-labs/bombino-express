@@ -15,7 +15,7 @@ import { todayInIst } from '@shared/istTime';
 import { toCollect } from '@shared/rewards';
 import { OpsSenderCell } from '@/components/ops/OpsSenderCell';
 import { TestBadge } from '@/components/ops/TestBadge';
-import { getOrderStatusLabel } from '@/lib/orderStatus';
+import { carrierLabel, getOrderStatusLabel } from '@/lib/orderStatus';
 import { formatInr } from '@/lib/orderDetail';
 import { cn } from '@/lib/utils';
 import type { OpsAgentCancellation, OpsBoardOrder } from '@/hooks/useOpsOrders';
@@ -262,6 +262,14 @@ export function OpsOrderCard({ order }: { order: OpsBoardOrder }) {
       >
         {getOrderStatusLabel(order.status)}
       </p>
+      {carrierLabel(order.carrier_status) && (
+        <p
+          className="mt-0.5 text-xs font-semibold text-muted-foreground"
+          data-testid={`ops-order-itd-${order.order_no}`}
+        >
+          ITD: {carrierLabel(order.carrier_status)}
+        </p>
+      )}
       <JourneyBar status={order.status} orderNo={order.order_no} />
 
       <div className="mt-4 flex items-center gap-3">

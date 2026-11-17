@@ -6,6 +6,7 @@ import type {
   OpsBoardSort,
 } from '@shared/opsBoardQuery';
 import { apiRequest, readJson } from '@/lib/queryClient';
+import type { CarrierStatus } from '@shared/carrierState';
 import { parseApiErrorMessage } from '@/lib/apiError';
 
 export type OpsBoardOrder = {
@@ -59,6 +60,11 @@ export type OpsBoardOrder = {
    * `metadata.reward_points_used`). Money owed = price − points.
    */
   points_used?: number;
+  /**
+   * ITD's latest scan for the AWB (server/carrierStatus.ts). Board rows only;
+   * the order page has it on the response.
+   */
+  carrier_status?: CarrierStatus | null;
 };
 
 export type OpsAgentCancellation = {
@@ -115,6 +121,8 @@ export type OpsOrderDetailResponse = {
   owner_has_itd_login?: boolean;
   /** This account may mark the order test or real (server/testOrders.ts). */
   can_mark_test?: boolean;
+  /** ITD's latest scan for the AWB, or null before ITD has one. */
+  carrier_status?: CarrierStatus | null;
 };
 
 export type OpsActionResult = {
